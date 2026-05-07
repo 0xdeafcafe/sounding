@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>SoundingTV — Sign in</title>
+<style>
+  :root {
+    --bg: #000;
+    --surface: rgba(255,255,255,0.06);
+    --surface-strong: rgba(255,255,255,0.12);
+    --border: rgba(255,255,255,0.14);
+    --text: #fff;
+    --text-2: rgba(255,255,255,0.7);
+    --text-3: rgba(255,255,255,0.5);
+    --accent: #ff5500;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: max(env(safe-area-inset-top, 24px), 24px) 20px max(env(safe-area-inset-bottom, 24px), 24px);
+    text-align: center;
+  }
+  .glow {
+    position: fixed;
+    inset: -20% -20% auto -20%;
+    height: 60vh;
+    background: radial-gradient(ellipse at top, rgba(255,85,0,0.18), transparent 65%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  main {
+    position: relative;
+    z-index: 1;
+    max-width: 460px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+  }
+  .wordmark {
+    font-size: 13px;
+    letter-spacing: 0.2em;
+    color: var(--text-3);
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .wireframe {
+    width: 220px;
+    height: auto;
+    margin-top: 8px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+  }
+  p {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--text-2);
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 18px 20px;
+    text-align: left;
+    width: 100%;
+  }
+  .card h2 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin: 0 0 10px;
+  }
+  .card ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-2);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .card ul li + li { margin-top: 6px; }
+  footer {
+    margin-top: auto;
+    padding-top: 24px;
+    color: var(--text-3);
+    font-size: 12px;
+  }
+  footer a { color: var(--text-2); text-decoration: none; }
+  footer a:hover { color: var(--text); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="glow" aria-hidden="true"></div>
+<main>
+  <div class="wordmark">SoundingTV</div>
+
+  <svg class="wireframe" viewBox="0 0 220 380" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <!-- iPhone outer frame -->
+    <rect x="6" y="6" width="208" height="368" rx="38" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"/>
+    <!-- screen area -->
+    <rect x="14" y="14" width="192" height="352" rx="32" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+    <!-- dynamic island -->
+    <rect x="80" y="22" width="60" height="18" rx="9" fill="rgba(255,255,255,0.4)"/>
+    <!-- top status: time / signal placeholder -->
+    <rect x="26" y="28" width="20" height="6" rx="3" fill="rgba(255,255,255,0.25)"/>
+    <rect x="180" y="28" width="14" height="6" rx="3" fill="rgba(255,255,255,0.25)"/>
+    <!-- App Clip card sliding up from bottom -->
+    <g>
+      <!-- backdrop dimming for what's behind the card -->
+      <rect x="14" y="14" width="192" height="352" rx="32" fill="url(#dim)" pointer-events="none"/>
+      <!-- card -->
+      <rect x="22" y="170" width="176" height="190" rx="22" fill="#171717" stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
+      <!-- handle -->
+      <rect x="98" y="180" width="24" height="4" rx="2" fill="rgba(255,255,255,0.25)"/>
+      <!-- icon -->
+      <rect x="38" y="200" width="44" height="44" rx="11" fill="#ff5500"/>
+      <!-- "play" glyph in icon -->
+      <path d="M55 213 l16 9 -16 9 z" fill="#fff" opacity="0.95"/>
+      <!-- title bars -->
+      <rect x="92" y="206" width="92" height="9" rx="3" fill="rgba(255,255,255,0.85)"/>
+      <rect x="92" y="222" width="62" height="7" rx="3" fill="rgba(255,255,255,0.45)"/>
+      <!-- description lines -->
+      <rect x="38" y="260" width="144" height="5" rx="2" fill="rgba(255,255,255,0.25)"/>
+      <rect x="38" y="272" width="124" height="5" rx="2" fill="rgba(255,255,255,0.25)"/>
+      <rect x="38" y="284" width="100" height="5" rx="2" fill="rgba(255,255,255,0.25)"/>
+      <!-- Open button -->
+      <rect x="38" y="312" width="144" height="34" rx="17" fill="#ff5500"/>
+      <text x="110" y="334" text-anchor="middle" font-family="-apple-system, system-ui, sans-serif" font-size="13" font-weight="700" fill="#fff">Open</text>
+    </g>
+    <defs>
+      <linearGradient id="dim" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0" stop-color="rgba(0,0,0,0)"/>
+        <stop offset="0.45" stop-color="rgba(0,0,0,0.55)"/>
+        <stop offset="1" stop-color="rgba(0,0,0,0.7)"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <div id="ios-msg" hidden>
+    <h1>The App Clip didn't open</h1>
+    <p>You scanned the SoundingTV sign-in code on your iPhone, but iOS landed here instead of opening the App Clip card.</p>
+  </div>
+
+  <div id="other-msg" hidden>
+    <h1>Open this on your iPhone</h1>
+    <p>SoundingTV signs you in with an iPhone App Clip. Open this URL on an iPhone (or scan the QR code on your Apple TV with the Camera app).</p>
+  </div>
+
+  <div id="ios-card" class="card" hidden>
+    <h2>Things to try</h2>
+    <ul>
+      <li>Make sure you're on the same Wi-Fi network as your Apple TV.</li>
+      <li>Restart the SoundingTV app on the Apple TV to refresh the sign-in code, then scan again.</li>
+      <li>If a "Local Network" permission prompt appears in the App Clip, allow it.</li>
+      <li>Update iOS to 16 or later if you're on an older version.</li>
+    </ul>
+  </div>
+
+  <div id="other-card" class="card" hidden>
+    <h2>What you'll need</h2>
+    <ul>
+      <li>iPhone running iOS 16 or later, on the same Wi-Fi as the Apple TV.</li>
+      <li>The QR code shown by the SoundingTV app on your Apple TV.</li>
+      <li>The iPhone Camera will offer to open the App Clip when it scans the code.</li>
+    </ul>
+  </div>
+
+  <footer>
+    SoundingTV · <a href="https://github.com/0xdeafcafe/sounding">github</a>
+  </footer>
+</main>
+<script>
+  (function () {
+    var ua = navigator.userAgent;
+    var isIOS = /iPhone|iPad|iPod/i.test(ua) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPad pretending to be Mac
+    document.getElementById(isIOS ? 'ios-msg' : 'other-msg').hidden = false;
+    document.getElementById(isIOS ? 'ios-card' : 'other-card').hidden = false;
+  })();
+</script>
+</body>
+</html>
