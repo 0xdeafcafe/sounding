@@ -1,15 +1,24 @@
 {
   "applinks": {
+    "apps": [],
     "details": [
       {
-        "appIDs": ["6Z49PF6642.red.forbes.sounding.Clip"],
+        "appIDs": [
+          "6Z49PF6642.red.forbes.sounding.Clip",
+          "6Z49PF6642.red.forbes.sounding"
+        ],
+        "appID": "6Z49PF6642.red.forbes.sounding.Clip",
+        "paths": ["/auth", "/auth/", "/auth/*", "/auth*", "*"],
         "components": [
-          { "/": "/auth*", "comment": "App Clip launch URL" }
+          { "/": "/auth*", "comment": "App Clip launch URL" },
+          { "/": "/auth/*" }
         ]
       }
     ]
   },
   "appclips": {
-    "apps": ["6Z49PF6642.red.forbes.sounding.Clip"]
+    "apps": [
+      "6Z49PF6642.red.forbes.sounding.Clip"
+    ]
   }
 }
