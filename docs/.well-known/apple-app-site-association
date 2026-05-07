@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["6Z49PF6642.red.forbes.sounding.Clip"],
+        "components": [
+          { "/": "/auth*", "comment": "App Clip launch URL" }
+        ]
+      }
+    ]
+  },
+  "appclips": {
+    "apps": ["6Z49PF6642.red.forbes.sounding.Clip"]
+  }
+}
