@@ -1,0 +1,1 @@
+../../../../SoundingTV.swiftpm/Sources/Services/SubscriptionService.swift
