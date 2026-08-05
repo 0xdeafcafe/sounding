@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.red.forbes.sounding</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<!-- Only the group shared with the SoundingTV iOS app — see
+		     PairedTVStore's `sharedAccessGroup` comment. Deliberately does not
+		     also list the app's own implicit default group
+		     ($(AppIdentifierPrefix)red.forbes.sounding): the widget has no
+		     business reading the app's other keychain items
+		     (PhoneSessionStore's SoundCloud session), only the paired-TV
+		     pairing this group exists for. -->
+		<string>$(AppIdentifierPrefix)red.forbes.sounding.shared</string>
+	</array>
+</dict>
+</plist>
