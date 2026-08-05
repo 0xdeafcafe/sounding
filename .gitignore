@@ -1,0 +1,63 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# sourcekit-lsp / xcode-build-server (local dev artifacts, regenerable)
+.compile
+buildServer.json
+
+# macOS
+.DS_Store
+
+# Logs/scratch
+*.log
+
+# Claude Code local state
+.claude/
+
+# Verification screenshots - regenerable artifacts, ~76MB
+e2e-screenshots/
+
+# Design reference captures - ~155MB of Apple TV / Apple Music screenshots
+# used to measure focus geometry against. Regenerable from a simulator,
+# and far too heavy to keep in history.
+Design/reference/
+
+# Editor/tool backups
+*.bak
+*.pbxproj.*-backup
+*.pbxproj.agent-baseline-*
+*.xcodeproj.before-split-backup/
+
+# Stale duplicate project - the real one is SoundingTV.xcodeproj
+WatchTest.xcodeproj/
+
+# Session transcripts and mirrored third-party docs
+convo.md
+mm.html
+
+# Spike binaries and sample media
+tools/**/*.wav
+tools/AVSBOSpike/spike
+tools/SubscriptionProbe/.build/
+__pycache__/
+*.pyc
+
+# Dev credentials - a real OAuth token for on-device/simulator testing.
+# Belt and braces: the store lives OUTSIDE the repo by design
+# (~/Library/Application Support/SoundingCloud/), never inside it. These
+# patterns exist so that a mistake still cannot be committed.
+dev-credentials*
+*.devtoken
+.soundingcloud-dev-token
