@@ -1,0 +1,236 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.4 (swiftlang-6.4.0.27.1 clang-2100.3.27.1)
+// swift-module-flags: -target arm64-apple-tvos27.0 -enable-objc-interop -enable-library-evolution -language-mode 6 -Osize -library-level api -enable-upcoming-feature InternalImportsByDefault -enable-upcoming-feature MemberImportVisibility -enable-experimental-feature DebugDescriptionMacro -user-module-version 13 -module-name MusicUnderstanding
+// swift-module-flags-ignorable:  -formal-cxx-interoperability-mode=off -interface-compiler-version 6.4
+@preconcurrency public import AVFAudio
+@preconcurrency public import AVFoundation
+@preconcurrency public import CoreML
+public import CoreMedia
+public import Foundation
+public import Swift
+public import _Concurrency
+public import _StringProcessing
+public import _SwiftConcurrencyShims
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+public struct AnalysisType : Hashable, Sendable, Codable {
+  public let rawValue: String
+  public static func == (a: AnalysisType, b: AnalysisType) -> Bool
+  public func encode(to encoder: any Encoder) throws
+  public func hash(into hasher: inout Hasher)
+  public var hashValue: Int {
+    get
+  }
+  public init(from decoder: any Decoder) throws
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+extension AnalysisType {
+  public static let instrumentActivity: AnalysisType
+  public static let loudness: AnalysisType
+  public static let pace: AnalysisType
+  public static let rhythm: AnalysisType
+  public static let structure: AnalysisType
+  public static let key: AnalysisType
+}
+extension MusicUnderstandingSession {
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public struct SessionResult : Codable, Sendable {
+    public let instrumentActivity: InstrumentActivityResult?
+    public let key: KeyResult?
+    public let loudness: LoudnessResult?
+    public let pace: PaceResult?
+    public let rhythm: RhythmResult?
+    public let structure: StructureResult?
+    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: any Decoder) throws
+  }
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+public struct StructureResult : Codable, Sendable {
+  public let sections: [CMTimeRange]
+  public let segments: [CMTimeRange]
+  public let phrases: [CMTimeRange]
+  public init(from decoder: any Decoder) throws
+  public func encode(to encoder: any Encoder) throws
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+public struct PaceResult : Codable, Sendable {
+  public let ranges: [MusicUnderstandingSession.RangedValue<Double>]
+  public init(from decoder: any Decoder) throws
+  public func encode(to encoder: any Encoder) throws
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+public struct LoudnessResult : Codable, Sendable {
+  public let integrated: MusicUnderstandingSession.TimedValue<Float>
+  public let momentary: [MusicUnderstandingSession.TimedValue<Float>]
+  public let shortTerm: [MusicUnderstandingSession.TimedValue<Float>]
+  public let peak: MusicUnderstandingSession.TimedValue<Float>
+  public init(from decoder: any Decoder) throws
+  public func encode(to encoder: any Encoder) throws
+}
+extension MusicUnderstandingSession {
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public struct RangedValue<Value> : Codable, Equatable, Sendable where Value : Decodable, Value : Encodable, Value : Equatable, Value : Sendable {
+    public let range: CMTimeRange
+    public let value: Value
+    public init(from decoder: any Decoder) throws
+    public func encode(to encoder: any Encoder) throws
+    public static func == (a: MusicUnderstandingSession.RangedValue<Value>, b: MusicUnderstandingSession.RangedValue<Value>) -> Bool
+  }
+}
+extension MusicUnderstandingSession {
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public struct TimedValue<Value> : Codable, Equatable, Sendable where Value : Decodable, Value : Encodable, Value : Equatable, Value : Sendable {
+    public let time: CMTime
+    public let value: Value
+    public init(from decoder: any Decoder) throws
+    public func encode(to encoder: any Encoder) throws
+    public static func == (a: MusicUnderstandingSession.TimedValue<Value>, b: MusicUnderstandingSession.TimedValue<Value>) -> Bool
+  }
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+public enum MusicUnderstandingError : Error {
+  case sessionInProgress
+  case emptyAnalysisSet
+  case invalidAsset
+  case hasProtectedContent
+  case internalError
+  public static func == (a: MusicUnderstandingError, b: MusicUnderstandingError) -> Bool
+  public func hash(into hasher: inout Hasher)
+  public var hashValue: Int {
+    get
+  }
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+public struct RhythmResult : Codable, Sendable {
+  public let beats: [CMTime]
+  public let bars: [CMTime]
+  public let beatsPerMinute: Float?
+  public init(from decoder: any Decoder) throws
+  public func encode(to encoder: any Encoder) throws
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+public struct KeyResult : Codable, Sendable {
+  public let ranges: [MusicUnderstandingSession.RangedValue<KeyResult.KeySignature>]
+  public struct KeySignature : Codable, Hashable, Sendable {
+    public let tonic: KeyResult.Tonic
+    public let mode: KeyResult.Mode
+    public static func == (a: KeyResult.KeySignature, b: KeyResult.KeySignature) -> Bool
+    public func encode(to encoder: any Encoder) throws
+    public func hash(into hasher: inout Hasher)
+    public var hashValue: Int {
+      get
+    }
+    public init(from decoder: any Decoder) throws
+  }
+  public init(from decoder: any Decoder) throws
+  public func encode(to encoder: any Encoder) throws
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+extension KeyResult {
+  @frozen public enum Tonic : String, Codable, Hashable, Sendable {
+    case aFlat
+    case aSharp
+    case a
+    case bFlat
+    case b
+    case c
+    case cSharp
+    case d
+    case dFlat
+    case dSharp
+    case eFlat
+    case e
+    case f
+    case fSharp
+    case g
+    case gFlat
+    case gSharp
+    public init?(rawValue: String)
+    @available(macOS 27.0, iOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+    public typealias RawValue = String
+    public var rawValue: String {
+      get
+    }
+  }
+  public enum Mode : String, Codable, Hashable, Sendable {
+    case major, minor
+    public init?(rawValue: String)
+    @available(macOS 27.0, iOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+    public typealias RawValue = String
+    public var rawValue: String {
+      get
+    }
+  }
+}
+@_hasMissingDesignatedInitializers @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+public actor MusicUnderstandingSession : Sendable {
+  nonisolated public var loudnessResults: some Sendable & AsyncSequence<LoudnessResult, any Error> {
+    get
+  }
+  public convenience init<Provider>(audioProvider: Provider) where Provider : AsyncSequence, Provider.Element == AVReadOnlyAudioPCMBuffer, Provider.Failure == Never
+  public convenience init(asset: any AVAsset & Sendable) async throws
+  @discardableResult
+  public func analyze(for analysisTypes: Set<AnalysisType>) async throws -> MusicUnderstandingSession.SessionResult
+  @discardableResult
+  public func analyze() async throws -> MusicUnderstandingSession.SessionResult
+  public func cancel() async
+  @objc deinit
+  @_semantics("defaultActor") nonisolated final public var unownedExecutor: UnownedSerialExecutor {
+    get
+  }
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+public struct InstrumentActivityResult : Codable, Sendable {
+  public let ranges: [InstrumentActivityResult.Instrument : [CMTimeRange]]
+  public let activity: [InstrumentActivityResult.Instrument : [MusicUnderstandingSession.TimedValue<Float>]]
+  public init(from decoder: any Decoder) throws
+  public func encode(to encoder: any Encoder) throws
+}
+extension InstrumentActivityResult {
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public struct Instrument : Hashable, Sendable, Codable {
+    public let rawValue: String
+    public func encode(to encoder: any Encoder) throws
+    public var hashValue: Int {
+      get
+    }
+    public init(from decoder: any Decoder) throws
+  }
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+extension InstrumentActivityResult.Instrument : Equatable {
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public static func == (lhs: InstrumentActivityResult.Instrument, rhs: InstrumentActivityResult.Instrument) -> Bool
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public func hash(into hasher: inout Hasher)
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+extension InstrumentActivityResult.Instrument {
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public static let vocal: InstrumentActivityResult.Instrument
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public static let drum: InstrumentActivityResult.Instrument
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public static let bass: InstrumentActivityResult.Instrument
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public static let other: InstrumentActivityResult.Instrument
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+extension InstrumentActivityResult.Instrument : CodingKeyRepresentable {
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public var codingKey: any CodingKey {
+    get
+  }
+  @available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+  public init?<T>(codingKey: T) where T : CodingKey
+}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+extension MusicUnderstandingError : Equatable {}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+extension MusicUnderstandingError : Hashable {}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+extension KeyResult.Tonic : RawRepresentable {}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+extension KeyResult.Tonic : BitwiseCopyable {}
+@available(iOS 27.0, macOS 27.0, tvOS 27.0, watchOS 27.0, visionOS 27.0, *)
+extension KeyResult.Mode : RawRepresentable {}
