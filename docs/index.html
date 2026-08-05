@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SoundingCloud — an unofficial SoundCloud client for Apple TV</title>
+<meta name="description" content="SoundingCloud is an independent, personal SoundCloud client for Apple TV and iPhone — a real waveform with timed comments, a two-deck AVAudioEngine DJ mixer, and playback that hands off between devices mid-track. Not affiliated with SoundCloud.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#07070b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f3f3f7" media="(prefers-color-scheme: light)">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23111116'/%3E%3Cg fill='%23ff6b1a'%3E%3Crect x='9' y='27' width='6' height='10' rx='3'/%3E%3Crect x='19' y='18' width='6' height='28' rx='3'/%3E%3Crect x='29' y='9' width='6' height='46' rx='3'/%3E%3Crect x='39' y='20' width='6' height='24' rx='3'/%3E%3Crect x='49' y='25' width='6' height='14' rx='3'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="bg-field" aria-hidden="true">
+  <div class="bg-blob a"></div>
+  <div class="bg-blob b"></div>
+  <div class="bg-blob c"></div>
+  <div class="bg-grain"></div>
+</div>
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="nav glass">
+    <a class="brand" href="#top">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22"><g fill="currentColor"><rect x="1" y="10" width="3" height="5" rx="1.5"/><rect x="6" y="6" width="3" height="13" rx="1.5"/><rect x="11" y="1" width="3" height="22" rx="1.5"/><rect x="16" y="7" width="3" height="11" rx="1.5"/><rect x="21" y="9.5" width="2" height="6" rx="1"/></g></svg>
+      </span>
+      SoundingCloud
+    </a>
+    <nav class="primary-nav" aria-label="Page sections">
+      <a href="#features">Overview</a>
+      <a href="#waveform">Waveform</a>
+      <a href="#djmode">DJ&nbsp;Mode</a>
+      <a href="#handoff">Handoff</a>
+    </nav>
+    <span class="badge nav-badge">Not on the App Store</span>
+  </div>
+</header>
+
+<main id="main">
+
+  <section id="top" class="hero" aria-labelledby="hero-heading">
+    <div class="hero-copy reveal" data-reveal>
+      <p class="eyebrow">Personal project — tvOS 26 · iOS 26</p>
+      <h1 id="hero-heading">SoundingCloud</h1>
+      <p class="hero-subhead">The SoundCloud client I wished existed on my Apple TV.</p>
+      <p class="hero-lede">
+        I wanted a waveform I could actually read from the sofa, comments pinned to the
+        exact second someone left them, and a DJ mixer that isn't a toggle labelled
+        "crossfade." SoundCloud doesn't ship any of that for tvOS, so I built it —
+        for one Apple TV, one iPhone, and nobody else's App&nbsp;Store.
+      </p>
+      <ul class="meta-pills" aria-label="Built with">
+        <li>tvOS 26</li>
+        <li>iOS 26</li>
+        <li>SwiftUI</li>
+        <li>AVAudioEngine</li>
+        <li>No backend</li>
+      </ul>
+    </div>
+
+    <div class="hero-visual reveal" data-reveal data-reveal-delay="1">
+      <div class="device-scene" id="hero-scene">
+
+        <div class="device device-tv" id="hero-tv">
+          <div class="device-tv-bezel">
+            <div class="device-tv-screen">
+              <div class="tv-chrome glass-chrome">
+                <span class="tv-tab is-active">Home</span>
+                <span class="tv-tab">Search</span>
+                <span class="tv-tab">Library</span>
+                <span class="tv-tab">Settings</span>
+              </div>
+              <div class="tv-section-label">Recently Played</div>
+              <div class="tv-tile-row">
+                <div class="tv-tile" style="--hue:24"></div>
+                <div class="tv-tile is-focused" style="--hue:14">
+                  <span class="tv-tile-play" aria-hidden="true"></span>
+                </div>
+                <div class="tv-tile" style="--hue:200"></div>
+                <div class="tv-tile" style="--hue:280"></div>
+              </div>
+              <div class="tv-player-bar glass-chrome">
+                <span class="tv-player-dot"></span>
+                <span class="tv-player-wave" aria-hidden="true">
+                  <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                </span>
+                <span class="tv-player-time">1:42 / 3:58</span>
+              </div>
+            </div>
+          </div>
+          <div class="device-tv-stand" aria-hidden="true"></div>
+        </div>
+
+        <div class="device device-phone device-phone--peek" id="hero-phone">
+          <div class="device-phone-screen">
+            <div class="phone-island" aria-hidden="true"></div>
+            <div class="phone-nowplaying">
+              <div class="phone-art" style="--hue:14"></div>
+              <div class="phone-track-title">Coastline</div>
+              <div class="phone-track-artist">Metro Boomin</div>
+              <div class="phone-mini-wave" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="handoff-arc" aria-hidden="true">
+          <span class="handoff-arc-icon">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M12 2a10 10 0 0 0-7.07 17.07l1.41-1.41A8 8 0 1 1 20 12a7.95 7.95 0 0 1-2.34 5.66l1.41 1.41A10 10 0 0 0 12 2Z"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>
+          </span>
+          <span class="handoff-arc-label">hands off mid-track</span>
+        </div>
+      </div>
+      <p class="visual-caption">Every pixel above is CSS &amp; SVG — there are no real screenshots on this page.</p>
+    </div>
+  </section>
+
+  <section id="features" class="section" aria-labelledby="features-heading">
+    <div class="section-head reveal" data-reveal>
+      <p class="eyebrow">What's actually in it</p>
+      <h2 id="features-heading">Every one of these shipped.</h2>
+      <p class="section-lede">This page is a mockup. The app underneath it isn't — everything below is running on a real Apple TV in a real living room.</p>
+    </div>
+
+    <div class="feature-grid">
+
+      <article class="glass feature-card reveal" data-reveal>
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 19h14"/></svg>
+        </span>
+        <h3>Offline downloads</h3>
+        <p>Pull tracks down for flights and dead spots. Storage management clears the oldest downloads before it fills the tvOS box, so you never have to think about it.</p>
+      </article>
+
+      <article class="glass feature-card reveal" data-reveal>
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2.5"/><path d="M8 21h8M12 18v3"/></svg>
+        </span>
+        <h3>Live Activities &amp; Lock Screen</h3>
+        <p>Full transport controls and now-playing art on the iPhone Lock Screen and Dynamic Island, kept in sync with whichever device is actually playing.</p>
+      </article>
+
+      <article class="glass feature-card reveal" data-reveal>
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.3"/><circle cx="18" cy="5.5" r="2.3"/><circle cx="18" cy="18.5" r="2.3"/><path d="m8 10.8 8-4.3M8 13.2l8 4.3"/></svg>
+        </span>
+        <h3>Share extension</h3>
+        <p>Share a SoundCloud link into SoundingCloud from Safari, Messages, anywhere — it queues straight into the TV without opening the app first.</p>
+      </article>
+
+      <article class="glass feature-card reveal" data-reveal>
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="8" height="6" rx="1.5"/><rect x="13" y="14" width="8" height="6" rx="1.5"/></svg>
+        </span>
+        <h3>A real Top Shelf</h3>
+        <p>The Apple TV home screen shows recently played artwork, not a static poster image someone forgot to update.</p>
+      </article>
+
+      <article class="glass feature-card reveal" data-reveal>
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3C7 3 3 7 3 12s4 9 9 9 9-4 9-9"/><path d="M12 7a5 5 0 1 0 5 5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
+        </span>
+        <h3>Spatial &amp; surround output</h3>
+        <p>Multichannel output for a system that deserves it — a Sonos Arc, a proper home theatre setup — not stereo squeezed down a TV speaker.</p>
+      </article>
+
+      <article class="glass feature-card reveal" data-reveal>
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M6 11a6 6 0 0 0 12 0M12 19v3"/></svg>
+        </span>
+        <h3>Built solo</h3>
+        <p>One developer, one Apple TV. SwiftUI, AVAudioEngine, Network.framework, and a lot of trial and error — no team, no roadmap meeting.</p>
+      </article>
+
+    </div>
+  </section>
+
+  <section id="waveform" class="section section--split" aria-labelledby="waveform-heading">
+    <div class="section-head reveal" data-reveal>
+      <p class="eyebrow">Look at the music</p>
+      <h2 id="waveform-heading">A waveform worth looking at</h2>
+      <p class="section-lede">
+        SoundCloud's amplitude waveform is the best part of the web player, and the first thing
+        most third-party clients throw away for a plain progress bar. SoundingCloud keeps it —
+        full detail, scrubbable from across the room, with every timed comment pinned to the
+        exact second it was posted.
+      </p>
+    </div>
+
+    <div class="glass showcase-panel reveal" data-reveal>
+      <div class="showcase-panel-head">
+        <div>
+          <p class="showcase-eyebrow">Now Playing</p>
+          <p class="showcase-title">Midnight Run — Fred again..</p>
+        </div>
+        <span class="badge">3 timed comments</span>
+      </div>
+      <div class="waveform-wrap">
+        <div id="waveform-mount" class="waveform-mount" role="img" aria-label="Amplitude waveform for Midnight Run, with three timed comments pinned along the timeline. Focus a marker to read it."></div>
+      </div>
+      <div class="waveform-times">
+        <span>1:47</span>
+        <span>5:08</span>
+      </div>
+    </div>
+
+    <div class="split-note reveal" data-reveal>
+      <h3>"Search for this comment"</h3>
+      <p>
+        DJ sets on SoundCloud live and die by their comments — somebody always asks
+        <em>"what's this transition into??"</em> at 3:12, and somebody else always answers
+        with a track name buried forty minutes later. Focus a comment like that and
+        SoundingCloud can search it straight away, so you're not pausing the set to
+        dig through a browser on another device.
+      </p>
+    </div>
+  </section>
+
+  <section id="djmode" class="section" aria-labelledby="djmode-heading">
+    <div class="section-head reveal" data-reveal>
+      <p class="eyebrow">Two decks, one Apple TV</p>
+      <h2 id="djmode-heading">A DJ mixer, not a toggle</h2>
+      <p class="section-lede">
+        Most SoundCloud clients treat mixing as crossfade-and-hope. SoundingCloud runs a real
+        two-deck mixer on <code>AVAudioEngine</code> — crossfader, three-band EQ, a filter,
+        loop points, jog wheels, and an auto-mix that queues the next track in the queue on time.
+      </p>
+    </div>
+
+    <div class="glass showcase-panel mixer-panel reveal" data-reveal>
+      <div class="mixer">
+        <div class="deck" aria-hidden="true">
+          <div class="deck-head">
+            <span class="deck-label">Deck A</span>
+            <span class="deck-bpm">126 BPM</span>
+          </div>
+          <div class="jog-wheel">
+            <div class="jog-wheel-ring"></div>
+            <div class="jog-wheel-label">Coastline</div>
+          </div>
+          <div class="eq-strip">
+            <div class="eq-band"><span class="eq-fill" style="--v:70%"></span><label>HI</label></div>
+            <div class="eq-band"><span class="eq-fill" style="--v:55%"></span><label>MID</label></div>
+            <div class="eq-band"><span class="eq-fill" style="--v:82%"></span><label>LOW</label></div>
+          </div>
+          <div class="loop-chips">
+            <span>1/4</span><span class="is-active">1/2</span><span>1</span><span>4</span>
+          </div>
+        </div>
+
+        <div class="mixer-center">
+          <span class="automix-pill">Auto&#8209;mix<i class="dot"></i></span>
+          <div class="crossfader">
+            <div class="crossfader-track">
+              <div class="crossfader-handle" id="crossfader-handle"></div>
+            </div>
+            <div class="crossfader-labels"><span>A</span><span>B</span></div>
+          </div>
+          <div class="filter-knob">
+            <div class="filter-knob-dial"></div>
+            <span>Filter</span>
+          </div>
+        </div>
+
+        <div class="deck" aria-hidden="true">
+          <div class="deck-head">
+            <span class="deck-label">Deck B</span>
+            <span class="deck-bpm">128 BPM</span>
+          </div>
+          <div class="jog-wheel jog-wheel--b">
+            <div class="jog-wheel-ring"></div>
+            <div class="jog-wheel-label">Daylight</div>
+          </div>
+          <div class="eq-strip">
+            <div class="eq-band"><span class="eq-fill" style="--v:40%"></span><label>HI</label></div>
+            <div class="eq-band"><span class="eq-fill" style="--v:60%"></span><label>MID</label></div>
+            <div class="eq-band"><span class="eq-fill" style="--v:35%"></span><label>LOW</label></div>
+          </div>
+          <div class="loop-chips">
+            <span>1/4</span><span>1/2</span><span class="is-active">1</span><span>4</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="split-reverse reveal" data-reveal>
+      <div class="split-note">
+        <h3>Drive it from your pocket</h3>
+        <p>
+          The iPhone becomes a second control surface — a skeuomorphic glass CDJ with a
+          weighted jog wheel and a channel strip that feels like it's bolted to a real deck.
+          Mix from the sofa, or from across the room while the TV does the talking.
+        </p>
+      </div>
+      <div class="device-scene device-scene--single">
+        <div class="device device-phone">
+          <div class="device-phone-screen device-phone-screen--dark">
+            <div class="phone-island" aria-hidden="true"></div>
+            <div class="cdj-remote" aria-hidden="true">
+              <div class="cdj-jog">
+                <div class="cdj-jog-ring"></div>
+                <div class="cdj-jog-center"></div>
+              </div>
+              <div class="cdj-strip">
+                <span class="cdj-fader" style="--v:30%"></span>
+                <span class="cdj-fader" style="--v:65%"></span>
+                <span class="cdj-fader" style="--v:48%"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="handoff" class="section" aria-labelledby="handoff-heading">
+    <div class="section-head reveal" data-reveal>
+      <p class="eyebrow">No account of mine to lose</p>
+      <h2 id="handoff-heading">Sign in once, over your own network</h2>
+      <p class="section-lede">
+        There's no SoundingCloud backend, no database of users, nothing of mine to breach.
+        Signing in is a conversation between your phone and your TV, on your own local network.
+      </p>
+    </div>
+
+    <ol class="handoff-steps">
+      <li class="glass handoff-step reveal" data-reveal>
+        <div class="handoff-step-num">1</div>
+        <div class="device-scene device-scene--single device-scene--compact">
+          <div class="device device-tv device-tv--mini">
+            <div class="device-tv-bezel">
+              <div class="device-tv-screen device-tv-screen--qr">
+                <div id="qr-mount" class="qr-mount" aria-hidden="true"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h3>The TV shows a pairing code</h3>
+        <p>A session ID, a base64url shared secret, and Bonjour service info — encoded as one QR code.</p>
+      </li>
+
+      <li class="glass handoff-step reveal" data-reveal>
+        <div class="handoff-step-num">2</div>
+        <div class="device-scene device-scene--single device-scene--compact">
+          <div class="device device-phone device-phone--mini">
+            <div class="device-phone-screen">
+              <div class="phone-island" aria-hidden="true"></div>
+              <div class="scan-frame" aria-hidden="true">
+                <span></span><span></span><span></span><span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h3>The phone scans &amp; signs in</h3>
+        <p>The SoundingTV iPhone app opens the SoundCloud sign-in page. With both apps active it discovers the Apple TV automatically; the QR code remains a fallback.</p>
+      </li>
+
+      <li class="glass handoff-step reveal" data-reveal>
+        <div class="handoff-step-num">3</div>
+        <div class="device-scene device-scene--single device-scene--compact">
+          <div class="signal-badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+            <span class="signal-ping"></span>
+          </div>
+        </div>
+        <h3>The token beams over the LAN</h3>
+        <p>HMAC&#8209;SHA256&#8209;signed with the shared secret from the QR, verified, then straight into Keychain. Five&#8209;minute window, no server of mine in between.</p>
+      </li>
+    </ol>
+
+    <div class="glass handoff-followup reveal" data-reveal>
+      <h3>Playback follows you</h3>
+      <p>
+        Start a track on the TV, pick the phone up on the way out and it keeps playing on
+        headphones — or come back and land on the sofa, and it picks up on the big screen.
+        Same session, same position, no restart, no scrubbing to catch up.
+      </p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="glass footer-panel">
+    <p class="footer-disclaimer">
+      SoundingCloud is an independent, unofficial personal project built by one developer for
+      their own Apple TV. It is <strong>not affiliated with, endorsed by, sponsored by, or
+      connected to SoundCloud</strong> in any way. "SoundCloud" is a trademark of its respective
+      owner, used here only to describe the service this app connects to.
+    </p>
+    <p class="footer-note">
+      It isn't distributed anywhere — no App Store listing, no TestFlight link, no waitlist.
+      This page exists to show what it does, not to hand it to you.
+    </p>
+    <p class="footer-meta">Built with SwiftUI, AVAudioEngine &amp; Network.framework.</p>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

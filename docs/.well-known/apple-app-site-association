@@ -1,0 +1,17 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": [
+          "6Z49PF6642.red.forbes.sounding"
+        ],
+        "paths": ["/auth", "/auth/", "/auth/*", "/auth*"],
+        "components": [
+          { "/": "/auth*", "comment": "Pairing link — same URL the Apple TV shows as a QR code" },
+          { "/": "/auth/*" }
+        ]
+      }
+    ]
+  }
+}
