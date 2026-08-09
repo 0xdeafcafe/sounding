@@ -141,6 +141,13 @@ enum LibraryCacheSelfTest {
         let count = await cache.likesCount()
         report.expect("likes index: three upserts count three", count == 3, "count=\(count)")
 
+        let containsKnownLike = await cache.containsLike(id: "t2")
+        let containsMissingLike = await cache.containsLike(id: "missing")
+        report.expect(
+            "likes index: membership lookup distinguishes liked and unknown tracks",
+            containsKnownLike && !containsMissingLike
+        )
+
         let all = await cache.loadAllLikes()
         report.expect(
             "likes index: loadAllLikes orders newest-liked first",

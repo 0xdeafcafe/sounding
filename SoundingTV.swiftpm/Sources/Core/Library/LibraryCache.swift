@@ -295,6 +295,21 @@ actor LibraryCache {
         return Int(sqlite3_column_int64(stmt, 0))
     }
 
+    func containsLike(id: String) -> Bool {
+        guard let db else { return false }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT 1 FROM likes_index WHERE item_id = ? LIMIT 1;",
+            -1,
+            &stmt,
+            nil
+        ) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(stmt) }
+        _ = id.withCString { sqlite3_bind_text(stmt, 1, $0, -1, Self.sqliteTransient) }
+        return sqlite3_step(stmt) == SQLITE_ROW
+    }
+
     func loadAllLikes(limit: Int? = nil) -> [Row] {
         guard let db else { return [] }
         var stmt: OpaquePointer?

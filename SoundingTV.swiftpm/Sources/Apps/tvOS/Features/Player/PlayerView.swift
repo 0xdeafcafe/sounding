@@ -242,24 +242,20 @@ struct PlayerView: View {
                 .shadow(color: .black.opacity(0.30), radius: 10, y: 3)
 
             if let track = playerService.currentTrack {
-                secondaryActionsRow(for: track)
-                    .padding(.top, Spacing.lg)
-                    .focusSection()
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    secondaryActionsRow(for: track)
 
-                if DeckIdentityResolver.isLikelyMix(track) {
-                    OnDecksIndicator(
-                        identity: setlistStore.setlist(for: track.id)?.segment(at: playerService.currentTime),
-                        isScanning: setlistStore.scanningTrackIds.contains(track.id),
-                        action: { showingSetlist = true }
-                    )
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, Spacing.sm)
-                    .frame(maxWidth: 920, alignment: .leading)
-                    .background(Color.white.opacity(0.08), in: Capsule())
-                    .padding(.top, Spacing.md)
-                    .focusSection()
+                    if DeckIdentityResolver.isLikelyMix(track) {
+                        OnDecksIndicator(
+                            identity: setlistStore.setlist(for: track.id)?.segment(at: playerService.currentTime),
+                            isScanning: setlistStore.scanningTrackIds.contains(track.id),
+                            action: { showingSetlist = true }
+                        )
+                        .frame(maxWidth: 868, alignment: .leading)
+                    }
                 }
+                .padding(.top, Spacing.lg)
+                .focusSection()
             }
 
             Spacer(minLength: Spacing.lg)
@@ -285,25 +281,27 @@ struct PlayerView: View {
     }
 
     private func secondaryActionsRow(for track: Track) -> some View {
-        HStack(spacing: Spacing.sm) {
-            LikeActionButton(track: track, engagement: engagement)
-            TrackMapButton(board: cueBoard) { showingTrackMap = true }
-            DJModeButton(isOn: dj.isEnabled) {
-                if dj.isEnabled || SettingsStore.shared.hasStoredValue(SettingKeys.DJStartOptions.self) {
-                    playerService.startDJSession(configuration: SettingsStore.shared.djStartConfiguration)
-                    showingDJ = true
-                } else {
-                    showingDJStartConfiguration = true
+        GlassEffectContainer(spacing: Spacing.sm) {
+            HStack(spacing: Spacing.sm) {
+                LikeActionButton(track: track, engagement: engagement)
+                TrackMapButton(board: cueBoard) { showingTrackMap = true }
+                DJModeButton(isOn: dj.isEnabled) {
+                    if dj.isEnabled || SettingsStore.shared.hasStoredValue(SettingKeys.DJStartOptions.self) {
+                        playerService.startDJSession(configuration: SettingsStore.shared.djStartConfiguration)
+                        showingDJ = true
+                    } else {
+                        showingDJStartConfiguration = true
+                    }
                 }
-            }
-            CommentsEntryButton(store: commentsStore) { showingComments = true }
-            if DeckIdentityResolver.isLikelyMix(track) {
-                UtilityActionButton(icon: "list.number", accessibilityLabel: "Detected Set List") {
-                    showingSetlist = true
+                CommentsEntryButton(store: commentsStore) { showingComments = true }
+                PlayerMetadataActionButton(
+                    icon: "info.circle",
+                    title: "About",
+                    width: 160,
+                    accessibilityLabel: "Behind This Track"
+                ) {
+                    showingDetails = true
                 }
-            }
-            UtilityActionButton(icon: "info.circle", accessibilityLabel: "Behind This Track") {
-                showingDetails = true
             }
         }
     }
@@ -630,48 +628,16 @@ private struct DJModeButton: View {
     let isOn: Bool
     let action: () -> Void
 
-    @FocusState private var focused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ObservedObject private var artworkColors = ArtworkColors.shared
-
-    @ViewBuilder
-    private var icon: some View {
-        Group {
-            if isOn && !reduceMotion {
-                Image(systemName: "waveform.badge.magnifyingglass")
-                    .symbolEffect(.variableColor.iterative)
-            } else {
-                Image(systemName: "waveform.badge.magnifyingglass")
-            }
-        }
-        .font(.system(size: 28, weight: .heavy))
-        .symbolEffect(.bounce, value: reduceMotion ? false : isOn)
-    }
-
     var body: some View {
-        HStack(spacing: Spacing.sm) {
-            icon
-            Text("Decks")
-                .font(.tvBodyEmph)
-            if isOn {
-                Circle()
-                    .fill(Color.scAccent)
-                    .frame(width: 10, height: 10)
-                    .padding(.leading, 2)
-            }
+        PlayerMetadataActionButton(
+            icon: "rectangle.split.2x1",
+            title: "Decks",
+            isActive: isOn,
+            width: 150,
+            accessibilityLabel: isOn ? "Decks, active" : "Decks"
+        ) {
+            action()
         }
-        .foregroundStyle(isOn || focused ? .white : .white.opacity(0.85))
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.sm)
-        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
-        .liquidGlass(in: Capsule(), tint: isOn ? artworkColors.current.accent.opacity(0.32) : nil)
-        .shadow(color: isOn ? artworkColors.current.accent.opacity(0.45) : .clear, radius: isOn ? 18 : 0)
-        .scFocus(focused, in: Capsule(), reduceMotion: reduceMotion)
-        .contentShape(Capsule())
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .onTapGesture(perform: action)
     }
 }
 
@@ -1343,9 +1309,11 @@ private struct CommentsEntryButton: View {
     let action: () -> Void
 
     var body: some View {
-        UtilityActionButton(
-            icon: isFailed ? "exclamationmark.bubble.fill" : "bubble.left.and.bubble.right.fill",
-            label: countLabel,
+        PlayerMetadataActionButton(
+            icon: isFailed ? "exclamationmark.bubble" : "bubble.left",
+            title: "Comments",
+            badge: countLabel,
+            width: 230,
             accessibilityLabel: accessibilityLabel
         ) {
             action()

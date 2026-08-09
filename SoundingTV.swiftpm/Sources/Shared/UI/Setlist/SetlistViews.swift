@@ -6,7 +6,65 @@ struct OnDecksIndicator: View {
     let isScanning: Bool
     let action: () -> Void
 
+    #if os(tvOS)
+    @FocusState private var focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var artworkColors = ArtworkColors.shared
+    #endif
+
     var body: some View {
+        #if os(tvOS)
+        Button(action: action) {
+            HStack(spacing: Space.snug) {
+                Image(systemName: isScanning ? "waveform.badge.magnifyingglass" : "music.note.list")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(artworkColors.current.accent)
+                    .symbolEffect(.pulse, isActive: isScanning && !reduceMotion)
+                    .frame(width: 42, height: 42)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(tvOSDetail)
+                        .font(.system(size: 25, weight: .semibold))
+                        .foregroundStyle(Color.scTextPrimary)
+                        .lineLimit(1)
+                    Text(tvOSContext)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(Color.scTextTertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: Space.snug)
+
+                Text("Set list")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(focused ? Color.scTextPrimary : Color.scTextSecondary)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color.scTextTertiary)
+            }
+            .padding(.horizontal, Space.snug)
+            .frame(maxWidth: .infinity, minHeight: 72)
+            .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
+            .liquidGlass(
+                in: RoundedRectangle(cornerRadius: Corner.control, style: .continuous),
+                interactive: false
+            )
+        }
+        .buttonStyle(.plain)
+        .focused($focused)
+        .focusEffectDisabled()
+        .overlay {
+            RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
+                .strokeBorder(Color.white.opacity(focused ? 0.28 : 0), lineWidth: 1.5)
+                .allowsHitTesting(false)
+        }
+        .scaleEffect(focused ? 1.025 : 1)
+        .shadow(color: focused ? .black.opacity(0.32) : .clear, radius: 12, y: 5)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: focused)
+        .accessibilityLabel(label)
+        .accessibilityHint("Opens the detected set list")
+        #else
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: isScanning ? "waveform.badge.magnifyingglass" : "opticaldisc.fill")
@@ -26,12 +84,20 @@ struct OnDecksIndicator: View {
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityHint("Opens the setlist we found")
-        #if os(iOS)
         .scGlassCapsule()
-        #elseif os(tvOS)
-        .liquidGlass(in: Capsule(), interactive: true)
         #endif
     }
+
+    #if os(tvOS)
+    private var tvOSDetail: String {
+        if let identity { return identity.displayLabel }
+        return isScanning ? "Identifying what is playing…" : "Nothing identified at this point"
+    }
+
+    private var tvOSContext: String {
+        identity == nil ? "Detected set list" : "Playing now in this set"
+    }
+    #endif
 
     private var label: String {
         if let identity { return "Now in this set: \(identity.displayLabel)" }

@@ -3,6 +3,7 @@ import SwiftUI
 struct UtilityActionButton: View {
     let icon: String
     var label: String? = nil
+    var badge: String? = nil
     var isActive: Bool = false
     var isBusy: Bool = false
     var accessibilityLabel: String? = nil
@@ -29,6 +30,15 @@ struct UtilityActionButton: View {
                 Text(label)
                     .font(.tvBodyEmph)
             }
+            if let badge {
+                Text(badge)
+                    .font(.tvMini)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.white.opacity(0.12), in: Capsule())
+            }
         }
         .foregroundStyle(isActive || focused ? Color.scTextPrimary : Color.scTextSecondary)
         .padding(.horizontal, label == nil ? Spacing.sm + 2 : Space.snug)
@@ -49,22 +59,107 @@ struct UtilityActionButton: View {
     }
 }
 
+/// The compact control used only by the Now Playing metadata surface. Its name
+/// is revealed on focus; state remains visible through its symbol and accent.
+struct PlayerMetadataActionButton: View {
+    let icon: String
+    let title: String
+    var badge: String? = nil
+    var isActive = false
+    var isBusy = false
+    var width: CGFloat = 164
+    var accessibilityLabel: String? = nil
+    let action: () -> Void
+
+    @FocusState private var focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var artworkColors = ArtworkColors.shared
+    @State private var didActivate = false
+
+    var body: some View {
+        Button {
+            didActivate.toggle()
+            action()
+        } label: {
+            HStack(spacing: Space.tight) {
+                Group {
+                    if isBusy {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .scaleEffect(0.72)
+                    } else {
+                        Image(systemName: icon)
+                            .symbolEffect(.bounce, value: reduceMotion ? false : didActivate)
+                    }
+                }
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(isActive ? artworkColors.current.accent : (focused ? .white : Color.scTextSecondary))
+
+                if focused {
+                    Text(title)
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                        .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
+                }
+
+                if let badge {
+                    Text(badge)
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(focused ? .white.opacity(0.82) : Color.scTextTertiary)
+                }
+            }
+            .padding(.horizontal, badge == nil && !focused ? 0 : Space.snug)
+            .frame(width: focused ? width : (badge == nil ? Control.circle : 94), height: Control.circle)
+            .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
+            .liquidGlass(
+                in: RoundedRectangle(cornerRadius: Corner.control, style: .continuous),
+                interactive: false
+            )
+        }
+        .buttonStyle(.plain)
+        .focused($focused)
+        .focusEffectDisabled()
+        .overlay {
+            RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
+                .strokeBorder(Color.white.opacity(focused ? 0.28 : 0), lineWidth: 1.5)
+                .allowsHitTesting(false)
+        }
+        .scaleEffect(focused ? 1.04 : 1)
+        .shadow(color: focused ? .black.opacity(0.32) : .clear, radius: 12, y: 5)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: focused)
+        .accessibilityLabel(accessibilityLabel ?? title)
+    }
+}
+
 @MainActor
 final class TrackEngagementStore: ObservableObject {
     @Published private(set) var likedOverrides: [String: Bool] = [:]
     @Published private(set) var pendingTrackIds: Set<String> = []
+    private var locallyMutatedTrackIds: Set<String> = []
 
     func isLiked(_ track: Track) -> Bool {
-        likedOverrides[track.id] ?? false
+        likedOverrides[track.id] ?? track.userFavorite
     }
 
     func isPending(_ track: Track) -> Bool {
         pendingTrackIds.contains(track.id)
     }
 
+    func refreshLikeState(_ track: Track) async {
+        guard !locallyMutatedTrackIds.contains(track.id) else { return }
+        let indexed = await LibraryCache.shared.containsLike(id: track.id)
+        guard !locallyMutatedTrackIds.contains(track.id) else { return }
+        likedOverrides[track.id] = track.userFavorite || indexed
+    }
+
     func toggleLike(_ track: Track) async {
         guard !pendingTrackIds.contains(track.id) else { return }
-        let next = !isLiked(track)
+        let previous = isLiked(track)
+        let next = !previous
+        locallyMutatedTrackIds.insert(track.id)
         likedOverrides[track.id] = next
         pendingTrackIds.insert(track.id)
         defer { pendingTrackIds.remove(track.id) }
@@ -76,7 +171,8 @@ final class TrackEngagementStore: ObservableObject {
                 try await SoundCloudAPI.shared.unlikeTrack(track)
             }
         } catch {
-            likedOverrides[track.id] = !next
+            likedOverrides[track.id] = previous
+            locallyMutatedTrackIds.remove(track.id)
         }
     }
 }
@@ -86,13 +182,21 @@ struct LikeActionButton: View {
     @ObservedObject var engagement: TrackEngagementStore
 
     var body: some View {
-        UtilityActionButton(
+        PlayerMetadataActionButton(
             icon: engagement.isLiked(track) ? "heart.fill" : "heart",
+            title: engagement.isLiked(track) ? "Liked" : "Like",
             isActive: engagement.isLiked(track),
             isBusy: engagement.isPending(track),
+            width: 140,
             accessibilityLabel: engagement.isLiked(track) ? "Unlike" : "Like"
         ) {
             Task { await engagement.toggleLike(track) }
+        }
+        .task(id: track.id) {
+            await engagement.refreshLikeState(track)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .likesIndexDidChange)) { _ in
+            Task { await engagement.refreshLikeState(track) }
         }
     }
 }
@@ -285,9 +389,11 @@ struct TrackMapButton: View {
     let action: () -> Void
 
     var body: some View {
-        UtilityActionButton(
+        PlayerMetadataActionButton(
             icon: "bookmark",
-            label: markedCount == 0 ? nil : "\(markedCount)",
+            title: "Cues",
+            badge: markedCount == 0 ? nil : "\(markedCount)",
+            width: 140,
             accessibilityLabel: accessibilityLabel
         ) {
             action()
