@@ -297,13 +297,13 @@ struct PlayerView: View {
                 PlayerMetadataActionButton(
                     icon: "info.circle",
                     title: "About",
-                    width: 160,
                     accessibilityLabel: "Behind This Track"
                 ) {
                     showingDetails = true
                 }
             }
         }
+        .padding(.bottom, 38)
     }
 
     private var upcomingTracks: [QueueEntry] {
@@ -633,7 +633,6 @@ private struct DJModeButton: View {
             icon: "rectangle.split.2x1",
             title: "Decks",
             isActive: isOn,
-            width: 150,
             accessibilityLabel: isOn ? "Decks, active" : "Decks"
         ) {
             action()
@@ -1313,7 +1312,6 @@ private struct CommentsEntryButton: View {
             icon: isFailed ? "exclamationmark.bubble" : "bubble.left",
             title: "Comments",
             badge: countLabel,
-            width: 230,
             accessibilityLabel: accessibilityLabel
         ) {
             action()

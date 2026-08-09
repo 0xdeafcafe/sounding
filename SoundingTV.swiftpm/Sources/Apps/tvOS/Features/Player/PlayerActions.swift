@@ -67,7 +67,6 @@ struct PlayerMetadataActionButton: View {
     var badge: String? = nil
     var isActive = false
     var isBusy = false
-    var width: CGFloat = 164
     var accessibilityLabel: String? = nil
     let action: () -> Void
 
@@ -91,30 +90,17 @@ struct PlayerMetadataActionButton: View {
             .font(.system(size: 24, weight: .semibold))
             .foregroundStyle(isActive ? artworkColors.current.accent : (focused ? .white : Color.scTextSecondary))
 
-            if focused {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(title)
-                        .foregroundStyle(.white)
-
-                    if let badge {
-                        Text(badge)
-                            .foregroundStyle(.white.opacity(0.72))
-                            .monospacedDigit()
-                    }
-                }
-                .font(.system(size: 24, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
-            } else if let badge {
+            if let badge {
                 Text(badge)
                     .font(.system(size: 21, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(Color.scTextTertiary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
-        .padding(.horizontal, badge == nil && !focused ? 0 : Space.snug)
-        .frame(width: focused ? width : (badge == nil ? Control.circle : 94), height: Control.circle)
+        .padding(.horizontal, badge == nil ? 0 : Space.snug)
+        .frame(width: badge == nil ? Control.circle : 94, height: Control.circle)
         .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
         .liquidGlass(
             in: RoundedRectangle(cornerRadius: Corner.control, style: .continuous),
@@ -124,6 +110,20 @@ struct PlayerMetadataActionButton: View {
             RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
                 .strokeBorder(Color.white.opacity(focused ? 0.28 : 0), lineWidth: 1.5)
                 .allowsHitTesting(false)
+        }
+        .overlay(alignment: .bottom) {
+            if focused {
+                Text(expandedTitle)
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .shadow(color: .black.opacity(0.55), radius: 5, y: 2)
+                    .offset(y: 34)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
         }
         .scaleEffect(focused ? 1.04 : 1)
         .shadow(color: focused ? .black.opacity(0.32) : .clear, radius: 12, y: 5)
@@ -136,6 +136,11 @@ struct PlayerMetadataActionButton: View {
             action()
         }
         .accessibilityLabel(accessibilityLabel ?? title)
+    }
+
+    private var expandedTitle: String {
+        guard let badge else { return title }
+        return "\(title)\u{00a0}\(badge)"
     }
 }
 
@@ -192,7 +197,6 @@ struct LikeActionButton: View {
             title: engagement.isLiked(track) ? "Liked" : "Like",
             isActive: engagement.isLiked(track),
             isBusy: engagement.isPending(track),
-            width: 140,
             accessibilityLabel: engagement.isLiked(track) ? "Unlike" : "Like"
         ) {
             Task { await engagement.toggleLike(track) }
@@ -398,7 +402,6 @@ struct TrackMapButton: View {
             icon: "bookmark",
             title: "Cues",
             badge: markedCount == 0 ? nil : "\(markedCount)",
-            width: 140,
             accessibilityLabel: accessibilityLabel
         ) {
             action()
