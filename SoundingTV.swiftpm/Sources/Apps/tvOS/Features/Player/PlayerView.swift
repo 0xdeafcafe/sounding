@@ -46,11 +46,20 @@ struct PlayerView: View {
         GeometryReader { proxy in
             let layout = PlayerLayout(available: proxy.size)
 
-            heroRow(layout: layout)
-                .padding(.horizontal, Spacing.screen)
-                .padding(.top, SCBrowseMetrics.contentTopInset)
-                .padding(.bottom, Spacing.xl)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            ZStack(alignment: .bottom) {
+                heroRow(layout: layout)
+                    .padding(.horizontal, Spacing.screen)
+                    .padding(.top, SCBrowseMetrics.contentTopInset)
+                    .padding(.bottom, Spacing.xl)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+
+                transportSection(layout: layout)
+                    .frame(width: proxy.size.width)
+                    .padding(.bottom, Spacing.xl)
+                    .focusSection()
+                    .ignoresSafeArea(.container, edges: .horizontal)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 CinematicBackground(
                     track: playerService.currentTrack,
@@ -254,9 +263,6 @@ struct PlayerView: View {
             }
 
             Spacer(minLength: Spacing.lg)
-
-            transportSection(layout: layout)
-                .focusSection()
         }
         .frame(height: layout.artworkSize, alignment: .topLeading)
     }
@@ -335,6 +341,7 @@ struct PlayerView: View {
                 .font(.tvCalloutEmph)
                 .foregroundStyle(Color.scTextSecondary)
                 .monospacedDigit()
+                .padding(.horizontal, Spacing.screen)
             }
 
             transportCluster
@@ -723,29 +730,28 @@ struct WaveformScrubber: View {
                     isActive: PlayerProbe.reactive(isPlaying, PlayerProbe.Ablation.waveformPulse) && !laneBars.isEmpty,
                     reduceMotion: reduceMotion
                 ) { rawPulse in
-                    Group {
-                        if laneBars.isEmpty {
-                            ClassicProgressScrubber(
-                                progress: displayedProgress,
-                                accent: palette.accent,
-                                isFocused: isFocused
-                            )
-                        } else {
-                            let pulse = PlayerProbe.pulse(rawPulse)
-                            let _ = PlayerProbe.countBody("Waveform")
-                            SCWaveformRenderer(
-                                envelope: laneBars,
-                                duration: duration,
-                                progress: displayedProgress,
-                                playheadEmphasis: Double(pulse.impact),
-                                pulseEnergy: Double(pulse.energy),
-                                placeholder: placeholderKind,
-                                identity: track?.id,
-                                style: paletteLaneStyle
-                            )
-                        }
-                    }
+                    let pulse = PlayerProbe.pulse(rawPulse)
+                    let _ = PlayerProbe.countBody("Waveform")
+                    SCWaveformRenderer(
+                        envelope: laneBars,
+                        duration: duration,
+                        progress: displayedProgress,
+                        mode: .centered(windowSeconds: visibleWindowSeconds),
+                        playheadEmphasis: Double(pulse.impact),
+                        pulseEnergy: Double(pulse.energy),
+                        placeholder: placeholderKind,
+                        identity: track?.id,
+                        style: paletteLaneStyle
+                    )
                     .frame(width: width, height: laneHeight)
+                }
+
+                if bars.isEmpty {
+                    Capsule()
+                        .fill(Color.white.opacity(0.92))
+                        .frame(width: 3, height: laneHeight - 6)
+                        .offset(x: width / 2 - 1.5, y: 3)
+                        .allowsHitTesting(false)
                 }
 
                 cueMarkers(width: width)
@@ -754,6 +760,7 @@ struct WaveformScrubber: View {
                 readout(width: width)
             }
             .frame(width: width, height: laneHeight, alignment: .center)
+            .clipped()
             .task(id: BarsKey(
                 trackId: track?.id,
                 widthBucket: Int(width / 4),
@@ -1015,8 +1022,14 @@ struct WaveformScrubber: View {
     }
 
     private func xPosition(for time: TimeInterval, width: CGFloat) -> CGFloat {
-        guard duration > 0 else { return 0 }
-        return CGFloat(min(1, max(0, time / duration))) * width
+        guard duration > 0, width > 0 else { return width / 2 }
+        let secondsPerPoint = visibleWindowSeconds / Double(width)
+        return width / 2 + CGFloat((time - displayedTime) / secondsPerPoint)
+    }
+
+    private var visibleWindowSeconds: TimeInterval {
+        guard duration > 0 else { return 60 }
+        return min(max(duration * 0.18, 45), 180)
     }
 }
 
