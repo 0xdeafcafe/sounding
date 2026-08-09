@@ -209,13 +209,18 @@ struct PlayerView: View {
     }
 
     private func heroRow(layout: PlayerLayout) -> some View {
-        HStack(alignment: .center, spacing: 0) {
+        HStack(alignment: .top, spacing: Spacing.screen) {
             trackInfoColumn(layout: layout)
                 .frame(maxWidth: 1120, maxHeight: layout.artworkSize, alignment: .topLeading)
 
-            Spacer(minLength: 300)
+            if layout.showsUpNext, !upcomingTracks.isEmpty {
+                upNextSection
+                    .frame(maxWidth: 560, alignment: .topLeading)
+            }
+
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: layout.artworkSize, alignment: .topLeading)
     }
 
     private func trackInfoColumn(layout: PlayerLayout) -> some View {
@@ -255,11 +260,6 @@ struct PlayerView: View {
                     .padding(.top, Spacing.md)
                     .focusSection()
                 }
-            }
-
-            if layout.showsUpNext, !upcomingTracks.isEmpty {
-                upNextSection
-                    .padding(.top, Spacing.xl)
             }
 
             Spacer(minLength: Spacing.lg)
@@ -328,6 +328,7 @@ struct PlayerView: View {
                     palette: artworkColors.current,
                     comments: commentsStore,
                     cues: cueBoard,
+                    setlistSegments: currentSetlistSegments,
                     reduceMotion: reduceMotion,
                     onTogglePlayPause: { playerService.togglePlayPause() },
                     onSeek: { time in playerService.seek(to: time) }
@@ -397,6 +398,12 @@ struct PlayerView: View {
             }
         }
         .padding(.vertical, Spacing.sm)
+    }
+
+    private var currentSetlistSegments: [SetlistSegment] {
+        setlistStore.setlist(for: playerService.currentTrack?.id)?.segments
+            .filter { !$0.isDeleted }
+            .sorted { $0.startSeconds < $1.startSeconds } ?? []
     }
 
     private func formatTime(_ time: TimeInterval) -> String {
@@ -677,6 +684,7 @@ struct WaveformScrubber: View {
     let palette: ArtworkColors.Palette
     @ObservedObject var comments: TrackCommentsStore
     @ObservedObject var cues: CueBoard
+    let setlistSegments: [SetlistSegment]
     let reduceMotion: Bool
     let onTogglePlayPause: () -> Void
     let onSeek: (TimeInterval) -> Void
@@ -755,6 +763,7 @@ struct WaveformScrubber: View {
                 }
 
                 cueMarkers(width: width)
+                setlistMarkers(width: width)
                 markers(width: width)
                 bubble(width: width)
                 readout(width: width)
@@ -989,6 +998,30 @@ struct WaveformScrubber: View {
     }
 
     @ViewBuilder
+    private func setlistMarkers(width: CGFloat) -> some View {
+        ForEach(setlistSegments) { segment in
+            let x = xPosition(for: segment.startSeconds, width: width)
+            if x >= -12, x <= width + 12 {
+                let isCurrent = activeSetlistSegment?.id == segment.id
+                ZStack {
+                    Capsule()
+                        .fill(palette.accent.opacity(isCurrent ? 0.72 : 0.30))
+                        .frame(width: 2, height: isCurrent ? 24 : 16)
+
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(isCurrent ? palette.accent : Color.white.opacity(0.55))
+                        .frame(width: isCurrent ? 9 : 7, height: isCurrent ? 9 : 7)
+                        .rotationEffect(.degrees(45))
+                }
+                .frame(width: 12, height: 28)
+                .offset(x: x - 6, y: laneHeight / 2 - 14)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
+    }
+
+    @ViewBuilder
     private func readout(width: CGFloat) -> some View {
         if isPanning, let preview = scrubPreview {
             let x = xPosition(for: preview, width: width)
@@ -1019,6 +1052,10 @@ struct WaveformScrubber: View {
             return nil
         }
         return abs(nearest.time - displayedTime) <= window ? nearest : nil
+    }
+
+    private var activeSetlistSegment: SetlistSegment? {
+        setlistSegments.last { $0.startSeconds <= displayedTime + 2 }
     }
 
     private func xPosition(for time: TimeInterval, width: CGFloat) -> CGFloat {
