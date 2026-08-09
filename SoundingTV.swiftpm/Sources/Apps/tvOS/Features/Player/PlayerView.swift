@@ -292,7 +292,7 @@ struct PlayerView: View {
             }
             CommentsEntryButton(store: commentsStore) { showingComments = true }
             if DeckIdentityResolver.isLikelyMix(track) {
-                UtilityActionButton(icon: "list.number", accessibilityLabel: "Setlist") {
+                UtilityActionButton(icon: "list.number", accessibilityLabel: "Detected Set List") {
                     showingSetlist = true
                 }
             }
@@ -322,7 +322,6 @@ struct PlayerView: View {
                     palette: artworkColors.current,
                     comments: commentsStore,
                     cues: cueBoard,
-                    setlistSegments: currentSetlistSegments,
                     reduceMotion: reduceMotion,
                     onTogglePlayPause: { playerService.togglePlayPause() },
                     onSeek: { time in playerService.seek(to: time) }
@@ -341,11 +340,6 @@ struct PlayerView: View {
             transportCluster
                 .padding(.top, Spacing.xs)
         }
-    }
-
-    private var currentSetlistSegments: [SetlistSegment] {
-        guard let track = playerService.currentTrack else { return [] }
-        return setlistStore.setlist(for: track.id)?.segments.filter { !$0.isDeleted } ?? []
     }
 
     @ViewBuilder
@@ -412,7 +406,7 @@ private struct PlayerLayout {
     let showsUpNext: Bool
 
     init(available: CGSize) {
-        waveformHeight = min(max(available.height * 0.11, 104), 132)
+        waveformHeight = min(max(available.height * 0.09, 88), 112)
         let verticalInset = SCBrowseMetrics.contentTopInset + Spacing.xl
         artworkSize = min(max(460, available.height - verticalInset * 1.5), available.width * 0.36, 640)
         showsUpNext = artworkSize >= 540
@@ -676,7 +670,6 @@ struct WaveformScrubber: View {
     let palette: ArtworkColors.Palette
     @ObservedObject var comments: TrackCommentsStore
     @ObservedObject var cues: CueBoard
-    let setlistSegments: [SetlistSegment]
     let reduceMotion: Bool
     let onTogglePlayPause: () -> Void
     let onSeek: (TimeInterval) -> Void
@@ -744,8 +737,6 @@ struct WaveformScrubber: View {
                                 envelope: laneBars,
                                 duration: duration,
                                 progress: displayedProgress,
-                                mode: .centered(windowSeconds: visibleWindowSeconds),
-                                cueMarkers: waveformMarkers,
                                 playheadEmphasis: Double(pulse.impact),
                                 pulseEnergy: Double(pulse.energy),
                                 placeholder: placeholderKind,
@@ -757,6 +748,7 @@ struct WaveformScrubber: View {
                     .frame(width: width, height: laneHeight)
                 }
 
+                cueMarkers(width: width)
                 markers(width: width)
                 bubble(width: width)
                 readout(width: width)
@@ -778,7 +770,6 @@ struct WaveformScrubber: View {
             }
         }
         .frame(height: laneHeight)
-        .clipped()
         .focusable()
         .focused($isFocused)
         .focusEffectDisabled()
@@ -939,31 +930,7 @@ struct WaveformScrubber: View {
     private var paletteLaneStyle: SCWaveformStyle {
         var style = Self.laneStyle
         style.playheadHaloColor = palette.accent
-        style.lowerHalfOpacity = 0.34
         return style
-    }
-
-    private var visibleWindowSeconds: TimeInterval {
-        guard duration > 0 else { return 60 }
-        return min(max(duration * 0.18, 45), 180)
-    }
-
-    private var waveformMarkers: [SCWaveformMarker] {
-        let cueItems = cues.sheet.entries.map { entry in
-            SCWaveformMarker(
-                id: "cue-\(entry.id)",
-                position: duration > 0 ? entry.positionSeconds / duration : 0,
-                color: entry.color.color.opacity(entry.isSuggestion ? 0.36 : 0.76)
-            )
-        }
-        let setlistItems = setlistSegments.map { segment in
-            SCWaveformMarker(
-                id: "setlist-\(segment.id)",
-                position: duration > 0 ? segment.startSeconds / duration : 0,
-                color: Color.white.opacity(0.14)
-            )
-        }
-        return cueItems + setlistItems
     }
 
     fileprivate static let laneStyle: SCWaveformStyle = {
@@ -1049,8 +1016,7 @@ struct WaveformScrubber: View {
 
     private func xPosition(for time: TimeInterval, width: CGFloat) -> CGFloat {
         guard duration > 0 else { return 0 }
-        let secondsPerPoint = visibleWindowSeconds / Double(max(1, width))
-        return width / 2 + CGFloat((time - displayedTime) / secondsPerPoint)
+        return CGFloat(min(1, max(0, time / duration))) * width
     }
 }
 
