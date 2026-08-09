@@ -77,51 +77,49 @@ struct PlayerMetadataActionButton: View {
     @State private var didActivate = false
 
     var body: some View {
-        Button {
-            didActivate.toggle()
-            action()
-        } label: {
-            HStack(spacing: Space.tight) {
-                Group {
-                    if isBusy {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .scaleEffect(0.72)
-                    } else {
-                        Image(systemName: icon)
-                            .symbolEffect(.bounce, value: reduceMotion ? false : didActivate)
+        HStack(spacing: Space.tight) {
+            Group {
+                if isBusy {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.72)
+                } else {
+                    Image(systemName: icon)
+                        .symbolEffect(.bounce, value: reduceMotion ? false : didActivate)
+                }
+            }
+            .font(.system(size: 24, weight: .semibold))
+            .foregroundStyle(isActive ? artworkColors.current.accent : (focused ? .white : Color.scTextSecondary))
+
+            if focused {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(title)
+                        .foregroundStyle(.white)
+
+                    if let badge {
+                        Text(badge)
+                            .foregroundStyle(.white.opacity(0.72))
+                            .monospacedDigit()
                     }
                 }
                 .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(isActive ? artworkColors.current.accent : (focused ? .white : Color.scTextSecondary))
-
-                if focused {
-                    Text(title)
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
-                        .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
-                }
-
-                if let badge {
-                    Text(badge)
-                        .font(.system(size: 19, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(focused ? .white.opacity(0.82) : Color.scTextTertiary)
-                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
+            } else if let badge {
+                Text(badge)
+                    .font(.system(size: 21, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.scTextTertiary)
             }
-            .padding(.horizontal, badge == nil && !focused ? 0 : Space.snug)
-            .frame(width: focused ? width : (badge == nil ? Control.circle : 94), height: Control.circle)
-            .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
-            .liquidGlass(
-                in: RoundedRectangle(cornerRadius: Corner.control, style: .continuous),
-                interactive: false
-            )
         }
-        .buttonStyle(.plain)
-        .focused($focused)
-        .focusEffectDisabled()
+        .padding(.horizontal, badge == nil && !focused ? 0 : Space.snug)
+        .frame(width: focused ? width : (badge == nil ? Control.circle : 94), height: Control.circle)
+        .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
+        .liquidGlass(
+            in: RoundedRectangle(cornerRadius: Corner.control, style: .continuous),
+            interactive: false
+        )
         .overlay {
             RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
                 .strokeBorder(Color.white.opacity(focused ? 0.28 : 0), lineWidth: 1.5)
@@ -129,7 +127,14 @@ struct PlayerMetadataActionButton: View {
         }
         .scaleEffect(focused ? 1.04 : 1)
         .shadow(color: focused ? .black.opacity(0.32) : .clear, radius: 12, y: 5)
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
         .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: focused)
+        .onTapGesture {
+            didActivate.toggle()
+            action()
+        }
         .accessibilityLabel(accessibilityLabel ?? title)
     }
 }

@@ -14,46 +14,41 @@ struct OnDecksIndicator: View {
 
     var body: some View {
         #if os(tvOS)
-        Button(action: action) {
-            HStack(spacing: Space.snug) {
-                Image(systemName: isScanning ? "waveform.badge.magnifyingglass" : "music.note.list")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(artworkColors.current.accent)
-                    .symbolEffect(.pulse, isActive: isScanning && !reduceMotion)
-                    .frame(width: 42, height: 42)
+        HStack(spacing: Space.snug) {
+            Image(systemName: isScanning ? "waveform.badge.magnifyingglass" : "music.note.list")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(artworkColors.current.accent)
+                .symbolEffect(.pulse, isActive: isScanning && !reduceMotion)
+                .frame(width: 42, height: 42)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(tvOSDetail)
-                        .font(.system(size: 25, weight: .semibold))
-                        .foregroundStyle(Color.scTextPrimary)
-                        .lineLimit(1)
-                    Text(tvOSContext)
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(Color.scTextTertiary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: Space.snug)
-
-                Text("Set list")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(focused ? Color.scTextPrimary : Color.scTextSecondary)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 15, weight: .bold))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tvOSDetail)
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(Color.scTextPrimary)
+                    .lineLimit(1)
+                Text(tvOSContext)
+                    .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(Color.scTextTertiary)
+                    .lineLimit(1)
             }
-            .padding(.horizontal, Space.snug)
-            .frame(maxWidth: .infinity, minHeight: 72)
-            .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
-            .liquidGlass(
-                in: RoundedRectangle(cornerRadius: Corner.control, style: .continuous),
-                interactive: false
-            )
+
+            Spacer(minLength: Space.snug)
+
+            Text("Set list")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(focused ? Color.scTextPrimary : Color.scTextSecondary)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color.scTextTertiary)
         }
-        .buttonStyle(.plain)
-        .focused($focused)
-        .focusEffectDisabled()
+        .padding(.horizontal, Space.snug)
+        .frame(maxWidth: .infinity, minHeight: 72)
+        .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
+        .liquidGlass(
+            in: RoundedRectangle(cornerRadius: Corner.control, style: .continuous),
+            interactive: false
+        )
         .overlay {
             RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
                 .strokeBorder(Color.white.opacity(focused ? 0.28 : 0), lineWidth: 1.5)
@@ -61,7 +56,11 @@ struct OnDecksIndicator: View {
         }
         .scaleEffect(focused ? 1.025 : 1)
         .shadow(color: focused ? .black.opacity(0.32) : .clear, radius: 12, y: 5)
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
         .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: focused)
+        .onTapGesture(perform: action)
         .accessibilityLabel(label)
         .accessibilityHint("Opens the detected set list")
         #else
