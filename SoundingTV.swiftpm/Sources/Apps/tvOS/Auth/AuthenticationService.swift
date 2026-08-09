@@ -13,6 +13,12 @@ final class AuthenticationService: ObservableObject {
 
     @Published private(set) var isAuthenticated = false
     @Published private(set) var currentUser: User?
+    @Published private(set) var sessionHealth: SoundCloudSessionHealth = .signedOut
+
+    /// An unverified credential is still a usable credential candidate. Keep
+    /// the app shell visible while its first request validates it; only a real
+    /// sign-out or unrecoverable rejection should replace the app with login.
+    var needsSignIn: Bool { sessionHealth.needsSignIn }
 
     private let source = SoundCloudCredentialSource.shared
     private var cancellables = Set<AnyCancellable>()
@@ -29,16 +35,18 @@ final class AuthenticationService: ObservableObject {
             guard self != nil else { return }
             CloudSyncCoordinator.shared.requestSessionSync()
         }
-        source.sideEffects.wipeLocalIndexes = { [weak self] in
+        source.sideEffects.wipeLocalIndexes = { [weak self] accountID in
             guard self != nil else { return }
             LikesSyncEngine.shared.handleSignOut()
             await LibraryCache.shared.clearAll()
+            if let accountID { AccountDataVault.forget(accountID: accountID) }
         }
     }
 
     private func sync() {
         isAuthenticated = source.isAuthenticated
         currentUser = source.currentUser
+        sessionHealth = source.sessionHealth
     }
 
     func authenticate(
@@ -60,12 +68,13 @@ final class AuthenticationService: ObservableObject {
         SessionSyncBookkeeping.clearLocalSignOut()
 
         source.didCompleteSignIn()
+        _ = await source.waitForCurrentUser()
 
         // Wait out the presentation delay so the sign-in UI doesn't flash.
         if clock.now < earliestCompletion {
             try? await Task.sleep(for: clock.now.duration(to: earliestCompletion))
         }
-        isAuthenticated = true
+        sync()
     }
 
     func logout() async {

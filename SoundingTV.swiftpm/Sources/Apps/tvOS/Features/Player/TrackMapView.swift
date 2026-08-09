@@ -72,7 +72,7 @@ struct TrackMapView: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: Space.tight) {
-                Eyebrow(text: "Track Map")
+                Eyebrow(text: "Cue Points")
                 Text(track?.title ?? "Nothing Playing")
                     .font(.tvTitle)
                     .foregroundStyle(.white)

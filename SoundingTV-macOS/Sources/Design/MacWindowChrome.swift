@@ -71,9 +71,18 @@ struct MacWindowChrome: NSViewRepresentable {
 
     private func configure(_ window: NSWindow?) {
         guard let window else { return }
-        if let musicWindow {
-            MacMusicWindowCoordinator.shared.register(window, as: musicWindow)
-        }
+        guard let musicWindow else { return }
+        // Use AppKit's unified, adaptive window chrome. The previous clear
+        // NSWindow exposed the desktop through the toolbar and removed the
+        // visual boundary between sidebar and content in Light appearance.
+        window.appearance = nil
+        window.styleMask.insert(.fullSizeContentView)
+        window.toolbarStyle = .unified
+        window.titlebarAppearsTransparent = false
+        window.titlebarSeparatorStyle = .automatic
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
+        MacMusicWindowCoordinator.shared.register(window, as: musicWindow)
         #if DEBUG
         applyDebugWindowSizeOverride(window)
         #endif

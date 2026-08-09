@@ -13,8 +13,8 @@ struct MacProfileView: View {
                     MacPaneHeader(title: "Profile")
                     SCEmptyState(
                         kind: .error,
-                        title: "Session Expired",
-                        message: "Reauthenticate to load your profile. Cached account data is preserved.",
+                        title: "Sign-In Expired",
+                        message: "Sign in again to load your profile.",
                         actionTitle: "Reauthenticate",
                         action: { isShowingReauthentication = true },
                         style: .mac
@@ -27,7 +27,7 @@ struct MacProfileView: View {
                     MacSignedOutEmptyState(
                         icon: "person.crop.circle.badge.questionmark",
                         title: "Profile Needs an Account",
-                        message: "This Mac shares its SoundCloud session with your iPhone or Apple TV. Home and Search work without one in the meantime.",
+                        message: "Sign in on this Mac to access account content. Home and Search still work in guest mode.",
                         browsableRoute: .home
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -59,7 +59,11 @@ struct MacProfileView: View {
                 }
             }
         }
-        .navigationTitle(credentials.currentUser.map { "@\($0.username)" } ?? "Profile")
+        .navigationTitle(
+            credentials.needsSignIn
+                ? "Profile"
+                : credentials.currentUser.map { "@\($0.username)" } ?? "Profile"
+        )
         .task(id: attempt) {
             loadFailed = false
             guard !credentials.isSignedOut, credentials.currentUser == nil else { return }
@@ -67,7 +71,6 @@ struct MacProfileView: View {
         }
         .sheet(isPresented: $isShowingReauthentication) {
             MacSoundCloudSignInView(peerName: nil, forHandoff: false, isReauthentication: true) {
-                credentials.didCompleteSignIn()
                 isShowingReauthentication = false
                 attempt &+= 1
             }

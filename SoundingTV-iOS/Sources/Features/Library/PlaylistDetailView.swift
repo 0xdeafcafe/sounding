@@ -165,7 +165,7 @@ private struct PlaylistHero: View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             HStack(spacing: Spacing.md) {
                 ArtworkThumbnail(
-                    url: playlist.artworkURL,
+                    url: playlist.displayArtworkURL,
                     systemImage: "music.note.list",
                     size: 84,
                     cornerRadius: Corner.thumb,

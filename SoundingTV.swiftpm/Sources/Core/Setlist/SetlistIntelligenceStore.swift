@@ -3,6 +3,17 @@ import AVFoundation
 import Combine
 import ShazamKit
 
+struct SetlistScanProgress: Equatable {
+    let completed: Int
+    let total: Int
+    let positionSeconds: TimeInterval?
+
+    var fraction: Double {
+        guard total > 0 else { return 0 }
+        return min(1, max(0, Double(completed) / Double(total)))
+    }
+}
+
 @MainActor
 final class SetlistIntelligenceStore: ObservableObject {
     static let shared = SetlistIntelligenceStore()
@@ -10,6 +21,7 @@ final class SetlistIntelligenceStore: ObservableObject {
     @Published private(set) var setlists: [String: GeneratedSetlist] = [:]
     @Published private(set) var scanningTrackIds: Set<String> = []
     @Published private(set) var scanErrors: [String: String] = [:]
+    @Published private(set) var scanProgress: [String: SetlistScanProgress] = [:]
 
     private static let defaultsKey = "red.forbes.sounding.generatedSetlists.v1"
     private let scanner = SetlistShazamScanner()
@@ -329,7 +341,10 @@ final class SetlistIntelligenceStore: ObservableObject {
         guard !scanningTrackIds.contains(track.id) else { return }
         scanningTrackIds.insert(track.id)
         scanErrors[track.id] = nil
-        defer { scanningTrackIds.remove(track.id) }
+        defer {
+            scanningTrackIds.remove(track.id)
+            scanProgress[track.id] = nil
+        }
 
         let existingSetlist = setlists[track.id]
         let existing = (existingSetlist?.segments ?? []).filter { !$0.isDeleted }
@@ -342,11 +357,16 @@ final class SetlistIntelligenceStore: ObservableObject {
             priorityPositions: priorityPositions
         )
         guard !positions.isEmpty else { return }
+        scanProgress[track.id] = SetlistScanProgress(
+            completed: 0,
+            total: positions.count,
+            positionSeconds: positions.first
+        )
 
         do {
             var consecutiveServiceFailures = 0
             var probesSinceSync = 0
-            for position in positions {
+            for (index, position) in positions.enumerated() {
                 try Task.checkCancellation()
                 do {
                     let match = try await scanner.match(
@@ -408,6 +428,11 @@ final class SetlistIntelligenceStore: ObservableObject {
                     // or network is unavailable, so preserve progress and pause.
                     if consecutiveServiceFailures >= 3 { throw error }
                 }
+                scanProgress[track.id] = SetlistScanProgress(
+                    completed: index + 1,
+                    total: positions.count,
+                    positionSeconds: index + 1 < positions.count ? positions[index + 1] : nil
+                )
             }
         } catch is CancellationError {
         } catch {

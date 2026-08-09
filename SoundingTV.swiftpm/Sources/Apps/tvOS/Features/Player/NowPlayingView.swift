@@ -4,7 +4,7 @@ struct NowPlayingView: View {
     @EnvironmentObject var playerService: PlayerService
     @EnvironmentObject var navigationState: NavigationState
     @StateObject private var recap = NowPlayingRecapModel()
-    @FocusState private var focus: NowPlayingEmptyFocus?
+    @FocusState private var browseFocused: Bool
 
     var body: some View {
         if showsEmptyState {
@@ -42,42 +42,25 @@ struct NowPlayingView: View {
         }
         .scrollClipDisabled()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .defaultFocus($focus, .browse)
-        .onAppear { DispatchQueue.main.async { focus = .browse } }
+        .defaultFocus($browseFocused, true)
+        .onAppear { DispatchQueue.main.async { browseFocused = true } }
         .task { await recap.loadIfNeeded() }
     }
 
     private var hero: some View {
-        HStack(alignment: .center, spacing: Space.section) {
-            ZStack {
-                Circle()
-                    .fill(Color.scAccentMuted)
-                Image(systemName: "waveform")
-                    .font(.system(size: 72, weight: .heavy))
-                    .foregroundStyle(Color.scAccent)
-                    .symbolEffect(.pulse)
-            }
-            .frame(width: 176, height: 176)
-
-            VStack(alignment: .leading, spacing: Space.snug) {
-                Text("Nothing Playing")
-                    .font(.tvDisplay)
-                    .foregroundStyle(Color.scTextPrimary)
-                    .kerning(-1.5)
-
+        ContentUnavailableView {
+            Label("Nothing Playing", systemImage: "play.circle")
+        } description: {
                 Text(subtitle)
-                    .font(.tvBody)
-                    .foregroundStyle(Color.scTextSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 760, alignment: .leading)
-
-                BrowseHomeButton(focused: $focus, tag: .browse) {
-                    navigationState.selectedTab = .home
-                }
-                .accessibilityIdentifier("nowplaying.empty.browseHome")
-                .padding(.top, Space.tight)
+        } actions: {
+            Button("Browse Music", systemImage: "rectangle.grid.2x2") {
+                navigationState.selectedTab = .home
             }
+            .buttonStyle(.borderedProminent)
+            .focused($browseFocused)
+            .accessibilityIdentifier("nowplaying.empty.browseHome")
         }
+        .frame(maxWidth: .infinity, minHeight: 380)
         .padding(.horizontal, Space.page)
     }
 
@@ -98,35 +81,6 @@ struct NowPlayingView: View {
             TrackShelf(tracks: tracks)
         }
         .focusSection()
-    }
-}
-
-fileprivate enum NowPlayingEmptyFocus: Hashable { case browse }
-
-private struct BrowseHomeButton: View {
-    var focused: FocusState<NowPlayingEmptyFocus?>.Binding
-    let tag: NowPlayingEmptyFocus
-    let action: () -> Void
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var isFocused: Bool { focused.wrappedValue == tag }
-
-    var body: some View {
-        HStack(spacing: Space.tight) {
-            Image(systemName: "house.fill")
-            Text("Browse Home")
-        }
-        .font(.tvBodyEmph)
-        .foregroundStyle(isFocused ? Color.scChromeFocusOn : Color.scAccentOn)
-        .padding(.horizontal, Space.roomy)
-        .padding(.vertical, Space.snug)
-        .background(Capsule(style: .continuous).fill(isFocused ? Color.scChromeFocus : Color.scAccent))
-        .contentShape(Capsule())
-        .focusable()
-        .focused(focused, equals: tag)
-        .focusEffectDisabled()
-        .scMotion(Motion.focus, reduceMotion: reduceMotion, value: isFocused)
-        .onTapGesture(perform: action)
     }
 }
 

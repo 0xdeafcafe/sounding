@@ -39,13 +39,13 @@ struct FeedView: View {
                     }
                     .listStyle(.plain)
                 }
-            } else if credentials.isSignedOut {
+            } else if credentials.needsSignIn && !usesVisualFixtures {
                 signInPrompt
             } else {
                 browserContent
             }
             #else
-            if credentials.isSignedOut {
+            if credentials.needsSignIn {
                 signInPrompt
             } else {
                 browserContent
@@ -54,13 +54,6 @@ struct FeedView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Color.scBgBase.ignoresSafeArea())
-        .navigationTitle("Following")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                AccountAvatarButton()
-            }
-        }
         .task {
             credentials.refreshFromStore()
             await loadFeedIfNeeded()
@@ -71,6 +64,14 @@ struct FeedView: View {
         }
         .feedConfirmationOverlay($confirmation)
         .sheet(isPresented: $isShowingSignIn) { signInSheet }
+    }
+
+    private var usesVisualFixtures: Bool {
+        #if DEBUG
+        VisualFixtures.isEnabled
+        #else
+        false
+        #endif
     }
 
     private enum FeedBrowserState: Equatable {
@@ -106,6 +107,7 @@ struct FeedView: View {
                 action: { recover(from: failure) },
                 style: .phone
             )
+            .phoneStateLayout()
 
         case .empty:
             SCEmptyState(
@@ -115,6 +117,7 @@ struct FeedView: View {
                 actionTitle: "Refresh", action: { Task { await loadFeed() } },
                 style: .phone
             )
+            .phoneStateLayout()
 
         case .loaded:
             List {
@@ -133,7 +136,7 @@ struct FeedView: View {
                     }
                     .onAppear {
                         let lookahead = viewModel.items[index..<min(index + Self.artworkLookahead, viewModel.items.count)]
-                        ArtworkCache.shared.prefetch(lookahead.compactMap { $0.track?.artworkURL ?? $0.playlist?.artworkURL })
+                        ArtworkCache.shared.prefetch(lookahead.compactMap { $0.track?.artworkURL ?? $0.playlist?.displayArtworkURL })
                     }
                 }
                 if viewModel.isLoadingMore {
@@ -158,6 +161,7 @@ struct FeedView: View {
             action: { isShowingSignIn = true },
             style: .phone
         )
+        .phoneStateLayout()
     }
 
     private func recover(from failure: LoadFailure) {
@@ -178,7 +182,7 @@ struct FeedView: View {
     }
 
     private func loadFeedIfNeeded() async {
-        guard SoundCloudCredentialSource.shared.accessToken != nil else { return }
+        guard usesVisualFixtures || SoundCloudCredentialSource.shared.accessToken != nil else { return }
         await viewModel.loadContentIfNeeded()
     }
 
@@ -505,7 +509,6 @@ private struct FeedTrackRow: View {
                 Button { queue() } label: {
                     Label("Queue", systemImage: "text.append")
                 }
-                .tint(.scAccent)
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -581,7 +584,7 @@ private struct FeedTrackRow: View {
                 }
             }
             Button { queue() } label: {
-                Label("Add to Queue", systemImage: "text.append")
+                Label("Add to Up Next", systemImage: "text.append")
             }
             if canDownload {
                 downloadMenuItems
@@ -625,12 +628,10 @@ private struct FeedTrackRow: View {
             Button { downloadManager.download(track) } label: {
                 Label("Download", systemImage: "arrow.down.circle")
             }
-            .tint(.scAccent)
         case .queued, .downloading, .paused:
-            Button { downloadManager.cancel(trackId: track.id) } label: {
+            Button(role: .destructive) { downloadManager.cancel(trackId: track.id) } label: {
                 Label("Cancel", systemImage: "xmark.circle")
             }
-            .tint(.scDestructive)
         case .downloaded:
             Button(role: .destructive) { downloadManager.cancel(trackId: track.id) } label: {
                 Label("Remove", systemImage: "trash")
@@ -640,7 +641,7 @@ private struct FeedTrackRow: View {
 
     private func queue() {
         coordinator.addToQueue(track)
-        confirmation = FeedConfirmation(message: "Added \u{201C}\(track.title)\u{201D} to queue", icon: "checkmark.circle.fill")
+        confirmation = FeedConfirmation(message: "Added \u{201C}\(track.title)\u{201D} to Up Next", icon: "checkmark.circle.fill")
     }
 }
 
@@ -771,7 +772,7 @@ private struct FeedRowLabel: View {
     var body: some View {
         HStack(spacing: Spacing.md) {
             ArtworkImage(
-                url: activity.track?.artworkURL ?? activity.playlist?.artworkURL,
+                url: activity.track?.artworkURL ?? activity.playlist?.displayArtworkURL,
                 icon: activity.playlist != nil ? "music.note.list" : "music.note"
             )
             .frame(width: 52, height: 52)
@@ -873,7 +874,7 @@ private struct FeedPlaylistDetailView: View {
 
     private var header: some View {
         HStack(spacing: Spacing.md) {
-            ArtworkImage(url: playlist.artworkURL, icon: "music.note.list")
+            ArtworkImage(url: playlist.displayArtworkURL, icon: "music.note.list")
                 .frame(width: 84, height: 84)
                 .clipShape(RoundedRectangle(cornerRadius: Corner.thumb, style: .continuous))
                 .kyleCrowned(user: playlist.user, context: playlist.title)

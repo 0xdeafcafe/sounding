@@ -53,6 +53,8 @@ struct SoundCloudLoginView: View {
     @State private var capturedClientId: String?
     @State private var completionTask: Task<Void, Never>?
     @State private var incompleteCaptureRetries = 0
+    @State private var completionError: String?
+    @State private var isVerifyingSession = false
     private static let maxIncompleteCaptureRetries = 1
 
     @State private var signinUiMounted = false
@@ -226,24 +228,6 @@ struct SoundCloudLoginView: View {
                 onRefreshMaterial: { refreshToken, clientId in
                     if let refreshToken { capturedRefreshToken = refreshToken }
                     if let clientId { capturedClientId = clientId }
-
-                    if let existing = DeviceSessionStore.load(),
-                       existing.refreshToken == nil || existing.clientId == nil,
-                       refreshToken != nil || clientId != nil {
-                        let patched = StoredSession(
-                            oauthToken: existing.oauthToken,
-                            refreshToken: refreshToken ?? existing.refreshToken,
-                            clientId: clientId ?? existing.clientId,
-                            expiresAt: existing.expiresAt
-                        )
-                        DeviceSessionStore.save(patched)
-                        SoundCloudCredentialSource.shared.didCompleteSignIn()
-                        #if DEBUG
-                        if ProcessInfo.processInfo.environment["SOUNDING_TV_PERSIST_DEV_CREDENTIAL"] == "1" {
-                            DevCredentialStore.save(patched)
-                        }
-                        #endif
-                    }
                 },
                 onSigninUiMounted: {
                     #if DEBUG
@@ -268,7 +252,11 @@ struct SoundCloudLoginView: View {
             )
             .ignoresSafeArea(edges: .bottom)
 
-            if signinStalled {
+            if let completionError {
+                completionErrorOverlay(completionError)
+            } else if isVerifyingSession {
+                verifyingOverlay
+            } else if signinStalled {
                 signinStalledOverlay
             } else if isLoadingWeb {
                 loadingOverlay
@@ -299,6 +287,46 @@ struct SoundCloudLoginView: View {
         .ignoresSafeArea()
     }
 
+    private var verifyingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.55)
+            VStack(spacing: 16) {
+                ProgressView().controlSize(.large).tint(.white)
+                Text("Verifying your SoundCloud sign-in…")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .padding(28)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .ignoresSafeArea()
+    }
+
+    private func completionErrorOverlay(_ message: String) -> some View {
+        ZStack {
+            Color.black.opacity(0.65)
+            VStack(spacing: 16) {
+                Image(systemName: "person.crop.circle.badge.exclamationmark.fill")
+                    .font(.system(size: 44, weight: .semibold))
+                    .foregroundStyle(Color.scAccent.gradient)
+                Text("Sign-In Didn't Finish")
+                    .font(.system(size: 22, weight: .heavy))
+                Text(message)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                primaryButton("Sign In Again") {
+                    completionError = nil
+                    retrySigninPage()
+                }
+            }
+            .padding(28)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(.horizontal, 20)
+        }
+        .ignoresSafeArea()
+    }
+
     private var signinStalledOverlay: some View {
         ZStack {
             Color.black.opacity(0.6)
@@ -312,7 +340,7 @@ struct SoundCloudLoginView: View {
                     .font(.system(size: 22, weight: .heavy))
                     .multilineTextAlignment(.center)
 
-                Text("SoundCloud loaded its app-promotion page, but its sign-in form did not start. Retry opens a clean SoundCloud web session.")
+                Text("SoundCloud loaded its app-promotion page, but its sign-in form did not start. Retry opens a clean SoundCloud sign-in page.")
                     .font(.system(size: 15))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -346,6 +374,8 @@ struct SoundCloudLoginView: View {
         signinLivenessTask?.cancel()
         signinStalled = false
         isLoadingWeb = true
+        completionError = nil
+        isVerifyingSession = false
         incompleteCaptureRetries = 0
         Task {
             await AuthWebSession.clear()
@@ -622,7 +652,7 @@ struct SoundCloudLoginView: View {
         switch authHandoffState {
         case .idle:      return ""
         case .sending:   return "Your sign-in is being sent securely to your \(peerClass.displayName)."
-        case .completed: return "Your \(peerClass.displayName) can now use its own SoundCloud session."
+        case .completed: return "Your \(peerClass.displayName) can now use its own SoundCloud sign-in."
         case .failed(let error): return error
         }
     }
@@ -667,14 +697,33 @@ struct SoundCloudLoginView: View {
             break
         }
 
+        isVerifyingSession = true
+        Task { await finishLocalSignIn(with: session) }
+    }
+
+    private func finishLocalSignIn(with session: StoredSession) async {
         DeviceSessionStore.save(session)
         SoundCloudCredentialSource.shared.didCompleteSignIn()
-
         DeviceSessionRefresher.shared.reset()
+
+        let health = await SoundCloudCredentialSource.shared.revalidate()
+        isVerifyingSession = false
+        guard health == .healthy else {
+            if case .waiting = SoundCloudAPI.shared.trafficSafetyState() {
+                // The OAuth result is already stored. Do not frame a temporary
+                // service throttle as a bad account or force another login.
+                scheduleCompletionIfNeeded()
+                return
+            }
+            completionError = health.needsSignIn
+                ? "SoundCloud accepted the web form, but rejected the resulting authentication. Please sign in again."
+                : "The account could not be verified with SoundCloud. Check your connection and try again."
+            return
+        }
 
         #if DEBUG
         if ProcessInfo.processInfo.environment["SOUNDING_TV_PERSIST_DEV_CREDENTIAL"] == "1" {
-            DevCredentialStore.save(session)
+            DevCredentialStore.save(DeviceSessionStore.load() ?? session)
         }
         #endif
 
@@ -682,11 +731,12 @@ struct SoundCloudLoginView: View {
             signedInWithoutInteraction = true
         }
 
+        let verifiedSession = DeviceSessionStore.load() ?? session
         switch mode {
         case .link:
-            startTransfer(with: session)
+            startTransfer(with: verifiedSession)
         case .standalone:
-            storedSession = session
+            storedSession = verifiedSession
             scheduleCompletionIfNeeded()
         case .authHandoff:
             break
@@ -722,9 +772,7 @@ struct SoundCloudLoginView: View {
     private func useDifferentAccount() async {
         // Only an explicit tap reaches this destructive account-reset path.
         // A TV rejecting a transfer must never sign the phone out by itself.
-        DeviceSessionStore.forget()
-        CloudSyncCoordinator.shared.requestSessionSync()
-        await AuthWebSession.clear()
+        await SoundCloudCredentialSource.shared.signOut()
         pendingSession = nil
         storedSession = nil
         isTransferring = false
@@ -790,6 +838,93 @@ struct OAuthWebView: UIViewRepresentable {
         return URL(string: "https://m.soundcloud.com/signin")
     }
 
+    // Inspect only JSON returned by trusted SoundCloud origins and forward a
+    // response when it actually contains OAuth material. SoundCloud's current
+    // sign-in flow does not consistently use an /oauth/token path.
+    private static let tokenResponseCaptureScript = """
+    (function() {
+      if (window.__soundingTokenCaptureInstalled) return;
+      window.__soundingTokenCaptureInstalled = true;
+      function report(url, body, clientId) {
+        try {
+          var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.scAuth;
+          if (handler && url && body) handler.postMessage({
+            url: String(url), body: String(body), clientId: clientId ? String(clientId) : ''
+          });
+        } catch (_) {}
+      }
+      function isTrustedURL(url) {
+        try { var h = new URL(String(url || ''), location.href).hostname.toLowerCase();
+          return h === 'soundcloud.com' || h.endsWith('.soundcloud.com'); } catch (_) { return false; }
+      }
+      function tokenPayload(body) {
+        try {
+          function find(value, depth) {
+            if (!value || typeof value !== 'object' || depth > 5) return null;
+            if (typeof value.access_token === 'string' && value.access_token) return value;
+            for (var key in value) { var hit = find(value[key], depth + 1); if (hit) return hit; }
+            return null;
+          }
+          var hit = find(JSON.parse(body), 0);
+          return hit ? JSON.stringify(hit) : '';
+        } catch (_) { return ''; }
+      }
+      function clientIdFrom(body) {
+        try {
+          if (!body) return '';
+          if (typeof body === 'string') return new URLSearchParams(body).get('client_id') || '';
+          if (body instanceof URLSearchParams || body instanceof FormData) return body.get('client_id') || '';
+        } catch (_) {}
+        return '';
+      }
+
+      if (window.fetch) {
+        var fetch = window.fetch;
+        window.fetch = function(input, init) {
+          var url = typeof input === 'string' ? input : (input && input.url) || '';
+          var clientId = clientIdFrom(init && init.body);
+          var promise = fetch.apply(this, arguments);
+          if (clientId) report(url, '{}', clientId);
+          if (isTrustedURL(url)) {
+            promise.then(function(response) {
+              try { response.clone().text().then(function(body) {
+                var payload = tokenPayload(body); if (payload) report(url, payload, clientId);
+              }); } catch (_) {}
+            });
+          }
+          return promise;
+        };
+      }
+
+      var OriginalXHR = window.XMLHttpRequest;
+      if (OriginalXHR) {
+        window.XMLHttpRequest = function() {
+          var xhr = new OriginalXHR();
+          var url = '';
+          var open = xhr.open;
+          xhr.open = function(method, requestURL) {
+            url = requestURL || '';
+            return open.apply(xhr, arguments);
+          };
+          xhr.addEventListener('load', function() {
+            if (isTrustedURL(url) && xhr.status >= 200 && xhr.status < 300) {
+              var payload = tokenPayload(xhr.responseText);
+              if (payload) report(url, payload, xhr.__soundingClientId || '');
+            }
+          });
+          var send = xhr.send;
+          xhr.send = function(body) {
+            xhr.__soundingClientId = clientIdFrom(body);
+            if (xhr.__soundingClientId) report(url, '{}', xhr.__soundingClientId);
+            return send.apply(xhr, arguments);
+          };
+          return xhr;
+        };
+        window.XMLHttpRequest.prototype = OriginalXHR.prototype;
+      }
+    })();
+    """
+
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
 
@@ -800,6 +935,14 @@ struct OAuthWebView: UIViewRepresentable {
         }
 
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
+        let userContent = WKUserContentController()
+        userContent.add(context.coordinator, name: "scAuth")
+        userContent.addUserScript(WKUserScript(
+            source: Self.tokenResponseCaptureScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        ))
+        config.userContentController = userContent
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
@@ -845,7 +988,7 @@ struct OAuthWebView: UIViewRepresentable {
         )
     }
 
-    class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKHTTPCookieStoreObserver {
+    class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKHTTPCookieStoreObserver, WKScriptMessageHandler {
 
         let parent: OAuthWebView
         var lastLoadedAttempt = 0
@@ -893,6 +1036,56 @@ struct OAuthWebView: UIViewRepresentable {
             capturedClientId = nil
             capturedExpiresAt = nil
             reachedSigninCallback = false
+        }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "scAuth",
+                  Self.isTrustedAuthOrigin(message.frameInfo.securityOrigin),
+                  let payload = message.body as? [String: Any],
+                  let url = payload["url"] as? String,
+                  let body = payload["body"] as? String,
+                  Self.isTrustedAuthURL(url),
+                  let data = body.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return }
+
+            if let client = payload["clientId"] as? String, !client.isEmpty {
+                capturedClientId = client
+            }
+            if let access = json["access_token"] as? String, !access.isEmpty {
+                capturedAccessToken = access
+            }
+            if let refresh = json["refresh_token"] as? String, !refresh.isEmpty {
+                capturedRefreshToken = refresh
+            }
+            if let client = json["client_id"] as? String, !client.isEmpty {
+                capturedClientId = client
+            }
+            if let seconds = json["expires_in"] as? Double {
+                capturedExpiresAt = Date(timeIntervalSinceNow: seconds)
+            } else if let seconds = json["expires_in"] as? Int {
+                capturedExpiresAt = Date(timeIntervalSinceNow: TimeInterval(seconds))
+            }
+
+            parent.onRefreshMaterial(capturedRefreshToken, capturedClientId)
+            tryFireLogin()
+        }
+
+        private static func isTokenURL(_ url: String) -> Bool {
+            guard let parsed = URL(string: url),
+                  let host = parsed.host?.lowercased(),
+                  host == "soundcloud.com" || host.hasSuffix(".soundcloud.com") else { return false }
+            return parsed.path.contains("/oauth/token") || parsed.path.contains("/oauth2/token")
+        }
+
+        private static func isTrustedAuthURL(_ value: String) -> Bool {
+            guard let url = URL(string: value), let host = url.host?.lowercased() else { return false }
+            return host == "soundcloud.com" || host.hasSuffix(".soundcloud.com")
+        }
+
+        private static func isTrustedAuthOrigin(_ origin: WKSecurityOrigin) -> Bool {
+            let host = origin.host.lowercased()
+            return origin.protocol == "https" && (host == "soundcloud.com" || host.hasSuffix(".soundcloud.com"))
         }
 
         func scheduleSigninCheck(for webView: WKWebView) {

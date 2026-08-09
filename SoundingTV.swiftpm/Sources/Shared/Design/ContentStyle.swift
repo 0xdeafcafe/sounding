@@ -95,12 +95,12 @@ struct SCContentStyle: Sendable {
         fontBodyEmphasis: .system(size: 15, weight: .semibold),
         fontCaption: .system(size: 12, weight: .semibold),
         fontCaptionEmphasis: .system(size: 12, weight: .bold),
-        textPrimary: .white,
-        textSecondary: .white.opacity(0.68),
-        textTertiary: .white.opacity(0.46),
-        bgRaised: Color(red: 0.086, green: 0.086, blue: 0.094),
-        bgOverlay: Color(red: 0.173, green: 0.173, blue: 0.180),
-        separator: .white.opacity(0.14),
+        textPrimary: .primary,
+        textSecondary: .secondary,
+        textTertiary: Color.primary.opacity(0.46),
+        bgRaised: Color.primary.opacity(0.05),
+        bgOverlay: Color.primary.opacity(0.09),
+        separator: Color.primary.opacity(0.14),
         accent: Color(red: 1.00, green: 0.42, blue: 0.10),
         accentOn: Color(red: 0.10, green: 0.04, blue: 0.00),
         accentMuted: Color(red: 1.00, green: 0.42, blue: 0.10).opacity(0.20),
@@ -212,4 +212,88 @@ enum SCContentMotion {
     static let settle = Animation.spring(response: 0.50, dampingFraction: 0.80)
     static let ambient = Animation.easeInOut(duration: 0.6)
     static let gentle = Animation.easeInOut(duration: 0.25)
+}
+
+/// One discovery vocabulary shared by phone, Mac, and TV. Each platform owns
+/// its layout and focus behavior, while choices and visual identity stay aligned.
+struct SearchVibe: Identifiable, Sendable {
+    let id: String
+    let title: String
+    let query: String
+    let symbol: String
+    let accentHue: Double
+    let secondaryHue: Double
+    let phoneHeight: CGFloat
+
+    var accent: Color {
+        Color(hue: accentHue, saturation: 0.82, brightness: 0.94)
+    }
+
+    var secondary: Color {
+        Color(hue: secondaryHue, saturation: 0.68, brightness: 0.90)
+    }
+
+    static let all: [SearchVibe] = [
+        .init(id: "hip-hop", title: "Hip Hop & Rap", query: "Hip Hop Rap", symbol: "music.microphone", accentHue: 0.78, secondaryHue: 0.69, phoneHeight: 184),
+        .init(id: "electronic", title: "Electronic", query: "Electronic", symbol: "slider.horizontal.3", accentHue: 0.94, secondaryHue: 0.79, phoneHeight: 276),
+        .init(id: "pop", title: "Pop", query: "Pop", symbol: "star.fill", accentHue: 0.13, secondaryHue: 0.07, phoneHeight: 252),
+        .init(id: "rnb", title: "R&B", query: "R&B", symbol: "music.note", accentHue: 0.51, secondaryHue: 0.55, phoneHeight: 112),
+        .init(id: "chill", title: "Chill", query: "Chill", symbol: "cloud.moon.fill", accentHue: 0.52, secondaryHue: 0.47, phoneHeight: 112),
+        .init(id: "party", title: "Party", query: "Party", symbol: "party.popper.fill", accentHue: 0.06, secondaryHue: 0.96, phoneHeight: 212),
+        .init(id: "workout", title: "Workout", query: "Workout", symbol: "figure.run", accentHue: 0.36, secondaryHue: 0.45, phoneHeight: 184),
+        .init(id: "techno", title: "Techno", query: "Techno", symbol: "waveform.path.ecg", accentHue: 0.92, secondaryHue: 0.79, phoneHeight: 184),
+    ]
+}
+
+struct SearchVibeArtwork: View {
+    let vibe: SearchVibe
+    var cornerRadius: CGFloat = 16
+
+    var body: some View {
+        GeometryReader { proxy in
+            let edge = min(proxy.size.width, proxy.size.height)
+
+            ZStack(alignment: .topLeading) {
+                Color(red: 38 / 255, green: 38 / 255, blue: 38 / 255)
+
+                ForEach(0..<5, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: edge * 0.22, style: .continuous)
+                        .stroke(vibe.accent.opacity(0.88), lineWidth: 1.25)
+                        .frame(width: edge * 0.78, height: edge * 0.48)
+                        .offset(
+                            x: proxy.size.width * 0.18 + CGFloat(index) * 10,
+                            y: proxy.size.height * 0.43 + CGFloat(index) * 7
+                        )
+                }
+
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [vibe.accent, vibe.secondary],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: edge * 0.54, height: edge * 0.54)
+                    .overlay {
+                        Image(systemName: vibe.symbol)
+                            .font(.system(size: edge * 0.21, weight: .bold))
+                            .foregroundStyle(.black.opacity(0.72))
+                    }
+                    .offset(x: proxy.size.width * 0.43, y: proxy.size.height * 0.48)
+
+                Text(vibe.title)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .padding(14)
+            }
+        }
+        .background(Color(red: 38 / 255, green: 38 / 255, blue: 38 / 255))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(vibe.accent.opacity(0.78), lineWidth: 1)
+        }
+    }
 }

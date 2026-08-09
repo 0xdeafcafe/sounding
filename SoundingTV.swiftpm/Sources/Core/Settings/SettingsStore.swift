@@ -28,6 +28,21 @@ enum AccountDataVault {
         SHA256.hash(data: Data(accountID.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
+    static func forget(accountID: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: accountID,
+        ]
+        SecItemDelete(query as CFDictionary)
+
+        let suffix = storageSuffix(for: accountID)
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys where key.contains(suffix) {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     private static func key(for accountID: String, createIfMissing: Bool = true) -> SymmetricKey? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

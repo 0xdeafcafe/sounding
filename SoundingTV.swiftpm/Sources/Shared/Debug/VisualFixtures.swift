@@ -6,9 +6,17 @@ enum VisualFixtures {
 
     static var isEnabled: Bool {
         let raw = ProcessInfo.processInfo.environment[environmentKey]?.lowercased()
+        #if targetEnvironment(simulator)
+        // Simulator builds are primarily a design and interaction surface. Use
+        // deterministic local content by default; pass SOUNDING_TV_UI_FIXTURE=0
+        // when deliberately testing real networking in Simulator.
+        if raw == "0" || raw == "false" || raw == "off" { return false }
+        return true
+        #else
         return raw == "1" || raw == "loaded" || raw == "true"
             || ProcessInfo.processInfo.arguments.contains("--ui-fixture")
             || UserDefaults.standard.bool(forKey: environmentKey)
+        #endif
     }
 
     static var destination: String? {
@@ -59,6 +67,25 @@ enum VisualFixtures {
         }
     }()
 
+    static let nowPlayingMix: Track = decode(Track.self, from: """
+        {
+          "id": 1999, "title": "Midnight Runner — Summer Night DJ Set",
+          "description": "Tracklist:\\n00:00 Nocturne Collective — First Light\\n01:04 Maya Sol — Neon Weather\\n03:15 Glass District — After Hours\\n18:42 Low Sun — Open Water\\n37:08 Juno Vale — Parallel Lines\\n52:36 Soft Static — Home Signal",
+          "artwork_url": "https://i1.sndcdn.com/artworks-000067273316-smsiqx-t500x500.jpg",
+          "waveform_url": null,
+          "permalink_url": "https://soundcloud.com/fixture/midnight-runner-set",
+          "playback_count": 284192, "likes_count": 18420, "reposts_count": 2118,
+          "created_at": "2026-07-24T12:00:00Z", "genre": "Electronic",
+          "tag_list": "electronic dj set house independent",
+          "user": \(encodedJSON(artists[0])),
+          "media": { "transcodings": [{
+            "url": "https://example.invalid/midnight-runner.mp3", "preset": "mp3_1_0",
+            "duration": 3843000, "quality": "sq", "snipped": false,
+            "format": { "protocol": "progressive", "mime_type": "audio/mpeg" }
+          }] }
+        }
+        """)
+
     static let albums: [Playlist] = [
         playlist(id: 2_001, title: "Wavelength", user: artists[0], isAlbum: true, tracks: Array(tracks[0..<8])),
         playlist(id: 2_002, title: "Soft Focus", user: artists[5], isAlbum: true, tracks: Array(tracks[5..<13])),
@@ -76,6 +103,36 @@ enum VisualFixtures {
         playlist(id: 3_005, title: "SoundCloud Selects", user: currentUser, isAlbum: false, tracks: Array(tracks[8..<18])),
         playlist(id: 3_006, title: "Sunday Headphones", user: currentUser, isAlbum: false, tracks: Array(tracks[2..<12])),
     ]
+
+    static var discoveryShelves: [DiscoveryShelf] {
+        [
+            DiscoveryShelf(
+                id: "fixture.fresh", title: "Fresh for You",
+                subtitle: "Independent sounds picked for today", kind: .editorial,
+                content: .tracks(Array(tracks.prefix(10)))
+            ),
+            DiscoveryShelf(
+                id: "fixture.playlists", title: "Made for Late Nights",
+                subtitle: "Long listens with room to breathe", kind: .related,
+                content: .playlists(Array(playlists.prefix(6)))
+            ),
+            DiscoveryShelf(
+                id: "fixture.artists", title: "Artists to Follow",
+                subtitle: "Creators moving through your orbit", kind: .station,
+                content: .users(artists)
+            ),
+            DiscoveryShelf(
+                id: "fixture.albums", title: "New Albums",
+                subtitle: nil, kind: .chartCollections,
+                content: .playlists(albums)
+            ),
+            DiscoveryShelf(
+                id: "fixture.trending", title: "Trending Now",
+                subtitle: "What the community is playing", kind: .trending,
+                content: .tracks(Array(tracks.dropFirst(5).prefix(12)))
+            ),
+        ]
+    }
 
     static var libraryItems: [LibraryItem] {
         let trackItems = tracks.prefix(6).enumerated().map { offset, track in

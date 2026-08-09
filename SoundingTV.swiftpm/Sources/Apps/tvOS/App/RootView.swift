@@ -22,8 +22,8 @@ struct RootView: View {
                 guard authService.isAuthenticated else { return }
                 navigationState.selectedTab = .nowPlaying
             }
-            .onChange(of: authService.isAuthenticated, initial: true) { _, isAuthenticated in
-                guard !isAuthenticated else { return }
+            .onChange(of: authService.needsSignIn, initial: true) { _, needsSignIn in
+                guard needsSignIn else { return }
                 playerService.clearQueue()
             }
             .ambientScreen(isEnabled: authService.isAuthenticated)
@@ -51,22 +51,18 @@ struct RootView: View {
 
     @ViewBuilder
     private var content: some View {
-        if authService.isAuthenticated {
+        if !authService.needsSignIn {
             if didSeeWelcome {
                 tabs
                     .tabViewStyle(.sidebarAdaptable)
                     .background(BrowseBackdrop())
                     .tabViewSidebarHeader { SidebarHeader(user: authService.currentUser) }
-                    .safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
-                        if navigationState.selectedTab != .nowPlaying {
-                            PersistentNowPlayingBar()
-                                .padding(.horizontal, Space.gutter)
-                                .padding(.bottom, Space.snug)
-                                .transition(
-                                    reduceMotion
-                                        ? .opacity
-                                        : .move(edge: .bottom).combined(with: .opacity)
-                                )
+                    .toolbar {
+                        if playerService.currentTrack != nil,
+                           navigationState.selectedTab != .nowPlaying {
+                            ToolbarItem(placement: .topBarLeading) {
+                                NowPlayingToolbarStatus()
+                            }
                         }
                     }
                     .animation(reduceMotion ? nil : Motion.settle, value: navigationState.selectedTab)
@@ -81,9 +77,13 @@ struct RootView: View {
     private var tabs: some View {
         TabView(selection: $navigationState.selectedTab) {
             Tab("Home", systemImage: NavigationState.Tab.home.icon, value: .home) {
-                TVHomeHub()
+                HomeView()
             }
             .accessibilityIdentifier("sidebar.tab.home")
+            Tab("Following", systemImage: NavigationState.Tab.following.icon, value: .following) {
+                FeedView()
+            }
+            .accessibilityIdentifier("sidebar.tab.following")
             Tab(value: NavigationState.Tab.search, role: .search) {
                 SearchView()
             }
@@ -114,56 +114,6 @@ struct RootView: View {
             .accessibilityIdentifier("sidebar.tab.settings")
         }
         .toolbarVisibility(.visible, for: .tabBar)
-        .toolbar {
-            // The system sidebar is gesture-driven and its compact Home chip
-            // is not reliably focusable. Keep every destination one explicit
-            // remote click away from any screen.
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    ForEach(NavigationState.Tab.allCases, id: \.self) { tab in
-                        Button {
-                            navigationState.selectedTab = tab
-                        } label: {
-                            Label(tab.rawValue, systemImage: tab.icon)
-                        }
-                    }
-                } label: {
-                    Label("Browse", systemImage: "rectangle.grid.2x2")
-                }
-                .accessibilityIdentifier("navigation.menu")
-            }
-        }
-    }
-}
-
-private struct TVHomeHub: View {
-    private enum Surface: String, CaseIterable, Identifiable {
-        case forYou = "For You"
-        case following = "Following"
-        var id: Self { self }
-    }
-
-    @State private var surface: Surface = .forYou
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("Home", selection: $surface) {
-                ForEach(Surface.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 520)
-            .padding(.top, Space.tight)
-
-            Group {
-                switch surface {
-                case .forYou: HomeView()
-                case .following: FeedView()
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background { BrowseBackdrop() }
-        .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
 
@@ -400,89 +350,47 @@ private struct WelcomeArtworkStack: View {
     }
 }
 
-private struct PersistentNowPlayingBar: View {
+private struct NowPlayingToolbarStatus: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var navigation: NavigationState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if let track = player.currentTrack {
-            HStack(spacing: Space.tight) {
-                Button {
-                    withAnimation(reduceMotion ? nil : Motion.settle) {
-                        navigation.selectedTab = .nowPlaying
-                    }
-                } label: {
-                    HStack(spacing: Space.tight) {
-                        ArtworkImage(url: track.artworkURL, variant: .standard)
-                            .frame(width: 58, height: 58)
-                            .clipShape(RoundedRectangle(cornerRadius: Corner.thumb, style: .continuous))
-
-                        VStack(alignment: .leading, spacing: Space.hair) {
-                            Text(track.title)
-                                .font(.tvCalloutEmph)
-                                .foregroundStyle(Color.scTextPrimary)
-                                .lineLimit(1)
-                                .contentTransition(.interpolate)
-                            Text(track.user.displayName)
-                                .font(.tvCaption)
-                                .foregroundStyle(Color.scTextSecondary)
-                                .lineLimit(1)
-                                .contentTransition(.interpolate)
-                        }
-                        .frame(width: 320, alignment: .leading)
-                    }
-                    .contentShape(Rectangle())
+            Button {
+                withAnimation(reduceMotion ? nil : Motion.settle) {
+                    navigation.selectedTab = .nowPlaying
                 }
-                .buttonStyle(SCCardButtonStyle(cornerRadius: Corner.control, sizeClass: .card))
-                .accessibilityLabel("Now Playing, \(track.title) by \(track.user.displayName)")
-                .accessibilityHint("Opens Now Playing")
+            } label: {
+                HStack(spacing: Space.tight) {
+                    ArtworkImage(url: track.artworkURL, variant: .standard)
+                        .frame(width: 42, height: 42)
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
 
-                Button {
-                    player.togglePlayPause()
-                } label: {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 24, weight: .bold))
-                        .frame(width: 46, height: 46)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(track.title)
+                            .font(.tvCaption)
+                            .foregroundStyle(Color.scTextPrimary)
+                            .lineLimit(1)
+                        Text(track.user.displayName)
+                            .font(.system(size: 18, weight: .regular))
+                            .foregroundStyle(Color.scTextSecondary)
+                            .lineLimit(1)
+                    }
+                    .frame(width: 250, alignment: .leading)
+
+                    Image(systemName: player.isPlaying ? "waveform" : "pause.fill")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(Color.scAccent)
                         .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
                 }
-                .buttonStyle(.borderedProminent)
-                .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
-
-                Button {
-                    Task { await player.playNext() }
-                } label: {
-                    Image(systemName: "forward.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .frame(width: 46, height: 46)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Next")
+                .contentShape(Rectangle())
             }
-            .padding(Space.tight)
-            .liquidGlass(
-                in: RoundedRectangle(cornerRadius: Corner.card, style: .continuous),
-                tint: .black.opacity(0.18)
-            )
-            .overlay(alignment: .bottomLeading) {
-                if player.duration > 0 {
-                    GeometryReader { proxy in
-                        Capsule()
-                            .fill(Color.scAccent)
-                            .frame(width: proxy.size.width * min(1, max(0, player.currentTime / player.duration)), height: 4)
-                    }
-                    .frame(height: 3)
-                    .padding(.horizontal, Space.tight)
-                }
-            }
+            .buttonStyle(.bordered)
             .id(track.id)
-            .transition(
-                reduceMotion
-                    ? .opacity
-                    : .scale(scale: 0.98).combined(with: .opacity)
-            )
-            .animation(reduceMotion ? nil : Motion.focus, value: player.isPlaying)
-            .accessibilityIdentifier("persistentNowPlaying")
+            .accessibilityLabel("Now Playing, \(track.title) by \(track.user.displayName)")
+            .accessibilityHint("Opens Now Playing")
+            .accessibilityIdentifier("nowPlayingToolbarStatus")
         }
     }
 }

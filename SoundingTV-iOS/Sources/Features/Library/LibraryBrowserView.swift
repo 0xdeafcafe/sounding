@@ -21,7 +21,7 @@ struct LibraryBrowserView: View {
 
     var body: some View {
         Group {
-            if !credentials.isSignedOut {
+            if !credentials.needsSignIn || usesVisualFixtures {
                 libraryIndex
             } else {
                 signInPrompt
@@ -40,11 +40,19 @@ struct LibraryBrowserView: View {
             guard phase == .active else { return }
             credentials.refreshFromStore()
         }
-        .onChange(of: credentials.isSignedOut) { wasSignedOut, isSignedOut in
-            guard isSignedOut, !wasSignedOut else { return }
+        .onChange(of: credentials.sessionHealth) { oldHealth, newHealth in
+            guard newHealth.needsSignIn, !oldHealth.needsSignIn else { return }
             Task { await viewModel.handleSignOut() }
         }
         .sheet(isPresented: $isShowingSignIn) { signInSheet }
+    }
+
+    private var usesVisualFixtures: Bool {
+        #if DEBUG
+        VisualFixtures.isEnabled
+        #else
+        false
+        #endif
     }
 
     @ToolbarContentBuilder
@@ -63,6 +71,8 @@ struct LibraryBrowserView: View {
                     indexRow(.sets, icon: "clock.arrow.2.circlepath", tint: .scAccent)
                     ScRowDivider(leading: indexSeparatorInset)
                     indexRow(.playlists, icon: "music.note.list", tint: .scAccent)
+                    ScRowDivider(leading: indexSeparatorInset)
+                    indexRow(.albums, icon: "square.stack.fill", tint: .indigo)
                     ScRowDivider(leading: indexSeparatorInset)
                     indexRow(.following, icon: "person.2.fill", tint: .purple)
                 }
@@ -147,16 +157,15 @@ struct LibraryBrowserView: View {
                 NavigationLink {
                     PlaylistDetailView(playlist: playlist, heroNamespace: libraryNamespace)
                 } label: {
-                    RecentlyAddedTile(playlist: playlist)
+                    RecentlyAddedTile(playlist: playlist, heroNamespace: libraryNamespace)
                 }
-                .matchedTransitionSource(id: playlist.id, in: libraryNamespace)
                 .buttonStyle(.plain)
             }
         }
         .frame(maxWidth: 1040, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Space.page)
-        .prefetchArtwork(viewModel.playlists.prefix(6).compactMap(\.artworkURL))
+        .prefetchArtwork(viewModel.playlists.prefix(6).compactMap(\.displayArtworkURL))
     }
 
     private var signInPrompt: some View {
@@ -170,11 +179,20 @@ struct LibraryBrowserView: View {
             action: { isShowingSignIn = true },
             style: .phone
         )
+        .phoneStateLayout()
+    }
+}
+
+extension View {
+    func phoneStateLayout(topPadding: CGFloat = 56) -> some View {
+        frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.top, topPadding)
     }
 }
 
 private struct RecentlyAddedTile: View {
     let playlist: Playlist
+    let heroNamespace: Namespace.ID
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.hair) {
@@ -187,6 +205,7 @@ private struct RecentlyAddedTile: View {
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .kyleCrowned(user: playlist.user, context: playlist.title)
+            .matchedTransitionSource(id: playlist.id, in: heroNamespace)
 
             Text(playlist.title)
                 .font(.scSubhead)
@@ -201,7 +220,7 @@ private struct RecentlyAddedTile: View {
     }
 
     private var thumbnailURL: URL? {
-        guard let url = playlist.artworkURL else { return nil }
+        guard let url = playlist.displayArtworkURL else { return nil }
         return URL(string: url.absoluteString.replacingOccurrences(of: "-large", with: "-t300x300")) ?? url
     }
 }
@@ -232,7 +251,11 @@ private struct LibrarySectionDetailView: View {
     @ObservedObject private var settings = SettingsStore.shared
 
     private var backingSection: LibraryBrowserViewModel.Section {
-        section == .sets ? .likes : section
+        switch section {
+        case .sets: return .likes
+        case .albums: return .playlists
+        default: return section
+        }
     }
 
     var body: some View {
@@ -302,6 +325,7 @@ private struct LibrarySectionDetailView: View {
         case .likes:     return "Search Liked"
         case .sets:      return "Search Sets"
         case .playlists: return "Search Playlists"
+        case .albums:    return "Search Albums"
         case .following: return "Search Following"
         }
     }
@@ -326,6 +350,7 @@ private struct LibrarySectionDetailView: View {
         case .likes:     return filteredLikedTracks.isEmpty
         case .sets:      return filteredSetTracks.isEmpty
         case .playlists: return filteredPlaylists.isEmpty
+        case .albums:    return filteredPlaylists.isEmpty
         case .following: return filteredFollowing.isEmpty
         }
     }
@@ -381,12 +406,20 @@ private struct LibrarySectionDetailView: View {
                 message: "Sets are liked tracks lasting \(GeneratedLibraryCollections.durationLabel(settings.setMinimumDurationSeconds)) or more."
             )
 
+        case .loaded where section == .albums && filteredPlaylists.isEmpty:
+            StateMessage(
+                icon: section.emptyIcon,
+                title: "No Albums Yet",
+                message: "Albums in your SoundCloud library will appear here."
+            )
+
         case .loaded:
             List {
                 switch section {
                 case .likes:     likesRows
                 case .sets:      setRows
                 case .playlists: playlistsRows
+                case .albums:    playlistsRows
                 case .following: followingRows
                 }
 
@@ -428,8 +461,11 @@ private struct LibrarySectionDetailView: View {
     }
 
     private var filteredPlaylists: [Playlist] {
-        guard !trimmedSearch.isEmpty else { return viewModel.playlists }
-        return viewModel.playlists.filter { $0.title.scLocallyContains(trimmedSearch) }
+        let kindFiltered = section == .albums
+            ? viewModel.playlists.filter(\.isAlbum)
+            : viewModel.playlists.filter { !$0.isAlbum }
+        guard !trimmedSearch.isEmpty else { return kindFiltered }
+        return kindFiltered.filter { $0.title.scLocallyContains(trimmedSearch) }
     }
 
     private var filteredFollowing: [User] {
@@ -494,7 +530,7 @@ private struct LibrarySectionDetailView: View {
             .onAppear {
                 let playlists = filteredPlaylists
                 let lookahead = playlists[index..<min(index + Self.artworkLookahead, playlists.count)]
-                ArtworkCache.shared.prefetch(lookahead.compactMap(\.artworkURL))
+                ArtworkCache.shared.prefetch(lookahead.compactMap(\.displayArtworkURL))
             }
         }
     }
@@ -524,13 +560,14 @@ private struct LibrarySectionDetailView: View {
 @MainActor
 final class LibraryBrowserViewModel: ObservableObject {
     enum Section: String, CaseIterable, Hashable {
-        case likes, sets, playlists, following
+        case likes, sets, playlists, albums, following
 
         var title: String {
             switch self {
             case .likes:     return "Likes"
             case .sets:      return "Sets"
             case .playlists: return "Playlists"
+            case .albums:    return "Albums"
             case .following: return "Following"
             }
         }
@@ -544,6 +581,7 @@ final class LibraryBrowserViewModel: ObservableObject {
             case .likes:     return "heart"
             case .sets:      return "clock.arrow.2.circlepath"
             case .playlists: return "music.note.list"
+            case .albums:    return "square.stack"
             case .following: return "person.2"
             }
         }
@@ -553,6 +591,7 @@ final class LibraryBrowserViewModel: ObservableObject {
             case .likes:     return "Tracks you like show up here."
             case .sets:      return "Long-form liked tracks show up here."
             case .playlists: return "Your playlists show up here."
+            case .albums:    return "Albums in your library show up here."
             case .following: return "Artists you follow show up here."
             }
         }
@@ -610,8 +649,18 @@ final class LibraryBrowserViewModel: ObservableObject {
     private static let cacheTTL: TimeInterval = 5 * 60
 
     func loadContent(for section: Section, forceRefresh: Bool = false) async {
+        #if DEBUG
+        if VisualFixtures.isEnabled {
+            installVisualFixtures()
+            return
+        }
+        #endif
         if section == .sets {
             await loadContent(for: .likes, forceRefresh: forceRefresh)
+            return
+        }
+        if section == .albums {
+            await loadContent(for: .playlists, forceRefresh: forceRefresh)
             return
         }
         guard SoundCloudCredentialSource.shared.accessToken != nil else {
@@ -662,6 +711,9 @@ final class LibraryBrowserViewModel: ObservableObject {
                 sectionState[.playlists] = playlists.isEmpty ? .empty : .loaded
                 await persistCache(.playlists, items: page.collection, id: \.id)
 
+            case .albums:
+                break
+
             case .following:
                 guard let user = await SoundCloudCredentialSource.shared.waitForCurrentUser() else {
                     if sectionState[.following] != .loaded {
@@ -687,6 +739,19 @@ final class LibraryBrowserViewModel: ObservableObject {
         }
     }
 
+    #if DEBUG
+    private func installVisualFixtures() {
+        likedTracks = VisualFixtures.tracks
+        likedAtByTrackID = Dictionary(uniqueKeysWithValues: VisualFixtures.tracks.enumerated().map {
+            ($0.element.id, Date().addingTimeInterval(Double(-$0.offset * 900)))
+        })
+        playlists = VisualFixtures.playlists + VisualFixtures.albums
+        following = VisualFixtures.artists
+        sectionState = [.likes: .loaded, .playlists: .loaded, .following: .loaded]
+        loadedSections = [.likes, .playlists, .following]
+    }
+    #endif
+
     private func hydrateFromCache(_ section: Section) async {
         let rows = await cache.loadSection(section.rawValue)
         guard !rows.isEmpty else { return }
@@ -710,6 +775,9 @@ final class LibraryBrowserViewModel: ObservableObject {
             let decoded = rows.compactMap { try? Self.jsonDecoder.decode(Playlist.self, from: $0.payload) }
             guard !decoded.isEmpty else { return }
             playlists = decoded
+
+        case .albums:
+            break
 
         case .following:
             let decoded = rows.compactMap { try? Self.jsonDecoder.decode(User.self, from: $0.payload) }
@@ -745,12 +813,17 @@ final class LibraryBrowserViewModel: ObservableObject {
 
     func state(for section: Section) -> SectionState {
         if section == .sets { return state(for: .likes) }
+        if section == .albums { return state(for: .playlists) }
         return sectionState[section] ?? .loading
     }
 
     func loadMore(section: Section) async {
         if section == .sets {
             await loadMore(section: .likes)
+            return
+        }
+        if section == .albums {
+            await loadMore(section: .playlists)
             return
         }
         guard !loadingMore.contains(section), canLoadMore(section) else { return }
@@ -773,6 +846,9 @@ final class LibraryBrowserViewModel: ObservableObject {
                 playlistsCursor.advance(to: next)
                 playlists.appendUnique(contentsOf: next.collection)
 
+            case .albums:
+                break
+
             case .following:
                 guard let page = followingCursor.lastPage else { return }
                 let next = try await api.getNextPage(page)
@@ -788,6 +864,7 @@ final class LibraryBrowserViewModel: ObservableObject {
         switch section {
         case .likes, .sets: return likesCursor.canLoadMore
         case .playlists: return playlistsCursor.canLoadMore
+        case .albums: return playlistsCursor.canLoadMore
         case .following: return followingCursor.canLoadMore
         }
     }
@@ -796,6 +873,7 @@ final class LibraryBrowserViewModel: ObservableObject {
         switch section {
         case .likes, .sets: return likedTracks.count
         case .playlists: return playlists.count
+        case .albums: return playlists.filter(\.isAlbum).count
         case .following: return following.count
         }
     }
@@ -864,7 +942,13 @@ struct TrackListRow: View {
             track: track,
             analysis: analysis,
             activity: activity,
-            play: { Task { await coordinator.playHere(track, in: context(), collectionId: collectionId) } },
+            play: {
+                Task {
+                    if let message = await coordinator.playHere(track, in: context(), collectionId: collectionId) {
+                        confirmation.show(message, icon: "exclamationmark.triangle.fill")
+                    }
+                }
+            },
             canPlayOnAppleTV: coordinator.isAppleTVAvailable,
             playOnAppleTV: sendToAppleTV,
             addToQueue: queue
@@ -884,7 +968,7 @@ struct TrackListRow: View {
 
     private func queue() {
         coordinator.addToQueue(track)
-        confirmation.show("Added \u{201C}\(track.title)\u{201D} to queue")
+        confirmation.show("Added \u{201C}\(track.title)\u{201D} to Up Next")
     }
 }
 
@@ -964,7 +1048,6 @@ struct TrackRow: View {
                 Button { addToQueue() } label: {
                     Label("Queue", systemImage: "text.append")
                 }
-                .tint(.scAccent)
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -987,7 +1070,7 @@ struct TrackRow: View {
                 }
             }
             Button { addToQueue() } label: {
-                Label("Add to Queue", systemImage: "text.append")
+                Label("Add to Up Next", systemImage: "text.append")
             }
             if canDownload {
                 downloadMenuItems
@@ -1031,12 +1114,10 @@ struct TrackRow: View {
             Button { downloadManager.download(track) } label: {
                 Label("Download", systemImage: "arrow.down.circle")
             }
-            .tint(.scAccent)
         case .queued, .downloading, .paused:
-            Button { downloadManager.cancel(trackId: track.id) } label: {
+            Button(role: .destructive) { downloadManager.cancel(trackId: track.id) } label: {
                 Label("Cancel", systemImage: "xmark.circle")
             }
-            .tint(.scDestructive)
         case .downloaded:
             Button(role: .destructive) { downloadManager.cancel(trackId: track.id) } label: {
                 Label("Remove", systemImage: "trash")
@@ -1103,7 +1184,7 @@ struct PlaylistRow: View {
         HStack(spacing: Spacing.md) {
             PlaylistArtworkView(
                 identity: playlist.title,
-                artworkURL: playlist.artworkURL,
+                artworkURL: playlist.displayArtworkURL,
                 trackArtworkURLs: (playlist.tracks ?? []).compactMap(\.artworkURL),
                 style: .phone
             )

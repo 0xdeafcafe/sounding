@@ -8,7 +8,7 @@ final class SoundCloudCredentialSource: ObservableObject {
 
     struct SideEffects {
         var requestSessionSync: (() -> Void)?
-        var wipeLocalIndexes: (() async -> Void)?
+        var wipeLocalIndexes: ((String?) async -> Void)?
         var clearWebSession: (() async -> Void)?
     }
 
@@ -39,13 +39,16 @@ final class SoundCloudCredentialSource: ObservableObject {
     var canRetrySession: Bool { sessionHealth.canRetry }
     var canBrowsePublicContent: Bool { true }
     var canPerformAccountMutations: Bool { isAuthenticated && sessionHealth == .healthy }
-    var canReadCachedAccountData: Bool { !isSignedOut || lockedDataDeletionDate != nil }
+    var canReadCachedAccountData: Bool { hasConfirmedAccount }
+    var hasConfirmedAccount: Bool {
+        isAuthenticated && sessionHealth == .healthy && currentUser != nil
+    }
 
     var isReadOnlySession: Bool { isSessionRejected && !isSignedOut }
 
     var sessionRecoveryMessage: String? {
         guard isReadOnlySession else { return nil }
-        return "Your saved data is still available, but SoundCloud needs you to reauthenticate before live updates, playback, or changes can continue."
+        return "SoundCloud needs you to sign in again before account content, playback, or changes can continue."
     }
 
     private var lastRejection: RejectionKind?
@@ -74,7 +77,8 @@ final class SoundCloudCredentialSource: ObservableObject {
               let signOutMillis = SessionSyncBookkeeping.localSignOutMillis() else { return }
         let defaults = UserDefaults.standard
         guard defaults.object(forKey: Self.lockedDataPurgedForSignOutKey) as? Int64 != signOutMillis else { return }
-        await wipeLocalIndexes()
+        let accountID = defaults.string(forKey: Self.lockedCacheAccountIDKey)
+        await wipeLocalIndexes(accountID: accountID)
         defaults.set(signOutMillis, forKey: Self.lockedDataPurgedForSignOutKey)
         defaults.removeObject(forKey: Self.lockedCacheAccountIDKey)
     }
@@ -95,8 +99,8 @@ final class SoundCloudCredentialSource: ObservableObject {
     }()
     #endif
 
-    private func wipeLocalIndexes() async {
-        await sideEffects.wipeLocalIndexes?()
+    private func wipeLocalIndexes(accountID: String? = nil) async {
+        await sideEffects.wipeLocalIndexes?(accountID)
     }
 
     private func requestSessionSync() {
@@ -139,6 +143,9 @@ final class SoundCloudCredentialSource: ObservableObject {
     }
 
     private func markRejected(_ kind: RejectionKind) {
+        if let accountID = currentUser?.id {
+            UserDefaults.standard.set(accountID, forKey: Self.lockedCacheAccountIDKey)
+        }
         lastRejection = kind
         rejectedSessionDigest = DeviceSessionStore.load().map(Self.digest(of:))
         hasSucceededSinceStoreChange = false
@@ -219,18 +226,27 @@ final class SoundCloudCredentialSource: ObservableObject {
             lastSignOutReason = nil
         }
         recomputeHealth()
-        isAuthenticated = !isSignedOut && !isSessionRejected
+        // A token in Keychain is only a credential candidate. Do not publish an
+        // authenticated UI until an authenticated request has actually worked.
+        isAuthenticated = sessionHealth == .healthy
     }
 
     func signOut() async {
-        if let accountID = currentUser?.id ?? SubscriptionService.shared.authenticatedAccountID {
-            UserDefaults.standard.set(accountID, forKey: Self.lockedCacheAccountIDKey)
-        }
+        let defaults = UserDefaults.standard
+        let accountID = currentUser?.id
+            ?? defaults.string(forKey: Self.lockedCacheAccountIDKey)
         DeviceSessionStore.forget()
         DeviceSessionRefresher.shared.reset()
         sessionGeneration &+= 1
         currentUserTask = nil
         currentUser = nil
+
+        // An explicit sign-out is also explicit consent to remove this
+        // account's cached library/profile data from the device. Rejected auth
+        // remains read-only so a temporary auth failure never destroys data.
+        await wipeLocalIndexes(accountID: accountID)
+        defaults.removeObject(forKey: Self.lockedCacheAccountIDKey)
+        defaults.removeObject(forKey: Self.lockedDataPurgedForSignOutKey)
 
         await sideEffects.clearWebSession?()
 
@@ -262,7 +278,9 @@ final class SoundCloudCredentialSource: ObservableObject {
         Task {
             let user = await waitForCurrentUser()
             if let lockedAccountID = UserDefaults.standard.string(forKey: Self.lockedCacheAccountIDKey) {
-                if let user, user.id != lockedAccountID { await wipeLocalIndexes() }
+                if let user, user.id != lockedAccountID {
+                    await wipeLocalIndexes(accountID: lockedAccountID)
+                }
                 UserDefaults.standard.removeObject(forKey: Self.lockedCacheAccountIDKey)
             }
         }
@@ -350,10 +368,10 @@ extension SoundCloudCredentialSource: SoundCloudCredentialSourcing {
         lastRejection = nil
         rejectedSessionDigest = nil
         hasSucceededSinceStoreChange = true
-        guard sessionHealth != .healthy else { return }
         lastSignOutReason = nil
         isSignedOut = false
         isAuthenticated = true
+        guard sessionHealth != .healthy else { return }
         publishHealth(.healthy)
     }
 
@@ -447,6 +465,7 @@ extension SoundCloudCredentialSource: SoundCloudSessionSyncSource {
         hasSucceededSinceStoreChange = false
         currentUser = nil
         recomputeHealth()
+        isAuthenticated = false
         _ = await waitForCurrentUser()
         notifyAuthenticationChanged()
     }

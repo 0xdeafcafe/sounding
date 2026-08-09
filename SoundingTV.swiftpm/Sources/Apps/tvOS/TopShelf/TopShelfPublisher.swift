@@ -82,7 +82,7 @@ enum TopShelfPublisher {
     }
 
     private static func playlistArtwork(_ playlist: Playlist) -> URL? {
-        playlist.artworkURL ?? playlist.tracks?.first(where: { $0.artworkURL != nil })?.artworkURL
+        playlist.displayArtworkURL
     }
 
     static func publish(stream: [Track], liked: [Track]) {

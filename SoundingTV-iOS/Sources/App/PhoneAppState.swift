@@ -90,7 +90,7 @@ enum LoadFailure: Equatable {
     var title: String {
         switch self {
         case .notSignedIn:        return "Not Signed In"
-        case .sessionRejected:    return "Session Expired"
+        case .sessionRejected:    return "Sign-In Expired"
         case .cannotRenewSession: return "Sign In Again"
         case .offline:            return "No Connection"
         case .server:             return "SoundCloud Is Having Trouble"

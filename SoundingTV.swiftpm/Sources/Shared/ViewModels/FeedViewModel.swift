@@ -45,7 +45,7 @@ final class FeedViewModel: ObservableObject {
     }
 
     func loadContent() async {
-        #if DEBUG && os(tvOS)
+        #if DEBUG
         if VisualFixtures.isEnabled {
             items = VisualFixtures.feed
             loadedOnce = true

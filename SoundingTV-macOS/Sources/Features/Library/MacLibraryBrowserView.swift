@@ -64,17 +64,10 @@ struct MacSignedOutEmptyState: View {
                 }
                 .buttonStyle(.bordered)
 
-                Button {
+                Button("Open Account") {
                     MacRootSelection.shared.request(.account)
-                } label: {
-                    Text("Open Account")
-                        .font(style.fontBodyEmphasis)
-                        .foregroundStyle(style.accentOn)
-                        .padding(.horizontal, style.spaceBase)
-                        .padding(.vertical, style.spaceTight)
-                        .background(Capsule(style: .continuous).fill(style.accent))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
             }
             .padding(.top, style.spaceHair)
         }

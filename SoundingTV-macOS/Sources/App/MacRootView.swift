@@ -183,37 +183,8 @@ struct MacRootView: View {
         // player takeover opened.
         .background(MacWindowToolbarVisibility(isHidden: isShowingNowPlaying).frame(width: 0, height: 0))
         .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: isShowingNowPlaying)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if credentials.isReadOnlySession {
-                HStack(spacing: 12) {
-                    Image(systemName: "lock.fill")
-                    Text("Session expired. Saved data remains available read-only.")
-                    Spacer()
-                    Button("Reauthenticate") { isShowingSessionRecovery = true }
-                        .buttonStyle(.borderedProminent)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(.regularMaterial)
-                .accessibilityElement(children: .combine)
-            } else if case .waiting(_, let until) = soundCloudTrafficState {
-                HStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text("SoundCloud access is temporarily paused until (until.formatted(date: .abbreviated, time: .shortened)).")
-                    Spacer()
-                    Button("Open Account Settings") { openSettings() }
-                        .buttonStyle(.bordered)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(.regularMaterial)
-                .accessibilityElement(children: .combine)
-            }
-        }
         .sheet(isPresented: $isShowingSessionRecovery) {
             MacSoundCloudSignInView(peerName: nil, forHandoff: false, isReauthentication: true) {
-                credentials.didCompleteSignIn()
                 isShowingSessionRecovery = false
             }
             .frame(minWidth: 720, minHeight: 620)
@@ -224,12 +195,31 @@ struct MacRootView: View {
         .task {
             soundCloudTrafficState = SoundCloudAPI.shared.trafficSafetyState()
         }
+        .task(id: trafficWaitDeadline) {
+            guard let until = trafficWaitDeadline else { return }
+            let remaining = until.timeIntervalSinceNow
+            if remaining > 0 {
+                try? await Task.sleep(for: .seconds(remaining))
+            }
+            guard !Task.isCancelled else { return }
+            try? SoundCloudAPI.shared.enforceTrafficSafety()
+            _ = await credentials.revalidate()
+            soundCloudTrafficState = SoundCloudAPI.shared.trafficSafetyState()
+        }
+    }
+
+    private var trafficWaitDeadline: Date? {
+        guard case .waiting(_, let until) = soundCloudTrafficState else { return nil }
+        return until
     }
 
     private var splitView: some View {
         NavigationSplitView {
             MacSidebar(selection: sidebarSelection, playlists: sidebarPlaylists)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+                .overlay(alignment: .trailing) {
+                    Divider().ignoresSafeArea()
+                }
         } detail: {
             ZStack(alignment: .trailing) {
                 navigationDetail
@@ -404,6 +394,9 @@ struct MacRootView: View {
             pathChangeComesFromHistory = false
         }
         .background(MacVisualEffectBackground(role: .contentBackground).ignoresSafeArea())
+        .safeAreaInset(edge: .top, spacing: 0) {
+            accountStatusBanner
+        }
         .safeAreaInset(edge: .bottom) {
             if selection != .console && !isShowingNowPlaying {
                 MacTransportBar(activeSidebarPane: sidebarPlayerPane) { pane in
@@ -418,6 +411,26 @@ struct MacRootView: View {
             }
         }
         .animation(reduceMotion ? nil : SCContentMotion.settle, value: player.currentTrack?.id)
+    }
+
+    @ViewBuilder
+    private var accountStatusBanner: some View {
+        if credentials.isReadOnlySession {
+            HStack(spacing: 12) {
+                Image(systemName: "lock.fill")
+                Text("SoundCloud sign-in expired.")
+                Spacer()
+                Button("Reauthenticate") { isShowingSessionRecovery = true }
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.regularMaterial)
+            .overlay(alignment: .bottom) { Divider() }
+            .accessibilityElement(children: .combine)
+        } else if case .waiting(_, let until) = soundCloudTrafficState {
+            MacTrafficPauseBanner(until: until)
+        }
     }
 
     private func navigateBack() {
@@ -514,6 +527,33 @@ struct MacRootView: View {
     }
 }
 
+private struct MacTrafficPauseBanner: View {
+    let until: Date
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "clock.badge.exclamationmark.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("SoundCloud is temporarily limiting requests")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("Your sign-in is saved. Verification, syncing, and new requests resume automatically at \(until.formatted(date: .abbreviated, time: .shortened)).")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 12)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 private struct MacOwnProfilePaneView: View {
     @EnvironmentObject private var credentials: SoundCloudCredentialSource
     let pane: ArtistDetailPane
@@ -523,23 +563,28 @@ private struct MacOwnProfilePaneView: View {
 
     var body: some View {
         Group {
-            if let user = credentials.currentUser {
-                MacArtistDetailView(user: user, initialPane: pane)
-            } else if credentials.isSessionRejected {
+            if credentials.isSessionRejected {
                 ContentUnavailableView {
-                    Label("Session Expired", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
+                    Label("Sign-In Expired", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
                 } description: {
-                    Text("Reauthenticate to load this account section. Your cached data is preserved.")
+                    Text("Sign in again to load this account section.")
                 } actions: {
                     Button("Reauthenticate") { isShowingReauthentication = true }
                         .buttonStyle(.borderedProminent)
                 }
             } else if credentials.isSignedOut {
-                ContentUnavailableView {
-                    Label("Please Sign In", systemImage: "person.crop.circle.badge.plus")
-                } description: {
-                    Text("Home and Search remain available in guest mode. Please sign in to view account activity.")
+                VStack(spacing: 0) {
+                    MacPaneHeader(title: paneTitle)
+                    MacSignedOutEmptyState(
+                        icon: "person.crop.circle.badge.questionmark",
+                        title: "\(paneTitle) Needs an Account",
+                        message: "Sign in on this Mac to view \(paneTitle.lowercased()). Home and Search still work in guest mode.",
+                        browsableRoute: .home
+                    )
+                    Spacer(minLength: 0)
                 }
+            } else if credentials.hasConfirmedAccount, let user = credentials.currentUser {
+                MacArtistDetailView(user: user, initialPane: pane)
             } else if loadFailed {
                 ContentUnavailableView {
                     Label("Couldn’t Load Your Profile", systemImage: "wifi.exclamationmark")
@@ -549,9 +594,17 @@ private struct MacOwnProfilePaneView: View {
                     Button("Try Again") { attempt &+= 1 }
                 }
             } else {
-                ProgressView("Loading profile…")
+                VStack(spacing: 0) {
+                    MacPaneHeader(title: paneTitle)
+                    ProgressView("Checking sign-in…")
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 48)
+                    Spacer(minLength: 0)
+                }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MacVisualEffectBackground(role: .contentBackground).ignoresSafeArea())
         .task(id: attempt) {
             loadFailed = false
             guard !credentials.isSignedOut,
@@ -561,11 +614,19 @@ private struct MacOwnProfilePaneView: View {
         }
         .sheet(isPresented: $isShowingReauthentication) {
             MacSoundCloudSignInView(peerName: nil, forHandoff: false, isReauthentication: true) {
-                credentials.didCompleteSignIn()
                 isShowingReauthentication = false
                 attempt &+= 1
             }
             .frame(minWidth: 720, minHeight: 620)
+        }
+    }
+
+    private var paneTitle: String {
+        switch pane {
+        case .followers: return "Followers"
+        case .following: return "Following"
+        case .tracks: return "Your Tracks"
+        default: return "Account"
         }
     }
 }
@@ -783,6 +844,8 @@ private struct MacSidebar: View {
     private let social: [MacRootView.Section] = [.profile, .messages, .followers, .following, .myTracks]
 
     @State private var isDiagnosticsExpanded = false
+    @State private var isShowingAuthentication = false
+    @State private var isReauthentication = false
     @State private var isPlaylistsExpanded = true
     @State private var areYourPlaylistsExpanded = true
     @State private var areLikedPlaylistsExpanded = true
@@ -792,6 +855,17 @@ private struct MacSidebar: View {
     var body: some View {
         sourceList
             .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
+            .sheet(isPresented: $isShowingAuthentication) {
+                MacSoundCloudSignInView(
+                    peerName: nil,
+                    forHandoff: false,
+                    isReauthentication: isReauthentication
+                ) {
+                    isShowingAuthentication = false
+                    isReauthentication = false
+                }
+                .frame(minWidth: 720, minHeight: 620)
+            }
     }
 
     private var sidebarFooter: some View {
@@ -809,10 +883,6 @@ private struct MacSidebar: View {
         List(selection: $selection) {
             Section {
                 ForEach(primary) { navigationRow(for: $0) }
-            }
-
-            Section("Social") {
-                ForEach(social) { navigationRow(for: $0) }
             }
 
             Section {
@@ -856,6 +926,10 @@ private struct MacSidebar: View {
                 }
             } header: {
                 Text("Playlists")
+            }
+
+            Section("Social") {
+                ForEach(social) { navigationRow(for: $0) }
             }
 
             Section(isExpanded: $isDiagnosticsExpanded) {
@@ -959,19 +1033,39 @@ private struct MacSidebar: View {
     @ViewBuilder
     private var accountFooter: some View {
         Button {
-            if intelligenceStatus != nil {
+            if !credentials.hasConfirmedAccount {
+                // A usable session awaiting a throttled verification is not a
+                // sign-out. Reopening OAuth here creates duplicate logins and
+                // makes the temporary state look like an account rejection.
+                guard credentials.isSignedOut || credentials.isSessionRejected else { return }
+                isReauthentication = credentials.isSessionRejected
+                isShowingAuthentication = true
+            } else if intelligenceStatus != nil {
                 MacSettingsNavigation.shared.selection = .intelligence
+                openSettings()
+            } else {
+                openSettings()
             }
-            openSettings()
         } label: {
             HStack(spacing: 8) {
                 accountAvatar
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(credentials.currentUser?.displayName ?? "Please Sign In")
+                    Text(accountTitle)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    if let status = intelligenceStatus ?? syncStatus {
+                    if isAwaitingVerification {
+                        Text("Verification temporarily paused")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                            .lineLimit(1)
+                    } else if credentials.isReadOnlySession {
+                        Text("Sign-in expired · reauthenticate")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                            .lineLimit(1)
+                    } else if credentials.hasConfirmedAccount,
+                              let status = intelligenceStatus ?? syncStatus {
                         HStack(spacing: 4) {
                             ProgressView().controlSize(.mini)
                             Text(status)
@@ -983,11 +1077,6 @@ private struct MacSidebar: View {
                         Text("Guest mode")
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    } else if credentials.isReadOnlySession {
-                        Text("Session expired · reauthenticate")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.orange)
                             .lineLimit(1)
                     }
                 }
@@ -1002,6 +1091,23 @@ private struct MacSidebar: View {
         .frame(maxWidth: .infinity)
         .background(MacVisualEffectBackground(role: .sidebar))
         .overlay(alignment: .top) { Divider() }
+    }
+
+    private var isAwaitingVerification: Bool {
+        !credentials.isSignedOut
+            && !credentials.hasConfirmedAccount
+            && !credentials.isSessionRejected
+    }
+
+    private var accountTitle: String {
+        if credentials.hasConfirmedAccount {
+            return credentials.currentUser?.displayName ?? "SoundCloud"
+        }
+        if credentials.isReadOnlySession { return "Sign-In Expired" }
+        if isAwaitingVerification {
+            return credentials.currentUser?.displayName ?? "Finishing Sign-In"
+        }
+        return "Please Sign In"
     }
 
     private var syncStatus: String? {
@@ -1492,7 +1598,7 @@ private struct MacTVCompanionView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Share with \(phone.displayName)")
                             .font(.title3.weight(.semibold))
-                        Text("This iPhone is signed into the same SoundingCloud session. While the app is open, its playback, queue and DJ state can be controlled here.")
+                        Text("This iPhone is signed into the same SoundingCloud account. While the app is open, its playback, queue and DJ state can be controlled here.")
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -1790,7 +1896,7 @@ private struct MacTVCompanionView: View {
 
     private func usableSession() -> StoredSession? {
         guard let session = DeviceSessionStore.load(), session.isUsable else {
-            errorMessage = "Sign in to SoundCloud on this Mac, or let iCloud sync a session from another device, then authorise the TV."
+            errorMessage = "Sign in to SoundCloud on this Mac before authorising the TV."
             return nil
         }
         return session
@@ -1863,7 +1969,7 @@ private struct StatusPane: View {
             SwiftUI.Section("Account") {
                 LabeledContent("SoundCloud") {
                     if credentials.isSessionRejected {
-                        Text("Session expired — reauthentication required").foregroundStyle(.orange)
+                        Text("Sign-in expired — reauthentication required").foregroundStyle(.orange)
                     } else if credentials.isSignedOut {
                         Text("Please Sign In").foregroundStyle(.secondary)
                     } else if let user = credentials.currentUser {
@@ -2077,6 +2183,7 @@ struct MacSettingsView: View {
         }
         .tint(.scAccent)
         .background(MacWindowChrome().frame(width: 0, height: 0))
+        .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         .frame(width: 680, height: 560)
     }
 }

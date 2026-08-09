@@ -24,15 +24,20 @@ struct SoundingTViOSApp: App {
         SoundCloudCredentialSource.install()
         SoundCloudCredentialSource.shared.sideEffects = .init(
             requestSessionSync: { CloudSyncCoordinator.shared.requestSessionSync() },
-            wipeLocalIndexes: {
+            wipeLocalIndexes: { accountID in
                 LikesSyncEngine.shared.handleSignOut()
                 await LibraryCache.shared.clearAll()
+                if let accountID { AccountDataVault.forget(accountID: accountID) }
             },
             clearWebSession: { await AuthWebSession.clear() }
         )
         SessionSyncTarget.source = SoundCloudCredentialSource.shared
         PlayerService.lifecycleObserver = PlayerLifecycleObserver.shared
+        #if DEBUG
+        if !VisualFixtures.isEnabled { LikesSyncEngine.shared.activate() }
+        #else
         LikesSyncEngine.shared.activate()
+        #endif
         LikesSyncLifecycleCoordinator.shared.install()
         Task { await SoundCloudCredentialSource.shared.purgeExpiredLockedDataIfNeeded() }
 
@@ -115,6 +120,9 @@ struct SoundingTViOSApp: App {
             .environmentObject(coordinator)
             .environmentObject(polyphony)
             .task {
+                #if DEBUG
+                guard !VisualFixtures.isEnabled else { return }
+                #endif
                 await SoundCloudCredentialSource.shared.refreshIfNeededAtLaunch()
             }
             .task {
@@ -157,6 +165,9 @@ struct SoundingTViOSApp: App {
             }
             .task { SpotlightIndexingService.shared.start(player: playerService) }
             .task {
+                #if DEBUG
+                guard !VisualFixtures.isEnabled else { return }
+                #endif
                 CloudSyncCoordinator.shared.start()
                 await CloudSyncCoordinator.shared.runOnce(
                     analysisStore: AnalysisCache.shared,

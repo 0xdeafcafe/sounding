@@ -11,6 +11,7 @@ struct HomeView: View {
     @EnvironmentObject var authService: AuthenticationService
     @EnvironmentObject var navigationState: NavigationState
     @FocusState private var focus: BrowseFocus?
+    @State private var showsInitialLoadingIndicator = false
 
     var body: some View {
         NavigationStack {
@@ -40,6 +41,13 @@ struct HomeView: View {
         .defaultFocus($focus, .firstCard)
         .onAppear { DispatchQueue.main.async { focus = .firstCard } }
         .task { await viewModel.loadContent() }
+        .task(id: viewModel.isLoading && viewModel.shelves.isEmpty) {
+            showsInitialLoadingIndicator = false
+            guard viewModel.isLoading, viewModel.shelves.isEmpty else { return }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, viewModel.isLoading, viewModel.shelves.isEmpty else { return }
+            showsInitialLoadingIndicator = true
+        }
         .onChange(of: authService.isAuthenticated) { _, isAuthed in
             if isAuthed {
                 Task { await viewModel.loadContent() }
@@ -99,7 +107,17 @@ struct HomeView: View {
     @ViewBuilder
     private var homeStatus: some View {
         if viewModel.isLoading {
-            StatusPanel(kind: .loading, title: "Loading your music…", minHeight: 700)
+            Group {
+                if showsInitialLoadingIndicator {
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(Color.scAccent)
+                        .accessibilityLabel("Loading Home")
+                } else {
+                    Color.clear.accessibilityHidden(true)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 320)
         } else if let error = viewModel.errorMessage {
             StatusPanel(
                 kind: .error,
@@ -146,9 +164,9 @@ enum SCBrowseMetrics {
     static let heroHeight: CGFloat = 650
 
     static let pageInset: CGFloat = 0
-    /// Clears the floating sidebar-adaptable tab capsule, which extends below
-    /// the system-reported safe area when expanded.
-    static let contentTopInset: CGFloat = 12
+    /// Gives the first shelf the same breathing room as subsequent shelves.
+    /// Home no longer has a second, floating segmented control to clear.
+    static let contentTopInset: CGFloat = Space.base
 
     static let headerGap: CGFloat = Space.base         // 24
     static let shelfGap: CGFloat = Spacing.xxxl        // 64
@@ -536,7 +554,7 @@ struct HomeCollection: Identifiable {
     let mosaicURLs: [URL]
 
     var artworkURL: URL? {
-        playlist.largeArtworkURL ?? playlist.artworkURL
+        playlist.largeDisplayArtworkURL
     }
 
     init(playlist: Playlist, kicker: String) {
@@ -564,7 +582,7 @@ struct HomeCollection: Identifiable {
 @MainActor
 class HomeViewModel: ObservableObject {
     @Published private(set) var shelves: [HomeShelf] = []
-    @Published var isLoading = false
+    @Published var isLoading = true
     @Published var errorMessage: String?
 
     @Published private var continueListening: [Track] = []
@@ -689,6 +707,7 @@ class HomeViewModel: ObservableObject {
         streamTracks = []
         likedTracks = []
         errorMessage = nil
+        isLoading = false
         lastLoaded = nil
         discovery.reset()
         rebuildShelves()
@@ -714,10 +733,19 @@ class HomeViewModel: ObservableObject {
         }
         #endif
 
-        guard AuthenticationService.shared.isAuthenticated else { return }
+        guard AuthenticationService.shared.isAuthenticated else {
+            isLoading = false
+            return
+        }
 
         isLoading = true
         defer { isLoading = false }
+
+        // A persisted discovery snapshot should be the first TV frame. The
+        // refresh below can then replace it without blocking navigation.
+        await discovery.hydrateCachedContent()
+        discoveryShelves = discovery.shelves
+        rebuildShelves()
 
         if let recents = await fetchContinueListening() {
             continueListening = recents.tracks

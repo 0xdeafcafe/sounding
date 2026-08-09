@@ -80,7 +80,7 @@ struct MacAlbumsPane: View {
             ForEach(model.albums) { album in
                 NavigationLink(value: album) {
                     SCCollectionArtworkResolver(
-                        artworkURL: album.artworkURL,
+                        artworkURL: album.displayArtworkURL,
                         trackArtworkURLs: (album.tracks ?? []).compactMap(\.artworkURL)
                     ) { image in
                         SCMediaCard(

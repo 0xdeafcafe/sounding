@@ -8,15 +8,17 @@ private enum ProfileLoadState: Equatable {
 
 struct ProfileView: View {
     @ObservedObject private var credentials = SoundCloudCredentialSource.shared
-    @State private var showingFollowing = false
+    @State private var peopleSheet: ProfilePeopleKind?
     @State private var loadState: ProfileLoadState = .loading
     @State private var isShowingSignIn = false
     @State private var attempt = 0
 
     var body: some View {
         Group {
-            if let user = credentials.currentUser {
+            if let user = presentedUser {
                 profile(for: user)
+            } else if credentials.needsSignIn {
+                failureState(.credentialFailure())
             } else {
                 switch loadState {
                 case .loading:
@@ -38,25 +40,38 @@ struct ProfileView: View {
         }
     }
 
+    private var presentedUser: User? {
+        #if DEBUG
+        if VisualFixtures.isEnabled { return VisualFixtures.currentUser }
+        #endif
+        return credentials.currentUser
+    }
+
     @ViewBuilder
     private func profile(for user: User) -> some View {
         ArtistDetailView(user: user)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button {
-                                showingFollowing = true
+                            Menu {
+                                ForEach(ProfilePeopleKind.allCases) { kind in
+                                    Button {
+                                        peopleSheet = kind
+                                    } label: {
+                                        Label(kind.rawValue, systemImage: kind.symbol)
+                                    }
+                                }
                             } label: {
                                 Image(systemName: "person.2")
                             }
-                            .accessibilityLabel("Following")
+                            .accessibilityLabel("Followers and Following")
                         }
                     }
-                    .sheet(isPresented: $showingFollowing) {
+                    .sheet(item: $peopleSheet) { kind in
                         NavigationStack {
-                            ProfileFollowingListView(userId: user.id)
+                            ProfilePeopleListView(userId: user.id, kind: kind)
                                 .toolbar {
                                     ToolbarItem(placement: .confirmationAction) {
-                                        Button("Done") { showingFollowing = false }
+                                        Button("Done") { peopleSheet = nil }
                                     }
                                 }
                         }
@@ -64,6 +79,9 @@ struct ProfileView: View {
     }
 
     private func loadProfile() async {
+        #if DEBUG
+        if VisualFixtures.isEnabled { return }
+        #endif
         credentials.refreshFromStore()
         guard credentials.currentUser == nil else { return }
 
@@ -115,38 +133,53 @@ struct ProfileView: View {
     }
 }
 
-struct ProfileFollowingListView: View {
-    let userId: String
+private enum ProfilePeopleKind: String, CaseIterable, Identifiable {
+    case followers = "Followers"
+    case following = "Following"
 
-    @StateObject private var viewModel = ProfileFollowingListViewModel()
+    var id: Self { self }
+    var symbol: String { self == .followers ? "person.2.fill" : "person.crop.circle.badge.checkmark" }
+}
+
+private struct ProfilePeopleListView: View {
+    let userId: String
+    let kind: ProfilePeopleKind
+
+    @StateObject private var viewModel = ProfilePeopleListViewModel()
 
     var body: some View {
         content
             .scrollContentBackground(.hidden)
             .background(Color.scBgBase.ignoresSafeArea())
-            .navigationTitle("Following")
+            .navigationTitle(kind.rawValue)
             .navigationBarTitleDisplayMode(.inline)
-            .task { await viewModel.load(userId: userId) }
+            .task { await viewModel.load(userId: userId, kind: kind) }
     }
 
     @ViewBuilder
     private var content: some View {
         switch viewModel.state {
         case .loading:
-            LoadingState(message: "Loading who you follow…")
+            LoadingState(message: kind == .followers ? "Loading followers…" : "Loading who you follow…")
         case .failed(let failure):
             SCEmptyState(
                 kind: failure.isFault ? .error : .empty,
                 icon: failure.icon,
                 title: failure.title,
-                message: failure.message(subject: "who you follow"),
+                message: failure.message(subject: kind.rawValue.lowercased()),
                 actionTitle: "Try Again",
-                action: { Task { await viewModel.load(userId: userId, forceRefresh: true) } },
+                action: { Task { await viewModel.load(userId: userId, kind: kind, forceRefresh: true) } },
                 style: .phone
             )
         case .empty:
-            SCEmptyState(icon: "person.2", title: "Not Following Anyone",
-                         message: "Artists you follow will appear here.", style: .phone)
+            SCEmptyState(
+                icon: kind.symbol,
+                title: kind == .followers ? "No Followers Yet" : "Not Following Anyone",
+                message: kind == .followers
+                    ? "People who follow you will appear here."
+                    : "Artists you follow will appear here.",
+                style: .phone
+            )
         case .loaded:
             List {
                 ForEach(viewModel.users) { user in
@@ -166,7 +199,7 @@ struct ProfileFollowingListView: View {
 }
 
 @MainActor
-private final class ProfileFollowingListViewModel: ObservableObject {
+private final class ProfilePeopleListViewModel: ObservableObject {
     enum State: Equatable { case loading, loaded, empty, failed(LoadFailure) }
 
     @Published private(set) var state: State = .loading
@@ -177,13 +210,27 @@ private final class ProfileFollowingListViewModel: ObservableObject {
     private var cursor = PageCursor<User>()
     private var loadedOnce = false
 
-    func load(userId: String, forceRefresh: Bool = false) async {
+    func load(userId: String, kind: ProfilePeopleKind, forceRefresh: Bool = false) async {
+        #if DEBUG
+        if VisualFixtures.isEnabled {
+            users = VisualFixtures.artists
+            state = .loaded
+            loadedOnce = true
+            return
+        }
+        #endif
         guard !loadedOnce || forceRefresh else { return }
         loadedOnce = true
         state = .loading
 
         do {
-            let page = try await api.getUserFollowings(userId: userId, limit: 50)
+            let page: Page<User>
+            switch kind {
+            case .followers:
+                page = try await api.getUserFollowers(userId: userId, limit: 50)
+            case .following:
+                page = try await api.getUserFollowings(userId: userId, limit: 50)
+            }
             users = page.collection
             cursor.advance(to: page)
             state = users.isEmpty ? .empty : .loaded
@@ -206,7 +253,7 @@ private final class ProfileFollowingListViewModel: ObservableObject {
             cursor.advance(to: next)
             users.appendUnique(contentsOf: next.collection)
         } catch {
-            Log.api.error("Profile following load-more error: \(error, privacy: .public)")
+            Log.api.error("Profile people load-more error: \(error, privacy: .public)")
         }
     }
 }
@@ -216,45 +263,77 @@ struct AccountAvatarButton: View {
     @State private var isShowingAccount = false
 
     var body: some View {
-        Button {
-            isShowingAccount = true
-        } label: {
-            if credentials.isSignedOut {
-                Label("Sign In", systemImage: "person.crop.circle.badge.plus")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Color.scAccent)
-                    .padding(.horizontal, 4)
-                    .frame(minHeight: 44)
-            } else {
-                ArtworkThumbnail(
-                    url: credentials.currentUser?.avatarURL,
-                    systemImage: "person.fill",
-                    isCircle: true,
-                    size: 40,
-                    identity: credentials.currentUser?.displayName ?? "SoundCloud account"
-                )
-                .overlay(alignment: .bottomTrailing) {
-                    Circle()
-                        .fill(accountStatusColor)
-                        .frame(width: 10, height: 10)
-                        .overlay(Circle().stroke(Color.black.opacity(0.8), lineWidth: 2))
+        Group {
+            if opensProfileDirectly {
+                NavigationLink {
+                    ProfileView()
+                } label: {
+                    avatarLabel
                 }
-                .frame(width: 44, height: 44)
+            } else {
+                Button {
+                    isShowingAccount = true
+                } label: {
+                    avatarLabel
+                }
             }
         }
         .accessibilityLabel(
-            credentials.currentUser.map { "Account, \($0.displayName)" }
+            presentedUser.map { "Account, \($0.displayName)" }
                 ?? (credentials.isSignedOut ? "Account, signed out" : "Account")
         )
         .sheet(isPresented: $isShowingAccount) {
             AccountSheetView()
         }
         .onAppear {
-            if Self.debugOpensSheet { isShowingAccount = true }
+            if Self.debugOpensSheet, !opensProfileDirectly { isShowingAccount = true }
         }
     }
 
+    @ViewBuilder
+    private var avatarLabel: some View {
+        if presentedUser == nil, credentials.isSignedOut {
+            Label("Sign In", systemImage: "person.crop.circle.badge.plus")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color.scAccent)
+                .padding(.horizontal, 4)
+                .frame(minHeight: 44)
+        } else {
+            ArtworkThumbnail(
+                url: presentedUser?.avatarURL,
+                systemImage: "person.fill",
+                isCircle: true,
+                size: 40,
+                identity: presentedUser?.displayName ?? "SoundCloud account"
+            )
+            .overlay(alignment: .bottomTrailing) {
+                Circle()
+                    .fill(accountStatusColor)
+                    .frame(width: 10, height: 10)
+                    .overlay(Circle().stroke(Color.black.opacity(0.8), lineWidth: 2))
+            }
+            .frame(width: 44, height: 44)
+        }
+    }
+
+    private var opensProfileDirectly: Bool {
+        #if DEBUG
+        if VisualFixtures.isEnabled { return true }
+        #endif
+        return !credentials.isSignedOut && !credentials.isSessionRejected
+    }
+
+    private var presentedUser: User? {
+        #if DEBUG
+        if VisualFixtures.isEnabled { return VisualFixtures.currentUser }
+        #endif
+        return credentials.currentUser
+    }
+
     private var accountStatusColor: Color {
+        #if DEBUG
+        if VisualFixtures.isEnabled { return .green }
+        #endif
         if credentials.isSessionRejected { return .red }
         if credentials.isSignedOut { return .secondary }
         return .green
@@ -362,7 +441,7 @@ struct AccountSheetView: View {
             }
             .disabled(isSigningOut)
         } footer: {
-            Text("Signs this iPhone out and clears its stored web session. Your Apple TV and other devices stay signed in.")
+            Text("Signs this iPhone out and clears its stored authentication and account content. Your Apple TV and other devices stay signed in.")
         }
         .listRowBackground(Color.scBgOverlay)
     }
@@ -380,9 +459,9 @@ struct AccountSheetView: View {
         Section {
             Button("Reauthenticate") { isShowingSignIn = true }
         } header: {
-            Text("Session Expired")
+            Text("Sign-In Expired")
         } footer: {
-            Text("Your cached data remains on this device, but saving, following, messaging, and downloading stay locked until you reconnect.")
+            Text("Sign in again to access your profile and account content.")
         }
         .listRowBackground(Color.scBgOverlay)
     }

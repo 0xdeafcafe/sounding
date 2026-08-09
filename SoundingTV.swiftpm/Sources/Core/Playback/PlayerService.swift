@@ -132,6 +132,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var isLoading = false
     @Published private(set) var loadingState: PlaybackLoadingState = .idle
+    @Published private(set) var playbackErrorMessage: String?
     /// Increments only for a user-selected track, never for automatic queue
     /// advancement. Shells use this to present Now Playing at the right time.
     @Published private(set) var explicitPlayRequest: UInt64 = 0
@@ -539,6 +540,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
 
     func play(_ track: Track, in context: [Track], collectionId: String? = nil) async {
         explicitPlayRequest &+= 1
+        playbackErrorMessage = nil
         applyCollectionPolicyForPlayback(collectionId: collectionId, tracks: context)
 
         var tracks = filteredDJContext(context, preserving: track)
@@ -634,6 +636,10 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         isLoading = true
         currentTrack = track
         duration = track.duration
+        // Queue mutations happen before currentTrack is assigned, so their
+        // persistence hooks cannot yet save a valid snapshot. Save once more
+        // here so even an immediate process crash can restore this selection.
+        persistSessionState(force: true)
 
         if activeCollectionPolicy?.resolvedIntelligence != .off {
             Self.scheduleTier1Analysis(for: track)
@@ -673,9 +679,17 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             guard issued == loadGeneration else { return }
             // Only reuse a standby warmed from the URL we will actually play;
             // a standby built from a stale URL is worse than a fresh asset.
+            // Reuse the entire standby player rather than moving its item to a
+            // different player. That preserves AVFoundation's pre-roll buffer
+            // without risking the "item belongs to another player" exception.
             let standby = consumeStandbyItem(for: track, matching: streamURL)
             if let standby {
-                await playStream(asset: standby.asset, startPosition: resolvedStartPosition, preparedItem: standby.item)
+                await playStream(
+                    asset: standby.asset,
+                    startPosition: resolvedStartPosition,
+                    preparedItem: standby.item,
+                    preparedPlayer: standby.player
+                )
             } else {
                 await playStream(asset: AVURLAsset(url: streamURL), startPosition: resolvedStartPosition)
             }
@@ -688,7 +702,17 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             teardownPeerContent()
             isLoading = false
             loadingState = .idle
+            playbackErrorMessage = Self.describePlaybackFailure(error)
         }
+    }
+
+    private static func describePlaybackFailure(_ error: Error) -> String {
+        if let apiError = error as? APIError {
+            return apiError.errorDescription ?? "This track could not be played."
+        }
+        return error.localizedDescription.isEmpty
+            ? "This track could not be played."
+            : error.localizedDescription
     }
 
     static func resolveStreamURL(for track: Track, collectionId: String? = nil) async throws -> URL {
@@ -842,6 +866,13 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         // Peer-served playback resolves through its own loader; don't double-warm.
         guard Self.peerContentSource?.peerContentEndpoint == nil else { return }
 
+        #if os(tvOS)
+        // tvOS 27 currently raises an Objective-C exception from AVPlayer's
+        // preroll/cancelPendingPrerolls path when speculative players are
+        // refreshed as playback begins. URL resolution above remains cached;
+        // avoid constructing hidden players until AVFoundation makes this
+        // operation safe again on TV.
+        #else
         // Standby players download real bytes; skip on constrained networks
         // and while the stall circuit breaker is open (URL prefetching above
         // is a cheap API call and stays ungated).
@@ -856,11 +887,15 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
 
             let asset = AVURLAsset(url: cached.url)
             let item = AVPlayerItem(asset: asset)
-            item.preferredForwardBufferDuration = 0
+            item.preferredForwardBufferDuration = 6
             let player = AVPlayer(playerItem: item)
-            player.pause()
+            player.automaticallyWaitsToMinimizeStalling = false
             standbyItems[track.id] = StandbyItem(asset: asset, item: item, player: player)
+            // Constructing a paused AVPlayer does not request media. Pre-roll is
+            // what actually opens the CDN connection and fills the first buffer.
+            player.preroll(atRate: 1) { _ in }
         }
+        #endif
     }
 
     /// Removes and returns the standby item for a track, but only if it was
@@ -868,7 +903,6 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     /// torn down and discarded.
     private func consumeStandbyItem(for track: Track, matching url: URL) -> StandbyItem? {
         guard let standby = standbyItems.removeValue(forKey: track.id) else { return nil }
-        standby.player.replaceCurrentItem(with: nil)
         guard standby.asset.url == url else { return nil }
         return standby
     }
@@ -903,10 +937,12 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     private func playStream(
         asset: AVURLAsset,
         startPosition: TimeInterval = 0,
-        preparedItem: AVPlayerItem? = nil
+        preparedItem: AVPlayerItem? = nil,
+        preparedPlayer: AVPlayer? = nil
     ) async {
-        if let observer = timeObserver, let player = player {
-            player.removeTimeObserver(observer)
+        let previousPlayer = player
+        if let observer = timeObserver, let previousPlayer {
+            previousPlayer.removeTimeObserver(observer)
             timeObserver = nil
         }
 
@@ -959,18 +995,22 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             }
             .store(in: &cancellables)
 
-        if player == nil {
-            player = AVPlayer(playerItem: playerItem)
-            // While aggressive warm-up is allowed (good network, no recent
-            // stall tripping the circuit breaker), start on the first
-            // buffered bytes instead of waiting for the buffer to fill;
-            // otherwise fall back to the default wait-to-minimize-stalling
-            // behavior. The isPlaybackLikelyToKeepUp observer above still
-            // raises preferredForwardBufferDuration once keeping up.
-            player?.automaticallyWaitsToMinimizeStalling = !canWarmAggressively
+        if let preparedPlayer, preparedPlayer.currentItem === playerItem {
+            if previousPlayer !== preparedPlayer {
+                previousPlayer?.pause()
+                previousPlayer?.replaceCurrentItem(with: nil)
+            }
+            player = preparedPlayer
+        } else if let previousPlayer {
+            previousPlayer.replaceCurrentItem(with: playerItem)
+            player = previousPlayer
         } else {
-            player?.replaceCurrentItem(with: playerItem)
+            player = AVPlayer(playerItem: playerItem)
         }
+        // Re-evaluate this for every track because network conditions and the
+        // stall circuit breaker may have changed since the player was created.
+        player?.automaticallyWaitsToMinimizeStalling = !canWarmAggressively
+        player?.isMuted = false
         #if !os(macOS)
         if #available(iOS 27.0, tvOS 27.0, *) {
             player?.setDisconnectedFromSystemAudio(false)
@@ -1106,7 +1146,11 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             return
         }
         let cmTime = CMTime(seconds: time, preferredTimescale: 600)
-        player?.seek(to: cmTime)
+        // Exact seeks on long HLS mixes can block playback while AVPlayer waits
+        // for one precise sample. A sub-second tolerance lets it use the nearest
+        // buffered keyframe and makes waveform taps resume immediately.
+        let tolerance = CMTime(seconds: 0.75, preferredTimescale: 600)
+        player?.seek(to: cmTime, toleranceBefore: tolerance, toleranceAfter: tolerance)
         currentTime = time
         updateNowPlayingProgress()
     }
@@ -1338,9 +1382,16 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     }
 
     private static let positionPersistInterval: TimeInterval = 5
+    private static let guestPlaybackPersistenceID = "device-public-playback"
+
+    private var playbackPersistenceID: String? {
+        SubscriptionService.shared.authenticatedAccountID
+            ?? SoundCloudCredentialSource.shared.currentUser?.id
+            ?? (SoundCloudCredentialSource.shared.isSignedOut ? Self.guestPlaybackPersistenceID : nil)
+    }
 
     private func restoreLastSessionIfAvailable() {
-        guard let accountID = SubscriptionService.shared.authenticatedAccountID,
+        guard let accountID = playbackPersistenceID,
               let snapshot = PlaybackStateStore.load(accountID: accountID),
               !snapshot.trackIds.isEmpty else { return }
         restoreTask?.cancel()
@@ -1458,7 +1509,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
 
     private func persistSessionState(force: Bool = false) {
         guard !isRestoringSession else { return }
-        guard let accountID = SubscriptionService.shared.authenticatedAccountID else { return }
+        guard let accountID = playbackPersistenceID else { return }
         guard force || Date().timeIntervalSince(lastPersistedAt) >= Self.positionPersistInterval else { return }
         lastPersistedAt = Date()
 
@@ -1488,7 +1539,11 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
                 self.restoreTask?.cancel()
                 self.restoreTask = nil
                 if accountID == nil {
-                    self.clearQueue()
+                    if SoundCloudCredentialSource.shared.isSignedOut {
+                        self.restoreLastSessionIfAvailable()
+                    } else {
+                        self.clearQueue()
+                    }
                 } else {
                     self.restoreLastSessionIfAvailable()
                 }

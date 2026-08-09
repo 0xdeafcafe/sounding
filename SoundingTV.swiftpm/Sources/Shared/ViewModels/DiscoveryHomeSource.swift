@@ -35,7 +35,7 @@ enum DiscoveryEntry: Identifiable, Equatable, Codable {
 
     var artworkURL: URL? {
         switch self {
-        case .playlist(let p): return p.largeArtworkURL ?? p.artworkURL
+        case .playlist(let p): return p.largeDisplayArtworkURL
         case .station(let s): return s.artworkURL
         case .user(let u): return u.largeAvatarURL ?? u.avatarURL
         }
@@ -96,7 +96,7 @@ struct DiscoveryShelf: Identifiable, Equatable, Codable {
 @MainActor
 final class DiscoveryHomeSource: ObservableObject {
 
-    struct Seed: Equatable {
+    struct Seed: Equatable, Sendable {
         var trackID: String?
 
         var trackTitle: String?
@@ -150,7 +150,19 @@ final class DiscoveryHomeSource: ObservableObject {
     private var didHydrateCache = false
     private static let cacheSection = "discovery.home"
 
+    /// Makes the last useful Home snapshot available before network refreshes
+    /// begin. Callers can render it immediately while `load` updates quietly.
+    func hydrateCachedContent() async {
+        #if DEBUG
+        if installVisualFixturesIfNeeded() { return }
+        #endif
+        await hydrateCacheIfNeeded()
+    }
+
     func refreshIfStale(seed: Seed = Seed()) async {
+        #if DEBUG
+        if installVisualFixturesIfNeeded() { return }
+        #endif
         await hydrateCacheIfNeeded()
         guard let lastLoaded else {
             await load(seed: seed)
@@ -162,6 +174,9 @@ final class DiscoveryHomeSource: ObservableObject {
     }
 
     func load(seed: Seed = Seed()) async {
+        #if DEBUG
+        if installVisualFixturesIfNeeded() { return }
+        #endif
         await hydrateCacheIfNeeded()
         if isLoading {
             while isLoading, !Task.isCancelled {
@@ -172,21 +187,27 @@ final class DiscoveryHomeSource: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        let seed = await resolvedSeed(from: seed)
-
-        async let editorial = fetchEditorial()
-        async let chartCollections = fetchChartCollections()
-        async let trending = fetchTrending()
-        async let related = fetchRelated(seed: seed)
-        async let station = fetchStation(seed: seed)
-
         var recorded: [DiscoverySourceFailure] = []
         var built: [DiscoveryShelf] = []
 
-        for result in [
-            await editorial, await chartCollections, await trending,
-            await related, await station,
-        ] {
+        // Begin personal seed lookup concurrently, but never make public Home
+        // wait for it. Guests skip the lookup in resolvedSeed entirely.
+        async let resolvedSeedValue = resolvedSeed(from: seed)
+        async let editorial = fetchEditorial()
+        async let chartCollections = fetchChartCollections()
+        async let trending = fetchTrending()
+
+        for result in [await editorial, await chartCollections, await trending] {
+            built.append(contentsOf: result.shelves)
+            recorded.append(contentsOf: result.failures)
+        }
+        let publicShelves = reorder(built.filter { !$0.isEmpty })
+        if !publicShelves.isEmpty { shelves = publicShelves }
+
+        let resolved = await resolvedSeedValue
+        async let related = fetchRelated(seed: resolved)
+        async let station = fetchStation(seed: resolved)
+        for result in [await related, await station] {
             built.append(contentsOf: result.shelves)
             recorded.append(contentsOf: result.failures)
         }
@@ -240,6 +261,17 @@ final class DiscoveryHomeSource: ObservableObject {
         lastLoaded = nil
     }
 
+    #if DEBUG
+    private func installVisualFixturesIfNeeded() -> Bool {
+        guard VisualFixtures.isEnabled else { return false }
+        shelves = VisualFixtures.discoveryShelves
+        failures = []
+        isLoading = false
+        lastLoaded = Date()
+        return true
+    }
+    #endif
+
     private func reorder(_ built: [DiscoveryShelf]) -> [DiscoveryShelf] {
         func rank(_ kind: DiscoveryShelf.Kind) -> Int {
             switch kind {
@@ -257,6 +289,7 @@ final class DiscoveryHomeSource: ObservableObject {
 
     private func resolvedSeed(from seed: Seed) async -> Seed {
         guard seed.isEmpty else { return seed }
+        guard SoundCloudCredentialSource.shared.hasConfirmedAccount else { return seed }
         do {
             let page = try await api.getPlayHistory(limit: 1)
             guard let recent = page.collection.first else { return seed }

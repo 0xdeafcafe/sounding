@@ -53,6 +53,10 @@ struct SoundingTVApp: App {
                 .environmentObject(polyphony)
                 .environmentObject(navigationState)
                 .tint(.scAccent)
+                // tvOS artwork, focus treatments, and playback chrome are designed
+                // as one dark, cinema-style surface. Letting the system flip only
+                // some controls to light appearance produces illegible mixed states.
+                .preferredColorScheme(.dark)
                 .task {
                     #if DEBUG
                     guard !VisualFixtures.isEnabled else { return }
@@ -164,24 +168,26 @@ class NavigationState: ObservableObject {
     }
 
     enum Tab: String, CaseIterable {
-        case profile    = "Profile"
         case home       = "Home"
+        case following  = "Following"
         case search     = "Search"
         case library    = "Library"
         case nowPlaying = "Now Playing"
         case polyphony  = "Polyphony"
         case companion  = "Companion"
+        case profile    = "Profile"
         case settings   = "Settings"
 
         var icon: String {
             switch self {
-            case .profile:    return "person.crop.circle.fill"
             case .home:       return "house.fill"
+            case .following:  return "person.2.fill"
             case .search:     return "magnifyingglass"
             case .library:    return "music.note.list"
             case .nowPlaying: return "waveform"
             case .polyphony:  return "point.3.connected.trianglepath.dotted"
             case .companion:  return "iphone.and.arrow.forward"
+            case .profile:    return "person.crop.circle.fill"
             case .settings:   return "gearshape.fill"
             }
         }

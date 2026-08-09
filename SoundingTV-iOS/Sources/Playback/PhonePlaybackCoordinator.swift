@@ -488,6 +488,20 @@ final class PhonePlaybackCoordinator: ObservableObject {
     /// The active queue's upcoming tracks, whichever output owns playback.
     /// Read-only — reorder/remove stay in `QueueManagerView` for the TV queue.
     var upNextEntries: [UpNextEntry] {
+        #if DEBUG
+        if Self.debugFakeNowPlayingSource != nil, VisualFixtures.isEnabled {
+            return VisualFixtures.tracks.prefix(8).map { track in
+                UpNextEntry(
+                    id: track.id,
+                    title: track.title,
+                    artist: track.user.displayName,
+                    artworkURL: track.artworkURL?.absoluteString,
+                    duration: track.duration
+                )
+            }
+        }
+        #endif
+
         switch activeSource {
         case .thisDevice:
             guard !player.queue.isEmpty else { return [] }
@@ -516,22 +530,26 @@ final class PhonePlaybackCoordinator: ObservableObject {
         }
     }
 
-    func playHere(_ track: Track, in context: [Track], collectionId: String? = nil) async {
-        guard !PolyphonyController.shared.isSpeaker else { return }
+    @discardableResult
+    func playHere(_ track: Track, in context: [Track], collectionId: String? = nil) async -> String? {
+        guard !PolyphonyController.shared.isSpeaker else { return "Playback is controlled by the lead device." }
         if player.outputTarget == .companion(.tv) {
             player.switchOutputTarget(to: .thisDevice)
         }
         await player.play(track, in: context, collectionId: collectionId)
+        return player.playbackErrorMessage
     }
 
-    func playHere(shuffled tracks: [Track], collectionId: String? = nil) async {
-        guard !PolyphonyController.shared.isSpeaker else { return }
-        guard let start = tracks.randomElement() else { return }
+    @discardableResult
+    func playHere(shuffled tracks: [Track], collectionId: String? = nil) async -> String? {
+        guard !PolyphonyController.shared.isSpeaker else { return "Playback is controlled by the lead device." }
+        guard let start = tracks.randomElement() else { return "There are no playable tracks here." }
         if player.outputTarget == .companion(.tv) {
             player.switchOutputTarget(to: .thisDevice)
         }
         player.isShuffleEnabled = true
         await player.play(start, in: tracks, collectionId: collectionId)
+        return player.playbackErrorMessage
     }
 
     func playOnAppleTV(_ track: Track) {
@@ -653,31 +671,37 @@ final class PhonePlaybackCoordinator: ObservableObject {
         switch ProcessInfo.processInfo.environment["SOUNDING_TV_FAKE_NOWPLAYING"] {
         case "1":       return .thisDevice
         case "appletv": return .companion(.tv)
-        default:        return nil
+        default:        return VisualFixtures.isEnabled ? .thisDevice : nil
         }
         #else
         return nil
         #endif
     }
 
-    private static let debugFakeStart = Date()
-
     private static var debugFakeNowPlayingSnapshot: NowPlayingSnapshot? {
         guard let source = debugFakeNowPlayingSource else { return nil }
-        let duration: TimeInterval = 243
-        let elapsed = Date().timeIntervalSince(debugFakeStart) + 97
+        #if DEBUG
+        let track = VisualFixtures.nowPlayingMix
+        let position = ProcessInfo.processInfo.environment["SOUNDING_TV_FAKE_POSITION"]
+            .flatMap(Double.init) ?? 97
         return NowPlayingSnapshot(
             source: source,
-            trackId: "debug-fake-track",
-            title: "Midnight Runner",
-            artist: "Nocturne Collective",
-            artworkURL: "https://i1.sndcdn.com/artworks-000067273316-smsiqx-t500x500.jpg",
-            position: elapsed.truncatingRemainder(dividingBy: duration),
-            duration: duration,
+            trackId: track.id,
+            title: track.title,
+            artist: track.user.displayName,
+            artworkURL: track.artworkURL?.absoluteString,
+            // Keep the snapshot itself stable. PlaybackClock interpolates the
+            // visible position; changing this value on every property read can
+            // prevent SwiftUI's tab accessory layout from reaching equilibrium.
+            position: position,
+            duration: track.duration,
             isPlaying: true,
             isLoading: false,
             isDJEngineLive: false
         )
+        #else
+        return nil
+        #endif
     }
 }
 

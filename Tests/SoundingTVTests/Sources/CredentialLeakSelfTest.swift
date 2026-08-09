@@ -170,9 +170,12 @@ enum CredentialLeakSelfTest {
     }
 
     private static func commentsEndpointCases(_ report: inout Report) {
-        let names = Set(SoundCloudAPI.commentsQueryItems(limit: 100).map(\.name))
+        let items = SoundCloudAPI.commentsQueryItems(limit: 100)
+        let names = Set(items.map(\.name))
         expect(&report, "comments: sends `threaded` (required — api-v2 400s without it)",
                names.contains("threaded"))
+        expect(&report, "comments: requests reply rows",
+               items.first(where: { $0.name == "threaded" })?.value == "1")
         expect(&report, "comments: sends `client_id` (required — api-v2 400s without it)",
                names.contains("client_id"))
         expect(&report, "comments: does not send the inert `filter_replies`",

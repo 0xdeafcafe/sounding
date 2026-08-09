@@ -32,7 +32,7 @@ struct PlaylistGridView: View {
                         }
                         .onAppear {
                             let lookahead = playlists[index..<min(index + Self.artworkLookahead, playlists.count)]
-                            ArtworkCache.shared.prefetch(lookahead.compactMap(\.artworkURL))
+                            ArtworkCache.shared.prefetch(lookahead.compactMap(\.displayArtworkURL))
                         }
                     }
                 }
@@ -53,7 +53,7 @@ private struct PlaylistCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.tight) {
-            ArtworkImage(url: playlist.artworkURL, icon: "music.note.list")
+            ArtworkImage(url: playlist.displayArtworkURL, icon: "music.note.list")
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
                 .kyleCrowned(user: playlist.user, context: playlist.title)

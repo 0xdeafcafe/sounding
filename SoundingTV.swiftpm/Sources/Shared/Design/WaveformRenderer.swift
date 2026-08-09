@@ -72,6 +72,7 @@ struct SCWaveformStyle {
     var placeholderColor: Color
     var placeholderHighlightColor: Color
     var placeholderRestFraction: CGFloat
+    var lowerHalfOpacity: Double = 1
 
     static let tv: SCWaveformStyle = {
         var style = derived(from: .tv, dense: false)
@@ -643,17 +644,48 @@ struct SCWaveformRenderer: View {
         let top = CGPoint(x: 0, y: mid - usableHalf)
         let bottom = CGPoint(x: 0, y: mid + usableHalf)
 
-        if sheenApplies, let sheen = style.unplayedSheen, sheen.count >= 2 {
-            context.fill(unplayedPath, with: .linearGradient(Gradient(colors: sheen), startPoint: top, endPoint: bottom))
-        } else {
-            context.fill(unplayedPath, with: .color(unplayedColor))
+        func drawFills(in target: inout GraphicsContext) {
+            if sheenApplies, let sheen = style.unplayedSheen, sheen.count >= 2 {
+                target.fill(
+                    unplayedPath,
+                    with: .linearGradient(Gradient(colors: sheen), startPoint: top, endPoint: bottom)
+                )
+            } else {
+                target.fill(unplayedPath, with: .color(unplayedColor))
+            }
+
+            if sheenApplies, let sheen = style.playedSheen, sheen.count >= 2 {
+                target.fill(
+                    playedPath,
+                    with: .linearGradient(Gradient(colors: sheen), startPoint: top, endPoint: bottom)
+                )
+            } else {
+                target.fill(playedPath, with: .color(playedColor))
+            }
         }
 
-        if sheenApplies, let sheen = style.playedSheen, sheen.count >= 2 {
-            context.fill(playedPath, with: .linearGradient(Gradient(colors: sheen), startPoint: top, endPoint: bottom))
-        } else {
-            context.fill(playedPath, with: .color(playedColor))
+        guard style.lowerHalfOpacity < 0.999 else {
+            var whole = context
+            drawFills(in: &whole)
+            return
         }
+
+        let laneBounds = unplayedPath.boundingRect.union(playedPath.boundingRect)
+        let laneWidth = max(1, laneBounds.maxX + style.barPitch)
+
+        var upper = context
+        upper.clip(to: Path(CGRect(x: 0, y: 0, width: laneWidth, height: mid)))
+        drawFills(in: &upper)
+
+        var lower = context
+        lower.clip(to: Path(CGRect(
+            x: 0,
+            y: mid,
+            width: laneWidth,
+            height: max(1, mid)
+        )))
+        lower.opacity *= max(0, style.lowerHalfOpacity)
+        drawFills(in: &lower)
     }
 
     private func drawCentered(
@@ -746,6 +778,13 @@ struct SCWaveformRenderer: View {
                 let opacity = style.nearHighlightBase + style.nearHighlightGain * playheadEmphasis.scUnitClamped
                 ink.fill(nearPath, with: .color(style.playheadColor.opacity(opacity)))
             }
+        }
+
+        if style.showAxis {
+            context.fill(
+                Path(CGRect(x: 0, y: mid - 0.5, width: size.width, height: 1)),
+                with: .color(style.axisColor)
+            )
         }
 
         if showsPlayhead {

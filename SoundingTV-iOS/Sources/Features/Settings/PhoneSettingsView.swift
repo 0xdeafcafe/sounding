@@ -30,20 +30,29 @@ struct PhoneSettingsView: View {
                     isUrgent: accountIsUrgent
                 ) { AccountSettingsDetail() }
 
-                CategoryLink(
-                    icon: "star.fill", tint: SettingsGlyph.subscription,
-                    title: "Subscription", summary: subscriptionSummary,
-                    isUrgent: subscriptionIsUrgent
-                ) { SubscriptionSettingsDetail() }
+                if !credentials.needsSignIn {
+                    CategoryLink(
+                        icon: "star.fill", tint: SettingsGlyph.subscription,
+                        title: "Subscription", summary: subscriptionSummary,
+                        isUrgent: subscriptionIsUrgent
+                    ) { SubscriptionSettingsDetail() }
 
-                CategoryLink(
-                    icon: activityPoller.unreadCount > 0 ? "bell.badge.fill" : "bell.fill",
-                    tint: SettingsGlyph.activity,
-                    title: "Activity",
-                    summary: activityPoller.unreadCount == 0 ? "No unread" : "\(activityPoller.unreadCount) unread"
-                ) { PhoneActivityInboxView() }
+                    CategoryLink(
+                        icon: activityPoller.unreadCount > 0 ? "bell.badge.fill" : "bell.fill",
+                        tint: SettingsGlyph.activity,
+                        title: "Activity",
+                        summary: activitySummary
+                    ) { PhoneActivityInboxView() }
+
+                    CategoryLink(
+                        icon: "bubble.left.and.bubble.right.fill", tint: SettingsGlyph.activity,
+                        title: "Messages", summary: "SoundCloud inbox"
+                    ) { PhoneMessagesView() }
+                }
             } footer: {
-                Text(subscriptionFooter)
+                Text(credentials.needsSignIn
+                     ? "Sign in to access account settings."
+                     : subscriptionFooter)
             }
             .listRowBackground(Color.scBgOverlay)
 
@@ -55,24 +64,26 @@ struct PhoneSettingsView: View {
                 ) { CompanionRootView() }
 
                 CategoryLink(
-                    icon: "point.3.connected.trianglepath.dotted", tint: SettingsGlyph.polyphony,
-                    title: "Polyphony", summary: polyphonySummary
-                ) { PolyphonyView() }
-
-                CategoryLink(
                     icon: "play.fill", tint: SettingsGlyph.playback,
                     title: "Playback", summary: playbackSummary
                 ) { PlaybackSettingsDetail() }
 
-                CategoryLink(
-                    icon: "arrow.down", tint: SettingsGlyph.downloads,
-                    title: "Downloads", summary: downloadsSummary
-                ) { DownloadsSettingsDetail() }
+                if !credentials.needsSignIn {
+                    CategoryLink(
+                        icon: "point.3.connected.trianglepath.dotted", tint: SettingsGlyph.polyphony,
+                        title: "Polyphony", summary: polyphonySummary
+                    ) { PolyphonyView() }
 
-                CategoryLink(
-                    icon: "waveform", tint: SettingsGlyph.intelligence,
-                    title: "Music Intelligence", summary: intelligenceSummary
-                ) { MusicIntelligenceSettingsDetail() }
+                    CategoryLink(
+                        icon: "arrow.down", tint: SettingsGlyph.downloads,
+                        title: "Downloads", summary: downloadsSummary
+                    ) { DownloadsSettingsDetail() }
+
+                    CategoryLink(
+                        icon: "waveform", tint: SettingsGlyph.intelligence,
+                        title: "Music Intelligence", summary: intelligenceSummary
+                    ) { MusicIntelligenceSettingsDetail() }
+                }
             }
             .listRowBackground(Color.scBgOverlay)
 
@@ -95,6 +106,8 @@ struct PhoneSettingsView: View {
             switch link {
             case .account:      AccountSettingsDetail()
             case .subscription: SubscriptionSettingsDetail()
+            case .activity:     PhoneActivityInboxView()
+            case .messages:     PhoneMessagesView()
             case .playback:     PlaybackSettingsDetail()
             case .downloads:    DownloadsSettingsDetail()
             case .intelligence: MusicIntelligenceSettingsDetail()
@@ -150,6 +163,11 @@ struct PhoneSettingsView: View {
     }
 
     private var playbackSummary: String { store.streamingQualityCeiling.displayName }
+
+    private var activitySummary: String {
+        if credentials.isSignedOut || credentials.isSessionRejected { return "Sign In Required" }
+        return activityPoller.unreadCount == 0 ? "No unread" : "\(activityPoller.unreadCount) unread"
+    }
 
     private var downloadsSummary: String {
         downloads.entries.isEmpty
@@ -214,16 +232,29 @@ private struct CategoryLink<Destination: View>: View {
 
 private struct PhoneActivityInboxView: View {
     @ObservedObject private var poller = SoundCloudActivityPoller.shared
+    @ObservedObject private var credentials = SoundCloudCredentialSource.shared
     @Environment(\.openURL) private var openURL
+    @State private var isShowingSignIn = false
 
     var body: some View {
         Group {
-            if poller.inbox.isEmpty {
+            if credentials.isSignedOut || credentials.isSessionRejected {
+                SCEmptyState(
+                    icon: "person.crop.circle.badge.exclamationmark",
+                    title: "Sign In to See Activity",
+                    message: "Followers, messages, and your SoundCloud stream are account-only.",
+                    actionTitle: "Sign In",
+                    action: { isShowingSignIn = true },
+                    style: .phone
+                )
+                .phoneStateLayout()
+            } else if poller.inbox.isEmpty {
                 ContentUnavailableView(
                     "No New Activity",
                     systemImage: "bell",
                     description: Text("New followers, messages, and stream activity will appear here.")
                 )
+                .phoneStateLayout()
             } else {
                 List {
                     ForEach(poller.inbox) { event in
@@ -256,6 +287,14 @@ private struct PhoneActivityInboxView: View {
             }
         }
         .navigationTitle("Activity")
+        .sheet(isPresented: $isShowingSignIn) {
+            NavigationStack {
+                SoundCloudLoginView.standalone {
+                    isShowingSignIn = false
+                    credentials.refreshFromStore()
+                }
+            }
+        }
         .toolbar {
             if poller.unreadCount > 0 {
                 Button("Mark All Read") { poller.markAllRead() }
@@ -270,6 +309,339 @@ private struct PhoneActivityInboxView: View {
         case .message: return "envelope"
         }
     }
+}
+
+private struct PhoneMessagesView: View {
+    @ObservedObject private var credentials = SoundCloudCredentialSource.shared
+    @StateObject private var model = PhoneMessagesModel()
+    @State private var isShowingSignIn = false
+
+    var body: some View {
+        Group {
+            if needsSignIn {
+                SCEmptyState(
+                    icon: "bubble.left.and.bubble.right",
+                    title: "Messages Need an Account",
+                    message: "Sign in to read and reply to your SoundCloud messages.",
+                    actionTitle: "Sign In",
+                    action: { isShowingSignIn = true },
+                    style: .phone
+                )
+                .phoneStateLayout()
+            } else if model.isLoading, model.conversations.isEmpty {
+                LoadingState(message: "Loading messages…")
+            } else if model.conversations.isEmpty {
+                ContentUnavailableView {
+                    Label(model.errorMessage == nil ? "No Messages Yet" : "Messages Unavailable", systemImage: "bubble.left.and.bubble.right")
+                } description: {
+                    Text(model.errorMessage ?? "Conversations from SoundCloud will appear here.")
+                } actions: {
+                    if model.errorMessage != nil {
+                        Button("Try Again") { Task { await model.load() } }
+                    }
+                    Link("Open SoundCloud Inbox", destination: SoundCloudAPI.webInboxURL)
+                }
+                .phoneStateLayout()
+            } else {
+                List(model.conversations) { conversation in
+                    NavigationLink {
+                        PhoneConversationView(
+                            initialConversation: conversation,
+                            currentUserID: currentUserID
+                        )
+                    } label: {
+                        PhoneConversationRow(
+                            conversation: conversation,
+                            currentUserID: currentUserID
+                        )
+                    }
+                }
+                .listStyle(.plain)
+                .refreshable { await model.load() }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.scBgBase.ignoresSafeArea())
+        .navigationTitle("Messages")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: credentials.currentUser?.id) { await model.load() }
+        .sheet(isPresented: $isShowingSignIn) {
+            NavigationStack {
+                SoundCloudLoginView.standalone {
+                    isShowingSignIn = false
+                    credentials.refreshFromStore()
+                    Task { await model.load() }
+                }
+            }
+        }
+    }
+
+    private var currentUserID: String? {
+        #if DEBUG
+        if VisualFixtures.isEnabled { return VisualFixtures.currentUser.id }
+        #endif
+        return credentials.currentUser?.id
+    }
+
+    private var needsSignIn: Bool {
+        #if DEBUG
+        if VisualFixtures.isEnabled { return false }
+        #endif
+        return credentials.isSignedOut || credentials.isSessionRejected
+    }
+}
+
+private struct PhoneConversationRow: View {
+    let conversation: SoundCloudConversation
+    let currentUserID: String?
+
+    private var counterpart: SoundCloudMessageParticipant? {
+        conversation.participants.first(where: { $0.id != currentUserID })
+            ?? conversation.participants.first
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AsyncImage(url: counterpart?.avatarURL) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                Image(systemName: "person.fill")
+                    .foregroundStyle(Color.scTextSecondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.scBgRaised)
+            }
+            .frame(width: 46, height: 46)
+            .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(counterpart?.username ?? "Conversation")
+                        .font(.subheadline.weight(conversation.unreadCount > 0 ? .bold : .semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    if conversation.unreadCount > 0 {
+                        Text("\(conversation.unreadCount)")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.scAccent, in: Capsule())
+                    }
+                }
+                Text(conversation.latestMessage?.body ?? "No preview")
+                    .font(.caption)
+                    .foregroundStyle(Color.scTextSecondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct PhoneConversationView: View {
+    @State private var conversation: SoundCloudConversation
+    let currentUserID: String?
+
+    @State private var draft = ""
+    @State private var isLoading = false
+    @State private var isSending = false
+    @State private var errorMessage: String?
+
+    init(initialConversation: SoundCloudConversation, currentUserID: String?) {
+        _conversation = State(initialValue: initialConversation)
+        self.currentUserID = currentUserID
+    }
+
+    private var counterpart: SoundCloudMessageParticipant? {
+        conversation.participants.first(where: { $0.id != currentUserID })
+            ?? conversation.participants.first
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(conversation.messages) { message in
+                            messageBubble(message)
+                                .id(message.id)
+                        }
+                    }
+                    .padding()
+                }
+                .onAppear { scrollToBottom(proxy) }
+                .onChange(of: conversation.messages.count) { _, _ in
+                    withAnimation { scrollToBottom(proxy) }
+                }
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(Color.scWarning)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(Color.scWarning.opacity(0.10))
+            }
+
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("Message…", text: $draft, axis: .vertical)
+                    .lineLimit(1...5)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color.scBgRaised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                Button { Task { await send() } } label: {
+                    if isSending {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .frame(width: 40, height: 40)
+                .background(Color.scAccent, in: Circle())
+                .disabled(isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || counterpart == nil)
+            }
+            .padding()
+            .background(.regularMaterial)
+        }
+        .background(Color.scBgBase.ignoresSafeArea())
+        .navigationTitle(counterpart?.username ?? "Conversation")
+        .navigationBarTitleDisplayMode(.inline)
+        .overlay {
+            if isLoading { ProgressView().controlSize(.large) }
+        }
+        .task { await loadThread() }
+        .toolbar {
+            if let profileURL = counterpart?.profileURL {
+                Link(destination: profileURL) { Image(systemName: "person.crop.circle") }
+                    .accessibilityLabel("View profile on SoundCloud")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func messageBubble(_ message: SoundCloudDirectMessage) -> some View {
+        let outgoing = message.sender?.id == currentUserID
+        HStack {
+            if outgoing { Spacer(minLength: 44) }
+            VStack(alignment: outgoing ? .trailing : .leading, spacing: 4) {
+                Text(message.body)
+                    .font(.body)
+                    .foregroundStyle(outgoing ? .white : Color.scTextPrimary)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 9)
+                    .background(
+                        outgoing ? Color.scAccent : Color.scBgRaised,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+                if message.createdAt != .distantPast {
+                    Text(message.createdAt.formatted(date: .omitted, time: .shortened))
+                        .font(.caption2)
+                        .foregroundStyle(Color.scTextTertiary)
+                }
+            }
+            if !outgoing { Spacer(minLength: 44) }
+        }
+    }
+
+    private func loadThread() async {
+        #if DEBUG
+        if VisualFixtures.isEnabled { return }
+        #endif
+        isLoading = conversation.messages.count <= 1
+        defer { isLoading = false }
+        do {
+            conversation = try await SoundCloudAPI.shared.getConversation(id: conversation.id)
+            errorMessage = nil
+        } catch SoundCloudMessagingError.unavailable {
+            errorMessage = SoundCloudMessagingError.unavailable.localizedDescription
+        } catch {
+            if conversation.messages.isEmpty { errorMessage = error.localizedDescription }
+        }
+    }
+
+    private func send() async {
+        guard let counterpart else { return }
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isSending else { return }
+        isSending = true
+        errorMessage = nil
+        defer { isSending = false }
+        do {
+            if let updated = try await SoundCloudAPI.shared.sendDirectMessage(
+                text,
+                to: counterpart.id,
+                conversationID: conversation.id
+            ) {
+                conversation = updated
+            } else {
+                conversation = try await SoundCloudAPI.shared.getConversation(id: conversation.id)
+            }
+            draft = ""
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        guard let last = conversation.messages.last else { return }
+        proxy.scrollTo(last.id, anchor: .bottom)
+    }
+}
+
+@MainActor
+private final class PhoneMessagesModel: ObservableObject {
+    @Published private(set) var conversations: [SoundCloudConversation] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var errorMessage: String?
+
+    func load() async {
+        #if DEBUG
+        if VisualFixtures.isEnabled {
+            conversations = Self.fixtureConversations
+            errorMessage = nil
+            return
+        }
+        #endif
+        guard !isLoading else { return }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            conversations = try await SoundCloudAPI.shared.getConversations(limit: 50).collection.sorted {
+                ($0.latestMessage?.createdAt ?? $0.lastUpdatedAt ?? .distantPast)
+                    > ($1.latestMessage?.createdAt ?? $1.lastUpdatedAt ?? .distantPast)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    #if DEBUG
+    private static let fixtureConversations: [SoundCloudConversation] = {
+        let data = Data("""
+        [{
+          "id":"fixture-thread-1",
+          "participants":[
+            {"id":"900","username":"Sounding Listener","permalink":"sounding-listener"},
+            {"id":"102","username":"Maya Sol","permalink":"maya-sol"}
+          ],
+          "messages":[
+            {"id":"m1","body":"Loved the cue you saved in Neon Weather.","created_at":"2026-08-09T11:12:00Z","sender":{"id":"102","username":"Maya Sol"}},
+            {"id":"m2","body":"Thank you — that transition is brilliant.","created_at":"2026-08-09T11:18:00Z","sender":{"id":"900","username":"Sounding Listener"}}
+          ],
+          "unread_count":1,
+          "last_updated_at":"2026-08-09T11:18:00Z"
+        }]
+        """.utf8)
+        return (try? JSONDecoder().decode([SoundCloudConversation].self, from: data)) ?? []
+    }()
+    #endif
 }
 
 private struct SettingsLabel: View {
@@ -344,7 +716,7 @@ private func tierDisplayName(_ tier: SubscriptionService.Tier) -> String {
 private func verificationDisplay(_ verification: SubscriptionService.VerificationStatus) -> String {
     switch verification {
     case .verified: return "Verified"
-    case .unverifiable(let withinGrace): return withinGrace ? "Unverified · Grace Period" : "Unverified"
+    case .unverifiable: return "Unverified"
     case .verifiedNotSubscribed: return "Not Subscribed"
     }
 }
@@ -412,7 +784,7 @@ private extension View {
 }
 
 enum SettingsDeepLink: String, Identifiable, Hashable {
-    case account, subscription, playback, downloads, intelligence, devices, about
+    case account, subscription, activity, messages, playback, downloads, intelligence, devices, about
 
     var id: String { rawValue }
 
@@ -466,7 +838,7 @@ private struct AccountSettingsDetail: View {
             Button("Sign Out", role: .destructive) { signOut() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("You'll need to sign in again to browse or play music on this iPhone. Your other devices stay signed in.")
+            Text("Your account content is removed from this iPhone. Public browsing and playback stay available, and your other devices remain signed in.")
         }
     }
 
@@ -520,7 +892,7 @@ private struct AccountSettingsDetail: View {
             }
             .disabled(isSigningOut)
         } footer: {
-            Text("Signs this iPhone out and clears its stored web session. Your Apple TV and other devices stay signed in.")
+            Text("Clears this iPhone's authentication and cached account content. Your Apple TV and other devices stay signed in.")
         }
         .listRowBackground(Color.scBgOverlay)
     }
@@ -621,9 +993,6 @@ private struct AccountSettingsDetail: View {
     }
 
     private var signInFooter: String {
-        if let deletionDate = credentials.lockedDataDeletionDate {
-            return "You can keep using Home and Search in guest mode. Saved account data will be cleared \(deletionDate.formatted(date: .abbreviated, time: .shortened)) unless you sign in again."
-        }
         switch credentials.lastSignOutReason {
         case .accountRejected:
             return "SoundCloud rejected this iPhone's access. Sign in again to reconnect your account."
@@ -1397,20 +1766,26 @@ private struct DownloadsSettingsDetail: View {
             onPause: { downloads.pause(trackId: entry.track.id) },
             onResume: { downloads.resume(trackId: entry.track.id) }
         )
-        .swipeActions(edge: .trailing) {
-            Button("Remove", role: .destructive) {
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
                 downloads.cancel(trackId: entry.track.id)
+            } label: {
+                Label("Remove", systemImage: "trash")
             }
         }
         .swipeActions(edge: .leading) {
-            Button(entry.isPinned ? "Automatic" : "Keep") {
+            Button {
                 if entry.isPinned {
                     downloads.unpin(trackId: entry.track.id)
                 } else {
                     downloads.pin(trackId: entry.track.id)
                 }
+            } label: {
+                Label(
+                    entry.isPinned ? "Automatic" : "Keep",
+                    systemImage: entry.isPinned ? "wand.and.stars" : "pin"
+                )
             }
-            .tint(Color.scAccent)
         }
     }
 

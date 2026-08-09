@@ -190,12 +190,12 @@ struct SearchView: View {
 
     private var browseCategoriesSection: some View {
         VStack(alignment: .leading, spacing: Space.base) {
-            Eyebrow(text: "Browse Categories")
+            Eyebrow(text: "Vibes")
 
             LazyVGrid(columns: browseColumns, spacing: Space.gutter) {
-                ForEach(Array(SearchViewModel.browseGenres.enumerated()), id: \.offset) { index, genre in
-                    let tile = GenreTileButton(genre: genre) {
-                        viewModel.searchText = GenreProfile.of(genre).displayName
+                ForEach(Array(SearchVibe.all.enumerated()), id: \.offset) { index, vibe in
+                    let tile = VibeTileButton(vibe: vibe) {
+                        viewModel.searchText = vibe.query
                         viewModel.scheduleSearch()
                     }
                     if index == 0 {
@@ -266,73 +266,23 @@ private struct RecentSearchRow: View {
     }
 }
 
-private struct GenreTileButton: View {
-    let genre: MusicGenre
+private struct VibeTileButton: View {
+    let vibe: SearchVibe
     let action: () -> Void
 
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            GenreTilePalette.color(for: genre)
-
-            Image(systemName: GenreTilePalette.icon(for: genre))
-                .font(.system(size: 140, weight: .black))
-                .foregroundStyle(.white.opacity(0.18))
-                .rotationEffect(.degrees(-10))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .offset(x: 30, y: 30)
-
-            LinearGradient(
-                colors: [.black.opacity(0.65), .clear],
-                startPoint: .bottom, endPoint: .top
-            )
-            .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 120)
-
-            Text(GenreProfile.of(genre).displayName)
-                .font(.tvBodyEmph)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(Space.base)
-        }
+        SearchVibeArtwork(vibe: vibe, cornerRadius: Corner.control)
         .aspectRatio(16.0 / 10.0, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
         .scFocus(focused, cornerRadius: Corner.control, reduceMotion: reduceMotion)
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
         .onTapGesture(perform: action)
-        .accessibilityLabel(GenreProfile.of(genre).displayName)
-    }
-}
-
-private enum GenreTilePalette {
-    private static let familyHue: [GenreFamily: Double] = [
-        .house: 0.02, .techno: 0.78, .trance: 0.60, .hardDance: 0.92,
-        .garage: 0.46, .bass: 0.34, .disco: 0.86, .urban: 0.11,
-        .ambient: 0.53, .song: 0.14, .unknown: 0.08,
-    ]
-
-    static func color(for genre: MusicGenre) -> Color {
-        let profile = GenreProfile.of(genre)
-        let hue = familyHue[profile.family] ?? 0.08
-        let saturation = min(0.55 + profile.energy * 0.35, 0.95)
-        let brightness = min(0.38 + profile.brightness * 0.30, 0.85)
-        return Color(hue: hue, saturation: saturation, brightness: brightness)
-    }
-
-    static func icon(for genre: MusicGenre) -> String {
-        switch GenreProfile.of(genre).family {
-        case .house, .techno, .hardDance: return "waveform.circle.fill"
-        case .trance: return "sparkles"
-        case .garage, .bass: return "bolt.fill"
-        case .disco: return "music.note.list"
-        case .urban: return "mic.fill"
-        case .ambient: return "cloud.fill"
-        case .song, .unknown: return "music.note"
-        }
+        .accessibilityLabel(vibe.title)
     }
 }
 

@@ -44,7 +44,7 @@ struct PlaylistDetailView: View {
     private var artworkColumn: some View {
         VStack(alignment: .leading, spacing: Space.base) {
             ArtworkImage(
-                url: viewModel.playlist.largeArtworkURL ?? viewModel.playlist.artworkURL,
+                url: viewModel.playlist.largeDisplayArtworkURL,
                 variant: .hero,
                 icon: viewModel.playlist.isAlbum ? "square.stack" : "music.note.list"
             )

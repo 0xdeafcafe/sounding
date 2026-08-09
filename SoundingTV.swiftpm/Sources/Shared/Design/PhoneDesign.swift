@@ -118,7 +118,7 @@ extension View {
 }
 
 enum PhoneNowPlaying {
-    static let pageInset: CGFloat = Space.page
+    static let pageInset: CGFloat = Space.roomy
     static let cueRail: CGFloat = 22
 }
 

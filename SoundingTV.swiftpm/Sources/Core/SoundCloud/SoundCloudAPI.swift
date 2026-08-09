@@ -85,7 +85,7 @@ final class SoundCloudAPI {
     private var credentials: (any SoundCloudCredentialSourcing)? { Self.credentials }
 
     private let baseURL = "https://api-v2.soundcloud.com"
-    private let session = URLSession.shared
+    private let session: URLSession
     private let decoder: JSONDecoder
     private var serverPlayResetAt: Date?
 
@@ -121,6 +121,12 @@ final class SoundCloudAPI {
     }
 
     private init() {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 15
+        configuration.waitsForConnectivity = false
+        session = URLSession(configuration: configuration)
+
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
         formatter.timeZone = TimeZone(identifier: "UTC")
@@ -337,14 +343,23 @@ final class SoundCloudAPI {
             switch http.statusCode {
             case 200..<300:
                 return .valid
-            case 401, 403:
+            case 401:
                 Log.api.error("[Auth] token probe rejected by SoundCloud (401)")
                 return .rejected
+            case 403, 429:
+                if case .waiting(_, let until) = trafficSafetyState() {
+                    return .unavailable(
+                        "SoundCloud is temporarily limiting account checks until \(until.formatted(date: .abbreviated, time: .shortened))."
+                    )
+                }
+                return .unavailable("SoundCloud temporarily refused the account check (HTTP \(http.statusCode)).")
             default:
                 return .unavailable("SoundCloud returned HTTP \(http.statusCode).")
             }
+        } catch let error as APIError {
+            return .unavailable(error.localizedDescription)
         } catch {
-            return .rejected
+            return .unavailable("Couldn’t reach SoundCloud to verify the account. \(error.localizedDescription)")
         }
     }
 
@@ -366,7 +381,9 @@ final class SoundCloudAPI {
     static func commentsQueryItems(limit: Int) -> [URLQueryItem] {
         [
             URLQueryItem(name: "limit", value: String(limit)),
-            URLQueryItem(name: "threaded", value: "0"),
+            // SoundCloud still returns a flat collection for `threaded=1`,
+            // but it includes reply rows that `threaded=0` filters out.
+            URLQueryItem(name: "threaded", value: "1"),
             URLQueryItem(name: "client_id", value: ""),
         ]
     }

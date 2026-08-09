@@ -41,6 +41,15 @@ enum SoundCloudCredentialSourceSelfTest {
         expect(&report, "stored, succeeded → healthy",
                SoundCloudCredentialSourcePolicy.health(hasUsableSession: true, rejection: nil, hasSucceeded: true) == Health.healthy)
 
+        expect(&report, "unverified session keeps app shell",
+               !Health.unverified.needsSignIn && Health.unverified.canMakeAuthenticatedRequests)
+        expect(&report, "transient refresh failure keeps app shell",
+               !Health.rejected(.refreshUnreachable).needsSignIn
+               && Health.rejected(.refreshUnreachable).canMakeAuthenticatedRequests)
+        expect(&report, "unrecoverable rejection requires sign-in",
+               Health.rejected(.accountRejected).needsSignIn
+               && !Health.rejected(.accountRejected).canMakeAuthenticatedRequests)
+
         for kind in [SoundCloudCredentialSource.RejectionKind.accountRejected,
                      .noRefreshCapability,
                      .refreshUnreachable] {

@@ -132,8 +132,8 @@ struct QueueManagerView: View {
     private var emptyQueueState: some View {
         SCEmptyState(
             icon: "music.note.list",
-            title: "Nothing Queued",
-            message: "Start playing something on your Apple TV and the queue appears here.",
+            title: "Nothing Up Next",
+            message: "Start playing something on your Apple TV and upcoming tracks appear here.",
             actionTitle: "Refresh",
             action: { client.requestQueue() },
             style: .phone

@@ -2,7 +2,6 @@ import SwiftUI
 
 struct PhoneHomeView: View {
     @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
-    @EnvironmentObject private var polyphony: PolyphonyController
     @StateObject private var source = DiscoveryHomeSource()
     @ObservedObject private var credentials = SoundCloudCredentialSource.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -12,7 +11,7 @@ struct PhoneHomeView: View {
 
     var body: some View {
         Group {
-            if credentials.isSignedOut {
+            if credentials.isSignedOut && !usesVisualFixtures {
                 signedOutContent
             } else {
                 content
@@ -21,23 +20,6 @@ struct PhoneHomeView: View {
         .safeAreaInset(edge: .top) { AppleTVBanner() }
         .scrollContentBackground(.hidden)
         .background(Color.scBgBase.ignoresSafeArea())
-        .navigationTitle("Home")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    PolyphonyView()
-                } label: {
-                    Image(systemName: polyphony.isSpeaker || polyphony.isLeading
-                        ? "point.3.connected.trianglepath.dotted"
-                        : "point.3.connected.trianglepath.dotted")
-                }
-                .accessibilityLabel("Polyphony")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                AccountAvatarButton()
-            }
-        }
         .fullScreenCover(isPresented: $isSigningIn) {
             NavigationStack {
                 SoundCloudLoginView.standalone {
@@ -52,6 +34,14 @@ struct PhoneHomeView: View {
         .onChange(of: credentials.isSignedOut) { _, _ in
             Task { await source.load(seed: seed) }
         }
+    }
+
+    private var usesVisualFixtures: Bool {
+        #if DEBUG
+        VisualFixtures.isEnabled
+        #else
+        false
+        #endif
     }
 
     private var seed: DiscoveryHomeSource.Seed {
@@ -72,6 +62,7 @@ struct PhoneHomeView: View {
                 action: { isSigningIn = true },
                 style: .phone
             )
+            .phoneStateLayout(topPadding: 28)
         } else {
             shelfList
         }
@@ -162,7 +153,7 @@ struct PhoneHomeView: View {
     private var shelfList: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: Space.section) {
-                if credentials.isSignedOut {
+                if credentials.isSignedOut && !usesVisualFixtures {
                     signedOutBanner
                 }
                 ForEach(source.shelves) { shelf in
@@ -234,7 +225,7 @@ private struct HomeShelfView: View {
         case .tracks(let tracks):
             return tracks.compactMap(\.artworkURL)
         case .playlists(let playlists):
-            return playlists.compactMap(\.artworkURL)
+            return playlists.compactMap(\.displayArtworkURL)
         case .stations(let stations):
             return stations.compactMap { DiscoveryEntry.station($0).artworkURL }
         case .users(let users):
@@ -269,15 +260,25 @@ private struct HomeShelfView: View {
         NavigationLink {
             PlaylistDetailView(playlist: playlist, heroNamespace: heroNamespace)
         } label: {
-            SCArtworkResolver(url: playlist.artworkURL) { image in
-                SCMediaCard(
-                    title: playlist.title,
-                    subtitle: playlist.user.displayName,
-                    artworkImage: image,
-                    style: .phone
-                )
+            SCArtworkResolver(url: playlist.displayArtworkURL) { image in
+                VStack(alignment: .leading, spacing: SCContentStyle.phone.spaceTight) {
+                    SCArtwork(image: image, identity: playlist.title, style: .phone)
+                        .aspectRatio(1, contentMode: .fit)
+                        .kyleCrowned(user: playlist.user, context: playlist.title)
+                        .matchedTransitionSource(id: playlist.id, in: heroNamespace)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(playlist.title)
+                            .font(SCContentStyle.phone.fontBodyEmphasis)
+                            .foregroundStyle(SCContentStyle.phone.textPrimary)
+                            .lineLimit(1)
+                        Text(playlist.user.displayName)
+                            .font(SCContentStyle.phone.fontCaption)
+                            .foregroundStyle(SCContentStyle.phone.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
             }
-            .kyleCrowned(user: playlist.user, context: playlist.title)
             .frame(width: Self.tileSize)
         }
         .buttonStyle(.plain)

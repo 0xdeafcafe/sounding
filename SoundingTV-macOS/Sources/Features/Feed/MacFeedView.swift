@@ -115,7 +115,7 @@ struct MacFeedView: View {
                     .onAppear {
                         let items = model.items
                         let lookahead = items[index..<min(index + Self.artworkLookahead, items.count)]
-                        ArtworkCache.shared.prefetch(lookahead.compactMap { $0.track?.artworkURL ?? $0.playlist?.artworkURL })
+                        ArtworkCache.shared.prefetch(lookahead.compactMap { $0.track?.artworkURL ?? $0.playlist?.displayArtworkURL })
                     }
             }
             if model.isLoadingMore {
@@ -231,7 +231,7 @@ private struct FeedActivityRow: View {
             }
     }
 
-    private var artworkURL: URL? { activity.track?.artworkURL ?? activity.playlist?.artworkURL }
+    private var artworkURL: URL? { activity.track?.artworkURL ?? activity.playlist?.displayArtworkURL }
 
     private func loadArtwork() async {
         for url in MacCollectionCover.artworkURLs(for: activity).prefix(1) {

@@ -1062,7 +1062,7 @@ private func tierDisplayName(_ tier: SubscriptionService.Tier) -> String {
 private func verificationDisplay(_ verification: SubscriptionService.VerificationStatus) -> String {
     switch verification {
     case .verified: return "Verified"
-    case .unverifiable(let withinGrace): return withinGrace ? "Unverified · Grace Period" : "Unverified"
+    case .unverifiable: return "Unverified"
     case .verifiedNotSubscribed: return "Not Subscribed"
     }
 }

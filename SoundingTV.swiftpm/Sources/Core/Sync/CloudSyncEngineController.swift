@@ -309,18 +309,20 @@ final class CloudSyncEngineController: NSObject, CKSyncEngineDelegate, @unchecke
     func enqueueSession(_ session: SyncedSoundCloudSession) async throws {
         guard let container = resolvedContainer() else { return }
         let database = container.privateCloudDatabase
-        let existingRecord: CKRecord?
+
+        // Some legacy session records contain `oauthToken` as both a plain
+        // and encrypted field. Merely fetching one of those records raises an
+        // Objective-C CKException that Swift cannot catch. Delete the fixed-ID
+        // legacy record without decoding it, then write the encrypted-only
+        // replacement.
         do {
-            existingRecord = try await database.record(for: CloudSyncMapping.sessionRecordID)
+            _ = try await database.deleteRecord(withID: CloudSyncMapping.sessionRecordID)
         } catch let error as CKError where error.code == .unknownItem || error.code == .zoneNotFound {
-            existingRecord = nil
+            // Nothing to migrate.
         }
 
-        // Updating the fetched instance preserves CloudKit's system fields
-        // (especially recordChangeTag). Reconstructing the fixed-ID record on
-        // every pass turns every update after the first into an insert conflict.
-        let record = CloudSyncMapping.record(for: session, updating: existingRecord)
-        try await enqueue([record])
+        let record = CloudSyncMapping.record(for: session)
+        _ = try await database.save(record)
     }
 
     func fetchCurrentSession() async throws -> SyncedSoundCloudSession? {

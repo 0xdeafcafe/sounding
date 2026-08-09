@@ -112,6 +112,7 @@ struct MacNowPlayingView: View {
     @State private var ambientArtwork: Image?
     @State private var isDragging = false
     @State private var dragFraction: Double?
+    @State private var dragStartFraction: Double?
     @State private var commentsLoad: MacCommentsLoadState = .loading
     @State private var commentThreads: [CommentThread] = []
     @State private var commentClusters: [SCCommentCluster] = []
@@ -267,16 +268,29 @@ struct MacNowPlayingView: View {
 
     private var ambientBackground: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
-            AmbientArtworkBackdrop(seed: ambientArtworkSeed)
-        }
-            .overlay(alignment: .bottomLeading) {
-                LinearGradient(
-                    colors: [Color.black.opacity(palette.localScrimOpacity), .clear],
-                    startPoint: .bottom, endPoint: .top
-                )
-                .frame(height: 360)
+            Color.black
+
+            if let ambientArtwork {
+                ambientArtwork
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity)
+            } else {
+                AmbientArtworkBackdrop(seed: ambientArtworkSeed)
             }
+
+            LinearGradient(
+                colors: [.black.opacity(0.16), .black.opacity(0.22), .black.opacity(0.74)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.62)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        }
             .animation(SCContentMotion.ambient, value: palette)
             .ignoresSafeArea()
     }
@@ -326,12 +340,10 @@ struct MacNowPlayingView: View {
     }
 
     private func verticalLayout(_ track: Track, size: CGSize) -> some View {
-        let artSize = min(size.width * 0.55, 320)
         return VStack(spacing: 0) {
-            VStack(spacing: 14) {
-                artwork(track, size: artSize)
-                    .frame(width: artSize, height: artSize)
+            VStack(spacing: 16) {
                 titleArtistRow(track)
+                Spacer(minLength: 80)
                 scrubber
                 transportRow
                 nextUpHint
@@ -385,33 +397,35 @@ struct MacNowPlayingView: View {
 
     private func leftColumn(_ track: Track) -> some View {
         GeometryReader { proxy in
-            let artSize = min(proxy.size.width * 0.72, proxy.size.height * 0.45, 360)
             VStack(spacing: 0) {
-                Spacer(minLength: 56)
-                artwork(track, size: artSize)
-                    .frame(width: artSize, height: artSize)
+                titleArtistRow(track)
+
+                if DeckIdentityResolver.isLikelyMix(track) {
+                    OnDecksIndicator(
+                        identity: setlistStore.setlist(for: track.id)?.segment(at: player.currentTime),
+                        isScanning: setlistStore.scanningTrackIds.contains(track.id),
+                        action: { pane = .tracklist }
+                    )
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(.black.opacity(0.34), in: RoundedRectangle(cornerRadius: 9))
+                    .padding(.top, 10)
+                }
+
+                Spacer(minLength: 80)
+
                 VStack(spacing: 14) {
-                    titleArtistRow(track)
-                    if DeckIdentityResolver.isLikelyMix(track) {
-                        OnDecksIndicator(
-                            identity: setlistStore.setlist(for: track.id)?.segment(at: player.currentTime),
-                            isScanning: setlistStore.scanningTrackIds.contains(track.id),
-                            action: { pane = .tracklist }
-                        )
-                        .foregroundStyle(.white.opacity(0.9))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
-                    }
                     scrubber
                     transportRow
                     nextUpHint
                 }
-                .frame(width: artSize)
-                .padding(.top, 18)
-                Spacer(minLength: 28)
+                .padding(18)
+                .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
-            .frame(width: proxy.size.width)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 32)
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 
@@ -420,7 +434,11 @@ struct MacNowPlayingView: View {
             .padding(20)
             .background(
                 RoundedRectangle(cornerRadius: SCContentStyle.mac.cornerPanel, style: .continuous)
-                    .fill(Color.black.opacity(0.28))
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: SCContentStyle.mac.cornerPanel, style: .continuous)
+                            .fill(Color.black.opacity(0.38))
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: SCContentStyle.mac.cornerPanel, style: .continuous)
@@ -479,7 +497,7 @@ struct MacNowPlayingView: View {
                     Button("Show Up Next") { pane = .queue }
                     Button("Show Timed Comments") { pane = .comments }
                     if DeckIdentityResolver.isLikelyMix(track) {
-                        Button("Show Tracklist") { pane = .tracklist }
+                        Button("Show Setlist") { pane = .tracklist }
                     }
                     Button("About This Track") { pane = .about }
                     if player.queue.count > player.currentIndex + 1 {
@@ -506,7 +524,7 @@ struct MacNowPlayingView: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: SCContentStyle.mac.cornerControl, style: .continuous)
-                .fill(.black.opacity(0.20))
+                .fill(.black.opacity(0.42))
         )
     }
 
@@ -518,7 +536,7 @@ struct MacNowPlayingView: View {
             if engagement.isPending(track) {
                 ProgressView().controlSize(.small).tint(.white)
             } else {
-                Image(systemName: liked ? "star.fill" : "star")
+                Image(systemName: liked ? "heart.fill" : "heart")
                     .font(.system(size: 16))
             }
         }
@@ -545,28 +563,42 @@ struct MacNowPlayingView: View {
                         envelope: waveformEnvelope,
                         duration: duration,
                         progress: clamped,
+                        mode: .centered(windowSeconds: macWaveformWindowSeconds),
                         placeholder: waveformPlaceholder,
                         identity: track?.id,
                         motionSuppressed: reduceMotion || waveformGracePeriodEnded,
                         style: waveformStyle
                     )
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                isDragging = true
-                                dragFraction = max(0, min(1, value.location.x / max(1, geo.size.width)))
-                            }
-                            .onEnded { value in
-                                let f = max(0, min(1, value.location.x / max(1, geo.size.width)))
-                                player.seek(to: f * duration)
-                                isDragging = false
-                                dragFraction = nil
-                            }
-                    )
+
+                    Rectangle()
+                        .fill(.white.opacity(0.08))
+                        .frame(height: geo.size.height / 2)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .allowsHitTesting(false)
 
                     commentRail
                 }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if !isDragging {
+                                isDragging = true
+                                dragStartFraction = clamped
+                            }
+                            let base = dragStartFraction ?? clamped
+                            let delta = -Double(value.translation.width / max(1, geo.size.width))
+                                * macWaveformWindowSeconds / duration
+                            dragFraction = max(0, min(1, base + delta))
+                        }
+                        .onEnded { _ in
+                            let f = dragFraction ?? clamped
+                            player.seek(to: f * duration)
+                            isDragging = false
+                            dragFraction = nil
+                            dragStartFraction = nil
+                        }
+                )
             }
             .frame(height: 72)
 
@@ -586,6 +618,11 @@ struct MacNowPlayingView: View {
 
     private var displayedTime: TimeInterval {
         dragFraction.map { $0 * player.duration } ?? player.currentTime
+    }
+
+    private var macWaveformWindowSeconds: TimeInterval {
+        let duration = max(player.duration, 0.001)
+        return min(duration, max(120, duration * 0.20))
     }
 
     private var waveformState: WaveformState {
@@ -827,7 +864,7 @@ struct MacNowPlayingView: View {
             switch paneCase {
             case .queue: return ("Up Next", "list.bullet")
             case .comments: return ("Comments", "quote.bubble")
-            case .tracklist: return ("Tracklist", "list.number")
+            case .tracklist: return ("Setlist", "list.number")
             case .about: return ("About", "info.circle")
             }
         }()
@@ -1084,12 +1121,12 @@ private struct MacTracklistPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Tracklist")
+                Text("Setlist")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(style.textPrimary)
                 Spacer()
                 if isLikelyMix && !isScanning {
-                    Button("Edit Tracklist", action: onEdit)
+                    Button("Edit Setlist", action: onEdit)
                         .buttonStyle(.plain)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(accent)
@@ -1167,7 +1204,7 @@ private struct MacTracklistPane: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 260)
             if isLikelyMix {
-                Button("Open Tracklist Editor", action: onEdit)
+                Button("Open Setlist Editor", action: onEdit)
                     .buttonStyle(.bordered)
                     .tint(accent)
             }

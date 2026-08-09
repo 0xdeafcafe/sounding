@@ -16,7 +16,10 @@ final class MacSyncCoordinator: ObservableObject {
     private init() {}
 
     static func install() {
-        SessionSyncTarget.source = SoundCloudCredentialSource.shared
+        // Authentication is intentionally not imported through CloudKit on
+        // macOS. A Mac signs in for itself and may hand auth to another device,
+        // but it never adopts another device's credentials.
+        SessionSyncTarget.source = nil
     }
 
     func start() {

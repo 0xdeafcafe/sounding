@@ -146,6 +146,9 @@ struct SCChipRow: View {
                 }
             }
             .padding(.vertical, 1)
+            // Give the first and last chip enough scroll runway to clear the
+            // card's rounded clipping edge instead of stopping half-visible.
+            .padding(.horizontal, style.spaceSnug)
         }
         .accessibilityElement(children: .contain)
     }

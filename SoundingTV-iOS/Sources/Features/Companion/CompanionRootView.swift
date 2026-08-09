@@ -8,7 +8,7 @@ enum AppleTVDebugStory {
         case "looking":     return .searching
         case "unreachable": return .failed("Your Apple TV didn't respond. It's probably asleep, or on a different Wi-Fi network.")
         case "connected":   return .connected
-        default:            return nil
+        default:            return VisualFixtures.isEnabled ? .connected : nil
         }
         #else
         return nil
@@ -21,6 +21,7 @@ struct CompanionRootView: View {
 
     @EnvironmentObject private var client: CompanionClient
     @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
+    @ObservedObject private var credentials = SoundCloudCredentialSource.shared
     @EnvironmentObject private var linkOffers: LinkOfferBrowser
     @ObservedObject private var palette = NowPlayingPalette.shared
     @ObservedObject private var registry = CompanionRegistry.shared
@@ -30,6 +31,7 @@ struct CompanionRootView: View {
     @State private var navigateToDJAfterEnabling = false
     @State private var showingAutoDJStartConfiguration = false
     @State private var isMovingSession = false
+    @State private var pendingOutput: PlaybackOutput?
     @State private var livePulse = false
 
     @State private var handshake: LinkConfirmationHandshake?
@@ -580,50 +582,76 @@ struct CompanionRootView: View {
     }
 
     private var outputPicker: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            Picker("Playing On", selection: outputBinding) {
-                Label(PlaybackOutput.thisDevice.displayName, systemImage: PlaybackOutput.thisDevice.symbolName)
-                    .tag(PlaybackOutput.thisDevice)
-                ForEach(PlaybackOutput.deviceClassesWithCompanionServerToday, id: \.self) { deviceClass in
-                    let output = PlaybackOutput.companion(deviceClass)
-                    Label(output.displayName, systemImage: output.symbolName).tag(output)
-                }
-            }
-            .pickerStyle(.segmented)
-            .disabled(isMovingSession)
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: displayedOutput.symbolName)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Color.scAccent)
+                    .frame(width: 34, height: 34)
+                    .background(Color.scAccent.opacity(0.12), in: Circle())
 
-            Text("Switching keeps your place. The track carries over rather than starting again.")
-                .font(.scCaption)
-                .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isMovingSession ? "Moving playback…" : "Playing on")
+                        .font(.scCaption)
+                        .foregroundStyle(.secondary)
+                    Text(displayedOutput.displayName)
+                        .font(.scHeadline)
+                }
+                Spacer(minLength: 0)
+                if isMovingSession { ProgressView().controlSize(.small) }
+            }
+
+            if credentials.hasConfirmedAccount {
+                let target: PlaybackOutput = coordinator.activeSource == .thisDevice
+                    ? .companion(.tv) : .thisDevice
+                Button {
+                    movePlayback(to: target)
+                } label: {
+                    Label("Move to \(target.displayName)", systemImage: target.symbolName)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isMovingSession)
+            } else {
+                Text("This iPhone is controlling Apple TV. Sign in below before moving playback to this iPhone.")
+                    .font(.scCaption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.top, Spacing.xs)
     }
 
-    private var outputBinding: Binding<PlaybackOutput> {
-        Binding(
-            get: { coordinator.activeSource },
-            set: { target in
-                guard target != coordinator.activeSource, !isMovingSession else { return }
-                isMovingSession = true
-                Task {
-                    await coordinator.moveSession(to: target)
-                    isMovingSession = false
-                }
-            }
-        )
+    private var displayedOutput: PlaybackOutput {
+        pendingOutput ?? coordinator.activeSource
+    }
+
+    private func movePlayback(to target: PlaybackOutput) {
+        guard target != coordinator.activeSource, !isMovingSession else { return }
+        pendingOutput = target
+        isMovingSession = true
+        Task {
+            await coordinator.moveSession(to: target)
+            pendingOutput = nil
+            isMovingSession = false
+        }
     }
 
     private var nowPlayingSection: some View {
         VStack(alignment: .leading, spacing: Space.snug) {
-            SCSectionHeader(title: "On Your \(client.linkedClass.displayName)", style: .phoneSectionHeader)
+            SCSectionHeader(
+                title: isMovingSession
+                    ? "Moving to \(displayedOutput.displayName)…"
+                    : "Playing on \(coordinator.activeSource.displayName)",
+                style: .phoneSectionHeader
+            )
                 .padding(.horizontal, Spacing.xl)
 
             VStack(alignment: .leading, spacing: 0) {
-                if let playback = presentedPlayback, playback.trackId != nil {
+                if let playback = coordinator.nowPlaying, playback.trackId != nil {
                     SCArtworkResolver(url: playback.artworkURL.flatMap(URL.init(string:))) { image in
                         SCTrackRow(
-                            title: playback.title ?? "Unknown Track",
-                            subtitle: playback.artist ?? "Unknown Artist",
+                            title: playback.displayTitle,
+                            subtitle: playback.displayArtist,
                             artworkImage: image,
                             crownUser: nil,
                             crownContext: playback.artist,

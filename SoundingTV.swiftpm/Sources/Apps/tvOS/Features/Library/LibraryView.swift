@@ -658,7 +658,7 @@ private extension LibraryItem {
     }
 
     var artworkURL: URL? {
-        track?.artworkURL ?? playlist?.artworkURL ?? systemPlaylist?.artworkURL
+        track?.artworkURL ?? playlist?.displayArtworkURL ?? systemPlaylist?.artworkURL
     }
 
     var displayTitle: String {

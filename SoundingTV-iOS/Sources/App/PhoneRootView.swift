@@ -43,12 +43,21 @@ struct PhoneRootView: View {
     }
 
     var body: some View {
-        content
-            .nowPlayingCover(
-                isPresented: $isNowPlayingExpanded,
-                heroID: nowPlayingHeroID,
-                namespace: nowPlayingNamespace
-            )
+        ZStack {
+            content
+                .allowsHitTesting(!isNowPlayingExpanded)
+                .accessibilityHidden(isNowPlayingExpanded)
+
+            if isNowPlayingExpanded {
+                NowPlayingSheet(
+                    isPresented: $isNowPlayingExpanded,
+                    heroID: nowPlayingHeroID,
+                    namespace: nowPlayingNamespace
+                )
+                .zIndex(10)
+                .transition(.opacity)
+            }
+        }
             .applyAsyncImageSessionIfAvailable(Self.cachingImageSession)
             .environmentObject(linkOfferBrowser)
             .environmentObject(cloudOffers)
@@ -139,7 +148,7 @@ struct PhoneRootView: View {
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "lock.fill")
-                            Text("Session expired — saved data is read-only")
+                            Text("SoundCloud sign-in expired")
                             Spacer()
                             Text("Fix")
                                 .fontWeight(.semibold)
@@ -189,11 +198,12 @@ struct PhoneRootView: View {
             }
         }
         .modifier(BottomAccessoryModifier(
-            hasNowPlaying: subscription.authenticatedAccountID != nil && coordinator.nowPlaying != nil,
+            hasNowPlaying: coordinator.nowPlaying != nil,
             isExpanded: $isNowPlayingExpanded,
             heroID: nowPlayingHeroID,
             namespace: nowPlayingNamespace
         ))
+        .tabBarMinimizeBehavior(.onScrollDown)
     }
 
     private var hasPairingOffer: Bool {
@@ -233,6 +243,8 @@ struct PhoneRootView: View {
 }
 
 private struct PhoneHomeHub: View {
+    @EnvironmentObject private var polyphony: PolyphonyController
+
     private enum Surface: String, CaseIterable, Identifiable {
         case forYou = "For You"
         case following = "Following"
@@ -248,14 +260,38 @@ private struct PhoneHomeHub: View {
             case .following: FeedView()
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            Picker("Home", selection: $surface) {
-                ForEach(Surface.allCases) { Text($0.rawValue).tag($0) }
+        .navigationTitle("Home")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Menu {
+                    Picker("Home", selection: $surface) {
+                        Label("For You", systemImage: "sparkles").tag(Surface.forYou)
+                        Label("Following", systemImage: "person.2.fill").tag(Surface.following)
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(surface.rawValue)
+                            .font(.headline)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(minHeight: 44)
+                }
+                .accessibilityLabel("Home section, \(surface.rawValue)")
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, Space.page)
-            .padding(.vertical, Space.tight)
-            .background(.bar)
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    PolyphonyView()
+                } label: {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                }
+                .accessibilityLabel("Polyphony")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                AccountAvatarButton()
+            }
         }
     }
 }

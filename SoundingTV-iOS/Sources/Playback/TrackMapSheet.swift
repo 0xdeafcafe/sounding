@@ -25,7 +25,7 @@ struct TrackMapSheet: View {
                 footer
             }
             .background(Color.scBgBase.ignoresSafeArea())
-            .navigationTitle("Track Map")
+            .navigationTitle("Cue Points")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -249,14 +249,13 @@ struct TrackMapSheet: View {
                 Label("Delete", systemImage: "trash")
             }
         }
-        .swipeActions(edge: .leading) {
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {
                 renameText = cue.label
                 renamingCue = cue
             } label: {
                 Label("Rename", systemImage: "pencil")
             }
-            .tint(accent)
         }
     }
 

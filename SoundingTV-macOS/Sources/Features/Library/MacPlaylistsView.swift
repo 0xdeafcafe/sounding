@@ -205,7 +205,7 @@ struct MacPlaylistCard: View {
 
     var body: some View {
         SCCollectionArtworkResolver(
-            artworkURL: playlist.artworkURL,
+            artworkURL: playlist.displayArtworkURL,
             trackArtworkURLs: (playlist.tracks ?? []).compactMap(\.artworkURL)
         ) { image in
             SCMediaCard(

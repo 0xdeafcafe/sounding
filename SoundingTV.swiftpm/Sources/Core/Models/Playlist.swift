@@ -38,6 +38,20 @@ struct Playlist: Identifiable, Codable, Hashable, Sendable {
         return URL(string: url.absoluteString.replacingOccurrences(of: "-large", with: "-t500x500"))
     }
 
+    /// A playlist must always inherit meaningful artwork rather than a
+    /// generated colour/icon. SoundCloud's own cover wins; otherwise use the
+    /// first available track cover, then the owner's profile photo.
+    var displayArtworkURL: URL? {
+        artworkURL
+            ?? tracks?.first(where: { $0.artworkURL != nil })?.artworkURL
+            ?? user.avatarURL
+    }
+
+    var largeDisplayArtworkURL: URL? {
+        guard let url = displayArtworkURL else { return nil }
+        return URL(string: url.absoluteString.replacingOccurrences(of: "-large", with: "-t500x500")) ?? url
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, title, description, duration, user, tracks
         case artworkURL = "artwork_url"

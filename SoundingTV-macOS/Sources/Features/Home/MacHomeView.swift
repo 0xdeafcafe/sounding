@@ -171,7 +171,7 @@ struct MacHomeView: View {
             .padding(.horizontal, 20)
         }
         .scrollClipDisabled()
-        .prefetchArtwork(playlists.compactMap(\.artworkURL))
+        .prefetchArtwork(playlists.compactMap(\.displayArtworkURL))
     }
 
     @ViewBuilder
@@ -336,7 +336,7 @@ private struct DiscoveryTrackTile: View {
     private var contextMenuItems: some View {
         if isPlayable {
             Button("Play") { Task { await player.play(track, in: context()) } }
-            Button("Add to Queue") { player.addToQueue(track) }
+            Button("Add to Up Next") { player.addToQueue(track) }
             Divider()
         }
         Button("Copy SoundCloud Link") { copyToPasteboard(track.permalinkURL) }
@@ -436,7 +436,7 @@ private struct DiscoveryPlaylistCard: View {
             MacRootSelection.shared.request(playlist: playlist)
         } label: {
             SCCollectionArtworkResolver(
-                artworkURL: playlist.artworkURL,
+                artworkURL: playlist.displayArtworkURL,
                 trackArtworkURLs: (playlist.tracks ?? []).compactMap(\.artworkURL),
                 variant: .standard
             ) { image in
@@ -464,7 +464,7 @@ enum MacCollectionCover {
     static func artworkURLs(for playlist: Playlist) -> [URL] {
         var seen = Set<URL>()
         var out: [URL] = []
-        if let own = playlist.artworkURL { seen.insert(own); out.append(own) }
+        if let own = playlist.displayArtworkURL { seen.insert(own); out.append(own) }
         for track in playlist.tracks ?? [] {
             guard let url = track.artworkURL, !seen.contains(url) else { continue }
             seen.insert(url)

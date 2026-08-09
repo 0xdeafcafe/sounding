@@ -106,7 +106,7 @@ struct QueueActionButton: View {
     var body: some View {
         UtilityActionButton(
             icon: justAdded ? "checkmark" : "text.badge.plus",
-            accessibilityLabel: "Add to Queue"
+            accessibilityLabel: "Add to Up Next"
         ) {
             PlayerService.shared.addToQueue(track)
             justAdded = true
@@ -240,7 +240,10 @@ private struct PlaylistPickRow: View {
 
     var body: some View {
         HStack(spacing: Space.snug) {
-            ArtworkImage(url: playlist.artworkURL, icon: "music.note.list")
+            ArtworkImage(
+                url: playlist.artworkURL ?? SoundCloudCredentialSource.shared.currentUser?.avatarURL,
+                icon: "music.note.list"
+            )
                 .aspectRatio(1, contentMode: .fill)
                 .frame(width: 64, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadius.sm, style: .continuous))
@@ -283,7 +286,7 @@ struct TrackMapButton: View {
 
     var body: some View {
         UtilityActionButton(
-            icon: "timeline.selection",
+            icon: "bookmark",
             label: markedCount == 0 ? nil : "\(markedCount)",
             accessibilityLabel: accessibilityLabel
         ) {
@@ -294,8 +297,8 @@ struct TrackMapButton: View {
     private var markedCount: Int { board.sheet.userCues.count }
 
     private var accessibilityLabel: String {
-        guard markedCount > 0 else { return "Track map" }
-        return markedCount == 1 ? "Track map, 1 marked" : "Track map, \(markedCount) marked"
+        guard markedCount > 0 else { return "Cue Points" }
+        return markedCount == 1 ? "Cue Points, 1 marked" : "Cue Points, \(markedCount) marked"
     }
 }
 

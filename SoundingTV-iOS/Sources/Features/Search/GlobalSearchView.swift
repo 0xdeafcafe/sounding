@@ -1,6 +1,51 @@
 import SwiftUI
 import os
 
+private enum SearchRelevance {
+    static func tracks(_ values: [Track], query: String) -> [Track] {
+        values.enumerated().sorted {
+            score(primary: $0.element.title, secondary: $0.element.user.displayName, query: query)
+                < score(primary: $1.element.title, secondary: $1.element.user.displayName, query: query)
+        }.map(\.element)
+    }
+
+    static func artists(_ values: [User], query: String) -> [User] {
+        values.enumerated().sorted {
+            score(primary: $0.element.displayName, secondary: $0.element.username, query: query)
+                < score(primary: $1.element.displayName, secondary: $1.element.username, query: query)
+        }.map(\.element)
+    }
+
+    static func playlists(_ values: [Playlist], query: String) -> [Playlist] {
+        values.enumerated().sorted {
+            score(primary: $0.element.title, secondary: $0.element.user.displayName, query: query)
+                < score(primary: $1.element.title, secondary: $1.element.user.displayName, query: query)
+        }.map(\.element)
+    }
+
+    private static func score(primary: String, secondary: String, query: String) -> Int {
+        let needle = normalized(query)
+        let first = normalized(primary)
+        let second = normalized(secondary)
+        if first == needle { return 0 }
+        if second == needle { return 1 }
+        if first.hasPrefix(needle) { return 2 }
+        if second.hasPrefix(needle) { return 3 }
+        if first.split(separator: " ").contains(where: { $0.hasPrefix(needle) }) { return 4 }
+        if first.contains(needle) { return 5 }
+        if second.contains(needle) { return 6 }
+
+        let tokens = needle.split(separator: " ").map(String.init)
+        let haystack = first + " " + second
+        return 20 - tokens.filter { haystack.contains($0) }.count
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 struct GlobalSearchView: View {
     @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
     @StateObject private var viewModel = GlobalSearchViewModel()
@@ -8,31 +53,28 @@ struct GlobalSearchView: View {
     @ObservedObject private var credentials = SoundCloudCredentialSource.shared
     @Environment(\.scenePhase) private var scenePhase
     @Namespace private var playlistNamespace
+    @FocusState private var searchFocused: Bool
 
     private var trimmedQuery: String {
         viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
-        Group {
-            if trimmedQuery.isEmpty {
-                recentSearchesState
-            } else {
-                resultsState
+        VStack(spacing: 0) {
+            searchField
+
+            Group {
+                if trimmedQuery.isEmpty {
+                    recentSearchesState
+                } else {
+                    resultsState
+                }
             }
         }
         .scrollContentBackground(.hidden)
         .background(Color.scBgBase.ignoresSafeArea())
-        .navigationTitle("Search")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                AccountAvatarButton()
-            }
-        }
-        .searchable(text: $viewModel.searchText, prompt: "Artists, Tracks, and Playlists")
+        .toolbar(.hidden, for: .navigationBar)
         .onChange(of: viewModel.searchText) { _, _ in viewModel.scheduleSearch() }
-        .onSubmit(of: .search) { viewModel.rememberCurrentQuery() }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             credentials.refreshFromStore()
@@ -41,16 +83,54 @@ struct GlobalSearchView: View {
         .queueConfirmationOverlay(confirmation)
     }
 
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 19, weight: .medium))
+                .foregroundStyle(Color.scTextSecondary)
+
+            TextField("Search", text: $viewModel.searchText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($searchFocused)
+                .onSubmit { viewModel.rememberCurrentQuery() }
+
+            if !viewModel.searchText.isEmpty {
+                Button {
+                    viewModel.searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Color.scTextTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear Search")
+            }
+        }
+        .font(.scBody)
+        .padding(.horizontal, 16)
+        .frame(height: 52)
+        .background(Color.primary.opacity(0.075), in: Capsule())
+        .overlay {
+            Capsule().strokeBorder(Color.primary.opacity(searchFocused ? 0.16 : 0.08), lineWidth: 1)
+        }
+        .padding(.horizontal, Space.page)
+        .padding(.top, Space.tight)
+        .padding(.bottom, Space.tight)
+    }
+
     private var recentSearchesState: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.section) {
-                VStack(alignment: .leading, spacing: Space.tight) {
-                    Text("Search SoundCloud")
+                VStack(alignment: .leading, spacing: Space.base) {
+                    Text("Vibes")
                         .font(.scTitle2)
                         .foregroundStyle(Color.scTextPrimary)
-                    Text("Find tracks, artists and playlists, or start with a genre.")
-                        .font(.scSubhead)
-                        .foregroundStyle(Color.scTextSecondary)
+
+                    HStack(alignment: .top, spacing: Space.snug) {
+                        vibeColumn(SearchVibe.all.indices.filter { $0.isMultiple(of: 2) }.map { SearchVibe.all[$0] })
+                        vibeColumn(SearchVibe.all.indices.filter { !$0.isMultiple(of: 2) }.map { SearchVibe.all[$0] })
+                    }
                 }
                 .padding(.horizontal, Space.page)
 
@@ -82,30 +162,22 @@ struct GlobalSearchView: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: Space.base) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Browse")
-                            .font(.scTitle2)
-                            .foregroundStyle(Color.scTextPrimary)
-                        Text("Pick a genre, then narrow it down from there.")
-                            .font(.scSubhead)
-                            .foregroundStyle(Color.scTextSecondary)
-                    }
-
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: Space.snug) {
-                        ForEach(GlobalSearchViewModel.browseGenres, id: \.self) { genre in
-                            PhoneSearchGenreTile(genre: genre) {
-                                viewModel.searchText = GenreProfile.of(genre).displayName
-                                viewModel.scheduleSearch(immediate: true)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, Space.page)
             }
-            .padding(.top, Space.tight)
+            .padding(.top, Space.base)
             .padding(.bottom, PhoneChrome.floatingClearance)
         }
+    }
+
+    private func vibeColumn(_ values: [SearchVibe]) -> some View {
+        VStack(spacing: Space.snug) {
+            ForEach(values) { vibe in
+                PhoneSearchVibeTile(vibe: vibe) {
+                    viewModel.searchText = vibe.query
+                    viewModel.scheduleSearch(immediate: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 
     @ViewBuilder
@@ -199,7 +271,7 @@ struct GlobalSearchView: View {
     private var searchResultsArtworkURLs: [URL] {
         viewModel.tracks.prefix(GlobalSearchViewModel.previewCount).compactMap(\.artworkURL)
             + viewModel.artists.prefix(GlobalSearchViewModel.previewCount).compactMap { $0.largeAvatarURL ?? $0.avatarURL }
-            + viewModel.playlists.prefix(GlobalSearchViewModel.previewCount).compactMap(\.artworkURL)
+            + viewModel.playlists.prefix(GlobalSearchViewModel.previewCount).compactMap(\.displayArtworkURL)
     }
 
     private func seeAllRow(kind: GlobalSearchScopedListView.Kind) -> some View {
@@ -245,62 +317,17 @@ private struct RecentSearchRow: View {
     }
 }
 
-private struct PhoneSearchGenreTile: View {
-    let genre: MusicGenre
+private struct PhoneSearchVibeTile: View {
+    let vibe: SearchVibe
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .bottomLeading) {
-                LinearGradient(
-                    colors: palette,
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                Image(systemName: symbol)
-                    .font(.system(size: 46, weight: .black))
-                    .foregroundStyle(.white.opacity(0.14))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(12)
-                Text(GenreProfile.of(genre).displayName)
-                    .font(.scHeadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .padding(14)
-            }
-            .frame(height: 92)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            SearchVibeArtwork(vibe: vibe)
+                .frame(height: vibe.phoneHeight)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Browse \(GenreProfile.of(genre).displayName)")
-    }
-
-    private var palette: [Color] {
-        switch GenreProfile.of(genre).family {
-        case .house: return [Color.indigo, Color.blue]
-        case .techno: return [Color.black, Color.purple]
-        case .trance: return [Color.cyan, Color.indigo]
-        case .garage: return [Color.orange, Color.pink]
-        case .bass: return [Color.red, Color.purple]
-        case .disco: return [Color.pink, Color.orange]
-        case .urban: return [Color.brown, Color.orange]
-        case .ambient: return [Color.teal, Color.blue]
-        default: return [Color.gray, Color.indigo]
-        }
-    }
-
-    private var symbol: String {
-        switch GenreProfile.of(genre).family {
-        case .house: return "house.fill"
-        case .techno: return "waveform.path.ecg"
-        case .trance: return "sparkles"
-        case .garage: return "car.fill"
-        case .bass: return "waveform"
-        case .disco: return "party.popper.fill"
-        case .urban: return "mic.fill"
-        case .ambient: return "cloud.fill"
-        default: return "music.note"
-        }
+        .accessibilityLabel("Browse \(vibe.title)")
     }
 }
 
@@ -385,6 +412,17 @@ final class GlobalSearchViewModel: ObservableObject {
     }
 
     private func runSearch(query: String, generation: Int) async {
+        #if DEBUG
+        if VisualFixtures.isEnabled {
+            guard generation == self.generation else { return }
+            tracks = SearchRelevance.tracks(VisualFixtures.tracks, query: query)
+            artists = SearchRelevance.artists(VisualFixtures.artists, query: query)
+            playlists = SearchRelevance.playlists(VisualFixtures.playlists + VisualFixtures.albums, query: query)
+            state = .loaded
+            isShowingCachedResults = false
+            return
+        }
+        #endif
         if !hasResults { state = .loading }
 
         async let tracksResult = try? api.searchTracks(query: query, limit: 25)
@@ -406,9 +444,9 @@ final class GlobalSearchViewModel: ObservableObject {
 
         completedNetworkGeneration = generation
         failedNetworkGeneration = nil
-        tracks = tracksPage?.collection ?? []
-        artists = artistsPage?.collection ?? []
-        playlists = playlistsPage?.collection ?? []
+        tracks = SearchRelevance.tracks(tracksPage?.collection ?? [], query: query)
+        artists = SearchRelevance.artists(artistsPage?.collection ?? [], query: query)
+        playlists = SearchRelevance.playlists(playlistsPage?.collection ?? [], query: query)
         isShowingCachedResults = false
         state = (tracks.isEmpty && artists.isEmpty && playlists.isEmpty) ? .empty : .loaded
         await persistCache(query: query)
@@ -548,7 +586,7 @@ struct GlobalSearchScopedListView: View {
                         .onAppear {
                             let playlists = viewModel.playlists
                             let lookahead = playlists[index..<min(index + Self.artworkLookahead, playlists.count)]
-                            ArtworkCache.shared.prefetch(lookahead.compactMap(\.artworkURL))
+                            ArtworkCache.shared.prefetch(lookahead.compactMap(\.displayArtworkURL))
                         }
                     }
                 }
@@ -584,21 +622,34 @@ private final class GlobalSearchScopedListViewModel: ObservableObject {
         loadedOnce = true
         state = .loading
 
+        #if DEBUG
+        if VisualFixtures.isEnabled {
+            switch kind {
+            case .tracks: tracks = SearchRelevance.tracks(VisualFixtures.tracks, query: query)
+            case .artists: artists = SearchRelevance.artists(VisualFixtures.artists, query: query)
+            case .playlists:
+                playlists = SearchRelevance.playlists(VisualFixtures.playlists + VisualFixtures.albums, query: query)
+            }
+            state = .loaded
+            return
+        }
+        #endif
+
         do {
             switch kind {
             case .tracks:
                 let page = try await api.searchTracks(query: query, limit: 50)
-                tracks = page.collection
+                tracks = SearchRelevance.tracks(page.collection, query: query)
                 trackCursor.advance(to: page)
                 state = tracks.isEmpty ? .empty : .loaded
             case .artists:
                 let page = try await api.searchUsers(query: query, limit: 50)
-                artists = page.collection
+                artists = SearchRelevance.artists(page.collection, query: query)
                 artistCursor.advance(to: page)
                 state = artists.isEmpty ? .empty : .loaded
             case .playlists:
                 let page = try await api.searchPlaylists(query: query, limit: 50)
-                playlists = page.collection
+                playlists = SearchRelevance.playlists(page.collection, query: query)
                 playlistCursor.advance(to: page)
                 state = playlists.isEmpty ? .empty : .loaded
             }

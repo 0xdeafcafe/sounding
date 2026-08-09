@@ -25,9 +25,10 @@ struct SoundingMacApp: App {
         SoundCloudCredentialSource.install()
         SoundCloudCredentialSource.shared.sideEffects = .init(
             requestSessionSync: { CloudSyncCoordinator.shared.requestSessionSync() },
-            wipeLocalIndexes: {
+            wipeLocalIndexes: { accountID in
                 LikesSyncEngine.shared.handleSignOut()
                 await LibraryCache.shared.clearAll()
+                if let accountID { AccountDataVault.forget(accountID: accountID) }
             },
             clearWebSession: {}
         )
@@ -66,6 +67,7 @@ struct SoundingMacApp: App {
                 .task {
                     MacMusicWindowCoordinator.shared.request(.main)
                     credentials.refreshFromStore()
+                    if !credentials.isSignedOut { await credentials.revalidate() }
                     await credentials.purgeExpiredLockedDataIfNeeded()
                     midi.start()
                     MIDIMixerBridge.shared.start()
@@ -696,27 +698,8 @@ struct MacMessagesView: View {
 
     var body: some View {
         Group {
-            if credentials.accessToken == nil && model.conversations.isEmpty {
-                ContentUnavailableView {
-                    Label(
-                        credentials.isSessionRejected ? "Session expired" : "Sign in for messages",
-                        systemImage: credentials.isSessionRejected
-                            ? "exclamationmark.arrow.triangle.2.circlepath"
-                            : "bubble.left.and.bubble.right"
-                    )
-                } description: {
-                    Text(credentials.isSessionRejected
-                         ? "Reauthenticate with SoundCloud to update messages. Any recent encrypted cache stays available on this device."
-                         : "Please sign in to view SoundCloud messages.")
-                } actions: {
-                    Button(credentials.isSessionRejected ? "Reauthenticate" : "Sign in to SoundCloud") {
-                        isReauthentication = credentials.isSessionRejected
-                        showsAuthentication = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                    Button("Open Account Settings") { openSettings() }
-                        .buttonStyle(.bordered)
-                }
+            if !credentials.hasConfirmedAccount {
+                messagesGate
             } else {
                 HSplitView {
                     conversationList
@@ -762,12 +745,45 @@ struct MacMessagesView: View {
                 forHandoff: false,
                 isReauthentication: isReauthentication
             ) {
-                credentials.didCompleteSignIn()
                 showsAuthentication = false
                 isReauthentication = false
                 Task { await model.load() }
             }
             .frame(minWidth: 720, minHeight: 620)
+        }
+    }
+
+    @ViewBuilder
+    private var messagesGate: some View {
+        VStack(spacing: 0) {
+            MacPaneHeader(title: "Messages")
+            if credentials.isSessionRejected {
+                SCEmptyState(
+                    kind: .error,
+                    title: "Sign-In Expired",
+                    message: "Sign in again with SoundCloud to access messages.",
+                    actionTitle: "Reauthenticate",
+                    action: {
+                        isReauthentication = true
+                        showsAuthentication = true
+                    },
+                    style: .mac
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.top, 40)
+            } else if credentials.isSignedOut {
+                MacSignedOutEmptyState(
+                    icon: "bubble.left.and.bubble.right",
+                    title: "Messages Need an Account",
+                    message: "Sign in on this Mac to view SoundCloud messages. Home and Search still work in guest mode.",
+                    browsableRoute: .home
+                )
+            } else {
+                ProgressView("Checking sign-in…")
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 48)
+            }
+            Spacer(minLength: 0)
         }
     }
 

@@ -52,7 +52,10 @@ struct PlayerView: View {
                 .padding(.bottom, Spacing.xl)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .background(
-                CinematicBackground(palette: artworkColors.current)
+                CinematicBackground(
+                    track: playerService.currentTrack,
+                    palette: artworkColors.current
+                )
             )
             #if DEBUG
             .task(id: debugArtworkOverrideURL) {
@@ -197,17 +200,13 @@ struct PlayerView: View {
     }
 
     private func heroRow(layout: PlayerLayout) -> some View {
-        HStack(alignment: .center, spacing: Spacing.xxxl) {
-            HeroArtwork(
-                track: playerService.currentTrack,
-                isPlaying: playerService.isPlaying,
-                size: layout.artworkSize
-            )
-            .frame(width: layout.artworkSize, height: layout.artworkSize)
-
+        HStack(alignment: .center, spacing: 0) {
             trackInfoColumn(layout: layout)
-                .frame(maxWidth: .infinity, maxHeight: layout.artworkSize, alignment: .topLeading)
+                .frame(maxWidth: 1120, maxHeight: layout.artworkSize, alignment: .topLeading)
+
+            Spacer(minLength: 300)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func trackInfoColumn(layout: PlayerLayout) -> some View {
@@ -293,7 +292,7 @@ struct PlayerView: View {
             }
             CommentsEntryButton(store: commentsStore) { showingComments = true }
             if DeckIdentityResolver.isLikelyMix(track) {
-                UtilityActionButton(icon: "list.number", accessibilityLabel: "Detected Set List") {
+                UtilityActionButton(icon: "list.number", accessibilityLabel: "Setlist") {
                     showingSetlist = true
                 }
             }
@@ -323,6 +322,7 @@ struct PlayerView: View {
                     palette: artworkColors.current,
                     comments: commentsStore,
                     cues: cueBoard,
+                    setlistSegments: currentSetlistSegments,
                     reduceMotion: reduceMotion,
                     onTogglePlayPause: { playerService.togglePlayPause() },
                     onSeek: { time in playerService.seek(to: time) }
@@ -341,6 +341,11 @@ struct PlayerView: View {
             transportCluster
                 .padding(.top, Spacing.xs)
         }
+    }
+
+    private var currentSetlistSegments: [SetlistSegment] {
+        guard let track = playerService.currentTrack else { return [] }
+        return setlistStore.setlist(for: track.id)?.segments.filter { !$0.isDeleted } ?? []
     }
 
     @ViewBuilder
@@ -407,7 +412,7 @@ private struct PlayerLayout {
     let showsUpNext: Bool
 
     init(available: CGSize) {
-        waveformHeight = min(max(available.height * 0.09, 88), 112)
+        waveformHeight = min(max(available.height * 0.11, 104), 132)
         let verticalInset = SCBrowseMetrics.contentTopInset + Spacing.xl
         artworkSize = min(max(460, available.height - verticalInset * 1.5), available.width * 0.36, 640)
         showsUpNext = artworkSize >= 540
@@ -441,6 +446,7 @@ private struct QueueEntry: Identifiable {
 }
 
 private struct CinematicBackground: View {
+    let track: Track?
     let palette: ArtworkColors.Palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -456,16 +462,19 @@ private struct CinematicBackground: View {
         ZStack {
             Color(red: baseLevel * 0.92, green: baseLevel, blue: baseLevel * 1.08)
 
-            LinearGradient(
-                colors: [
-                    palette.primary.opacity(paletteStrength),
-                    palette.average.opacity(paletteStrength * 0.52),
-                    palette.secondary.opacity(paletteStrength * 0.78),
-                    Color.black.opacity(0.72)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            ArtworkImage(url: track?.artworkURL, variant: .hero) {
+                LinearGradient(
+                    colors: [
+                        palette.primary.opacity(paletteStrength),
+                        palette.average.opacity(paletteStrength * 0.52),
+                        palette.secondary.opacity(paletteStrength * 0.78)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
 
             RadialGradient(
                 colors: [palette.accent.opacity(paletteStrength * 0.44), .clear],
@@ -481,13 +490,21 @@ private struct CinematicBackground: View {
                 endRadius: 1250
             )
 
-            Color.black.opacity(adaptiveScrim)
+            LinearGradient(
+                colors: [
+                    Color.black.opacity(0.56 + adaptiveScrim),
+                    Color.black.opacity(0.18 + adaptiveScrim * 0.4),
+                    Color.black.opacity(0.10)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
 
             LinearGradient(
                 colors: [
-                    Color.black.opacity(0.20),
-                    Color.black.opacity(0.04),
-                    Color.black.opacity(0.62)
+                    Color.black.opacity(0.24),
+                    Color.black.opacity(0.02),
+                    Color.black.opacity(0.68)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -659,6 +676,7 @@ struct WaveformScrubber: View {
     let palette: ArtworkColors.Palette
     @ObservedObject var comments: TrackCommentsStore
     @ObservedObject var cues: CueBoard
+    let setlistSegments: [SetlistSegment]
     let reduceMotion: Bool
     let onTogglePlayPause: () -> Void
     let onSeek: (TimeInterval) -> Void
@@ -726,6 +744,8 @@ struct WaveformScrubber: View {
                                 envelope: laneBars,
                                 duration: duration,
                                 progress: displayedProgress,
+                                mode: .centered(windowSeconds: visibleWindowSeconds),
+                                cueMarkers: waveformMarkers,
                                 playheadEmphasis: Double(pulse.impact),
                                 pulseEnergy: Double(pulse.energy),
                                 placeholder: placeholderKind,
@@ -737,7 +757,6 @@ struct WaveformScrubber: View {
                     .frame(width: width, height: laneHeight)
                 }
 
-                cueMarkers(width: width)
                 markers(width: width)
                 bubble(width: width)
                 readout(width: width)
@@ -759,6 +778,7 @@ struct WaveformScrubber: View {
             }
         }
         .frame(height: laneHeight)
+        .clipped()
         .focusable()
         .focused($isFocused)
         .focusEffectDisabled()
@@ -919,7 +939,31 @@ struct WaveformScrubber: View {
     private var paletteLaneStyle: SCWaveformStyle {
         var style = Self.laneStyle
         style.playheadHaloColor = palette.accent
+        style.lowerHalfOpacity = 0.34
         return style
+    }
+
+    private var visibleWindowSeconds: TimeInterval {
+        guard duration > 0 else { return 60 }
+        return min(max(duration * 0.18, 45), 180)
+    }
+
+    private var waveformMarkers: [SCWaveformMarker] {
+        let cueItems = cues.sheet.entries.map { entry in
+            SCWaveformMarker(
+                id: "cue-\(entry.id)",
+                position: duration > 0 ? entry.positionSeconds / duration : 0,
+                color: entry.color.color.opacity(entry.isSuggestion ? 0.36 : 0.76)
+            )
+        }
+        let setlistItems = setlistSegments.map { segment in
+            SCWaveformMarker(
+                id: "setlist-\(segment.id)",
+                position: duration > 0 ? segment.startSeconds / duration : 0,
+                color: Color.white.opacity(0.14)
+            )
+        }
+        return cueItems + setlistItems
     }
 
     fileprivate static let laneStyle: SCWaveformStyle = {
@@ -1005,7 +1049,8 @@ struct WaveformScrubber: View {
 
     private func xPosition(for time: TimeInterval, width: CGFloat) -> CGFloat {
         guard duration > 0 else { return 0 }
-        return CGFloat(min(1, max(0, time / duration))) * width
+        let secondsPerPoint = visibleWindowSeconds / Double(max(1, width))
+        return width / 2 + CGFloat((time - displayedTime) / secondsPerPoint)
     }
 }
 

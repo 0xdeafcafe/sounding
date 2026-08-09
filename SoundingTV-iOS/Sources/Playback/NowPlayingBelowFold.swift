@@ -10,6 +10,7 @@ import UIKit
 // row buttons and comment-row taps scroll to these.
 enum NowPlayingSection: Hashable {
     case player
+    case details
     case comments
     case behind
     case upNext
@@ -20,6 +21,29 @@ enum NowPlayingLowerPanel: String, CaseIterable, Identifiable {
     case upNext = "Up Next"
 
     var id: Self { self }
+
+    var systemImage: String {
+        switch self {
+        case .comments: return "bubble.left.and.bubble.right"
+        case .upNext: return "text.line.last.and.arrowtriangle.forward"
+        }
+    }
+}
+
+private enum NowPlayingCommentSort: String, CaseIterable, Identifiable {
+    case trackTime = "Track time"
+    case newest = "Newest"
+    case oldest = "Oldest"
+
+    var id: Self { self }
+
+    var systemImage: String {
+        switch self {
+        case .trackTime: return "clock"
+        case .newest: return "arrow.down"
+        case .oldest: return "arrow.up"
+        }
+    }
 }
 
 // MARK: - Comments (§4.1 — the feed below the fold, no longer a modal sheet)
@@ -28,18 +52,37 @@ struct NowPlayingCommentsSection: View {
     @ObservedObject var store: PhoneWaveformStore
     let accent: Color
     let trackId: String?
-    /// Seek + scroll back to the player.
+    let playbackAnchorPosition: TimeInterval
+    let playbackAnchorDate: Date
+    let isPlaying: Bool
+    let duration: TimeInterval
+    let viewportHeight: CGFloat
     let onSeek: (TimeInterval) -> Void
 
     @Environment(\.openURL) private var openURL
     @State private var isShowingSignIn = false
+    @State private var sort: NowPlayingCommentSort = .trackTime
+    @State private var activeCommentIDs: Set<String> = []
+    @State private var playbackCommentID: String?
+    @State private var commentContentHeight: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.snug) {
-            SCEyebrow("COMMENTS", tint: accent, style: .phone)
+            HStack(alignment: .center, spacing: Space.tight) {
+                SCEyebrow("COMMENTS", tint: accent, style: .phone)
+                Spacer(minLength: Space.tight)
+                if store.commentsState == .loaded, !store.comments.isEmpty {
+                    sortMenu
+                }
+            }
             content
+                .background(.black.opacity(0.16), in: RoundedRectangle(cornerRadius: Corner.card, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Corner.card, style: .continuous))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: playbackTaskID) {
+            await followPlayback()
+        }
         .sheet(isPresented: $isShowingSignIn) {
             NavigationStack {
                 SoundCloudLoginView.standalone {
@@ -93,49 +136,153 @@ struct NowPlayingCommentsSection: View {
     }
 
     private var commentList: some View {
-        let threadSet = CommentThreadBuilder.build(store.comments)
-        return LazyVStack(alignment: .leading, spacing: 0) {
-            if !threadSet.timed.isEmpty {
-                subsectionHeader("On This Track")
-                ForEach(threadSet.timed) { thread in
-                    threadRows(thread)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: Space.tight) {
+                    ForEach(sortedThreads) { thread in
+                        VStack(alignment: .leading, spacing: Space.hair) {
+                            commentRow(thread.root)
+                                .id(thread.root.id)
+
+                            ForEach(thread.replies) { reply in
+                                commentRow(reply, isReply: true)
+                                    .id(reply.id)
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, Space.tight)
+                .padding(.leading, Space.tight)
+                .padding(.trailing, sort == .trackTime ? Space.snug : Space.tight)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { height in
+                    commentContentHeight = height
                 }
             }
-            if !threadSet.untimed.isEmpty {
-                subsectionHeader("General")
-                ForEach(threadSet.untimed) { thread in
-                    threadRows(thread)
+            .scrollDisabled(commentContentHeight <= viewportHeight + 1)
+            .scrollIndicators(commentContentHeight > viewportHeight + 1 ? .visible : .hidden)
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: min(viewportHeight, max(1, commentContentHeight)), alignment: .top)
+            .onChange(of: playbackCommentID) { _, commentID in
+                guard sort == .trackTime,
+                      commentContentHeight > viewportHeight + 1,
+                      let commentID else { return }
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    proxy.scrollTo(commentID, anchor: .center)
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if sort == .trackTime,
+                   duration > 0,
+                   commentContentHeight > viewportHeight + 1 {
+                    CommentPlaybackPositionIndicator(
+                        anchorPosition: playbackAnchorPosition,
+                        anchorDate: playbackAnchorDate,
+                        isPlaying: isPlaying,
+                        duration: duration,
+                        accent: accent
+                    )
+                    .frame(width: 6)
+                    .padding(.vertical, Space.tight)
                 }
             }
         }
     }
 
-    private func subsectionHeader(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.system(size: 11, weight: .bold))
-            .kerning(1.1)
-            .foregroundStyle(.white.opacity(0.45))
-            .padding(.top, Space.tight)
-            .padding(.bottom, Space.hair)
-    }
-
-    @ViewBuilder
-    private func threadRows(_ thread: CommentThread) -> some View {
-        commentRow(thread.root, isReply: false)
-        ForEach(thread.replies) { reply in
-            commentRow(reply, isReply: true)
-        }
-    }
-
-    private func commentRow(_ comment: Comment, isReply: Bool) -> some View {
+    private func commentRow(_ comment: Comment, isReply: Bool = false) -> some View {
         NowPlayingCommentRow(
             comment: comment,
             isReply: isReply,
+            isActive: activeCommentIDs.contains(comment.id),
             accent: accent,
             trackURL: store.resolvedTrack?.permalinkURL,
             onSearch: searchAction(for: comment),
             onSeek: comment.timeInTrack.map { time in { onSeek(time) } }
         )
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("Comment order", selection: $sort) {
+                ForEach(NowPlayingCommentSort.allCases) { option in
+                    Label(option.rawValue, systemImage: option.systemImage)
+                        .tag(option)
+                }
+            }
+        } label: {
+            Label(sort.rawValue, systemImage: "arrow.up.arrow.down")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.78))
+                .padding(.horizontal, Space.tight)
+                .frame(height: 32)
+                .background(.white.opacity(0.08), in: Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Sort comments, \(sort.rawValue)")
+    }
+
+    private var sortedThreads: [CommentThread] {
+        let built = CommentThreadBuilder.build(store.comments)
+        let threads = built.timed + built.untimed
+        return threads.sorted { lhs, rhs in
+            switch sort {
+            case .trackTime:
+                switch (lhs.root.timeInTrack, rhs.root.timeInTrack) {
+                case let (left?, right?) where left != right: return left < right
+                case (.some, nil): return true
+                case (nil, .some): return false
+                default: return commentDate(lhs.root) > commentDate(rhs.root)
+                }
+            case .newest:
+                let left = commentDate(lhs.root)
+                let right = commentDate(rhs.root)
+                return left == right ? lhs.id > rhs.id : left > right
+            case .oldest:
+                let left = commentDate(lhs.root)
+                let right = commentDate(rhs.root)
+                return left == right ? lhs.id < rhs.id : left < right
+            }
+        }
+    }
+
+    private func commentDate(_ comment: Comment) -> Date {
+        comment.createdAt ?? .distantPast
+    }
+
+    private var playbackTaskID: String {
+        let anchorMillis = Int((playbackAnchorPosition * 1_000).rounded())
+        return "\(trackId ?? "-")#\(anchorMillis)#\(isPlaying)#\(store.comments.count)"
+    }
+
+    private func followPlayback() async {
+        while !Task.isCancelled {
+            let position = estimatedPlaybackPosition(at: .now)
+            let active = Set(store.comments.compactMap { comment -> String? in
+                guard let time = comment.timeInTrack,
+                      position >= time - SCCommentTimeline.leadSeconds,
+                      position <= time + SCCommentTimeline.lingerSeconds else { return nil }
+                return comment.id
+            })
+            if active != activeCommentIDs { activeCommentIDs = active }
+
+            let current = store.comments
+                .compactMap { comment -> (String, TimeInterval)? in
+                    guard let time = comment.timeInTrack,
+                          time <= position + SCCommentTimeline.leadSeconds else { return nil }
+                    return (comment.id, time)
+                }
+                .max(by: { $0.1 < $1.1 })?
+                .0
+            if current != playbackCommentID { playbackCommentID = current }
+            guard isPlaying else { return }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+    }
+
+    private func estimatedPlaybackPosition(at date: Date) -> TimeInterval {
+        guard isPlaying else { return min(duration, max(0, playbackAnchorPosition)) }
+        return min(duration, max(0, playbackAnchorPosition + date.timeIntervalSince(playbackAnchorDate)))
     }
 
     private func searchAction(for comment: Comment) -> (() -> Void)? {
@@ -151,27 +298,25 @@ struct NowPlayingCommentsSection: View {
     }
 }
 
-// §4.1 feed row: 36pt avatar, name 14/semibold, timestamp badge in the palette
-// accent 12/semibold, body 15/regular white 0.85. Tap seeks and scrolls back to
-// the player; the context menu carries the phone-only copy/share affordances.
+// A flat comment feed: comments are intentionally not nested. Only the time
+// badge seeks, so browsing and sorting the feed never moves the page.
 private struct NowPlayingCommentRow: View {
     let comment: Comment
-    var isReply: Bool = false
+    let isReply: Bool
+    let isActive: Bool
     let accent: Color
     let trackURL: URL?
     let onSearch: (() -> Void)?
     let onSeek: (() -> Void)?
 
-    private var avatarSize: CGFloat { isReply ? 28 : 36 }
+    private var avatarSize: CGFloat { isReply ? 30 : 36 }
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.snug) {
             if isReply {
                 Capsule(style: .continuous)
-                    .fill(Color.scSeparator)
+                    .fill(.white.opacity(0.16))
                     .frame(width: 2, height: avatarSize)
-                    .padding(.leading, 17)
-                    .padding(.trailing, -Space.snug + 2)
             }
 
             SCArtworkResolver(url: comment.user.avatarURL) { image in
@@ -193,13 +338,20 @@ private struct NowPlayingCommentRow: View {
                         .lineLimit(1)
 
                     if let time = comment.timeInTrack {
-                        Text(CommentFormat.clock(time))
-                            .font(.system(size: 12, weight: .semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(accent)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(accent.opacity(0.16), in: Capsule(style: .continuous))
+                        Button { onSeek?() } label: {
+                            Label(CommentFormat.clock(time), systemImage: "play.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(isActive ? .white : accent)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(
+                                    isActive ? accent.opacity(0.72) : accent.opacity(0.16),
+                                    in: Capsule(style: .continuous)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Play from \(CommentFormat.clock(time))")
                     }
 
                     if let age = CommentFormat.age(of: comment.createdAt) {
@@ -217,9 +369,21 @@ private struct NowPlayingCommentRow: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 7)
-        .contentShape(Rectangle())
-        .onTapGesture { onSeek?() }
+        .padding(.horizontal, Space.snug)
+        .padding(.vertical, Space.tight)
+        .padding(.leading, isReply ? Space.roomy : 0)
+        .background(
+            RoundedRectangle(cornerRadius: Corner.card, style: .continuous)
+                .fill(isActive ? accent.opacity(0.18) : .white.opacity(isReply ? 0.035 : 0.055))
+        )
+        .overlay(alignment: .leading) {
+            if isActive {
+                Capsule(style: .continuous)
+                    .fill(accent)
+                    .frame(width: 3)
+                    .padding(.vertical, Space.tight)
+            }
+        }
         .contextMenu {
             if let onSearch {
                 Button(action: onSearch) {
@@ -237,9 +401,9 @@ private struct NowPlayingCommentRow: View {
                 }
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilitySummary)
-        .accessibilityHint(onSeek != nil ? "Seeks to this moment" : "")
+        .accessibilityValue(isActive ? "Playing now" : "")
     }
 
     private var accessibilitySummary: String {
@@ -248,6 +412,42 @@ private struct NowPlayingCommentRow: View {
         if let time = comment.timeInTrack { parts.append("at \(CommentFormat.clock(time))") }
         parts.append(comment.body)
         return parts.joined(separator: ", ")
+    }
+}
+
+private struct CommentPlaybackPositionIndicator: View {
+    let anchorPosition: TimeInterval
+    let anchorDate: Date
+    let isPlaying: Bool
+    let duration: TimeInterval
+    let accent: Color
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            GeometryReader { proxy in
+                let fraction = playbackFraction(at: context.date)
+                ZStack(alignment: .top) {
+                    Capsule(style: .continuous)
+                        .fill(.white.opacity(0.10))
+                        .frame(width: 2)
+
+                    Capsule(style: .continuous)
+                        .fill(accent)
+                        .frame(width: 4, height: 22)
+                        .shadow(color: accent.opacity(0.45), radius: 4)
+                        .offset(y: max(0, (proxy.size.height - 22) * fraction))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func playbackFraction(at date: Date) -> CGFloat {
+        guard duration > 0 else { return 0 }
+        let elapsed = isPlaying ? date.timeIntervalSince(anchorDate) : 0
+        return CGFloat(min(1, max(0, (anchorPosition + elapsed) / duration)))
     }
 }
 
@@ -378,11 +578,17 @@ struct NowPlayingUpNextSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.snug) {
-            SCEyebrow("UP NEXT", tint: accent, style: .phone)
+            HStack(alignment: .firstTextBaseline) {
+                SCEyebrow("UP NEXT", tint: accent, style: .phone)
+                Spacer()
+                Text("\(entries.count) queued")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
 
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(entries.prefix(Self.visibleCount)) { entry in
-                    row(entry)
+            LazyVStack(alignment: .leading, spacing: Space.tight) {
+                ForEach(Array(entries.prefix(Self.visibleCount).enumerated()), id: \.element.id) { index, entry in
+                    row(entry, position: index + 1)
                 }
             }
 
@@ -396,8 +602,13 @@ struct NowPlayingUpNextSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func row(_ entry: PhonePlaybackCoordinator.UpNextEntry) -> some View {
+    private func row(_ entry: PhonePlaybackCoordinator.UpNextEntry, position: Int) -> some View {
         HStack(spacing: Space.snug) {
+            Text("\(position)")
+                .font(.system(size: 12, weight: .bold).monospacedDigit())
+                .foregroundStyle(accent)
+                .frame(width: 18)
+
             AsyncImage(url: entry.artworkURL.flatMap { URL(string: $0) }?.soundCloudArtworkVariant("t200x200")) { phase in
                 if case .success(let image) = phase {
                     image.resizable().scaledToFill()
@@ -430,7 +641,11 @@ struct NowPlayingUpNextSection: View {
                 .font(.scNumeric.monospacedDigit())
                 .foregroundStyle(.white.opacity(0.45))
         }
-        .padding(.vertical, 6)
+        .padding(Space.tight)
+        .background(
+            RoundedRectangle(cornerRadius: Corner.card, style: .continuous)
+                .fill(.white.opacity(0.055))
+        )
         .accessibilityElement(children: .combine)
     }
 }

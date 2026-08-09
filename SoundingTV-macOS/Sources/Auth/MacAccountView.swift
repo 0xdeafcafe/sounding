@@ -11,7 +11,6 @@ struct MacSettingsAccountTab: View {
 
     @State private var isSyncing = false
     @State private var isCheckingPlan = false
-    @State private var signedOutLocallyAt: Date?
     @State private var isShowingWebSignIn = false
     @State private var isReauthentication = false
 
@@ -22,41 +21,32 @@ struct MacSettingsAccountTab: View {
                     onboardingCard
                 } else if credentials.isSessionRejected {
                     recoveryCard
+                } else if credentials.hasConfirmedAccount {
+                    identityCard
+                    planCard
+                    soundCloudManagementCard
+                } else {
+                    validationCard
                 }
-                identityCard
-                planCard
-                soundCloudManagementCard
                 syncCard
             }
             .frame(maxWidth: 560)
             .padding(24)
         }
-        .task { refreshLocalSignOut() }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             credentials.refreshFromStore()
             Task {
                 await credentials.revalidate()
-                if !credentials.isSignedOut { await subscription.verifyNow() }
+                if credentials.hasConfirmedAccount { await subscription.verifyNow() }
             }
         }
         .sheet(isPresented: $isShowingWebSignIn) {
             MacSoundCloudSignInView(peerName: nil, forHandoff: false, isReauthentication: isReauthentication) {
-                credentials.didCompleteSignIn()
-                refreshLocalSignOut()
                 isShowingWebSignIn = false
             }
             .frame(minWidth: 720, minHeight: 620)
         }
-    }
-
-    private func refreshLocalSignOut() {
-        signedOutLocallyAt = SessionSyncBookkeeping.localSignOutMillis()
-            .map { Date(timeIntervalSince1970: Double($0) / 1000) }
-    }
-
-    private var isSyncPausedBySignOut: Bool {
-        credentials.isSignedOut && signedOutLocallyAt != nil
     }
 
     private var identityCard: some View {
@@ -78,7 +68,6 @@ struct MacSettingsAccountTab: View {
                 MacInsetActionRow(title: "Sign Out on This Mac", role: .destructive, isLast: true) {
                     Task {
                         await credentials.signOut()
-                        refreshLocalSignOut()
                     }
                 }
             }
@@ -190,7 +179,7 @@ struct MacSettingsAccountTab: View {
     private var planVerification: String {
         switch subscription.verification {
         case .verified: return "Verified"
-        case .unverifiable(let withinGrace): return withinGrace ? "Grace period" : "Unavailable"
+        case .unverifiable: return "Unavailable"
         case .verifiedNotSubscribed: return "Not subscribed"
         }
     }
@@ -198,7 +187,7 @@ struct MacSettingsAccountTab: View {
     private var planVerificationColor: Color {
         switch subscription.verification {
         case .verified: return .green
-        case .unverifiable(let withinGrace): return withinGrace ? .orange : .secondary
+        case .unverifiable: return .secondary
         case .verifiedNotSubscribed: return .red
         }
     }
@@ -208,31 +197,14 @@ struct MacSettingsAccountTab: View {
             VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceTight) {
                 Label("Sign in to SoundCloud", systemImage: "person.crop.circle.badge.checkmark")
                     .font(.headline)
-                Text("Sign in securely in the SoundCloud web view on this Mac. Your session is stored in Keychain and can sync to your other SoundingCloud devices.")
+                Text("Sign in securely in the SoundCloud web view on this Mac. Your authentication is stored in Keychain on this Mac and can be handed to a device you explicitly authorize.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if let deletionDate = credentials.lockedDataDeletionDate {
-                    Label(
-                        "Guest mode is available. Saved account data will be cleared \(deletionDate.formatted(date: .abbreviated, time: .shortened)) unless you sign in again.",
-                        systemImage: "clock.badge.exclamationmark"
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
+                Button("Sign in on This Mac") {
+                    isReauthentication = false
+                    isShowingWebSignIn = true
                 }
-
-                HStack(spacing: SCContentStyle.mac.spaceSnug) {
-                    Button("Sign in on This Mac") {
-                        isReauthentication = false
-                        isShowingWebSignIn = true
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("Sync Existing Session") {
-                        runSyncNow()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isSyncing)
-                }
+                .buttonStyle(.borderedProminent)
             }
             .padding(SCContentStyle.mac.spaceGutter)
         }
@@ -241,7 +213,7 @@ struct MacSettingsAccountTab: View {
     private var recoveryCard: some View {
         MacInsetCard {
             VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceTight) {
-                Label("SoundCloud Session Expired", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
+                Label("SoundCloud Sign-In Expired", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
                     .font(.headline)
                     .foregroundStyle(.orange)
                 Text(credentials.sessionRecoveryMessage ?? "Reauthenticate to continue.")
@@ -257,24 +229,43 @@ struct MacSettingsAccountTab: View {
         }
     }
 
+    private var validationCard: some View {
+        MacInsetCard {
+            HStack(spacing: SCContentStyle.mac.spaceTight) {
+                ProgressView()
+                    .controlSize(.small)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Checking SoundCloud sign-in")
+                        .font(.headline)
+                    Text("Account content stays hidden until SoundCloud confirms this sign-in.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Button("Check Again") {
+                    Task { await credentials.revalidate() }
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(SCContentStyle.mac.spaceGutter)
+        }
+    }
+
     private var identityTitle: String {
         if credentials.isSignedOut { return "Please Sign In" }
-        if credentials.isSessionRejected { return "Session Expired" }
+        if credentials.isSessionRejected { return "Sign-In Expired" }
         return credentials.currentUser?.username ?? "SoundCloud"
     }
 
     private var identitySubtitle: String {
         if credentials.isSignedOut {
-            if let date = credentials.lockedDataDeletionDate {
-                return "Guest mode · saved data clears \(date.formatted(date: .abbreviated, time: .shortened))"
-            }
-            return "Guest mode · sign in to save, follow, message, or download."
+            return "Guest mode · sign in to access account content."
         }
         if credentials.isSessionRejected {
-            return "Please reauthenticate. Cached data is preserved."
+            return "Please sign in again to access account content."
         }
         guard let user = credentials.currentUser else {
-            return "Session found, loading profile…"
+            return "Signed in, loading profile…"
         }
         return "\(user.followersCount) followers · \(user.trackCount) tracks"
     }
@@ -282,7 +273,7 @@ struct MacSettingsAccountTab: View {
     @ViewBuilder
     private var avatar: some View {
         let size: CGFloat = 44
-        if let url = credentials.currentUser?.avatarURL {
+        if !credentials.needsSignIn, let url = credentials.currentUser?.avatarURL {
             AsyncImage(url: url) { phase in
                 if let image = phase.image {
                     image.resizable().scaledToFill()
@@ -307,15 +298,9 @@ struct MacSettingsAccountTab: View {
     private var syncCard: some View {
         VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceTight) {
             MacInsetCard {
-                MacInsetRow(title: "Session sync", isLast: false) {
-                    Text(isSyncPausedBySignOut ? "Paused - you signed out on this Mac" : "CloudKit, every 5 min")
+                MacInsetRow(title: "iCloud data sync", isLast: false) {
+                    Text("Library metadata, settings, cues, and analysis")
                         .foregroundStyle(.secondary)
-                }
-                if isSyncPausedBySignOut, let signedOutLocallyAt {
-                    MacInsetRow(title: "Signed out here", isLast: false) {
-                        Text(signedOutLocallyAt, format: .dateTime.day().month().year().hour().minute())
-                            .foregroundStyle(.secondary)
-                    }
                 }
                 MacInsetRow(title: "Last successful sync", isLast: false) {
                     if let lastRunAt = sync.lastSuccessfulRunAt {
@@ -346,14 +331,6 @@ struct MacSettingsAccountTab: View {
                     .padding(SCContentStyle.mac.spaceGutter)
                     .accessibilityElement(children: .combine)
                 }
-                if isSyncPausedBySignOut {
-                    MacInsetActionRow(title: "Resume Session Sync", isLast: false) {
-                        SessionSyncBookkeeping.clearLocalSignOut()
-                        refreshLocalSignOut()
-                        runSyncNow()
-                    }
-                    .rowDisabled(isSyncing)
-                }
                 MacInsetActionRow(title: isSyncing ? "Syncing…" : "Sync Now", isLast: true) {
                     runSyncNow()
                 }
@@ -373,32 +350,23 @@ struct MacSettingsAccountTab: View {
         Task {
             await sync.runOnce()
             credentials.refreshFromStore()
-            refreshLocalSignOut()
             isSyncing = false
         }
     }
 
     private var syncFootnote: String {
-        if isSyncPausedBySignOut {
-            return "This Mac is signed out. Resume Session Sync to pick up the account from your other signed-in devices again."
-        }
-        if credentials.isSignedOut {
-            return "Sign in on iPhone or Apple TV first. This Mac picks that session up through iCloud. Sync Now checks straight away."
-        }
-        return "This Mac's SoundCloud session came from another signed-in device."
+        "SoundCloud authentication is not received through iCloud. Sign in on this Mac; it can only give authentication to a device you explicitly authorize."
     }
 
     private var dangerCard: some View {
         VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceTight) {
             MacInsetCard {
                 MacInsetActionRow(title: "Forget This Account", role: .destructive, isLast: true) {
-                    DeviceSessionStore.forget()
-                    credentials.refreshFromStore()
-                    refreshLocalSignOut()
+                    Task { await credentials.signOut() }
                 }
             }
 
-            Text("Signs out on this Mac only. Your iPhone and Apple TV keep their sign-in, and session sync stops pulling their account onto this Mac until you choose Resume Session Sync.")
+            Text("Signs out on this Mac only. Your iPhone and Apple TV keep their sign-in.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, SCContentStyle.mac.spaceHair)
@@ -429,7 +397,7 @@ struct MacSoundCloudSignInView: View {
                     Text(title)
                         .font(.headline)
                     Text(forHandoff
-                         ? "This SoundCloud session will be sent to your \(peerName ?? "device") and used only there."
+                         ? "This SoundCloud authentication will be sent to your \(peerName ?? "device") and used only there."
                          : "The page below is provided by SoundCloud.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -452,15 +420,40 @@ struct MacSoundCloudSignInView: View {
             ZStack {
                 MacSoundCloudOAuthWebView(
                     isLoading: $isLoading,
-                    usesIsolatedDataStore: forHandoff,
+                    // Always start from a clean web session. Reusing the default
+                    // SoundCloud cookie jar can land directly on Home without a
+                    // token exchange, leaving us unable to capture refresh
+                    // material and making the sheet appear to hang after login.
+                    usesIsolatedDataStore: true,
                     startView: startView
                 ) { session in
                     if forHandoff {
                         companionClient.sendAuthHandoffSession(session)
+                        onComplete()
                     } else {
-                        DeviceSessionStore.save(session)
+                        isLoading = true
+                        Task {
+                            DeviceSessionStore.save(session)
+                            SoundCloudCredentialSource.shared.didCompleteSignIn()
+                            let health = await SoundCloudCredentialSource.shared.revalidate()
+                            isLoading = false
+                            guard health == .healthy else {
+                                if case .waiting = SoundCloudAPI.shared.trafficSafetyState() {
+                                    // The session is saved. Leave the sheet and
+                                    // let the root banner communicate the safe,
+                                    // automatic retry instead of asking the
+                                    // user to repeat a successful web login.
+                                    onComplete()
+                                    return
+                                }
+                                errorMessage = health.needsSignIn
+                                    ? "SoundCloud rejected the resulting authentication. Please sign in again."
+                                    : "The account could not be verified. Check your connection and try again."
+                                return
+                            }
+                            onComplete()
+                        }
                     }
-                    onComplete()
                 } onError: { message in
                     errorMessage = message
                 }
@@ -506,6 +499,80 @@ private struct MacSoundCloudOAuthWebView: NSViewRepresentable {
     let onSession: (StoredSession) -> Void
     let onError: (String) -> Void
 
+    private static let tokenCaptureScript = """
+    (function() {
+      if (window.__soundingTokenCaptureInstalled) return;
+      window.__soundingTokenCaptureInstalled = true;
+      function report(url, body, clientId) {
+        try {
+          var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.scAuth;
+          if (handler && url && body) handler.postMessage({
+            url: String(url), body: String(body), clientId: clientId ? String(clientId) : ''
+          });
+        } catch (_) {}
+      }
+      function isTrustedURL(url) {
+        try { var h = new URL(String(url || ''), location.href).hostname.toLowerCase();
+          return h === 'soundcloud.com' || h.endsWith('.soundcloud.com'); } catch (_) { return false; }
+      }
+      function tokenPayload(body) {
+        try {
+          function find(value, depth) {
+            if (!value || typeof value !== 'object' || depth > 5) return null;
+            if (typeof value.access_token === 'string' && value.access_token) return value;
+            for (var key in value) { var hit = find(value[key], depth + 1); if (hit) return hit; }
+            return null;
+          }
+          var hit = find(JSON.parse(body), 0);
+          return hit ? JSON.stringify(hit) : '';
+        } catch (_) { return ''; }
+      }
+      function clientIdFrom(body) {
+        try {
+          if (!body) return '';
+          if (typeof body === 'string') return new URLSearchParams(body).get('client_id') || '';
+          if (body instanceof URLSearchParams || body instanceof FormData) return body.get('client_id') || '';
+        } catch (_) {}
+        return '';
+      }
+      if (window.fetch) {
+        var fetch = window.fetch;
+        window.fetch = function(input, init) {
+          var url = typeof input === 'string' ? input : (input && input.url) || '';
+          var clientId = clientIdFrom(init && init.body);
+          var promise = fetch.apply(this, arguments);
+          if (clientId) report(url, '{}', clientId);
+          if (isTrustedURL(url)) promise.then(function(response) {
+            try { response.clone().text().then(function(body) {
+              var payload = tokenPayload(body); if (payload) report(url, payload, clientId);
+            }); } catch (_) {}
+          });
+          return promise;
+        };
+      }
+      var OriginalXHR = window.XMLHttpRequest;
+      if (OriginalXHR) {
+        window.XMLHttpRequest = function() {
+          var xhr = new OriginalXHR(), url = '', open = xhr.open, send = xhr.send;
+          xhr.open = function(method, requestURL) { url = requestURL || ''; return open.apply(xhr, arguments); };
+          xhr.send = function(body) {
+            xhr.__soundingClientId = clientIdFrom(body);
+            if (xhr.__soundingClientId) report(url, '{}', xhr.__soundingClientId);
+            return send.apply(xhr, arguments);
+          };
+          xhr.addEventListener('load', function() {
+            if (isTrustedURL(url) && xhr.status >= 200 && xhr.status < 300) {
+              var payload = tokenPayload(xhr.responseText);
+              if (payload) report(url, payload, xhr.__soundingClientId || '');
+            }
+          });
+          return xhr;
+        };
+        window.XMLHttpRequest.prototype = OriginalXHR.prototype;
+      }
+    })();
+    """
+
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self, isolatedStoreIdentifier: usesIsolatedDataStore ? UUID() : nil)
     }
@@ -518,8 +585,17 @@ private struct MacSoundCloudOAuthWebView: NSViewRepresentable {
             configuration.websiteDataStore = .default()
         }
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        let userContent = WKUserContentController()
+        userContent.add(context.coordinator, name: "scAuth")
+        userContent.addUserScript(WKUserScript(
+            source: Self.tokenCaptureScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        ))
+        configuration.userContentController = userContent
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
@@ -550,12 +626,15 @@ private struct MacSoundCloudOAuthWebView: NSViewRepresentable {
             : "https://m.soundcloud.com/signup")
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKHTTPCookieStoreObserver {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKHTTPCookieStoreObserver, WKScriptMessageHandler {
         var parent: MacSoundCloudOAuthWebView
         let isolatedStoreIdentifier: UUID?
         private var completed = false
         private var reachedSigninCallback = false
         private var capturedClientID: String?
+        private var capturedAccessToken: String?
+        private var capturedRefreshToken: String?
+        private var capturedExpiresAt: Date?
         private weak var cookieStore: WKHTTPCookieStore?
         var lastStartView: MacSoundCloudAuthStartView?
 
@@ -576,6 +655,30 @@ private struct MacSoundCloudOAuthWebView: NSViewRepresentable {
             webView.stopLoading()
             webView.navigationDelegate = nil
             webView.uiDelegate = nil
+            removeIsolatedStoreIfNeeded()
+        }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "scAuth",
+                  Self.isTrustedAuthOrigin(message.frameInfo.securityOrigin),
+                  let payload = message.body as? [String: Any],
+                  let url = payload["url"] as? String,
+                  let body = payload["body"] as? String,
+                  Self.isTrustedAuthURL(url),
+                  let data = body.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return }
+
+            if let value = payload["clientId"] as? String, !value.isEmpty { capturedClientID = value }
+            if let value = json["client_id"] as? String, !value.isEmpty { capturedClientID = value }
+            if let value = json["access_token"] as? String, !value.isEmpty { capturedAccessToken = value }
+            if let value = json["refresh_token"] as? String, !value.isEmpty { capturedRefreshToken = value }
+            if let seconds = json["expires_in"] as? Double {
+                capturedExpiresAt = Date(timeIntervalSinceNow: seconds)
+            } else if let seconds = json["expires_in"] as? Int {
+                capturedExpiresAt = Date(timeIntervalSinceNow: TimeInterval(seconds))
+            }
+            completeCapturedAuthentication()
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -615,6 +718,15 @@ private struct MacSoundCloudOAuthWebView: NSViewRepresentable {
 
         func webView(
             _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            parent.isLoading = false
+            parent.onError(error.localizedDescription)
+        }
+
+        func webView(
+            _ webView: WKWebView,
             createWebViewWith configuration: WKWebViewConfiguration,
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
@@ -639,12 +751,9 @@ private struct MacSoundCloudOAuthWebView: NSViewRepresentable {
                 })?.value,
                       let clientID = self.capturedClientID,
                       !clientID.isEmpty else { return }
-                self.complete(StoredSession(
-                    oauthToken: token,
-                    refreshToken: refresh,
-                    clientId: clientID,
-                    expiresAt: nil
-                ))
+                self.capturedAccessToken = token
+                self.capturedRefreshToken = refresh
+                self.completeCapturedAuthentication()
             }
         }
 
@@ -664,6 +773,35 @@ private struct MacSoundCloudOAuthWebView: NSViewRepresentable {
         private static func isSigninCallback(_ url: URL) -> Bool {
             (url.host ?? "").lowercased() == "m.soundcloud.com"
                 && url.path.hasPrefix("/signin/callback")
+        }
+
+        private static func isTokenURL(_ value: String) -> Bool {
+            guard let url = URL(string: value),
+                  let host = url.host?.lowercased(),
+                  host == "soundcloud.com" || host.hasSuffix(".soundcloud.com") else { return false }
+            return url.path.contains("/oauth/token") || url.path.contains("/oauth2/token")
+        }
+
+        private static func isTrustedAuthURL(_ value: String) -> Bool {
+            guard let url = URL(string: value), let host = url.host?.lowercased() else { return false }
+            return host == "soundcloud.com" || host.hasSuffix(".soundcloud.com")
+        }
+
+        private static func isTrustedAuthOrigin(_ origin: WKSecurityOrigin) -> Bool {
+            let host = origin.host.lowercased()
+            return origin.protocol == "https" && (host == "soundcloud.com" || host.hasSuffix(".soundcloud.com"))
+        }
+
+        private func completeCapturedAuthentication() {
+            guard let access = capturedAccessToken, !access.isEmpty,
+                  let refresh = capturedRefreshToken, !refresh.isEmpty,
+                  let clientID = capturedClientID, !clientID.isEmpty else { return }
+            complete(StoredSession(
+                oauthToken: access,
+                refreshToken: refresh,
+                clientId: clientID,
+                expiresAt: capturedExpiresAt
+            ))
         }
 
         private func complete(_ session: StoredSession) {

@@ -578,12 +578,12 @@ struct MacSearchView: View {
                     }
                     .scrollIndicators(.hidden)
                 }
-                SCSectionHeader(title: "Browse Categories", style: .mac)
+                SCSectionHeader(title: "Vibes", style: .mac)
 
                 LazyVGrid(columns: Self.browseColumns, spacing: SCContentStyle.mac.spaceBase) {
-                    ForEach(MacSearchModel.browseGenres, id: \.self) { genre in
-                        GenreBrowseTile(genre: genre) {
-                            model.searchText = GenreProfile.of(genre).displayName
+                    ForEach(SearchVibe.all) { vibe in
+                        VibeBrowseTile(vibe: vibe) {
+                            model.searchText = vibe.query
                         }
                     }
                 }
@@ -655,7 +655,7 @@ struct MacSearchView: View {
 
     private var resultsArtworkURLs: [URL] {
         model.artists.prefix(8).compactMap { $0.largeAvatarURL ?? $0.avatarURL }
-            + model.albums.prefix(6).compactMap(\.artworkURL)
+            + model.albums.prefix(6).compactMap(\.displayArtworkURL)
             + model.tracks.prefix(10).compactMap(\.artworkURL)
     }
 
@@ -982,35 +982,16 @@ private struct SongsSeeAllView: View {
     }
 }
 
-private struct GenreBrowseTile: View {
-    let genre: MusicGenre
+private struct VibeBrowseTile: View {
+    let vibe: SearchVibe
     let action: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .bottomLeading) {
-                GenreBrowseTilePalette.color(for: genre)
-
-                Image(systemName: GenreBrowseTilePalette.icon(for: genre))
-                    .font(.system(size: 64, weight: .black))
-                    .foregroundStyle(.white.opacity(0.16))
-                    .rotationEffect(.degrees(-10))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .offset(x: 14, y: 14)
-
-                LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .bottom, endPoint: .top)
-                    .frame(maxWidth: .infinity, minHeight: 56, maxHeight: 56)
-
-                Text(GenreProfile.of(genre).displayName)
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .padding(SCContentStyle.mac.spaceSnug)
-            }
+            SearchVibeArtwork(vibe: vibe, cornerRadius: SCContentStyle.mac.cornerControl)
             .aspectRatio(1.7, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: SCContentStyle.mac.cornerControl, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: SCContentStyle.mac.cornerControl, style: .continuous)
                     .strokeBorder(Color.white.opacity(isHovering ? 0.25 : 0), lineWidth: 2)
@@ -1020,33 +1001,5 @@ private struct GenreBrowseTile: View {
         .macHoverLift()
         .onHover { isHovering = $0 }
         .animation(SCContentMotion.focus, value: isHovering)
-    }
-}
-
-private enum GenreBrowseTilePalette {
-    private static let familyHue: [GenreFamily: Double] = [
-        .house: 0.02, .techno: 0.78, .trance: 0.60, .hardDance: 0.92,
-        .garage: 0.46, .bass: 0.34, .disco: 0.86, .urban: 0.11,
-        .ambient: 0.53, .song: 0.14, .unknown: 0.08,
-    ]
-
-    static func color(for genre: MusicGenre) -> Color {
-        let profile = GenreProfile.of(genre)
-        let hue = familyHue[profile.family] ?? 0.08
-        let saturation = min(0.55 + profile.energy * 0.35, 0.95)
-        let brightness = min(0.38 + profile.brightness * 0.30, 0.85)
-        return Color(hue: hue, saturation: saturation, brightness: brightness)
-    }
-
-    static func icon(for genre: MusicGenre) -> String {
-        switch GenreProfile.of(genre).family {
-        case .house, .techno, .hardDance: return "waveform.circle.fill"
-        case .trance: return "sparkles"
-        case .garage, .bass: return "bolt.fill"
-        case .disco: return "music.note.list"
-        case .urban: return "mic.fill"
-        case .ambient: return "cloud.fill"
-        case .song, .unknown: return "music.note"
-        }
     }
 }

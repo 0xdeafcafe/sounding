@@ -221,7 +221,7 @@ private struct ArtistCollectionShelf: View {
                         NavigationLink {
                             PlaylistDetailView(playlist: playlist)
                         } label: {
-                            SCArtworkResolver(url: playlist.largeArtworkURL ?? playlist.artworkURL) { image in
+                            SCArtworkResolver(url: playlist.largeDisplayArtworkURL) { image in
                                 SCMediaCard(
                                     title: playlist.title,
                                     subtitle: playlist.isAlbum ? playlist.user.displayName : "Playlist",
@@ -239,7 +239,7 @@ private struct ArtistCollectionShelf: View {
             .scrollClipDisabled()
             .buttonStyle(SCCardButtonStyle(cornerRadius: Corner.control, sizeClass: .tile))
             .focusEffectDisabled()
-            .prefetchArtwork(playlists.compactMap { $0.largeArtworkURL ?? $0.artworkURL })
+            .prefetchArtwork(playlists.compactMap(\.largeDisplayArtworkURL))
         }
     }
 }
