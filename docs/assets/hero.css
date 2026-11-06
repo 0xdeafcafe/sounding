@@ -1,0 +1,30 @@
+[data-hero] { aspect-ratio: 1; }
+.copper-art { display: block; width: 100%; height: auto; overflow: hidden; }
+.mass-copper { fill: var(--copper-mass); }
+.mass-sage { fill: var(--sage-mass); }
+.mass-rose { fill: var(--rose-mass); }
+.ink-copper { stroke: var(--copper); }
+.ink-sage { stroke: var(--sage); }
+.ink-brass { stroke: var(--brass); }
+.ink-rose { stroke: var(--rose); }
+.notation { color: var(--muted); }
+
+.is-live .draw {
+  stroke-dasharray: 1 2;
+  stroke-dashoffset: 1.001;
+  animation: hero-draw var(--t) cubic-bezier(.45, .05, .2, 1) var(--d) forwards;
+}
+.is-live .mass {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hero-mass 1500ms cubic-bezier(.22, 1, .36, 1) var(--d) forwards;
+}
+.is-live .notation { opacity: 0; animation: hero-fade 1200ms ease 2100ms forwards; }
+.is-live.is-paused .draw,
+.is-live.is-paused .mass,
+.is-live.is-paused .notation { animation-play-state: paused; }
+
+@keyframes hero-draw { to { stroke-dashoffset: 0; } }
+@keyframes hero-mass { from { opacity: 0; transform: scale(.88); } to { opacity: 1; transform: none; } }
+@keyframes hero-fade { to { opacity: 1; } }

@@ -1,9 +1,9 @@
-# SoundingCloud — Feature / UI / Ability Matrix
+# Sounding — Feature / UI / Ability Matrix
 
 A cross-target map of what each app can do, which shared modules it compiles, and where
 the asymmetries are.
 
-Product name is **SoundingCloud** (`CFBundleDisplayName`); `SoundingTV` remains the
+Product name is **Sounding** (`CFBundleDisplayName`); `SoundingTV` remains the
 repo/target naming from before the rename.
 
 **Legend**
@@ -25,7 +25,6 @@ repo/target naming from before the rename.
 | iOS app | `SoundingTV iOS` | `SoundingTV-iOS/Sources` (+ 116) | Full client, Companion remote, Watch host, auth origin |
 | macOS app | `SoundingTV macOS` | `SoundingTV-macOS/Sources` (+ 117) | Full client + hardware DJ rig (MIDI), no native sign-in |
 | watchOS app | `SoundingTV watchOS` | `SoundingTV-watchOS/Sources` (+ 63) | Remote control + browser. No local audio |
-| Widget ext. | `SoundingTV-Widget` | `SoundingTV-Widget/Sources` (11) | iOS Live Activity / Dynamic Island |
 | Share ext. | `SoundingTV-Share` | `SoundingTV-Share/Sources` (21) | iOS share sheet → send to Apple TV |
 | Top Shelf ext. | `SoundingTV-TopShelf` | `SoundingTV-TopShelf/Sources` (5) | tvOS home-screen shelf |
 | UI tests | `SoundingTV-UITests` | `SoundingTV-UITests/Sources` (1) | tvOS focus-engine regression suite |
@@ -187,17 +186,14 @@ is gated to `#if os(macOS) || os(tvOS)` — mains-powered devices do the heavy l
 | Polyphony (synchronised nearby listening) | ● | ● | ● | ◐ ²⁶ |
 | WatchConnectivity host | — | ● | — | — |
 | Handoff (`NSUserActivity`) | ● | ● | ● | ◐ ²³ |
-| Live Activities / Dynamic Island | — | ● | — | ○ |
 | App Intents / Siri Shortcuts | ● | ● | ● | ○ |
 | Spotlight indexing | ○ | ● | ○ | ○ |
 | Top Shelf | ● | — | — | — |
 | Share extension target | — | ● | ○ | — |
-| Widgets / complications | — | ● ²⁴ | ○ | ○ ²⁵ |
 | Deep links (`soundingtv://`) | ● | ● | ○ | ○ |
 | Universal links (`applinks:`) | ○ | ● | ● | ○ |
 
 ²³ Activity type declared in `Info.plist` but no `onContinueUserActivity` handler found.
-²⁴ Live Activity only — no home-screen widget. ²⁵ No complications exist.
 ²⁶ The Watch mirrors Polyphony state and can start or leave the session hosted by its paired iPhone; audio remains on the phone.
 
 ### 2.8 Platform-exclusive abilities
@@ -205,7 +201,7 @@ is gated to `#if os(macOS) || os(tvOS)` — mains-powered devices do the heavy l
 | Platform | Exclusive to it |
 | --- | --- |
 | **tvOS** | Top Shelf shelves; ambient screensaver (`AmbientScreenView`, DJ-aware); focus-engine design language; remote-queue **server**; `.sidebarAdaptable` tab view; d-pad scrub / `onMoveCommand`; QR-code sign-in display |
-| **iOS** | Native OAuth (the only real login origin); Live Activities + Dynamic Island; Spotlight indexing; share extension; WatchConnectivity host; camera QR scan; tab-bar bottom accessory transport |
+| **iOS** | Native OAuth (the only real login origin); Spotlight indexing; share extension; WatchConnectivity host; camera QR scan; tab-bar bottom accessory transport |
 | **macOS** | `MenuBarExtra` mini player; multi-window (Now Playing + Mini Player as separate `Window` scenes); real menu-bar commands + keyboard shortcuts; CoreMIDI hardware (DDJ-400 mapping, live MIDI monitor); CoreAudio device introspection / cue-bus detection; manual analysis correction; `NSVisualEffectView` materials; app sandbox |
 | **watchOS** | Digital Crown scrubbing; authorize an Apple TV from the wrist; phone-relayed transport |
 
@@ -216,42 +212,40 @@ is gated to `#if os(macOS) || os(tvOS)` — mains-powered devices do the heavy l
 Ground truth from `SoundingTV.xcodeproj/project.pbxproj` build phases. Numbers are files
 compiled into that target; `○` means the module is not in the target at all.
 
-| Module | tvOS | iOS | macOS | watchOS | Widget | Share | TopShelf |
-| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `Core/Analysis` | 12 | 11 | 11 | 5 | ○ | ○ | ○ |
-| `Core/Artwork` | 2 | 2 | 2 | 2 | ○ | ○ | ○ |
-| `Core/DJ` | 15 | 15 | 15 | 1 | ○ | ○ | ○ |
-| `Core/Downloads` | 4 | 4 | 4 | 1 | ○ | ○ | ○ |
-| `Core/Library` | 2 | 2 | 2 | 1 | ○ | ○ | ○ |
-| `Core/Models` | 6 | 5 | 5 | 5 | ○ | 5 | ○ |
-| `Core/Networking` | 2 | 2 | 2 | ○ | ○ | ○ | ○ |
-| `Core/Playback` | 7 | 7 | 7 | 3 | ○ | ○ | ○ |
-| `Core/Polyphony` | 1 | 1 | 1 | ○ | ○ | ○ | ○ |
-| `Core/Setlist` | 3 | 3 | 3 | 3 | ○ | 3 | ○ |
-| `Core/Settings` | 1 | 1 | 1 | 1 | ○ | ○ | ○ |
-| `Core/SoundCloud` | 2 | 2 | 2 | 2 | ○ | 2 | ○ |
-| `Core/Support` | 2 | 2 | 2 | 2 | 2 | 2 | 2 |
-| `Core/Sync` | 1 | 1 | 1 | ○ | ○ | ○ | ○ |
-| `Core/TopShelf` | 1 | ○ | ○ | ○ | ○ | ○ | 1 |
-| `Core/WatchLink` | ○ | 1 | ○ | 1 | ○ | ○ | ○ |
-| `Auth/Shared` | 2 | 5 | 5 | 4 | 3 | 3 | ○ |
-| `Shared/AppIntents` | 2 | 2 | 2 | ○ | ○ | 1 | ○ |
-| `Shared/Design` | 8 | 9 | 7 | 8 | ○ | 1 | ○ |
-| `Shared/LiveActivity` | ○ | 2 | ○ | ○ | 2 | ○ | ○ |
-| `Shared/Networking` | ○ | 1 | 1 | ○ | ○ | ○ | ○ |
-| `Shared/UI/*` | 7 | 7 | 6 | 4 | ○ | 1 | ○ |
-| `Shared/ViewModels` | 5 | 5 | 5 | 4 | ○ | ○ | ○ |
-| `Shared/Debug` | 1 | 1 | 1 | 1 | ○ | ○ | ○ |
+| Module | tvOS | iOS | macOS | watchOS | Share | TopShelf |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: |
+| `Core/Analysis` | 12 | 11 | 11 | 5 | ○ | ○ |
+| `Core/Artwork` | 2 | 2 | 2 | 2 | ○ | ○ |
+| `Core/DJ` | 15 | 15 | 15 | 1 | ○ | ○ |
+| `Core/Downloads` | 4 | 4 | 4 | 1 | ○ | ○ |
+| `Core/Library` | 2 | 2 | 2 | 1 | ○ | ○ |
+| `Core/Models` | 6 | 5 | 5 | 5 | 5 | ○ |
+| `Core/Networking` | 2 | 2 | 2 | ○ | ○ | ○ |
+| `Core/Playback` | 7 | 7 | 7 | 3 | ○ | ○ |
+| `Core/Polyphony` | 1 | 1 | 1 | ○ | ○ | ○ |
+| `Core/Setlist` | 3 | 3 | 3 | 3 | 3 | ○ |
+| `Core/Settings` | 1 | 1 | 1 | 1 | ○ | ○ |
+| `Core/SoundCloud` | 2 | 2 | 2 | 2 | 2 | ○ |
+| `Core/Support` | 2 | 2 | 2 | 2 | 2 | 2 |
+| `Core/Sync` | 1 | 1 | 1 | ○ | ○ | ○ |
+| `Core/TopShelf` | 1 | ○ | ○ | ○ | ○ | 1 |
+| `Core/WatchLink` | ○ | 1 | ○ | 1 | ○ | ○ |
+| `Auth/Shared` | 2 | 5 | 5 | 4 | 3 | ○ |
+| `Shared/AppIntents` | 2 | 2 | 2 | ○ | 1 | ○ |
+| `Shared/Design` | 8 | 9 | 7 | 8 | 1 | ○ |
+| `Shared/Networking` | ○ | 1 | 1 | ○ | ○ | ○ |
+| `Shared/UI/*` | 7 | 7 | 6 | 4 | 1 | ○ |
+| `Shared/ViewModels` | 5 | 5 | 5 | 4 | ○ | ○ |
+| `Shared/Debug` | 1 | 1 | 1 | 1 | ○ | ○ |
 
 **Reading the gaps**
 
 - **watchOS omits `Core/Sync`, `Core/Networking`, `Core/Polyphony`** and takes only 1 of
   15 `Core/DJ` files. It is a thin client by construction: no CloudKit, no peer transport,
   no mix engine.
-- **tvOS omits `Shared/Networking`** (`RemoteQueueClient`) — it is the server, not a client.
+- **tvOS omits `Shared/Networking`** (`CompanionClient`) — it is the server, not a client.
 - **tvOS compiles only 2 of 5 `Auth/Shared`** files; the phone-side web-login and session
   sync pieces don't belong on the TV.
-- **iOS is the only target with both `Core/WatchLink` and `Shared/LiveActivity`.**
 - **`Core/TopShelf` reaches only tvOS and the Top Shelf extension.**
 - **iOS compiles 3 files from `Apps/tvOS/Features`** (Feed ×1, Library ×2) — cross-target
   view reuse that crosses the intended app boundary. Worth watching.
@@ -263,7 +257,7 @@ compiled into that target; `○` means the module is not in the target at all.
 | | tvOS | iOS | macOS | watchOS |
 | --- | --- | --- | --- | --- |
 | **Shell** | `TabView(.sidebarAdaptable)` | `TabView` (iOS 18 `Tab` API) | `NavigationSplitView` | `NavigationStack` + `List` |
-| **Top-level destinations** | 7 — Home, Stream, Search, Library, Now Playing, Profile, Settings | 6 — Home, Stream, Library, Companion, Settings, Search | ~16 sidebar rows in 4 groups | 6 push rows |
+| **Top-level destinations** | 7 — Home, Stream, Search, Library, Now Playing, Profile, Settings | 5 — Home, Music Intelligence, Library, Settings, Search | Music Intelligence plus library, playback, DJ and settings sidebar groups | 6 push rows |
 | **Transport placement** | Bottom-trailing floating bar | Tab-bar bottom accessory | Bottom `safeAreaInset` | Now Playing chip |
 | **Now Playing** | Dedicated tab | Full-screen sheet (zoom transition) | Takeover overlay **or** detached window | Pushed screen |
 | **Queue** | Up Next preview | Separate `QueueManagerView` (TV's queue) | `.inspector` sidebar | None |
@@ -279,37 +273,32 @@ compiled into that target; `○` means the module is not in the target at all.
 
 ## 5. Extensions
 
-| | Widget | Share | Top Shelf |
-| --- | --- | --- | --- |
-| Host | iOS | iOS | tvOS |
-| Extension point | `com.apple.widgetkit-extension` | `com.apple.share-services` | `com.apple.tv-top-shelf` |
-| Purpose | Now Playing Live Activity — Lock Screen + Dynamic Island (compact/expanded/minimal) | Send a shared SoundCloud URL to the paired Apple TV | 4 dynamic home-screen shelves |
-| Actions | Prev / Play-Pause / Next / **Mix Now** via App Intents | Add to End / Play Next / Play Now / Replace Queue (≤100 tracks) | Play + display, deep-linked back into the app |
-| Network I/O | ● Bonjour discovery + signed TCP direct to the TV | ● Same, plus `SoundCloudAPI.resolve` | ○ Reads an app-group snapshot |
-| Reads | `NowPlayingActivityAttributes`, `PairedTVStore` | `DeviceSessionStore`, `PairedTVStore` | `TopShelfStore` snapshot |
-| Fallbacks | Optimistic state w/ rollback on `SendError` | Not-a-SC-link / not-signed-in / partial-batch errors | signedOut / noSnapshot / emptyLibrary shelves |
-| Complete? | Yes | Yes | Yes |
-
-The Widget deliberately carries **only** the shared keychain group
-(`red.forbes.sounding.shared`), not the app's own — it has no business reading the
-SoundCloud session, only the TV pairing secret.
+| | Share | Top Shelf |
+| --- | --- | --- |
+| Host | iOS | tvOS |
+| Extension point | `com.apple.share-services` | `com.apple.tv-top-shelf` |
+| Purpose | Send a shared SoundCloud URL to the paired Apple TV | 4 dynamic home-screen shelves |
+| Actions | Add to End / Play Next / Play Now / Replace Queue (≤100 tracks) | Play + display, deep-linked back into the app |
+| Network I/O | ● Bonjour discovery + `SoundCloudAPI.resolve` | ○ Reads an app-group snapshot |
+| Reads | `DeviceSessionStore`, `PairedTVStore` | `TopShelfStore` snapshot |
+| Fallbacks | Not-a-SC-link / not-signed-in / partial-batch errors | signedOut / noSnapshot / emptyLibrary shelves |
+| Complete? | Yes | Yes |
 
 ---
 
 ## 6. Entitlements & declared capabilities
 
-| | tvOS | iOS | macOS | watchOS | Widget | Share | TopShelf |
-| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| iCloud / CloudKit | ● | ● | ● | ○ | ○ | ○ | ○ |
-| App group | ● | ○ | ○ | ○ | ○ | ○ | ● |
-| Keychain access groups | ● | ● | ● | ● | ● | ● | ○ |
-| Associated domains | ○ | ● | ● | ○ | ○ | ○ | ○ |
-| App sandbox | — | — | ● | — | — | — | — |
-| Bonjour (`_soundingtv._tcp`) | ● | ● | ● | ● | ● | ● | ○ |
-| Background audio | ● | ● | — | ○ | — | — | — |
-| Live Activities | — | ● | — | ○ | ● | — | — |
-| USB device (MIDI) | — | — | ● | — | — | — | — |
-| Music library read-only | — | — | ● | — | — | — | — |
+| | tvOS | iOS | macOS | watchOS | Share | TopShelf |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: |
+| iCloud / CloudKit | ● | ● | ● | ○ | ○ | ○ |
+| App group | ● | ○ | ○ | ○ | ○ | ● |
+| Keychain access groups | ● | ● | ● | ● | ● | ○ |
+| Associated domains | ○ | ● | ● | ○ | ○ | ○ |
+| App sandbox | — | — | ● | — | — | — |
+| Bonjour (`_soundingtv._tcp`) | ● | ● | ● | ● | ● | ○ |
+| Background audio | ● | ● | — | ○ | — | — |
+| USB device (MIDI) | — | — | ● | — | — | — |
+| Music library read-only | — | — | ● | — | — | — |
 
 CloudKit container is `iCloud.red.forbes.sounding`; app group is
 `group.red.forbes.sounding`; the shared keychain group is `red.forbes.sounding.shared`.
@@ -322,7 +311,7 @@ CloudKit container is `iCloud.red.forbes.sounding`; app group is
 
 - **SoundCloud sign-in is unofficial and best effort.** iOS and macOS load SoundCloud's
   unmodified mobile sign-in flow and can adopt a completed web session only when it
-  exposes all required session material. There is no registered SoundingCloud OAuth
+  exposes all required session material. There is no registered Sounding OAuth
   client, embedded secret, or borrowed third-party identity.
 - **watchOS has no local audio path** despite `WKRunsIndependentlyOfCompanionApp = true`.
   Every play is a WatchConnectivity command to the iPhone. The plist declares a
@@ -336,7 +325,6 @@ CloudKit container is `iCloud.red.forbes.sounding`; app group is
 
 - No **local queue editor** on iPhone — `QueueManagerView` only manages the Apple TV's queue.
 - `WatchSearchView` is **fully built but orphaned** — nothing navigates to it.
-- No **watch complications**, no iOS **home-screen widget** (Live Activity only).
 - No **Add to Playlist** on iOS (present on tvOS and macOS).
 - No **repeat-mode** control on watchOS; shuffle is playlist-level only.
 - macOS has no **drag & drop** and no **AppleScript** support.
@@ -392,8 +380,7 @@ carries most of the real verification burden and is invoked from debug menus and
 | Network (Bonjour / NWConnection) | `Auth/Shared`, `Core/Downloads`, `Core/Networking`, `Core/Polyphony`, `Shared/Networking` |
 | CryptoKit | Pairing, sync payload hashing, artwork cache keys, PSK derivation |
 | SQLite3 (direct, no ORM) | `AnalysisCache`, `CueStore`, `LibraryCache` |
-| ActivityKit | `Shared/LiveActivity` — iOS only |
-| AppIntents | `Shared/AppIntents`, Widget playback intents |
+| AppIntents | `Shared/AppIntents` |
 | NowPlaying / MediaPlayer | `Core/Playback` — two interchangeable bridges |
 | WatchConnectivity | `PhoneWatchLinkServer` (iOS), `WatchLinkClient` (watchOS) |
 | CoreMIDI | macOS only — `MIDIControllerHub`, `DDJ400MappingResolver` |

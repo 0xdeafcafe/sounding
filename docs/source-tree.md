@@ -26,7 +26,6 @@ SoundingTV.swiftpm/Sources
 │   ├── AppIntents
 │   ├── Debug                  # fixture data shared by every app target
 │   ├── Design
-│   ├── LiveActivity           # ActivityKit attributes + control, app and widget
 │   ├── UI
 │   │   ├── Comments
 │   │   └── Components
@@ -49,6 +48,7 @@ SoundingTV-iOS/Sources
 │   ├── AppleTV
 │   ├── Feed
 │   ├── Home
+│   ├── Intelligence
 │   ├── Library
 │   ├── Profile
 │   ├── Search
@@ -70,7 +70,6 @@ SoundingTV-macOS/Sources
 │   └── Search
 └── Services
 
-SoundingTV-Widget/Sources      # App, Intents, Services, Views
 SoundingTV-Share/Sources       # App, Models
 SoundingTV-TopShelf/Sources
 SoundingTV-UITests/Sources

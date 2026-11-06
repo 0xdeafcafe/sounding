@@ -4,9 +4,9 @@ Investigated 5 August 2026 against SoundCloud's current public API specification
 
 ## Finding
 
-SoundCloud does not publish a webhook, notification-subscription, APNs-token, or notification-inbox endpoint for third-party clients. The **Devices** choices on SoundCloud's notification settings page control delivery to SoundCloud's own mobile applications; they cannot be registered to SoundingCloud's bundle or device token.
+SoundCloud does not publish a webhook, notification-subscription, APNs-token, or notification-inbox endpoint for third-party clients. The **Devices** choices on SoundCloud's notification settings page control delivery to SoundCloud's own mobile applications; they cannot be registered to Sounding's bundle or device token.
 
-The current [`/service-worker.js`](https://soundcloud.com/service-worker.js) is not a SoundCloud notification API. Its first-party code caches one JavaScript asset for offline script fallback and serves `offline.html` for failed navigations. It then imports MoEngage's CDN service worker, which adds generic web-push handling (`push`, `notificationclick`, and `notificationclose`) for MoEngage campaigns. That proves SoundCloud has a web-push vendor integration, but it does not expose SoundCloud's campaign credentials, subscription endpoint, payload contract, or a way for SoundingCloud to register its own device. The worker is also implementation detail and may change without notice.
+The current [`/service-worker.js`](https://soundcloud.com/service-worker.js) is not a SoundCloud notification API. Its first-party code caches one JavaScript asset for offline script fallback and serves `offline.html` for failed navigations. It then imports MoEngage's CDN service worker, which adds generic web-push handling (`push`, `notificationclick`, and `notificationclose`) for MoEngage campaigns. That proves SoundCloud has a web-push vendor integration, but it does not expose SoundCloud's campaign credentials, subscription endpoint, payload contract, or a way for Sounding to register its own device. The worker is also implementation detail and may change without notice.
 
 The public API does expose feeds and resources from which some changes can be detected:
 
@@ -21,7 +21,7 @@ The public API does expose feeds and resources from which some changes can be de
 1. Add a cursor-backed `SoundCloudEventPoller` for feed/activity, follower snapshots, a bounded set of owned-track interactions, and the message inbox.
 2. Deduplicate stable event IDs in the encrypted account cache and emit local notifications only for newly observed events after the initial baseline.
 3. On macOS, poll while the menu-bar/app process is running, slowing down when idle and respecting 429/reset metadata.
-4. On iOS/iPadOS, opportunistic `BGAppRefreshTask` polling is useful but not prompt or guaranteed. Reliable alerts while the app is suspended require a SoundingCloud backend that holds the user's delegated credentials, polls SoundCloud, and sends APNs notifications.
+4. On iOS/iPadOS, opportunistic `BGAppRefreshTask` polling is useful but not prompt or guaranteed. Reliable alerts while the app is suspended require a Sounding backend that holds the user's delegated credentials, polls SoundCloud, and sends APNs notifications.
 5. Let iPhone notifications forward naturally to Apple Watch, or send APNs to an independent watch app through that same backend. tvOS should surface an in-app activity inbox; it must not be treated as the primary alert destination.
 
 Do not register SoundCloud's private first-party push credentials, copy its device token, scrape notification email, or run aggressive per-track polling. Those approaches are brittle, invasive, or both.

@@ -1,4 +1,4 @@
-# SoundingCloud review worklist
+# Sounding review worklist
 
 This is the deduplicated implementation and QA list from the macOS review session.
 
@@ -133,7 +133,6 @@ Legend:
 
 ## Playback and transport
 
-- [~] Keep the iPhone Live Activity synchronized across track changes, seeks, and play/pause: transport state now publishes before artwork/waveform enrichment, stale enrichment is cancelled, concurrent updates are serialized, and optimistic widget controls rebase the timer. Builds pass; real-device background/lock-screen verification remains.
 - [~] Keep an always-present macOS transport bar showing the latest persisted track and allowing playback from it.
 - [~] Use the app logo in the empty transport state.
 - [x] Remove the unnecessary “Choose something to play” instruction.
@@ -165,7 +164,7 @@ Legend:
 - [~] Never retry or disguise requests during a bot challenge/temporary block; the shared SoundCloud layer now persists a stop window for 403/429 responses and rejects subsequent requests until it expires. Notification polling still needs its cursor-backed implementation and live verification.
 - [ ] Fix signed-in/signed-out state transitions without requiring an API client key.
 - [~] Provide first-party SoundCloud account-management handoffs: iOS/iPadOS and macOS now link to SoundCloud's security/2FA/access, subscription, notification, privacy, communications, analytics, and advertising pages and revalidate when the app becomes active. Live navigation and account-change verification remain.
-- Decision: keep SoundingCloud personal and unofficial. Do not require Artist Pro or app registration, embed a client secret, or borrow/impersonate Sonos, SoundCloud's CLI, or another client. Use the best-effort authenticated web/session approach described in `docs/soundcloud-integration.md`.
+- Decision: keep Sounding personal and unofficial. Do not require Artist Pro or app registration, embed a client secret, or borrow/impersonate Sonos, SoundCloud's CLI, or another client. Use the best-effort authenticated web/session approach described in `docs/soundcloud-integration.md`.
 - Decision: do not generate or replay SoundCloud analytics; only SoundCloud's unmodified sign-in page may send its normal telemetry.
 - Decision: do not block playback or table use based on Go/Go+/Free product badges.
 - Decision: do not highlight Go/Go+/Free/Jayde access tiers on tracks.
