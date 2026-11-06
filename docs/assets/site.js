@@ -25,6 +25,7 @@
       inks: [rgb(1, 0.42, 0.10), rgb(0.96, 0.75, 0.40), rgb(0.43, 0.80, 0.70), rgb(0.98, 0.60, 0.56), rgb(0.95, 0.90, 0.82)],
     },
   };
+  const REACH = 2.4;
   const PROFILE = [
     [0.000, 0.000], [0.014, 0.022], [0.036, 0.030], [0.070, 0.030], [0.076, 0.019], [0.094, 0.019],
     [0.100, 0.031], [0.170, 0.031], [0.176, 0.019], [0.196, 0.019], [0.202, 0.034], [0.440, 0.034],
@@ -139,9 +140,10 @@
     return out;
   }
 
-  function plug(g, tip, dir, L, pal, levels, gnd) {
+  function plug(g, tip, dir, L, pal, levels, gnd, reach = 1) {
     const nrm = { x: -dir.y, y: dir.x };
-    const world = (x, y) => ({ x: tip.x - dir.x * x * L + nrm.x * y * L, y: tip.y - dir.y * x * L + nrm.y * y * L });
+    const along = x => (x <= 0.202 ? x : x <= 0.44 ? 0.202 + (x - 0.202) * reach : 0.202 + 0.238 * reach + x - 0.44);
+    const world = (x, y) => ({ x: tip.x - dir.x * along(x) * L + nrm.x * y * L, y: tip.y - dir.y * along(x) * L + nrm.y * y * L });
     const outline = [...PROFILE.map(([x, y]) => world(x, y)), ...PROFILE.slice(0, -1).reverse().map(([x, y]) => world(x, -y))];
     el('path', { d: poly(outline) + 'Z', fill: gnd }, g);
     const lines = [];
@@ -503,7 +505,7 @@
       const hero = R('.hero');
       const s = Math.min(A.w, A.h);
       const L = mode === 'mobile' ? s * 0.66 : clamp(s * 0.6, 220, 390);
-      const tip = { x: A.x + A.w * 0.7, y: A.y + A.h * 0.33 };
+      const tip = { x: A.x + A.w * 0.74, y: A.y + A.h * 0.27 };
       const ang = -Math.PI / 4 - 0.06;
       const dir = { x: Math.cos(ang), y: Math.sin(ang) };
       const masses = [mass(back, A.x + A.w * 0.42, A.y + A.h * 0.62, s * 0.3, 0, 0.7, pal), mass(back, A.x + A.w * 0.86, A.y + A.h * 0.2, s * 0.15, 1, 1.9, pal), mass(back, A.x + A.w * 0.16, A.y + A.h * 0.18, s * 0.13, 2, 2.8, pal)];
@@ -516,7 +518,7 @@
       el('circle', { cx: f(sc.x), cy: f(sc.y), r: f(sockR[0]), fill: gnd }, sock);
       const sockLines = sockR.map((r, i) => el('path', { d: `M${f(sc.x + r)} ${f(sc.y)}A${f(r)} ${f(r)} 0 1 1 ${f(sc.x - r)} ${f(sc.y)}A${f(r)} ${f(r)} 0 1 1 ${f(sc.x + r)} ${f(sc.y)}`, stroke: pal.inks[[0, 1, 4][i]], 'stroke-width': LINE, pathLength: 1 }, sock));
       const pg = el('g', {}, front);
-      const pl = plug(pg, tip, dir, L, pal, mode === 'mobile' ? 2 : 4, gnd);
+      const pl = plug(pg, tip, dir, L, pal, mode === 'mobile' ? 2 : 4, gnd, REACH);
       heroPlug = { g: pg, lines: pl.lines, masses, rings: rg, waves: wv, sock, sockLines, dir, L, centre: sc };
       start = pl.back;
       startHalf = pl.half - 3;
