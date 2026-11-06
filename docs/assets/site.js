@@ -374,10 +374,7 @@
       }
     }
   }
-  const STEPS = {
-    listen: { last: 4, at: (span, vh) => [-0.3 * vh, 0.24 * span, 0.5 * span, 0.76 * span] },
-    output: { last: 4, at: (span, vh) => [-0.3 * vh, 0.24 * span, 0.5 * span, 0.76 * span] },
-  };
+  const STEP = { last: 4, at: (span, vh) => [-0.3 * vh, 0.24 * span, 0.5 * span, 0.76 * span] };
   const CLOCK = { 2: 722, 3: 1420, 4: 2051 };
   let tapTimer = 0;
 
@@ -480,6 +477,44 @@
     return { ...s, svg, c, entry: { x: xe }, exit: { x: gx }, W, H };
   }
 
+  function buildScene(s, pal) {
+    const st = s.stage;
+    const box = st.getBoundingClientRect();
+    const W = box.width, H = box.height;
+    const m = stageMeasure(st, () => ({
+      copy: rectIn(st.querySelector('.copy'), box),
+      vis: rectIn(st.querySelector('[data-visual]'), box),
+      rings: [...st.querySelectorAll('[data-ring]')].map(n => ({ n, r: rectIn(n, box) })),
+    }));
+    st.classList.add('ready');
+
+    const svg = el('svg', { class: 'cable-stage', 'aria-hidden': 'true', width: W, height: H, viewBox: `0 0 ${W} ${H}` });
+    st.prepend(svg);
+    const { copy: C, vis: V } = m;
+    const seed = s.sec.dataset.seed ? +s.sec.dataset.seed : 3.1;
+    mass(svg, V.cx - V.w * 0.12, V.cy + V.h * 0.06, Math.min(V.w, V.h) * 0.42, 0, seed, pal);
+    mass(svg, V.r - V.w * 0.12, V.y + V.h * 0.16, Math.min(V.w, V.h) * 0.2, 1, seed + 1.3, pal);
+    mass(svg, V.x + V.w * 0.1, V.b - V.h * 0.1, Math.min(V.w, V.h) * 0.16, 2, seed + 2.6, pal);
+
+    const xe = clamp((C.r + V.x) / 2, C.r + 12, V.x - 12);
+    const lane = Math.min(H - 36, V.b + 34);
+    const gx = Math.min(W - 26, V.r + (W - V.r) / 2);
+    const way = [
+      { x: xe, y: -2 }, { x: xe, y: H * 0.3 }, { x: xe + 4, y: lane - 80 }, { x: xe + 56, y: lane },
+      { x: lerp(xe, gx, 0.5), y: lane + 6 }, { x: gx - 90, y: lane - 2 }, { x: gx - 4, y: lane + 40 },
+      { x: gx, y: H * 0.95 }, { x: gx, y: H + 2 },
+    ];
+    const c = cable(svg, spline(way), { levels: 4 }, pal);
+    st._rings = m.rings.map(({ n, r }, j) => {
+      const g = el('g', { class: 'sr' }, svg);
+      const big = n.dataset.ringSize === 'l';
+      const dir = ((+n.dataset.ringDir || 0) * Math.PI) / 180;
+      rings(g, { x: r.cx, y: r.cy }, dir, big ? 16 : 12, big ? 13 : 9, big ? 5 : 3, pal, big ? 110 : 70).forEach((x, i) => x.style.setProperty('--d', `${i * 30 + j * 20}ms`));
+      return { g, on: n.dataset.ring.split(',').map(Number) };
+    });
+    return { ...s, svg, c, entry: { x: xe }, exit: { x: gx }, W, H };
+  }
+
   function build() {
     teardown();
     const pal = palette();
@@ -520,7 +555,7 @@
       heroPlug = { g: pg, lines: pl.lines, masses, rings: rg, waves: wv, sock, sockLines, dir, L, centre: sc };
       start = pl.back;
       startHalf = pl.half - 3;
-      const L1 = scenes.listen;
+      const L1 = ordered()[0];
       const xe = L1 && L1.entry ? L1.entry.x : W * 0.5;
       const y1 = L1 && L1.entry ? L1.top : hero.b + 200;
       const tail = { x: start.x - dir.x * L * 0.35, y: start.y - dir.y * L * 0.35 };
@@ -533,24 +568,39 @@
     const dirEnd = { x: -1, y: 0 };
 
     if (mode === 'pin') {
-      const L1 = scenes.listen, O = scenes.output;
-      const deck = R('.mixer'), rig = R('.rig');
-      const gapTop = L1.top + L1.height, gapBot = O.top;
-      const gap = gapBot - gapTop;
-      const r = clamp(gap * 0.26, 56, 120);
-      const ax = L1.exit.x, bx = O.entry.x;
-      const C = { x: lerp(ax, bx, 0.5), y: gapTop + gap * 0.42 };
-      page.segs.push(cable(back, looped({ x: ax, y: gapTop - 2 }, { x: bx, y: gapBot + 2 }, C, r), { levels: 4 }, pal));
-      waves(back, 0, W, lerp(C.y + r, gapBot, 0.5), pal, 5, ECHO * 1.5, 8, 340);
+      const list = ordered();
+      const deck = R('[data-rig-core]'), rig = R('[data-rig]');
+      page.chain = [{ c: page.segs[0] }];
+      list.forEach((S, i) => {
+        page.chain.push({ c: S.c, scene: S });
+        const N = list[i + 1];
+        if (!N) return;
+        const gapTop = S.top + S.height, gapBot = N.top;
+        const gap = gapBot - gapTop;
+        const r = clamp(gap * 0.26, 56, 120);
+        const ax = S.exit.x, bx = N.entry.x;
+        const C = { x: lerp(ax, bx, 0.5), y: gapTop + gap * 0.42 };
+        const seg = cable(back, looped({ x: ax, y: gapTop - 2 }, { x: bx, y: gapBot + 2 }, C, r), { levels: 4 }, pal);
+        page.segs.push(seg);
+        page.chain.push({ c: seg });
+        waves(back, 0, W, lerp(C.y + r, gapBot, 0.5), pal, 5, ECHO * 1.5, 8, 340);
+      });
+      const O = list[list.length - 1];
       const oy = O.top + O.height;
-      page.segs.push(cable(back, spline([
+      const gx = Math.min(W - pad * 0.5, endBack.x + 120);
+      const tail = rig.b + 30;
+      const long = endTip.y - tail > 900;
+      const seg = cable(back, spline([
         { x: O.exit.x, y: oy - 2 }, { x: O.exit.x, y: oy + 60 }, { x: O.exit.x - 20, y: lerp(oy, rig.y, 0.45) }, { x: lerp(O.exit.x, deck.cx, 0.7), y: lerp(oy, rig.y, 0.82) }, { x: deck.cx, y: rig.y + 20 }, { x: deck.cx, y: deck.cy },
-        { x: deck.cx, y: rig.b + 30 }, { x: Math.min(W - pad * 0.5, endBack.x + 120), y: lerp(rig.b, endTip.y, 0.55) },
+        { x: deck.cx, y: tail },
+        ...(long ? [{ x: lerp(deck.cx, gx, 0.6), y: tail + 150 }, { x: gx, y: tail + 320 }, { x: gx, y: endTip.y - 260 }] : []),
+        { x: gx, y: long ? endTip.y - 90 : lerp(rig.b, endTip.y, 0.55) },
         { x: endBack.x + 70, y: endTip.y - 6 }, endBack,
-      ]), { levels: 4, to: 100, endHalf: plugL * 0.026 - 3 }, pal));
+      ]), { levels: 4, to: 100, endHalf: plugL * 0.026 - 3 }, pal);
+      page.segs.push(seg);
+      page.chain.push({ c: seg });
       mass(back, rig.x + rig.w * 0.2, rig.cy, rig.w * 0.24, 1, 7.7, pal);
       mass(back, rig.r - rig.w * 0.16, rig.cy + rig.h * 0.1, rig.w * 0.2, 2, 8.9, pal);
-      page.chain = [{ c: page.segs[0] }, { c: L1.c, scene: L1 }, { c: page.segs[1] }, { c: O.c, scene: O }, { c: page.segs[2] }];
     } else {
       const gx = mode === 'mobile' ? W - 12 : W - Math.max(26, (W - Math.min(W, 1240 + pad * 2)) / 2 + pad * 0.5);
       const hb = R('.hero').b;
@@ -559,7 +609,7 @@
       for (let y = way[way.length - 1].y + 260, k = 0; y < endY; y += 260, k++) way.push({ x: gx + (k % 2 ? 1 : -1) * (mode === 'mobile' ? 2 : 10), y });
       way.push({ x: gx, y: endY }, { x: endBack.x + (mode === 'mobile' ? 26 : 60), y: endTip.y - 4 }, endBack);
       page.segs.push(cable(back, spline(way), { levels: mode === 'mobile' ? 2 : 4, from: 110, startHalf, to: 80, endHalf: plugL * 0.026 - (mode === 'mobile' ? 2.5 : 3) }, pal));
-      [['.phone', 0], ['.d-tv', 2], ['.rig', 1]].forEach(([q, t], i) => { const r = R(q); if (r) mass(back, r.cx, r.cy, Math.min(r.w, 520) * 0.48, t, 9 + i, pal); });
+      document.querySelectorAll('[data-mass]').forEach((n, i) => { const r = rectIn(n, mr); mass(back, r.cx, r.cy, Math.min(r.w, 520) * 0.48, +n.dataset.mass, 9 + i, pal); });
       page.chain = [{ c: page.segs[0] }];
     }
     page.tl = timeline(page.chain);
@@ -615,16 +665,22 @@
     document.querySelectorAll('.stage.ready').forEach(n => n.classList.remove('ready'));
     root.classList.add('settling');
     root.classList.toggle('pinned', mq.pin.matches);
-    document.querySelectorAll('[data-scene]').forEach(sec => { const st = sec.querySelector('.stage'); const k = STEPS[sec.dataset.scene]; if (st && k) setState(sec.dataset.scene, st, k.last); });
+    document.querySelectorAll('[data-scene]').forEach(sec => { const st = sec.querySelector('.stage'); if (st) { st._rings = null; setState(sec.dataset.scene, st, STEP.last); } });
     requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('settling')));
     if (mq.pin.matches) {
       const pal = palette(), gnd = ground();
-      const l = sceneInfo('listen');
-      const o = sceneInfo('output');
-      if (l) scenes.listen = buildListen(l, pal, gnd);
-      if (o) scenes.output = buildOutput(o, pal);
+      const builders = { listen: buildListen, output: buildOutput };
+      document.querySelectorAll('[data-scene]').forEach(sec => {
+        const name = sec.dataset.scene;
+        const s = sceneInfo(name);
+        if (!s) return;
+        scenes[name] = (builders[name] || buildScene)(s, pal, gnd);
+        const st = scenes[name].stage;
+        if (st._rings) st._rings.forEach(r => r.g.classList.toggle('on', r.on.includes(STEP.last)));
+      });
     }
   }
+  const ordered = () => Object.values(scenes).sort((a, b) => a.top - b.top);
 
   function rebuild() {
     setupScenes();
@@ -640,6 +696,7 @@
     if (states[name] === k && stage.dataset.state === String(k)) return;
     states[name] = k;
     stage.dataset.state = k;
+    if (stage._rings) stage._rings.forEach(r => r.g.classList.toggle('on', r.on.includes(k)));
     if (name !== 'listen') return;
     setInert(listenPlay, k < 2);
     setInert(listenList, k < 3);
@@ -651,7 +708,7 @@
   }
 
   function stepFor(name, s, off) {
-    const at = STEPS[name].at(s.span, innerHeight);
+    const at = STEP.at(s.span, innerHeight);
     const cur = states[name];
     if (cur == null) return at.filter(t => off > t).length;
     let k = cur;

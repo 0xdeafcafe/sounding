@@ -419,6 +419,8 @@ main > section { position: relative; z-index: 1; }
 .cable-stage .sr path { stroke-dasharray: 1 2; stroke-dashoffset: 1.001; transition: stroke-dashoffset .32s var(--ease) var(--d, 0s); }
 .js [data-state="1"] .sr-tv, .js [data-state="4"] .sr-poly { opacity: 1; transition-duration: .05s; }
 .js [data-state="1"] .sr-tv path, .js [data-state="4"] .sr-poly path { stroke-dashoffset: 0; }
+.cable-stage .sr.on { opacity: 1; transition-duration: .05s; }
+.cable-stage .sr.on path { stroke-dashoffset: 0; }
 
 .js .ready .covers li { opacity: 0; transform: translate(var(--x1), var(--y1)) scale(var(--k1)); transition: transform .4s var(--ease) calc(var(--i) * 8ms), opacity 0s linear .5s; }
 .js .ready[data-state="0"] .covers li { opacity: 1; transform: translate(var(--x0), var(--y0)) rotate(var(--r0)); transition: transform .4s var(--ease) calc(var(--i) * 8ms), opacity 0s; }
@@ -427,7 +429,7 @@ main > section { position: relative; z-index: 1; }
 
 @media (min-width: 1000px) and (min-height: 620px) {
   .js .scene { height: var(--track, 300vh); }
-  .js .output { margin-top: 32vh; }
+  .js .scene + .scene { margin-top: 32vh; }
   .js .stage { --edge: max(var(--pad), calc((100vw - var(--max)) / 2)); --copy: min(34vw, 470px); position: sticky; top: 0; height: 100vh; max-width: none; display: block; padding: 0; overflow: hidden; }
   .js .stage .copy { position: absolute; z-index: 2; left: var(--edge); top: 50%; translate: 0 -50%; width: var(--copy); }
   .js .captions { display: grid; }
@@ -445,6 +447,8 @@ main > section { position: relative; z-index: 1; }
   .js .d-friend { left: 3%; top: 8vh; width: min(16%, 14vh); }
   .js .d-watch { left: calc(9% + min(20%, 18vh)); top: 54vh; width: min(13%, 11.5vh); }
   .js .d-mac { right: 0; top: 56vh; width: min(44%, 36vh); }
+
+  .js .stage > .visual { position: absolute; z-index: 1; top: 0; bottom: 0; left: calc(var(--edge) + var(--copy) + 4vw); right: var(--edge); display: grid; place-items: center; }
 }
 
 .measuring .d-friend { transform: none !important; }
