@@ -190,18 +190,34 @@
       chunks.push({ a, b, paths });
       a = b;
     }
-    const maxY = [];
-    pts.forEach((p, i) => maxY.push(Math.max(p.y, i ? maxY[i - 1] : -Infinity)));
-    return { pts, cum, total, chunks, maxY };
+    return { pts, cum, total, chunks };
   }
   const smooth = t => { t = clamp(t); return t * t * (3 - 2 * t); };
+  const easeOut = t => 1 - Math.pow(1 - clamp(t), 3);
 
-  function indexAtY(c, y) {
-    const m = c.maxY;
-    if (y < m[0]) return -1;
-    let lo = 0, hi = m.length - 1;
-    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (m[mid] <= y) lo = mid; else hi = mid - 1; }
-    return lo;
+  function bezier(a, b, c, d, out, skipFirst) {
+    const n = Math.max(4, Math.ceil((Math.hypot(b.x - a.x, b.y - a.y) + Math.hypot(c.x - b.x, c.y - b.y) + Math.hypot(d.x - c.x, d.y - c.y)) / 5));
+    for (let i = skipFirst ? 1 : 0; i <= n; i++) {
+      const t = i / n, u = 1 - t, k0 = u * u * u, k1 = 3 * u * u * t, k2 = 3 * u * t * t, k3 = t * t * t;
+      out.push({ x: k0 * a.x + k1 * b.x + k2 * c.x + k3 * d.x, y: k0 * a.y + k1 * b.y + k2 * c.y + k3 * d.y });
+    }
+    return out;
+  }
+
+  function looped(A, B, C, r) {
+    const dx = B.x - A.x, dy = (B.y - A.y) * 0.3, m = Math.hypot(dx, dy) || 1;
+    const u = { x: dx / m, y: dy / m };
+    const n = u.x >= 0 ? { x: u.y, y: -u.x } : { x: -u.y, y: u.x };
+    const a = r / 3, b = r;
+    const at = t => { const along = a * t - b * Math.sin(t), up = b * Math.cos(t); return { x: C.x + along * u.x + up * n.x, y: C.y + along * u.y + up * n.y }; };
+    const L0 = at(-Math.PI), L1 = at(Math.PI);
+    const out = [];
+    const h0 = Math.hypot(L0.x - A.x, L0.y - A.y) * 0.45;
+    bezier(A, { x: A.x, y: A.y + h0 }, { x: L0.x - u.x * h0, y: L0.y - u.y * h0 }, L0, out);
+    const steps = Math.ceil((r * 8) / 5);
+    for (let i = 1; i <= steps; i++) out.push(at(-Math.PI + (2 * Math.PI * i) / steps));
+    const h1 = Math.hypot(B.x - L1.x, B.y - L1.y) * 0.45;
+    return bezier(L1, { x: L1.x + u.x * h1, y: L1.y + u.y * h1 }, { x: B.x, y: B.y - h1 }, B, out, true);
   }
 
   function drawTo(c, idx, frac = 0) {
@@ -230,14 +246,69 @@
     const seg = (c.cum[lo + 1] - c.cum[lo]) || 1;
     drawTo(c, lo, (len - c.cum[lo]) / seg);
   };
-  const lengthAtY = (c, y) => { const i = indexAtY(c, y); return i < 0 ? 0 : c.cum[i]; };
+
+  const LAG = 0.5;
+  function timeline(chain) {
+    const knots = [];
+    let cursor = -Infinity, base = 0;
+    for (const pc of chain) {
+      const c = pc.c;
+      pc.base = base;
+      if (pc.scene) {
+        const s = pc.scene;
+        const a = Math.max(cursor, s.top + c.pts[0].y);
+        const b = Math.max(a + 1, s.top + s.span + c.pts[c.pts.length - 1].y);
+        knots.push([a, base], [b, base + c.total]);
+        cursor = b;
+      } else {
+        let v = 0, low = -Infinity;
+        c.pts.forEach((p, i) => {
+          low = Math.max(low, p.y);
+          v = i ? Math.max(v + LAG * (c.cum[i] - c.cum[i - 1]), low) : Math.max(cursor, p.y);
+          knots.push([v, base + c.cum[i]]);
+        });
+        cursor = v;
+      }
+      base += c.total;
+    }
+    const STEP = 4, R = 12;
+    const p0 = knots[0][0] - STEP * R * 2;
+    const n = Math.ceil((cursor + STEP * R * 2 - p0) / STEP) + 1;
+    const raw = new Float64Array(n);
+    let k = 0;
+    for (let i = 0; i < n; i++) {
+      const p = p0 + i * STEP;
+      while (k < knots.length - 1 && knots[k + 1][0] <= p) k++;
+      const a = knots[k], b = knots[Math.min(k + 1, knots.length - 1)];
+      raw[i] = p <= knots[0][0] ? 0 : p >= cursor ? base : b[0] > a[0] ? a[1] + ((b[1] - a[1]) * (p - a[0])) / (b[0] - a[0]) : b[1];
+    }
+    const box = src => {
+      const sum = new Float64Array(n + 1);
+      for (let i = 0; i < n; i++) sum[i + 1] = sum[i] + src[i];
+      const out = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        const lo = Math.max(0, i - R), hi = Math.min(n - 1, i + R);
+        const pad = (R - (i - lo)) * src[0] + (R - (hi - i)) * src[n - 1];
+        out[i] = (sum[hi + 1] - sum[lo] + pad) / (2 * R + 1);
+      }
+      return out;
+    };
+    return { p0, step: STEP, vals: box(box(raw)), total: base };
+  }
+  const lookup = (tl, P) => {
+    const x = (P - tl.p0) / tl.step;
+    if (x <= 0) return 0;
+    const i = Math.floor(x);
+    if (i >= tl.vals.length - 1) return tl.total;
+    return tl.vals[i] + (tl.vals[i + 1] - tl.vals[i]) * (x - i);
+  };
+  const penAt = (y, vh) => vh * (0.66 + 0.3 * (1 - smooth(y / (vh * 0.9))));
 
   const drawOn = (paths, delay, duration, easing = 'cubic-bezier(.45,.05,.2,1)') => paths.forEach(p => {
     p.style.strokeDasharray = '1 2';
     p.animate([{ strokeDashoffset: HIDE }, { strokeDashoffset: 0 }], { delay, duration, easing, fill: 'both' });
   });
 
-  // --- now playing
   const np = document.querySelector('[data-np]');
   const T = MIX.tracks;
   const fmt = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return h ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`; };
@@ -246,11 +317,23 @@
   let override = null;
   if (np) {
     const list = np.querySelector('[data-tracklist]');
-    list.innerHTML = T.map(([s, t, a], i) => `<li><button type="button" data-i="${i}"><time>${fmt(s)}</time><span><b></b><small></small></span></button></li>`).join('');
+    list.innerHTML = T.map(([s, t, a], i) => `<li><button type="button" tabindex="-1" data-i="${i}"><time>${fmt(s)}</time><span><b></b><small></small></span></button></li>`).join('');
     rows = [...list.children];
     rows.forEach((li, i) => { li.querySelector('b').textContent = T[i][1]; li.querySelector('small').textContent = T[i][2]; });
     const bars = MIX.wave.map((v, i) => { const h = 18 + ((v - 60) / 40) * 82; const y = (100 - clamp(h, 14, 100)) / 2; return `M${i * 2 + 0.3} ${f(y)}h1.3v${f(100 - 2 * y)}h-1.3z`; }).join('');
     np.querySelectorAll('.wave-bars').forEach(w => { w.innerHTML = `<svg viewBox="0 0 320 100" preserveAspectRatio="none" aria-hidden="true"><path d="${bars}"/></svg>`; });
+    const showRow = li => { list.style.transform = `translateY(${-Math.max(0, li.offsetTop - li.offsetHeight)}px)`; };
+    const rove = btn => { list.querySelectorAll('button[tabindex="0"]').forEach(b => { if (b !== btn) b.tabIndex = -1; }); btn.tabIndex = 0; };
+    list.addEventListener('focusin', e => { const b = e.target.closest('button'); if (b) { rove(b); showRow(b.parentElement); } });
+    list.addEventListener('keydown', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      const i = +b.dataset.i;
+      const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: T.length - 1 }[e.key];
+      if (to == null) return;
+      e.preventDefault();
+      rows[clamp(to, 0, T.length - 1)].querySelector('button').focus();
+    });
     list.addEventListener('click', e => {
       const b = e.target.closest('button');
       if (!b) return;
@@ -293,14 +376,16 @@
       rows[idx].setAttribute('aria-current', 'true');
       npState.idx = idx;
       nowText.textContent = `${T[idx][2]} - ${T[idx][1]}`;
-      const li = rows[idx];
-      listOl.style.transform = `translateY(${-Math.max(0, li.offsetTop - li.offsetHeight)}px)`;
+      if (!listOl.contains(document.activeElement)) {
+        const li = rows[idx];
+        listOl.querySelectorAll('button').forEach((b, i) => { b.tabIndex = i === idx ? 0 : -1; });
+        listOl.style.transform = `translateY(${-Math.max(0, li.offsetTop - li.offsetHeight)}px)`;
+      }
     }
   }
-  const secFromP = p => p < 0.46 ? 0 : p < 0.74 ? lerp(0, 1500, (p - 0.46) / 0.28) : lerp(1500, MIX.duration - 20, (p - 0.74) / 0.26);
-  const pFromSec = s => s <= 1500 ? 0.46 + (s / 1500) * 0.28 : 0.74 + ((s - 1500) / (MIX.duration - 20 - 1500)) * 0.26;
+  const secFromP = p => p < 0.47 ? 0 : p < 0.74 ? lerp(0, 1500, (p - 0.47) / 0.27) : lerp(1500, MIX.duration - 20, (p - 0.74) / 0.26);
+  const pFromSec = s => s <= 1500 ? 0.47 + (s / 1500) * 0.27 : 0.74 + ((s - 1500) / (MIX.duration - 20 - 1500)) * 0.26;
 
-  // --- layout + build
   let mode = 'flat';
   let scenes = {};
   let page = null;
@@ -368,33 +453,28 @@
     const W = box.width, H = box.height;
     const m = stageMeasure(st, () => ({
       copy: rectIn(st.querySelector('.copy'), box),
-      phone: rectIn(st.querySelector('.d-phone'), box),
+      phone: rectIn(st.querySelector('.d-phone .glass'), box),
+      watch: rectIn(st.querySelector('.d-watch'), box),
       mac: rectIn(st.querySelector('.d-mac'), box),
       tv: rectIn(st.querySelector('.d-tv'), box),
-      slots: ['.d-phone', '.d-mac', '.d-tv'].map(q => rectIn(st.querySelector(`${q} .mini img`), box)),
     }));
-    const tr = st.querySelector('.traveller');
-    let vars = '';
-    m.slots.forEach((r, i) => { vars += `--ax${i}:${f(r.x)}px;--ay${i}:${f(r.y)}px;--as${i}:${(r.w / 100).toFixed(4)};`; });
-    tr.style.cssText = vars;
     st.classList.add('ready');
 
     const svg = el('svg', { class: 'cable-stage', 'aria-hidden': 'true', width: W, height: H, viewBox: `0 0 ${W} ${H}` });
     st.prepend(svg);
-    const { copy: C, phone: Ph, mac: M, tv: TV } = m;
+    const { copy: C, phone: Ph, watch: Wt, mac: M, tv: TV } = m;
     mass(svg, TV.cx + TV.w * 0.12, TV.cy - TV.h * 0.05, TV.w * 0.5, 2, 4.2, pal);
     mass(svg, M.cx - M.w * 0.1, M.cy + M.h * 0.1, M.w * 0.42, 0, 5.1, pal);
-    mass(svg, Ph.cx, Ph.cy + Ph.h * 0.1, Ph.w * 0.75, 1, 6.6, pal);
+    mass(svg, (Ph.cx + Wt.cx) / 2, Ph.cy + Ph.h * 0.1, Ph.w * 0.95, 1, 6.6, pal);
 
-    const xe = C.r + 44;
-    const lane = (TV.b + 28 + Math.min(M.y, Ph.y)) / 2;
+    const ring = 20;
+    const xe = (C.r + Ph.x - ring) / 2;
+    const lane = Math.min(H - 40, Math.max(Ph.b + ring, Wt.b, M.b + M.w * 0.09) + 40);
     const gx = Math.min(W - 26, TV.r + (W - TV.r) / 2);
     const way = [
-      { x: xe, y: -2 }, { x: xe, y: H * 0.18 }, { x: xe + 10, y: lane - 30 }, { x: M.x + M.w * 0.4, y: lane + 4 },
-      { x: Ph.cx - 10, y: lane }, { x: Ph.cx, y: Ph.cy }, { x: Ph.cx - 6, y: Ph.b + 26 },
-      { x: M.cx, y: Math.min(H - 24, M.b + 40) }, { x: M.x - 30, y: M.cy + 20 }, { x: M.x + M.w * 0.3, y: lane + 2 },
-      { x: TV.cx, y: TV.b - 6 }, { x: TV.cx + TV.w * 0.3, y: TV.cy }, { x: TV.r + 24, y: TV.y + TV.h * 0.3 },
-      { x: gx, y: TV.b + 60 }, { x: gx, y: H * 0.9 }, { x: gx, y: H + 2 },
+      { x: xe, y: -2 }, { x: xe, y: H * 0.3 }, { x: xe + 4, y: lane - 80 }, { x: xe + 56, y: lane },
+      { x: lerp(xe, gx, 0.5), y: lane + 10 }, { x: gx - 90, y: lane - 2 }, { x: gx - 4, y: lane + 56 },
+      { x: gx, y: H * 0.95 }, { x: gx, y: H + 2 },
     ];
     const c = cable(svg, spline(way), { levels: 4 }, pal);
     return { ...s, svg, c, entry: { x: xe }, exit: { x: gx }, W, H };
@@ -415,7 +495,7 @@
     const R = q => { const n = document.querySelector(q); return n ? rectIn(n, mr) : null; };
     const btn = R('[data-socket]');
     const pad = parseFloat(getComputedStyle(document.querySelector('.hero')).paddingLeft) || 24;
-    page = { svg, segs: [], plugEnd: null, mode, W, H };
+    page = { svg, segs: [], plugEnd: null, mode, W, H, mainTop: mr.top + scrollY, shown: null, t: 0 };
 
     let start, startHalf = null, heroPlug = null;
     {
@@ -456,26 +536,21 @@
       const L1 = scenes.listen, O = scenes.output;
       const deck = R('.mixer'), rig = R('.rig');
       const gapTop = L1.top + L1.height, gapBot = O.top;
-      const r = Math.min(120, (gapBot - gapTop) * 0.22);
+      const gap = gapBot - gapTop;
+      const r = clamp(gap * 0.26, 56, 120);
       const ax = L1.exit.x, bx = O.entry.x;
-      const cx = lerp(ax, bx, 0.45), cy = gapTop + (gapBot - gapTop) * 0.4;
-      const loop = [];
-      for (let k = 0; k <= 8; k++) { const a = -Math.PI / 2 + (k / 8) * Math.PI * 2 * -1; loop.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }); }
-      page.segs.push(cable(back, spline([
-        { x: ax, y: gapTop - 2 }, { x: ax, y: gapTop + 30 }, { x: lerp(ax, cx, 0.55), y: cy - r * 1.35 },
-        ...loop.slice(0, 8), { x: cx - r * 0.35, y: cy + r * 1.5 },
-        { x: bx, y: gapBot - 70 }, { x: bx, y: gapBot + 2 },
-      ], 5), { levels: 4 }, pal));
-      waves(back, 0, W, cy + r * 1.5 + 90, pal, 5, ECHO * 1.5, 8, 340);
+      const C = { x: lerp(ax, bx, 0.5), y: gapTop + gap * 0.42 };
+      page.segs.push(cable(back, looped({ x: ax, y: gapTop - 2 }, { x: bx, y: gapBot + 2 }, C, r), { levels: 4 }, pal));
+      waves(back, 0, W, lerp(C.y + r, gapBot, 0.5), pal, 5, ECHO * 1.5, 8, 340);
       const oy = O.top + O.height;
       page.segs.push(cable(back, spline([
         { x: O.exit.x, y: oy - 2 }, { x: O.exit.x, y: oy + 60 }, { x: O.exit.x - 20, y: lerp(oy, rig.y, 0.45) }, { x: lerp(O.exit.x, deck.cx, 0.7), y: lerp(oy, rig.y, 0.82) }, { x: deck.cx, y: rig.y + 20 }, { x: deck.cx, y: deck.cy },
         { x: deck.cx, y: rig.b + 30 }, { x: Math.min(W - pad * 0.5, endBack.x + 120), y: lerp(rig.b, endTip.y, 0.55) },
         { x: endBack.x + 70, y: endTip.y - 6 }, endBack,
       ]), { levels: 4, to: 100, endHalf: plugL * 0.026 - 3 }, pal));
-      const rigR = R('.rig');
-      mass(back, rigR.x + rigR.w * 0.2, rigR.cy, rigR.w * 0.24, 1, 7.7, pal);
-      mass(back, rigR.r - rigR.w * 0.16, rigR.cy + rigR.h * 0.1, rigR.w * 0.2, 2, 8.9, pal);
+      mass(back, rig.x + rig.w * 0.2, rig.cy, rig.w * 0.24, 1, 7.7, pal);
+      mass(back, rig.r - rig.w * 0.16, rig.cy + rig.h * 0.1, rig.w * 0.2, 2, 8.9, pal);
+      page.chain = [{ c: page.segs[0] }, { c: L1.c, scene: L1 }, { c: page.segs[1] }, { c: O.c, scene: O }, { c: page.segs[2] }];
     } else {
       const gx = mode === 'mobile' ? W - 12 : W - Math.max(26, (W - Math.min(W, 1240 + pad * 2)) / 2 + pad * 0.5);
       const hb = R('.hero').b;
@@ -485,7 +560,10 @@
       way.push({ x: gx, y: endY }, { x: endBack.x + (mode === 'mobile' ? 26 : 60), y: endTip.y - 4 }, endBack);
       page.segs.push(cable(back, spline(way), { levels: mode === 'mobile' ? 2 : 4, from: 110, startHalf, to: 80, endHalf: plugL * 0.026 - (mode === 'mobile' ? 2.5 : 3) }, pal));
       [['.phone', 0], ['.d-tv', 2], ['.rig', 1]].forEach(([q, t], i) => { const r = R(q); if (r) mass(back, r.cx, r.cy, Math.min(r.w, 520) * 0.48, t, 9 + i, pal); });
+      page.chain = [{ c: page.segs[0] }];
     }
+    page.tl = timeline(page.chain);
+    page.total = page.tl.total;
 
     const eg = el('g', { class: 'end-plug' }, front);
     const ep = plug(eg, endTip, dirEnd, plugL, pal, mode === 'mobile' ? 2 : 4, gnd);
@@ -501,29 +579,27 @@
     if (!h) return;
     if (mq.reduce.matches || introDone) return;
     introDone = true;
-    const total = 2400;
-    h.masses.forEach((m, i) => { m.style.transformBox = 'fill-box'; m.style.transformOrigin = 'center'; m.animate([{ opacity: 0, transform: 'scale(.92)' }, { opacity: 1, transform: 'none' }], { duration: 1400, delay: i * 120, easing: EASE, fill: 'both' }); });
-    h.waves.forEach((w, i) => drawOn([w], 200 + i * 70, 1400));
-    drawOn(h.sockLines, 500, 900, EASE);
-    drawOn(h.lines, 300, 1300);
-    const seg = page.segs[0];
-    const firstLen = seg ? Math.min(seg.total, lengthAtY(seg, innerHeight * 1.05 + scrollY - main.getBoundingClientRect().top - scrollY)) : 0;
-    heroDraw = { from: performance.now() + 300, dur: 1400, len: firstLen };
+    if (scrollY > innerHeight * 0.5) return;
+    const total = 1150, click = 880;
+    h.masses.forEach((m, i) => { m.style.transformBox = 'fill-box'; m.style.transformOrigin = 'center'; m.animate([{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'none' }], { duration: 700, delay: i * 80, easing: EASE, fill: 'both' }); });
+    h.waves.forEach((w, i) => drawOn([w], 120 + i * 50, 700));
+    drawOn(h.sockLines, 220, 520, EASE);
+    drawOn(h.lines, 80, 720);
+    heroDraw = { from: performance.now() + 180, dur: 900 };
     const d = h.L * 0.12;
     const back = `translate(${f(-h.dir.x * d)}px, ${f(-h.dir.y * d)}px)`;
-    const click = 1800;
     h.g.animate([
-      { transform: back, offset: 0 }, { transform: back, offset: 1500 / total, easing: 'cubic-bezier(.55,0,.9,.55)' },
+      { transform: back, offset: 0 }, { transform: back, offset: 640 / total, easing: 'cubic-bezier(.55,0,.9,.55)' },
       { transform: `translate(${f(h.dir.x * 3)}px, ${f(h.dir.y * 3)}px)`, offset: click / total, easing: 'cubic-bezier(.2,.8,.3,1)' },
       { transform: 'none', offset: 1 },
     ], { duration: total, fill: 'both' });
     h.sock.style.transformBox = 'view-box';
     h.sock.style.transformOrigin = `${f(h.centre.x)}px ${f(h.centre.y)}px`;
-    h.sock.animate([{ transform: 'none' }, { transform: 'scale(1.14)', offset: 0.2 }, { transform: 'none' }], { delay: click, duration: 520, easing: 'ease-out' });
+    h.sock.animate([{ transform: 'none' }, { transform: 'scale(1.12)', offset: 0.25 }, { transform: 'none' }], { delay: click, duration: 380, easing: 'ease-out' });
     h.rings.forEach((r, i) => {
       r.style.opacity = 0;
-      r.animate([{ opacity: 0 }, { opacity: 1 }], { delay: click + i * 60, duration: 500, easing: EASE, fill: 'both' });
-      drawOn([...r.children], click + i * 60, 520, EASE);
+      r.animate([{ opacity: 0 }, { opacity: 1 }], { delay: click + i * 40, duration: 380, easing: EASE, fill: 'both' });
+      drawOn([...r.children], click + i * 40, 420, EASE);
     });
   }
   let introDone = false;
@@ -560,43 +636,47 @@
     build();
   }
 
-  // --- per frame
+  const listenPlay = document.querySelector('.listen .view.play');
+  const listenList = document.querySelector('.listen .np-list');
+  const setInert = (n, v) => { if (n && n.inert !== v) n.inert = v; };
+
   function update(force) {
     if (!page) return;
     const reduced = mq.reduce.matches;
     const mtop = main.getBoundingClientRect().top;
     const vh = innerHeight;
-    const pen = vh * 0.66 - mtop;
     const now = performance.now();
-    let introLen = 0;
-    if (heroDraw) {
-      const t = clamp((now - heroDraw.from) / heroDraw.dur);
-      introLen = heroDraw.len * (1 - Math.pow(1 - t, 3));
-      if (t >= 1) heroDraw.done = true;
+    const sy = scrollY;
+    const target = reduced ? page.total : lookup(page.tl, sy + penAt(sy, vh) - page.mainTop);
+    const dt = Math.min(34, now - (page.t || now));
+    page.t = now;
+    let shown = page.shown;
+    if (force || reduced || shown == null) shown = target;
+    else {
+      shown += (target - shown) * (1 - Math.exp(-dt / 60));
+      if (Math.abs(target - shown) < 0.5) shown = target;
     }
-    page.segs.forEach((c, i) => {
-      if (reduced) return drawTo(c, c.pts.length);
-      let len = lengthAtY(c, pen);
-      if (i === 0) len = Math.max(len, introLen);
-      drawLength(c, len);
-    });
+    page.shown = shown;
+    let drawn = shown;
+    if (heroDraw) {
+      const t = reduced ? 1 : (now - heroDraw.from) / heroDraw.dur;
+      drawn = shown * easeOut(t);
+      if (t >= 1) heroDraw = null;
+    }
+    for (const pc of page.chain) drawLength(pc.c, drawn - pc.base);
 
     for (const k in scenes) {
       const s = scenes[k];
-      const raw = (-mtop - s.top) / s.span;
-      const p = clamp(raw);
-      if (s.c) {
-        const stageTop = s.top + clamp(-mtop - s.top, 0, s.span);
-        const local = pen - stageTop;
-        const base = lengthAtY(s.c, local);
-        const pinnedBase = lengthAtY(s.c, vh * 0.66);
-        const byP = raw <= 0 ? 0 : lerp(pinnedBase, s.c.total, clamp(p / 0.9));
-        drawLength(s.c, reduced ? s.c.total : Math.max(base, byP));
-      }
+      const p = clamp((-mtop - s.top) / s.span);
       if (s.anims.length && p !== s.lastP) s.anims.forEach(a => { a.currentTime = p * 1000; });
       s.lastP = p;
-      if (k === 'listen' && override == null) renderTime(secFromP(p));
+      if (k === 'listen') {
+        if (override == null) renderTime(secFromP(p));
+        setInert(listenPlay, mode === 'pin' && p < 0.42);
+        setInert(listenList, mode === 'pin' && p < 0.79);
+      }
     }
+    if (!scenes.listen) { setInert(listenPlay, false); setInert(listenList, false); }
 
     if (!scenes.listen && np && override == null) {
       if (reduced) renderTime(1700);
@@ -608,8 +688,7 @@
 
     const e = page.plugEnd;
     if (e) {
-      const last = page.segs[page.segs.length - 1];
-      const seated = reduced || (lengthAtY(last, pen) >= last.total - 1);
+      const seated = reduced || drawn >= page.total - 1;
       if (seated !== e.seated) {
         const first = e.seated === null;
         e.seated = seated;
@@ -619,7 +698,7 @@
         e.btn.classList.toggle('seated', seated);
       }
     }
-    if (heroDraw && !heroDraw.done) schedule();
+    if (shown !== target || heroDraw) schedule();
   }
 
   let frame = 0;
