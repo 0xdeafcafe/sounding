@@ -5,12 +5,12 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Sounding plays your SoundCloud on iPhone, iPad, Apple Watch, Apple TV and Mac. It’s free, it’s made by one person, and the beta’s open.">
+  <meta name="description" content="Sounding is a SoundCloud player for iPhone, iPad, Mac, Apple TV and Apple Watch, with a pair of DJ decks bolted on. The beta’s open.">
   <meta name="theme-color" content="#f6f1e8" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#110e0c" media="(prefers-color-scheme: dark)">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Sounding. Plug in. All the way.">
-  <meta property="og:description" content="Your SoundCloud on iPhone, iPad, Apple Watch, Apple TV and Mac.">
+  <meta property="og:description" content="A SoundCloud player for iPhone, iPad, Mac, Apple TV and Apple Watch, with DJ decks.">
   <meta property="og:url" content="https://sounding.forbes.red/">
   <meta property="og:image" content="https://sounding.forbes.red/assets/share.jpg">
   <title>Sounding · Plug in. All the way.</title>
@@ -24,26 +24,29 @@
   <a class="skip" href="#main">Skip to content</a>
   <header class="top">
     <a class="brand" href="./"><img src="assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
-    <nav aria-label="Main"><a href="support/">Support</a><a class="button small" href="https://testflight.apple.com/join/4EBA4NYb" rel="noopener">Join the beta</a></nav>
+    <nav aria-label="Main"><a href="support/">Support</a><a class="button small" href="https://testflight.apple.com/join/4EBA4NYb" rel="noopener">Volunteer</a></nav>
   </header>
 
   <main id="main">
     <section class="hero" aria-labelledby="hero-h">
       <div class="hero-copy">
         <h1 id="hero-h">Plug in.<br>All the way.</h1>
-        <p class="lede">Sounding plays your SoundCloud on iPhone, iPad, Apple&nbsp;Watch, Apple&nbsp;TV and Mac. It’s free, it’s made by one person, and the beta’s open.</p>
-        <p class="actions"><a class="button" href="https://testflight.apple.com/join/4EBA4NYb" rel="noopener">Join the TestFlight beta</a></p>
+        <p class="lede">Sounding is a SoundCloud player for iPhone, iPad, Mac, Apple&nbsp;TV and Apple&nbsp;Watch, with a pair of DJ decks bolted on. I make it on my own, and the beta’s open.</p>
+        <p class="actions"><a class="button" href="https://testflight.apple.com/join/4EBA4NYb" rel="noopener">Volunteer as tribute</a><span class="note">It’s a TestFlight beta. Things will break.</span></p>
       </div>
       <div class="hero-art" data-hero-art aria-hidden="true"></div>
     </section>
 
     <section class="scene listen" id="listen" data-scene="listen" aria-labelledby="listen-h">
-      <div class="stage">
+      <div class="stage" data-state="4">
         <div class="copy">
           <h2 id="listen-h">Everything you’ve liked, already there.</h2>
-          <p class="line l1">Sign in with SoundCloud and it’s all there: likes, playlists, that set you saved at 4am. Nothing to import.</p>
-          <p class="line l2">Put on a 90-minute mix and Sounding asks Shazam what’s playing as it goes.</p>
-          <p class="line l3">The tracklist fills itself in. Tap any track to jump straight to it.</p>
+          <div class="captions">
+            <p class="cap c1"><b>This is your Likes, straight from SoundCloud.</b> Sign in once and it’s all there: likes, playlists, that set you saved at 4am. Nothing to import.</p>
+            <p class="cap c2"><b>This is a 90-minute set.</b> Pariah at Freerotation, all of it. Long mixes are what Sounding’s built around.</p>
+            <p class="cap c3"><b>This is the tracklist.</b> Sounding pieces it together from the uploader’s notes, the comments and Shazam. Missing one? Tap Identify and it’ll Shazam whatever’s on.</p>
+            <p class="cap c4"><b>Tap a track to jump to it.</b> Go on, try it. It works on this page too.</p>
+          </div>
         </div>
 
         <ul class="covers" aria-label="Recent likes">
@@ -95,6 +98,7 @@
               <div class="np-list">
                 <p class="np-count"><span>24 identified</span><span class="identify" aria-hidden="true">Identify</span></p>
                 <div class="np-scroll"><ol data-tracklist></ol></div>
+                <i class="tap" aria-hidden="true"></i>
               </div>
             </div></div>
           </div>
@@ -103,26 +107,38 @@
     </section>
 
     <section class="scene output" id="output" data-scene="output" aria-labelledby="output-h">
-      <div class="stage">
+      <div class="stage" data-state="4">
         <div class="copy">
           <h2 id="output-h">From your phone to the TV, mid-track.</h2>
-          <p class="line l1">Tap Play On, pick the Apple&nbsp;TV, and it carries on from the same second. Your phone turns into the remote.</p>
-          <p class="line l2">So does your watch. Skip, pause and turn it up without hunting for your phone (it’s down the back of the sofa).</p>
-          <p class="line l3">Got Sounding on the Mac as well? Polyphony plays the lot in time, in every room.</p>
+          <div class="captions">
+            <p class="cap c1"><b>First, the TV signs in by ear.</b> It plays a short techno pulse (om-wom-wom), plus a signal too high for you to hear. Your iPhone picks it up, asks if that’s your TV, and signs it in. No QR code, no typing a password with the Siri Remote.</p>
+            <p class="cap c2"><b>Tap Play On and pick the Apple&nbsp;TV.</b> The set carries on from the same second, just louder.</p>
+            <p class="cap c3"><b>Your iPhone and Watch are the remote.</b> Skip, pause, and scrub with the Digital Crown, from your wrist (the phone’s down the back of the sofa anyway).</p>
+            <p class="cap c4"><b>Then there’s Polyphony.</b> Start it on one device and your friends’ iPhones, iPads, Macs and Apple&nbsp;TVs join with a six-digit code. They all play the same track in sync, like one big speaker. You pick the music, they’re the speakers (good boys, all of them).</p>
+          </div>
         </div>
         <div class="devices" aria-hidden="true">
-          <div class="dev d-tv"><div class="glass"><div class="mini"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 30vw, 200px" alt="" width="500" height="500" loading="lazy" decoding="async"><b>Obskür B2B Luuk van Dijk | Audio Obscura at the Van Nelle Fabriek</b><span>Audio Obscura</span><div class="bar"><i></i></div></div></div><div class="box"></div></div>
-          <div class="dev d-mac"><div class="glass"><div class="mini"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 30vw, 200px" alt="" width="500" height="500" loading="lazy" decoding="async"><b>Obskür B2B Luuk van Dijk | Audio Obscura at the Van Nelle Fabriek</b><span>Audio Obscura</span><div class="bar"><i></i></div></div></div><div class="base"></div></div>
+          <div class="dev d-tv"><div class="glass">
+            <div class="tv-sign"><img src="assets/app-icon.webp" alt="" width="64" height="64" loading="lazy" decoding="async"><b>Sign in with iPhone</b><span>Keep it nearby and tap Sign In. It hears this Apple&nbsp;TV’s chime.</span></div>
+            <div class="mini"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 30vw, 200px" alt="" width="500" height="500" loading="lazy" decoding="async"><b>Obskür B2B Luuk van Dijk | Audio Obscura at the Van Nelle Fabriek</b><span>Audio Obscura</span><div class="bar"><i></i></div><em>41:07</em></div>
+          </div><div class="box"></div></div>
+          <div class="dev d-mac"><div class="glass"><div class="mini"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 30vw, 200px" alt="" width="500" height="500" loading="lazy" decoding="async"><b>Obskür B2B Luuk van Dijk | Audio Obscura at the Van Nelle Fabriek</b><span>Audio Obscura</span><div class="bar"><i></i></div><em>41:07</em></div></div><div class="base"></div></div>
           <div class="dev d-phone"><div class="glass">
-            <div class="mini"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 30vw, 200px" alt="" width="500" height="500" loading="lazy" decoding="async"><b>Obskür B2B Luuk van Dijk</b><span>Audio Obscura</span><div class="bar"><i></i></div>
-              <p class="route"><span class="r1"><svg class="tv-glyph" viewBox="0 0 16 16"><rect x="4.5" y="1.5" width="7" height="13" rx="1.6"/><path d="M7 12.5h2"/></svg>iPhone</span><span class="r2"><svg class="tv-glyph" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="8.5" rx="1.2"/><path d="M5 13.5h6"/></svg>Living Room</span><span class="r3"><svg class="tv-glyph" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="8.5" rx="1.2"/><path d="M5 13.5h6"/></svg>Living Room, Studio</span></p>
+            <div class="mini"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 30vw, 200px" alt="" width="500" height="500" loading="lazy" decoding="async"><b>Obskür B2B Luuk van Dijk</b><span>Audio Obscura</span><div class="bar"><i></i></div><em>41:07</em>
+              <p class="route"><span class="r1"><svg class="tv-glyph" viewBox="0 0 16 16"><rect x="4.5" y="1.5" width="7" height="13" rx="1.6"/><path d="M7 12.5h2"/></svg>iPhone</span><span class="r2"><svg class="tv-glyph" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="8.5" rx="1.2"/><path d="M5 13.5h6"/></svg>Living Room</span><span class="r3"><svg class="tv-glyph" viewBox="0 0 16 16"><path d="M3 5.5v5M6 3.5v9M10 3.5v9M13 5.5v5"/></svg>Polyphony</span></p>
             </div>
-            <div class="sheet"><p>Play On</p><ul><li class="o-phone">iPhone<i></i></li><li class="o-tv">Living Room<i></i></li><li class="o-mac">Studio<i></i></li></ul></div>
+            <div class="toast"><b>Living Room</b><span>Sign in to Sounding on this Apple&nbsp;TV?</span><i>Sign In</i></div>
+            <div class="sheet"><p>Play On</p><ul><li class="o-phone">This iPhone<i></i></li><li class="o-tv">Living Room<i></i></li></ul></div>
           </div></div>
           <div class="dev d-watch"><div class="glass">
             <p class="clock">21:47</p>
             <div class="remote"><p class="w-route"><svg class="tv-glyph" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="8.5" rx="1.2"/><path d="M5 13.5h6"/></svg>Living Room</p><b>Obskür B2B Luuk van Dijk</b><div class="w-ctrl"><i class="w-rw"></i><div class="w-ring"><svg viewBox="0 0 40 40"><circle class="w-track" cx="20" cy="20" r="17"/><circle class="w-prog" cx="20" cy="20" r="17" pathLength="1"/></svg><i class="w-pp"></i></div><i class="w-ff"></i></div></div>
           </div><i class="crown"></i></div>
+          <div class="dev d-phone d-friend"><div class="glass">
+            <div class="mini"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 30vw, 200px" alt="" width="500" height="500" loading="lazy" decoding="async"><b>Obskür B2B Luuk van Dijk</b><span>Audio Obscura</span><div class="bar"><i></i></div><em>41:07</em>
+              <p class="route"><span><svg class="tv-glyph" viewBox="0 0 16 16"><path d="M3 5.5v5M6 3.5v9M10 3.5v9M13 5.5v5"/></svg>Polyphony</span></p>
+            </div>
+          </div></div>
         </div>
       </div>
     </section>
@@ -130,34 +146,42 @@
     <section class="decks" id="decks" aria-labelledby="decks-h">
       <div class="copy">
         <h2 id="decks-h">Two decks, if you fancy it.</h2>
-        <p>Crossfader, three-band EQ, filters, loops and hot cues. Tempo and key get worked out on your device, so you can see what’ll fit before you bring it in.</p>
-        <p>Or let Auto Mix do it. It beat-matches whatever’s next in your queue and brings it in on time. No trainwrecks.</p>
-        <p>Plug a MIDI controller into the Mac, or use the decks on your iPhone to drive the Apple&nbsp;TV.</p>
+        <p class="sub">There’s a proper DJ mode in here: two decks, a crossfader, three-band EQ and a filter on each, loops, and four hot cues a deck.</p>
+        <p><b>It knows what’ll fit.</b> Your iPhone, iPad or Mac works out tempo and key on the device, so you can see what’s compatible before you bring it in.</p>
+        <p><b>Auto Mix, for when you’d rather dance.</b> It beat-matches the next track and brings it in on the phrase. Pick a personality: Wedding DJ plays it safe and mixes out of the outro, Junkie cuts tracks short and goes wherever the phrases let it.</p>
+        <p><b>Bring your own hardware.</b> Plug a Pioneer DDJ-400 into the Mac and it’s mapped already. On iPhone and iPad, the decks drive the Apple&nbsp;TV, so you can mix from the sofa.</p>
+        <p class="gigs">Good for house parties, weddings you got roped into, or leaving it on as a very opinionated jukebox.</p>
       </div>
       <div class="rig" aria-hidden="true">
         <div class="platter a"><div class="disc"><img src="assets/music/paul-renard-transmissions.webp" srcset="assets/music/s/paul-renard-transmissions.webp 160w, assets/music/paul-renard-transmissions.webp 500w" sizes="(max-width: 899px) 14vw, 96px" alt="" width="500" height="500" loading="lazy" decoding="async"></div></div>
         <div class="mixer"><i></i><i></i><i></i><i></i><i></i><i></i><div class="fader"><b></b></div></div>
         <div class="platter b"><div class="disc"><img src="assets/music/andre-zimmer-invisible-sandwich.webp" srcset="assets/music/s/andre-zimmer-invisible-sandwich.webp 160w, assets/music/andre-zimmer-invisible-sandwich.webp 500w" sizes="(max-width: 899px) 14vw, 96px" alt="" width="500" height="500" loading="lazy" decoding="async"></div></div>
+        <div class="pads a"><i></i><i></i><i></i><i></i><s></s></div>
+        <div class="pads b"><i></i><i></i><i></i><i></i><s></s></div>
         <p class="rig-tags"><span>Paul Renard - Transmissions</span><span>Andre Zimmer - Invisible Sandwich</span></p>
       </div>
     </section>
 
     <section class="join" id="join" aria-labelledby="join-h">
       <div class="join-copy">
-        <h2 id="join-h">Join the beta.</h2>
-        <p>Sounding is free. No ads, no in-app purchases, no catch. TestFlight gets you the latest build on iPhone, iPad, Apple&nbsp;Watch, Apple&nbsp;TV and Mac, and it’ll land on the App Store when it’s ready.</p>
+        <h2 id="join-h">Fair warning.</h2>
+        <p>Sounding isn’t official. SoundCloud didn’t make it and has nothing to do with it. It’s me, in Amsterdam, mostly in the evenings. There’s no support team, no roadmap and no promises. You get what you’re given, and some weeks that’s a bug.</p>
+        <p>There are no Sounding servers, no separate Sounding account and no analytics. Your sign-in stays on your devices, and sync goes through your own iCloud. <a href="privacy/">Privacy policy</a></p>
+        <p>No ads either. Without SoundCloud Go+, though, tracks SoundCloud only lets you preview won’t play here, and offline downloads need Go+.</p>
         <p class="needs">You’ll need iOS or iPadOS 26.5 or later, or tvOS, macOS or watchOS 27.</p>
       </div>
-      <p class="join-action"><a class="button big" data-socket href="https://testflight.apple.com/join/4EBA4NYb" rel="noopener">Join the TestFlight beta</a></p>
+      <p class="join-action"><a class="button big" data-socket href="https://testflight.apple.com/join/4EBA4NYb" rel="noopener">Volunteer as tribute</a><span class="note">Opens TestFlight.</span></p>
       <div class="small-print">
-        <p>There are no Sounding servers and no separate Sounding account. No analytics, no tracking. Your sign-in stays on your devices, and sync goes through your own iCloud. <a href="privacy/">Privacy policy</a></p>
-        <p>Found a bug? Send it from TestFlight or email <a href="mailto:sounding@alex.forbes.red">sounding@alex.forbes.red</a>. I read all of it. <a href="support/">Support</a></p>
+        <p>Found a bug? Send it from TestFlight or email <a href="mailto:sounding@alex.forbes.red">sounding@alex.forbes.red</a>. I read all of it, I just can’t promise when. <a href="support/">Support</a></p>
       </div>
     </section>
   </main>
 
   <footer class="foot">
-    <p>Made by Alexander Forbes-Reed. Sounding is an independent app, not affiliated with, endorsed by or sponsored by SoundCloud. You’ll need a SoundCloud account.</p>
+    <div>
+      <p>Made with love in Amsterdam by Alex Forbes-Reed.</p>
+      <p>You’ll need a SoundCloud account. Not affiliated with or endorsed by SoundCloud.</p>
+    </div>
     <nav aria-label="Footer"><a href="privacy/">Privacy</a><a href="support/">Support</a></nav>
   </footer>
 </body>

@@ -17,31 +17,36 @@
   <a class="skip" href="#main">Skip to content</a>
   <header class="top">
     <a class="brand" href="../"><img src="../assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
-    <nav aria-label="Main"><a href="../support/">Support</a><a class="button small" href="https://testflight.apple.com/join/4EBA4NYb" rel="noopener">Join the beta</a></nav>
+    <nav aria-label="Main"><a href="../support/">Support</a><a class="button small" href="https://testflight.apple.com/join/4EBA4NYb" rel="noopener">Volunteer</a></nav>
   </header>
   <main id="main" class="page">
     <h1>Privacy policy</h1>
     <p class="intro">Short version: Sounding doesn’t collect anything. Last updated 6 November 2026.</p>
-    <p>Sounding is an independent app made by Alexander Forbes-Reed. It isn’t affiliated with SoundCloud.</p>
+    <p>Sounding is an independent app made by Alexander Forbes-Reed. It isn’t affiliated with or endorsed by SoundCloud.</p>
     <h2>What Sounding collects</h2>
     <p>Nothing. There are no Sounding servers, no Sounding accounts, no analytics, no ads and no third-party SDKs. I don’t get any data about you or how you use the app. The app only talks to SoundCloud and Apple.</p>
     <h2>Your SoundCloud account</h2>
-    <p>You sign in on SoundCloud’s own page. Sounding keeps that sign-in in the Keychain on your device and only ever sends it to SoundCloud, to fetch your library and play your music. Likes, comments and follows go straight to SoundCloud as well, and SoundCloud’s privacy policy covers that data.</p>
+    <p>You sign in on SoundCloud’s own page. Sounding keeps that sign-in in the Keychain on your device, and encrypted in your private iCloud so your other devices can use it. It only ever sends it to SoundCloud, to fetch your library and play your music. Likes, comments and follows go straight to SoundCloud as well, and SoundCloud’s privacy policy covers that data.</p>
     <h2>What stays on your devices</h2>
-    <p>Downloads, analysis results, cue points, setlists and settings live on the device. If you’re signed in to iCloud, they sync between your own devices through your private iCloud container. I can’t read it.</p>
-    <h2>Moving your sign-in between devices</h2>
-    <p>When you link an Apple TV, Mac or Apple Watch, your iPhone sends the sign-in straight to it over your local network, signed with a one-time secret. It doesn’t go through any server.</p>
-    <h2>Camera and local network</h2>
-    <p>On iPhone, the camera is only used to scan the code on your Apple TV. Local network access is only used to find your own devices. Neither is stored or shared.</p>
+    <p>Downloads, Music Analysis results (tempo, key and genre), cue points, setlists and settings live on the device. Music Analysis runs on the device too. If you’re signed in to iCloud, these sync between your own devices through your private iCloud database. I can’t read it.</p>
+    <h2>Adding an Apple&nbsp;TV, Mac or Apple&nbsp;Watch</h2>
+    <p>When you add an Apple&nbsp;TV or Mac, your iPhone sends the sign-in straight to it over your local network, encrypted with a one-time key. It doesn’t go through any server. The chime an Apple&nbsp;TV plays only carries a short, single-use code, never your sign-in. Your Apple&nbsp;Watch gets the sign-in from your iPhone over Apple’s own watch connection.</p>
+    <h2>Microphone, camera and local network</h2>
+    <p>On iPhone, iPad and Mac, the microphone listens for your Apple&nbsp;TV’s sign-in chime, and only while that screen is open. Nothing is recorded or sent anywhere. The camera is only used if you’d rather scan the code on your Apple&nbsp;TV. Local network access is used to find your own devices and nearby Polyphony sessions. None of it is stored or shared.</p>
+    <h2>Polyphony</h2>
+    <p>When you join a Polyphony session, the devices on your network share what’s playing and where it’s up to, so they stay in sync. Each speaker plays the track from SoundCloud with its own sign-in.</p>
     <h2>Song identification</h2>
-    <p>Sounding identifies tracks inside long mixes with Apple’s ShazamKit, so Apple’s privacy policy covers that part.</p>
+    <p>Sounding identifies tracks inside long mixes with Apple’s ShazamKit. It makes a fingerprint from the track’s own audio (not from your microphone) and Apple matches it, so Apple’s privacy policy covers that part.</p>
     <h2>Deleting your data</h2>
     <p>Sign out in Settings to remove the sign-in from your devices. Delete the app to remove everything it stored on that device. To delete Sounding’s iCloud data, go to Settings, Apple Account, iCloud, Manage Storage.</p>
     <h2>Contact</h2>
     <p><a href="mailto:sounding@alex.forbes.red">sounding@alex.forbes.red</a></p>
   </main>
   <footer class="foot">
-    <p>Made by Alexander Forbes-Reed. Sounding is an independent app, not affiliated with, endorsed by or sponsored by SoundCloud. You’ll need a SoundCloud account.</p>
+    <div>
+      <p>Made with love in Amsterdam by Alex Forbes-Reed.</p>
+      <p>You’ll need a SoundCloud account. Not affiliated with or endorsed by SoundCloud.</p>
+    </div>
     <nav aria-label="Footer"><a href="../privacy/">Privacy</a><a href="../support/">Support</a></nav>
   </footer>
 </body>

@@ -4,13 +4,11 @@
   if (!main) return;
   const NS = 'http://www.w3.org/2000/svg';
   const HIDE = 1.001;
-  const SDA = window.CSS && CSS.supports('animation-timeline: view()');
-  if (!SDA) root.classList.add('no-sda');
 
   const mq = {
     dark: matchMedia('(prefers-color-scheme: dark)'),
     reduce: matchMedia('(prefers-reduced-motion: reduce)'),
-    pin: matchMedia('(min-width: 1000px) and (min-height: 620px) and (prefers-reduced-motion: no-preference)'),
+    pin: matchMedia('(min-width: 1000px) and (min-height: 620px)'),
     mobile: matchMedia('(max-width: 899px)'),
   };
 
@@ -316,7 +314,6 @@
   const fmt = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return h ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`; };
   let npState = { idx: -1, sec: -1 };
   let rows = [];
-  let override = null;
   if (np) {
     const list = np.querySelector('[data-tracklist]');
     list.innerHTML = T.map(([s, t, a], i) => `<li><button type="button" tabindex="-1" data-i="${i}"><time>${fmt(s)}</time><span><b></b><small></small></span></button></li>`).join('');
@@ -339,15 +336,7 @@
     list.addEventListener('click', e => {
       const b = e.target.closest('button');
       if (!b) return;
-      const sec = T[+b.dataset.i][0] + 1;
-      const s = scenes.listen;
-      if (mode === 'pin' && s) {
-        const p = pFromSec(sec);
-        scrollTo({ top: s.top + p * s.span, behavior: mq.reduce.matches ? 'auto' : 'smooth' });
-      } else {
-        override = sec;
-        renderTime(sec);
-      }
+      renderTime(T[+b.dataset.i][0] + 1);
     });
   }
   const wave = np && np.querySelector('[data-wave]');
@@ -385,8 +374,12 @@
       }
     }
   }
-  const secFromP = p => p < 0.47 ? 0 : p < 0.74 ? lerp(0, 1500, (p - 0.47) / 0.27) : lerp(1500, MIX.duration - 20, (p - 0.74) / 0.26);
-  const pFromSec = s => s <= 1500 ? 0.47 + (s / 1500) * 0.27 : 0.74 + ((s - 1500) / (MIX.duration - 20 - 1500)) * 0.26;
+  const STEPS = {
+    listen: { last: 4, at: (span, vh) => [-0.3 * vh, 0.24 * span, 0.5 * span, 0.76 * span] },
+    output: { last: 4, at: (span, vh) => [-0.3 * vh, 0.24 * span, 0.5 * span, 0.76 * span] },
+  };
+  const CLOCK = { 2: 722, 3: 1420, 4: 2051 };
+  let tapTimer = 0;
 
   let mode = 'flat';
   let scenes = {};
@@ -398,16 +391,12 @@
     if (!sec) return null;
     const mr = main.getBoundingClientRect();
     const r = sec.getBoundingClientRect();
-    return { sec, stage: sec.querySelector('.stage'), top: r.top - mr.top, height: r.height, span: Math.max(1, r.height - innerHeight), anims: [] };
+    return { sec, stage: sec.querySelector('.stage'), top: r.top - mr.top, height: r.height, span: Math.max(1, r.height - innerHeight) };
   }
 
   function stageMeasure(stage, fn) {
     stage.classList.add('measuring');
-    const all = stage.querySelectorAll('*');
-    const saved = [];
-    all.forEach(n => { if (n.style) { saved.push([n, n.style.animation]); n.style.animation = 'none'; } });
     const out = fn();
-    saved.forEach(([n, v]) => { n.style.animation = v; });
     stage.classList.remove('measuring');
     return out;
   }
@@ -428,7 +417,7 @@
       const [fx, fy, r] = spots[i];
       const x0 = Math.max(C.r + 24, fx * W - cs / 2), y0 = fy * H - cs / 2;
       const tx = P.x + 3.3 * cq + 6 * cq, ty = P.y + 3.3 * cq + 30 * cq + i * 15 * cq + 1.75 * cq;
-      li.style.cssText = `--i:${i};--cs:${f(cs)}px;--x0:${f(x0)}px;--y0:${f(y0)}px;--r0:${r}deg;--x1:${f(tx)}px;--y1:${f(ty)}px;--s1:${(11.5 * cq / cs).toFixed(4)};transform-origin:0 0`;
+      li.style.cssText = `--i:${i};--cs:${f(cs)}px;--x0:${f(x0)}px;--y0:${f(y0)}px;--r0:${r}deg;--x1:${f(tx)}px;--y1:${f(ty)}px;--k1:${(11.5 * cq / cs).toFixed(4)};transform-origin:0 0`;
     });
     st.classList.add('ready');
 
@@ -458,7 +447,9 @@
       phone: rectIn(st.querySelector('.d-phone .glass'), box),
       watch: rectIn(st.querySelector('.d-watch'), box),
       mac: rectIn(st.querySelector('.d-mac'), box),
-      tv: rectIn(st.querySelector('.d-tv'), box),
+      tv: rectIn(st.querySelector('.d-tv .glass'), box),
+      friend: rectIn(st.querySelector('.d-friend .glass'), box),
+      macGlass: rectIn(st.querySelector('.d-mac .glass'), box),
     }));
     st.classList.add('ready');
 
@@ -479,6 +470,13 @@
       { x: gx, y: H * 0.95 }, { x: gx, y: H + 2 },
     ];
     const c = cable(svg, spline(way), { levels: 4 }, pal);
+    const tvRings = el('g', { class: 'sr sr-tv' }, svg);
+    const tvC = { x: TV.x - 24, y: TV.y + TV.h * 0.6 };
+    rings(tvRings, tvC, Math.atan2(Ph.y - tvC.y, Ph.cx - tvC.x), 16, 15, 6, pal, 90).forEach((g, i) => g.style.setProperty('--d', `${i * 30}ms`));
+    const poly = el('g', { class: 'sr sr-poly' }, svg);
+    [TV, m.macGlass, Ph, m.friend].forEach((r, j) => {
+      rings(poly, { x: r.cx, y: r.y - 24 }, -Math.PI / 2, 12, 9, 3, pal, 70).forEach((g, i) => g.style.setProperty('--d', `${i * 30 + j * 20}ms`));
+    });
     return { ...s, svg, c, entry: { x: xe }, exit: { x: gx }, W, H };
   }
 
@@ -573,7 +571,6 @@
 
     built = true;
     intro(heroPlug);
-    collect();
     update(true);
   }
 
@@ -612,18 +609,14 @@
     page = null;
   }
 
-  function collect() {
-    for (const k in scenes) {
-      const s = scenes[k];
-      s.anims = !SDA && mode === 'pin' ? s.sec.getAnimations({ subtree: true }).filter(a => a instanceof CSSAnimation) : [];
-      s.lastP = -1;
-    }
-  }
-
   function setupScenes() {
     scenes = {};
     document.querySelectorAll('.cable-stage').forEach(n => n.remove());
     document.querySelectorAll('.stage.ready').forEach(n => n.classList.remove('ready'));
+    root.classList.add('settling');
+    root.classList.toggle('pinned', mq.pin.matches);
+    document.querySelectorAll('[data-scene]').forEach(sec => { const st = sec.querySelector('.stage'); const k = STEPS[sec.dataset.scene]; if (st && k) setState(sec.dataset.scene, st, k.last); });
+    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('settling')));
     if (mq.pin.matches) {
       const pal = palette(), gnd = ground();
       const l = sceneInfo('listen');
@@ -641,6 +634,32 @@
   const listenPlay = document.querySelector('.listen .view.play');
   const listenList = document.querySelector('.listen .np-list');
   const setInert = (n, v) => { if (n && n.inert !== v) n.inert = v; };
+  const states = {};
+
+  function setState(name, stage, k) {
+    if (states[name] === k && stage.dataset.state === String(k)) return;
+    states[name] = k;
+    stage.dataset.state = k;
+    if (name !== 'listen') return;
+    setInert(listenPlay, k < 2);
+    setInert(listenList, k < 3);
+    clearTimeout(tapTimer);
+    if (k < 2) return;
+    const instant = mq.reduce.matches || root.classList.contains('settling') || !root.classList.contains('pinned');
+    if (k === 4 && !instant) tapTimer = setTimeout(() => renderTime(CLOCK[4]), 150);
+    else renderTime(CLOCK[k]);
+  }
+
+  function stepFor(name, s, off) {
+    const at = STEPS[name].at(s.span, innerHeight);
+    const cur = states[name];
+    if (cur == null) return at.filter(t => off > t).length;
+    let k = cur;
+    const H = 16;
+    while (k < at.length && off > at[k] + H) k++;
+    while (k > 0 && off < at[k - 1] - H) k--;
+    return k;
+  }
 
   function update(force) {
     if (!page) return;
@@ -669,23 +688,7 @@
 
     for (const k in scenes) {
       const s = scenes[k];
-      const p = clamp((-mtop - s.top) / s.span);
-      if (s.anims.length && p !== s.lastP) s.anims.forEach(a => { a.currentTime = p * 1000; });
-      s.lastP = p;
-      if (k === 'listen') {
-        if (override == null) renderTime(secFromP(p));
-        setInert(listenPlay, mode === 'pin' && p < 0.42);
-        setInert(listenList, mode === 'pin' && p < 0.79);
-      }
-    }
-    if (!scenes.listen) { setInert(listenPlay, false); setInert(listenList, false); }
-
-    if (!scenes.listen && np && override == null) {
-      if (reduced) renderTime(1700);
-      else {
-        const r = np.getBoundingClientRect();
-        renderTime(lerp(300, 4600, clamp((vh - r.top) / (vh + r.height))));
-      }
+      setState(k, s.stage, stepFor(k, s, -mtop - s.top));
     }
 
     const e = page.plugEnd;
@@ -705,6 +708,12 @@
 
   let frame = 0;
   const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; update(false); }); };
+  setInterval(() => {
+    if (!np || mq.reduce.matches || document.hidden || (states.listen ?? 4) < 2 || npState.sec >= MIX.duration) return;
+    const r = np.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > innerHeight) return;
+    renderTime(npState.sec + 1);
+  }, 1000);
   addEventListener('scroll', schedule, { passive: true });
 
   let timer = 0, lastW = innerWidth, lastH = innerHeight;
