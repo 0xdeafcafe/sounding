@@ -252,7 +252,8 @@
 .prose .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4) var(--s5); }
 .prose p { line-height: 1.55; color: var(--ink-2); max-width: 46ch; }
 .prose b { color: var(--ink); font-weight: 600; }
-#automix .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 980px; }
+#automix .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.prose .honest { color: var(--ink); grid-column: 1 / -1; max-width: 62ch; }
 
 .dj .join-copy p:first-of-type { max-width: 46ch; }
 
