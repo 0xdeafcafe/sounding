@@ -2,10 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>aps-environment</key>
+	<string>development</string>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:sounding.forbes.red</string>
 	</array>
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+	<key>com.apple.developer.healthkit.access</key>
+	<array/>
+	<key>com.apple.developer.homekit</key>
+	<true/>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>iCloud.red.forbes.sounding</string>
@@ -14,6 +22,10 @@
 	<array>
 		<string>CloudKit</string>
 	</array>
+	<key>com.apple.developer.siri</key>
+	<true/>
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.red.forbes.sounding</string>
@@ -23,5 +35,7 @@
 		<string>$(AppIdentifierPrefix)red.forbes.sounding</string>
 		<string>$(AppIdentifierPrefix)red.forbes.sounding.shared</string>
 	</array>
+	<key>com.apple.developer.group-session</key>
+	<true/>
 </dict>
 </plist>

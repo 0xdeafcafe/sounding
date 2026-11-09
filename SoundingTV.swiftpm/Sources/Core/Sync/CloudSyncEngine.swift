@@ -18,8 +18,9 @@ enum CloudSyncZone {
     static let downloadManifests = CKRecordZone.ID(zoneName: "DownloadManifests", ownerName: CKCurrentUserDefaultName)
     static let setlists = CKRecordZone.ID(zoneName: "Setlists", ownerName: CKCurrentUserDefaultName)
     static let companion = CKRecordZone.ID(zoneName: "Companion", ownerName: CKCurrentUserDefaultName)
+    static let library = CKRecordZone.ID(zoneName: "Library", ownerName: CKCurrentUserDefaultName)
 
-    static let all: [CKRecordZone.ID] = [cues, analysis, session, downloadManifests, setlists, companion]
+    static let all: [CKRecordZone.ID] = [cues, analysis, session, downloadManifests, setlists, companion, library]
 }
 
 enum CloudSyncRecordType {
@@ -31,7 +32,7 @@ enum CloudSyncRecordType {
     static let setlistSnapshot = "SetlistSnapshot"
     static let companionDevice = "CompanionDevice"
     static let settingsEntry = "SettingsEntry"
-    static let workshopClaim = "WorkshopClaim"
+    static let libraryChunk = "LibraryChunk"
 }
 
 struct SetlistSyncRecord: Sendable, Equatable {
@@ -69,4 +70,19 @@ struct SettingsSyncRecord: Sendable, Equatable {
     let payload: Data
     let writerId: String
     let updatedAtMillis: Int64
+    var accountTag: String? = nil
+
+    static let accountSeparator = ".account."
+
+    var recordName: String { Self.recordName(deviceId: deviceId, accountTag: accountTag) }
+
+    static func recordName(deviceId: String, accountTag: String?) -> String {
+        guard let accountTag else { return deviceId }
+        return deviceId + accountSeparator + accountTag
+    }
+
+    static func parse(recordName: String) -> (deviceId: String, accountTag: String?) {
+        guard let range = recordName.range(of: accountSeparator) else { return (recordName, nil) }
+        return (String(recordName[..<range.lowerBound]), String(recordName[range.upperBound...]))
+    }
 }

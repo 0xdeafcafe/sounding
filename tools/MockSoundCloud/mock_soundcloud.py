@@ -63,6 +63,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -439,7 +440,7 @@ class Catalog:
             "username": "afr",
             "permalink": "afr",
             "permalink_url": "https://soundcloud.com/afr",
-            "avatar_url": "https://i1.sndcdn.com/avatars-000387272834-fkfd2d-large.jpg",
+            "avatar_url": None,
             "city": "London",
             "country": "United Kingdom",
             "full_name": "Alex Forbes-Reed",
@@ -508,6 +509,8 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     catalog: Catalog = None  # type: ignore[assignment]
     verbose = False
+    throttle_bytes = 0.0
+    latency = 0.0
 
     # -- plumbing ---------------------------------------------------------
 
@@ -594,15 +597,20 @@ class Handler(BaseHTTPRequestHandler):
         if head_only:
             return
 
+        if Handler.latency > 0:
+            time.sleep(Handler.latency)
         remaining = length
+        rate = Handler.throttle_bytes
         # `~/Music` is read-only here and everywhere else in this tool: `rb`,
         # never `r+b`/`wb`, and no rename/utime/xattr calls anywhere.
         with open(path, "rb") as handle:
             handle.seek(start)
             while remaining > 0:
-                chunk = handle.read(min(262_144, remaining))
+                chunk = handle.read(min(16_384 if rate else 262_144, remaining))
                 if not chunk:
                     break
+                if rate:
+                    time.sleep(len(chunk) / rate)
                 try:
                     self.wfile.write(chunk)
                 except (BrokenPipeError, ConnectionResetError):
@@ -759,6 +767,10 @@ def main() -> int:
     parser.add_argument("--snippet-demo", action="store_true",
                         help="mark the manifest's `snippet_demo` track as snipped, to observe "
                              "the app's entitlement filter refusing to play it")
+    parser.add_argument("--throttle-kbps", type=float, default=0,
+                        help="cap each audio response at this many kilobytes per second, like a phone network")
+    parser.add_argument("--latency-ms", type=float, default=0,
+                        help="wait this long before sending each audio body")
     parser.add_argument("--verbose", action="store_true", help="log every request")
     args = parser.parse_args()
 
@@ -780,6 +792,8 @@ def main() -> int:
     catalog = Catalog(entries, args.cache_dir, advertise, args.snippet_demo, args.trim)
     Handler.catalog = catalog
     Handler.verbose = args.verbose
+    Handler.throttle_bytes = args.throttle_kbps * 1024
+    Handler.latency = args.latency_ms / 1000
 
     if catalog.skipped:
         print("  ! missing on disk, skipped:")

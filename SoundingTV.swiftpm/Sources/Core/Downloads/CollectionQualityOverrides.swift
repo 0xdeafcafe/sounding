@@ -82,10 +82,6 @@ final class CollectionQualityOverrideStore: ObservableObject {
         policies[collectionId]?.qualityCeiling ?? overrides[collectionId]
     }
 
-    func setOverride(_ ceiling: QualityCeiling?, for collectionId: String) {
-        updatePolicy(for: collectionId) { $0.qualityCeiling = ceiling }
-    }
-
     func policy(for collectionId: String) -> CollectionPolicy {
         policies[collectionId] ?? .standard
     }
@@ -155,13 +151,6 @@ final class CollectionQualityOverrideStore: ObservableObject {
     }
 
     #if DEBUG
-    func _resetForTesting() {
-        overrides = [:]
-        policies = [:]
-        UserDefaults.standard.removeObject(forKey: Self.defaultsKey)
-        UserDefaults.standard.removeObject(forKey: Self.legacyDefaultsKey)
-        SettingsStore.shared.setCollectionPolicies([:])
-    }
     #endif
 }
 
@@ -174,6 +163,8 @@ struct CollectionPolicyEditor: View {
 
     @ObservedObject private var store = CollectionQualityOverrideStore.shared
     @ObservedObject private var settings = SettingsStore.shared
+    @ObservedObject private var downloads = DownloadManager.shared
+    @StateObject private var prompter = DownloadRequestPrompter()
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -197,24 +188,12 @@ struct CollectionPolicyEditor: View {
 
     private var policyForm: some View {
         Form {
-            Section("Downloads") {
-                Picker("Quality", selection: binding(\.qualityCeiling)) {
-                    Text("Use Global Setting").tag(QualityCeiling?.none)
-                    ForEach(QualityCeiling.allCases) { level in
-                        Text(level.displayName).tag(QualityCeiling?.some(level))
-                    }
-                }
-                Toggle("Keep Downloaded", isOn: binding(\.automaticDownloads))
+            Section {
+                Toggle("Keep Downloaded", isOn: keepDownloadedBinding)
+            } header: {
+                Text("Downloads")
+            } footer: {
                 Text(downloadSummary)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Music Intelligence") {
-                LabeledContent("Automatic analysis", value: settings.automaticAnalysisPolicy.summary)
-                Text("Global setting · only analyses audio already on this device")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -241,7 +220,7 @@ struct CollectionPolicyEditor: View {
                             Text(handling.displayName).tag(handling)
                         }
                     }
-                    .help("Skip Sets leaves uploads of 20 minutes or more out of Auto DJ. They still play when you choose them.")
+                    .help("Skip Sets leaves uploads of 20 minutes or more out of Auto Mix. They still play when you choose them.")
                     Toggle("Avoid Vocal Overlap", isOn: binding(\.avoidVocalOverlap))
                     Picker("Longest Transition", selection: binding(\.maximumTransitionBars)) {
                         ForEach([4, 8, 16, 32], id: \.self) { bars in
@@ -250,7 +229,7 @@ struct CollectionPolicyEditor: View {
                     }
                 }
             } header: {
-                Text("Auto DJ")
+                Text("Auto Mix")
             } footer: {
                 Text(policy.djMode.explanation)
             }
@@ -262,6 +241,7 @@ struct CollectionPolicyEditor: View {
                 }
             }
         }
+        .downloadRequestPrompts(prompter)
     }
 
     #if os(macOS)
@@ -288,14 +268,27 @@ struct CollectionPolicyEditor: View {
 
     private var policy: CollectionPolicy { store.policy(for: collectionId) }
 
-    private var downloadSummary: String {
-        let ceiling = policy.qualityCeiling ?? SettingsStore.shared.downloadQualityCeiling
-        let seconds = tracks.reduce(0) { $0 + $1.duration }
-        let estimate = ByteCountFormatter.string(
-            fromByteCount: QualitySizeEstimator.estimatedBytes(durationSeconds: seconds, ceiling: ceiling),
-            countStyle: .file
+    private var keepDownloadedBinding: Binding<Bool> {
+        Binding(
+            get: { downloads.isCollectionDownloaded(collectionId) },
+            set: { keep in
+                if keep {
+                    let descriptor = DownloadCollectionDescriptor.forCollectionID(collectionId, title: collectionName)
+                    let known = tracks
+                    prompter.request { confirmed in
+                        await DownloadManager.shared.download(collection: descriptor, tracks: known, confirmed: confirmed)
+                    }
+                } else {
+                    downloads.removeDownload(.collection(collectionId))
+                }
+            }
         )
-        return "New tracks are added automatically · \(collectionKind.displayName) here: \(estimate)"
+    }
+
+    private var downloadSummary: String {
+        let seconds = tracks.reduce(0) { $0 + $1.duration }
+        let bytes = QualitySizeEstimator.estimatedBytes(durationSeconds: seconds, ceiling: downloads.quality)
+        return "Keeps this \(collectionKind.displayName.lowercased()) in sync, about \(DownloadsFormat.bytes(bytes))."
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<CollectionPolicy, Value>) -> Binding<Value> {
@@ -306,5 +299,52 @@ struct CollectionPolicyEditor: View {
                 applier.applyCollectionPolicy(tracks: tracks, collectionId: collectionId)
             }
         )
+    }
+}
+
+struct CacheUsage: Equatable, Sendable {
+    var artworkBytes: Int64 = 0
+    var analysisBytes: Int64 = 0
+    var djSourceBytes: Int64 = 0
+    var urlCacheBytes: Int64 = 0
+
+    var totalBytes: Int64 { artworkBytes + analysisBytes + djSourceBytes + urlCacheBytes }
+
+    static func cachesDirectory() -> URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+    }
+
+    static func measure() async -> CacheUsage {
+        let caches = cachesDirectory()
+        let artworkDirectory = caches.appendingPathComponent("Artwork", isDirectory: true)
+        let djDirectory = caches.appendingPathComponent("MixEngine", isDirectory: true)
+        let directoryBytes = await Task.detached(priority: .utility) {
+            (
+                DownloadStoragePolicy.onDiskBytes(in: [artworkDirectory]),
+                DownloadStoragePolicy.onDiskBytes(in: [djDirectory])
+            )
+        }.value
+        return CacheUsage(
+            artworkBytes: directoryBytes.0,
+            analysisBytes: await AnalysisCache.shared.usedBytes,
+            djSourceBytes: directoryBytes.1,
+            urlCacheBytes: Int64(URLCache.shared.currentDiskUsage)
+        )
+    }
+
+    @MainActor
+    static func clearArtwork() async {
+        ArtworkCache.shared.purgeMemory()
+        await SCArtworkStore.shared.removeAll()
+    }
+
+    @MainActor
+    static func clearCaches() async {
+        MixEngine.shared.clearCache()
+        PlaybackSourceResolver.shared.clearResolutionCache()
+        URLCache.shared.removeAllCachedResponses()
+        await SCArtworkStore.shared.removeAll()
+        await AnalysisCache.shared.removeAll(keepingUserCorrections: true)
     }
 }

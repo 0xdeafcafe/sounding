@@ -1,12 +1,13 @@
 import SwiftUI
 
 struct FeedView: View {
-    @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
-    @StateObject private var viewModel = FeedViewModel()
+    @ObservedObject var viewModel: FeedViewModel
     @ObservedObject private var credentials = SoundCloudCredentialSource.shared
     @Environment(\.scenePhase) private var scenePhase
-    @State private var confirmation: FeedConfirmation?
+    @StateObject private var confirmation = QueueConfirmationController()
     @State private var isShowingSignIn = false
+
+    private static let subject = "Following"
 
     var body: some View {
         Group {
@@ -14,16 +15,17 @@ struct FeedView: View {
             if let forced = Self.debugForcedState {
                 switch forced {
                 case .loading:
-                    FeedLoadingState(message: "Loading your stream…")
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .error:
                     SCEmptyState(
                         kind: .error, title: LoadFailure.sessionRejected.title,
-                        message: LoadFailure.sessionRejected.message(subject: "your stream"),
+                        message: LoadFailure.sessionRejected.message(subject: Self.subject),
                         actionTitle: LoadFailure.sessionRejected.actionTitle, action: {}, style: .phone
                     )
                 case .empty:
                     SCEmptyState(
-                        icon: "dot.radiowaves.up.forward", title: "Nothing Here Yet",
+                        icon: "person.2", title: "Nothing Here Yet",
                         message: "Follow artists on SoundCloud. Their uploads, playlists and reposts show up here.",
                         actionTitle: "Refresh", action: {}, style: .phone
                     )
@@ -33,7 +35,7 @@ struct FeedView: View {
                             FeedActivityRow(
                                 activity: activity,
                                 context: { FeedDebugFixtures.activities.compactMap(\.track) },
-                                confirmation: $confirmation
+                                confirmation: confirmation
                             )
                         }
                     }
@@ -52,17 +54,15 @@ struct FeedView: View {
             }
             #endif
         }
-        .scrollContentBackground(.hidden)
-        .background(Color.scBgBase.ignoresSafeArea())
         .task {
-            credentials.refreshFromStore()
+            await credentials.prepareStoreAtLaunch()
             await loadFeedIfNeeded()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             credentials.refreshFromStore()
         }
-        .feedConfirmationOverlay($confirmation)
+        .queueConfirmationOverlay(confirmation)
         .sheet(isPresented: $isShowingSignIn) { signInSheet }
     }
 
@@ -79,7 +79,8 @@ struct FeedView: View {
     }
 
     private var feedState: FeedBrowserState {
-        if !viewModel.loadedOnce || (viewModel.isLoading && viewModel.items.isEmpty) {
+        if !viewModel.items.isEmpty { return .loaded }
+        if !viewModel.loadedOnce || ((viewModel.isLoading || viewModel.pager.isPaused) && viewModel.items.isEmpty) {
             return .loading
         }
         if let error = viewModel.error, viewModel.items.isEmpty {
@@ -95,29 +96,28 @@ struct FeedView: View {
     private var browserContent: some View {
         switch feedState {
         case .loading:
-            FeedLoadingState(message: "Loading your stream…")
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         case .failed(let failure):
             SCEmptyState(
                 kind: failure.isFault ? .error : .empty,
                 icon: failure.icon,
                 title: failure.title,
-                message: failure.message(subject: "your stream"),
+                message: failure.message(subject: Self.subject),
                 actionTitle: failure.actionTitle,
                 action: { recover(from: failure) },
                 style: .phone
             )
-            .phoneStateLayout()
 
         case .empty:
             SCEmptyState(
-                icon: "dot.radiowaves.up.forward",
+                icon: "person.2",
                 title: "Nothing Here Yet",
                 message: "Follow artists on SoundCloud. Their uploads, playlists and reposts show up here.",
                 actionTitle: "Refresh", action: { Task { await loadFeed() } },
                 style: .phone
             )
-            .phoneStateLayout()
 
         case .loaded:
             List {
@@ -125,23 +125,20 @@ struct FeedView: View {
                     FeedActivityRow(
                         activity: activity,
                         context: { viewModel.items.compactMap(\.track) },
-                        confirmation: $confirmation
+                        confirmation: confirmation
                     )
-                    .listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+                    .promotedImpression(activity)
                     .onAppear {
                         guard viewModel.items.isNearEnd(activity, lead: 10) else { return }
-                        Task { await viewModel.loadMore() }
+                        viewModel.requestMore()
                     }
                     .onAppear {
                         let lookahead = viewModel.items[index..<min(index + Self.artworkLookahead, viewModel.items.count)]
-                        ArtworkCache.shared.prefetch(lookahead.compactMap { $0.track?.artworkURL ?? $0.playlist?.displayArtworkURL })
+                        ArtworkCache.shared.prefetch(lookahead.compactMap { $0.track?.artworkURL ?? $0.playlist?.displayArtworkURL }, variant: .thumbnail)
                     }
                 }
-                if viewModel.isLoadingMore {
-                    FeedLoadingMoreRow()
-                }
+                PagedFooter(pager: viewModel.pager)
+                    .listRowSeparator(.hidden)
             }
             .listStyle(.plain)
             .refreshable { await loadFeed() }
@@ -156,12 +153,11 @@ struct FeedView: View {
             kind: .empty,
             icon: failure.icon,
             title: failure.title,
-            message: failure.message(subject: "your stream"),
+            message: failure.message(subject: Self.subject),
             actionTitle: failure.actionTitle,
             action: { isShowingSignIn = true },
             style: .phone
         )
-        .phoneStateLayout()
     }
 
     private func recover(from failure: LoadFailure) {
@@ -183,7 +179,7 @@ struct FeedView: View {
 
     private func loadFeedIfNeeded() async {
         guard usesVisualFixtures || SoundCloudCredentialSource.shared.accessToken != nil else { return }
-        await viewModel.loadContentIfNeeded()
+        await viewModel.refreshIfStale()
     }
 
     private func loadFeed() async {
@@ -227,7 +223,7 @@ private enum FeedDebugFixtures {
         """
         { "id": \(id), "username": "\(name)", "permalink": "\(name)",
           "permalink_url": "https://soundcloud.com/\(name)",
-          "avatar_url": "https://i1.sndcdn.com/avatars-000\(id)-000000-large.jpg",
+          "avatar_url": null,
           "full_name": "\(name.capitalized)" }
         """
     }
@@ -236,7 +232,7 @@ private enum FeedDebugFixtures {
         """
         {
             "id": \(id), "title": "\(title)", "description": null,
-            "artwork_url": "https://i1.sndcdn.com/artworks-000\(id)-000000-large.jpg",
+            "artwork_url": null,
             "waveform_url": null,
             "permalink_url": "https://soundcloud.com/\(ownerName)/\(id)",
             "playback_count": \(id * 137), "likes_count": \(id * 11), "reposts_count": 4,
@@ -255,7 +251,7 @@ private enum FeedDebugFixtures {
         """
         {
             "id": \(id), "title": "\(title)", "description": null,
-            "artwork_url": "https://i1.sndcdn.com/artworks-000\(id)-000000-large.jpg",
+            "artwork_url": null,
             "permalink_url": "https://soundcloud.com/\(ownerName)/sets/\(id)",
             "duration": 5400000, "track_count": 22, "likes_count": 340, "reposts_count": 12,
             "created_at": "2024-09-01T12:00:00Z", "is_album": false,
@@ -299,113 +295,132 @@ private enum FeedDebugFixtures {
 }
 #endif
 
-private struct FeedConfirmation: Equatable {
-    let id = UUID()
-    let message: String
-    let icon: String
-}
-
-private extension View {
-    func feedConfirmationOverlay(_ confirmation: Binding<FeedConfirmation?>) -> some View {
-        overlay(alignment: .bottom) {
-            if let value = confirmation.wrappedValue {
-                Label(value.message, systemImage: value.icon)
-                    .font(.scSubhead)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, Spacing.sm)
-                    .glassEffect(.regular, in: Capsule())
-                    .padding(.bottom, Spacing.lg)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .task(id: value.id) {
-                        try? await Task.sleep(for: .seconds(2))
-                        guard !Task.isCancelled else { return }
-                        confirmation.wrappedValue = nil
-                    }
-            }
-        }
-        .animation(SCContentMotion.gentle, value: confirmation.wrappedValue)
-    }
+@MainActor
+private func feedFailureMessage(_ error: Error) -> String {
+    LoadFailure.classify(error).title
 }
 
 private struct FeedActivityRow: View {
     let activity: FeedActivity
     let context: () -> [Track]
-    @Binding var confirmation: FeedConfirmation?
+    @ObservedObject var confirmation: QueueConfirmationController
 
     var body: some View {
         switch activity.kind {
-        case .track, .trackRepost:
+        case .track, .trackRepost, .trackPromoted:
             if let track = activity.track {
-                FeedTrackRow(activity: activity, track: track, context: context, confirmation: $confirmation)
+                FeedTrackRow(activity: activity, track: track, context: context, confirmation: confirmation)
             }
 
-        case .playlist, .playlistRepost:
+        case .playlist, .playlistRepost, .playlistPromoted:
             if let playlist = activity.playlist {
-                FeedPlaylistRow(activity: activity, playlist: playlist, confirmation: $confirmation)
+                FeedPlaylistRow(activity: activity, playlist: playlist, confirmation: confirmation)
             }
         }
+    }
+}
+
+private struct FeedSocialActions: View {
+    let isLiked: Bool
+    let isReposted: Bool
+    let isMutating: Bool
+    let like: () -> Void
+    let repost: () -> Void
+    var comment: (() -> Void)?
+
+    var body: some View {
+        Button(action: like) {
+            Label(isLiked ? "Unlike" : "Like", systemImage: isLiked ? "heart.slash" : "heart")
+        }
+        .disabled(isMutating)
+        Button(action: repost) {
+            Label(isReposted ? "Remove Repost" : "Repost", systemImage: "arrow.2.squarepath")
+        }
+        .disabled(isMutating)
+        if let comment {
+            Button(action: comment) {
+                Label("Comment", systemImage: "bubble.left")
+            }
+        }
+    }
+}
+
+private struct FeedMoreButton<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Menu {
+            content()
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("More actions for \(title)")
     }
 }
 
 private struct FeedPlaylistRow: View {
     let activity: FeedActivity
     let playlist: Playlist
-    @Binding var confirmation: FeedConfirmation?
+    @ObservedObject var confirmation: QueueConfirmationController
 
     @State private var isLiked: Bool
     @State private var isReposted: Bool
     @State private var isMutating = false
+    @Namespace private var heroNamespace
 
-    init(activity: FeedActivity, playlist: Playlist, confirmation: Binding<FeedConfirmation?>) {
+    init(activity: FeedActivity, playlist: Playlist, confirmation: QueueConfirmationController) {
         self.activity = activity
         self.playlist = playlist
-        _confirmation = confirmation
+        self.confirmation = confirmation
         _isLiked = State(initialValue: playlist.userFavorite)
         _isReposted = State(initialValue: playlist.userReposted)
     }
 
     var body: some View {
-        VStack(spacing: Spacing.sm) {
-            NavigationLink {
-                FeedPlaylistDetailView(playlist: playlist)
-            } label: {
-                FeedRowLabel(activity: activity)
+        HStack(spacing: Spacing.xs) {
+            PlaylistLink(playlist, heroNamespace: heroNamespace, onOpen: { PromotedTracking.shared.record(.click, for: activity) }) {
+                FeedRowLabel(activity: activity, isLiked: isLiked)
+                    .matchedTransitionSource(id: playlist.id, in: heroNamespace)
             }
-            .buttonStyle(.plain)
 
-            Divider().opacity(0.55)
-
-            HStack(spacing: Spacing.xs) {
-                action(isLiked ? "Liked" : "Like", icon: isLiked ? "heart.fill" : "heart") {
-                    mutateLike()
-                }
-                action(isReposted ? "Reposted" : "Repost", icon: "arrow.2.squarepath") {
-                    mutateRepost()
-                }
-                Spacer(minLength: 0)
-                ShareLink(item: playlist.permalinkURL) {
-                    Image(systemName: "square.and.arrow.up")
-                        .frame(width: 34, height: 30)
-                }
-                .accessibilityLabel("Share \(playlist.title)")
-            }
-            .font(.scCaption)
-            .foregroundStyle(.secondary)
+            FeedMoreButton(title: playlist.title) { menuActions }
         }
-        .scCard(cornerRadius: Corner.panel, padding: Spacing.md)
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 52 + Spacing.md }
+        .libraryRowPreviewShape()
+        .contextMenu { menuActions }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(action: mutateLike) {
+                Label(isLiked ? "Unlike" : "Like", systemImage: isLiked ? "heart.slash" : "heart")
+            }
+            .tint(.pink)
+            Button(action: mutateRepost) {
+                Label(isReposted ? "Remove Repost" : "Repost", systemImage: "arrow.2.squarepath")
+            }
+            .tint(.indigo)
+        }
+        .accessibilityActions { socialActions }
     }
 
-    private func action(_ title: String, icon: String, perform: @escaping () -> Void) -> some View {
-        Button(action: perform) {
-            Label(title, systemImage: icon)
-                .lineLimit(1)
-                .padding(.horizontal, 9)
-                .frame(height: 30)
+    @ViewBuilder
+    private var socialActions: some View {
+        FeedSocialActions(
+            isLiked: isLiked, isReposted: isReposted, isMutating: isMutating,
+            like: mutateLike, repost: mutateRepost
+        )
+    }
+
+    @ViewBuilder
+    private var menuActions: some View {
+        socialActions
+        ShareLink(item: playlist.permalinkURL, preview: SharePreview(playlist.title)) {
+            Label("Share", systemImage: "square.and.arrow.up")
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(title == "Liked" || title == "Reposted" ? Color.scAccent : .secondary)
-        .disabled(isMutating)
     }
 
     private func mutateLike() {
@@ -416,7 +431,7 @@ private struct FeedPlaylistRow: View {
             do { try await SoundCloudAPI.shared.setPlaylistLiked(target, playlist: playlist) }
             catch {
                 isLiked.toggle()
-                confirmation = FeedConfirmation(message: error.localizedDescription, icon: "exclamationmark.triangle.fill")
+                confirmation.show(feedFailureMessage(error), icon: "exclamationmark.triangle.fill")
             }
             isMutating = false
         }
@@ -430,7 +445,7 @@ private struct FeedPlaylistRow: View {
             do { try await SoundCloudAPI.shared.setPlaylistReposted(target, playlist: playlist) }
             catch {
                 isReposted.toggle()
-                confirmation = FeedConfirmation(message: error.localizedDescription, icon: "exclamationmark.triangle.fill")
+                confirmation.show(feedFailureMessage(error), icon: "exclamationmark.triangle.fill")
             }
             isMutating = false
         }
@@ -441,112 +456,125 @@ private struct FeedTrackRow: View {
     let activity: FeedActivity
     let track: Track
     let context: () -> [Track]
-    @Binding var confirmation: FeedConfirmation?
+    @ObservedObject var confirmation: QueueConfirmationController
 
     @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
 
-    @ObservedObject private var downloadManager = DownloadManager.shared
     @State private var isLiked: Bool
     @State private var isReposted: Bool
     @State private var isMutating = false
     @State private var isShowingComments = false
+    @State private var locallyMutatedLikeTrackId: String?
 
     init(
         activity: FeedActivity,
         track: Track,
         context: @escaping () -> [Track],
-        confirmation: Binding<FeedConfirmation?>
+        confirmation: QueueConfirmationController
     ) {
         self.activity = activity
         self.track = track
         self.context = context
-        _confirmation = confirmation
+        self.confirmation = confirmation
         _isLiked = State(initialValue: track.userFavorite)
         _isReposted = State(initialValue: track.userReposted)
     }
 
     private var isPlayable: Bool { track.streamURL != nil }
-    private var downloadState: DownloadState { downloadManager.state(for: track.id) }
-    private var canDownload: Bool { isPlayable && downloadManager.downloadRefusalReason(for: track) == nil }
 
     var body: some View {
-        VStack(spacing: Spacing.sm) {
+        HStack(spacing: Spacing.xs) {
             Button {
-                Task { await coordinator.playHere(track, in: context()) }
+                PromotedTracking.shared.record(.play, for: activity)
+                Task { await coordinator.play(track, in: context()) }
             } label: {
-                FeedRowLabel(activity: activity, activityState: rowActivity)
+                FeedRowLabel(activity: activity, activityState: rowActivity, isLiked: isLiked)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WarmStreamOnPressButtonStyle(track: track))
             .disabled(!isPlayable)
+            .accessibilityLabel("\(track.title) by \(track.user.displayName)\(isPlayable ? "" : ", unavailable")")
+            .accessibilityHint(isPlayable ? "Plays on this device" : "This track isn't available to play")
 
-            Divider().opacity(0.55)
-
-            HStack(spacing: Spacing.xs) {
-                socialButton(isLiked ? "Liked" : "Like", icon: isLiked ? "heart.fill" : "heart") {
-                    mutateLike()
-                }
-                socialButton(isReposted ? "Reposted" : "Repost", icon: "arrow.2.squarepath") {
-                    mutateRepost()
-                }
-                socialButton("Comment", icon: "bubble.left") {
-                    isShowingComments = true
-                }
-                Spacer(minLength: 0)
-                ShareLink(item: track.permalinkURL) {
-                    Image(systemName: "square.and.arrow.up")
-                        .frame(width: 34, height: 30)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Share \(track.title)")
-            }
-            .font(.scCaption)
-            .foregroundStyle(.secondary)
+            FeedMoreButton(title: track.title) { menuActions }
         }
-        .scCard(cornerRadius: Corner.panel, padding: Spacing.md)
-        .contextMenu { secondaryActions }
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 52 + Spacing.md }
+        .libraryRowPreviewShape()
+        .contextMenu { menuActions }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if isPlayable {
-                Button { queue() } label: {
-                    Label("Queue", systemImage: "text.append")
-                }
+            Button(action: mutateLike) {
+                Label(isLiked ? "Unlike" : "Like", systemImage: isLiked ? "heart.slash" : "heart")
+            }
+            .tint(.pink)
+            Button(action: mutateRepost) {
+                Label(isReposted ? "Remove Repost" : "Repost", systemImage: "arrow.2.squarepath")
+            }
+            .tint(.indigo)
+            Button { isShowingComments = true } label: {
+                Label("Comment", systemImage: "bubble.left")
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if canDownload {
-                downloadSwipeAction
+            if isPlayable {
+                Button { queue() } label: {
+                    Label("Add to Up Next", systemImage: "text.append")
+                }
+                TrackDownloadSwipeAction(track: track)
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(track.title) by \(track.user.displayName)")
+        .accessibilityActions {
+            socialActions
+            secondaryActions
+        }
         .sheet(isPresented: $isShowingComments) {
             FeedCommentsSheet(track: track)
         }
+        .task(id: track.id) {
+            await refreshLikeState()
+        }
+        .onReceive(LikesSyncEngine.shared.$revision.dropFirst()) { _ in
+            Task { await refreshLikeState() }
+        }
     }
 
-    private func socialButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon)
-                .lineLimit(1)
-                .padding(.horizontal, 9)
-                .frame(height: 30)
-                .contentShape(Capsule())
+    @ViewBuilder
+    private var socialActions: some View {
+        FeedSocialActions(
+            isLiked: isLiked, isReposted: isReposted, isMutating: isMutating,
+            like: mutateLike, repost: mutateRepost, comment: { isShowingComments = true }
+        )
+    }
+
+    @ViewBuilder
+    private var menuActions: some View {
+        BehindTheTrackMenuButton(track: track)
+        socialActions
+        Divider()
+        secondaryActions
+        ShareLink(item: track.permalinkURL, preview: SharePreview(track.title)) {
+            Label("Share", systemImage: "square.and.arrow.up")
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(title == "Liked" || title == "Reposted" ? Color.scAccent : .secondary)
-        .disabled(isMutating)
+    }
+
+    private func refreshLikeState() async {
+        guard locallyMutatedLikeTrackId != track.id else { return }
+        let indexed = await LibraryCache.shared.containsLike(id: track.id)
+        guard locallyMutatedLikeTrackId != track.id else { return }
+        isLiked = track.userFavorite || indexed
     }
 
     private func mutateLike() {
         let target = !isLiked
         isLiked = target
         isMutating = true
+        locallyMutatedLikeTrackId = track.id
         Task {
             do {
                 if target { try await SoundCloudAPI.shared.likeTrack(track) }
                 else { try await SoundCloudAPI.shared.unlikeTrack(track) }
             } catch {
                 isLiked.toggle()
-                confirmation = FeedConfirmation(message: error.localizedDescription, icon: "exclamationmark.triangle.fill")
+                locallyMutatedLikeTrackId = nil
+                confirmation.show(feedFailureMessage(error), icon: "exclamationmark.triangle.fill")
             }
             isMutating = false
         }
@@ -560,7 +588,7 @@ private struct FeedTrackRow: View {
             do { try await SoundCloudAPI.shared.setTrackReposted(target, track: track) }
             catch {
                 isReposted.toggle()
-                confirmation = FeedConfirmation(message: error.localizedDescription, icon: "exclamationmark.triangle.fill")
+                confirmation.show(feedFailureMessage(error), icon: "exclamationmark.triangle.fill")
             }
             isMutating = false
         }
@@ -575,73 +603,18 @@ private struct FeedTrackRow: View {
     @ViewBuilder
     private var secondaryActions: some View {
         if isPlayable {
-            if coordinator.isAppleTVAvailable {
-                Button {
-                    coordinator.playOnAppleTV(track)
-                    confirmation = FeedConfirmation(message: "Playing \u{201C}\(track.title)\u{201D} on Apple TV", icon: "appletv.fill")
-                } label: {
-                    Label("Play on Apple TV", systemImage: "appletv")
-                }
-            }
             Button { queue() } label: {
                 Label("Add to Up Next", systemImage: "text.append")
             }
-            if canDownload {
-                downloadMenuItems
-            }
+            TrackDownloadMenuItems(track: track)
         }
-    }
-
-    @ViewBuilder
-    private var downloadMenuItems: some View {
-        switch downloadState {
-        case .notDownloaded:
-            Button { downloadManager.download(track) } label: {
-                Label("Download", systemImage: "arrow.down.circle")
-            }
-        case .queued, .downloading:
-            Button(role: .destructive) { downloadManager.cancel(trackId: track.id) } label: {
-                Label("Cancel Download", systemImage: "xmark.circle")
-            }
-        case .paused:
-            Button { downloadManager.resume(trackId: track.id) } label: {
-                Label("Resume Download", systemImage: "arrow.down.circle")
-            }
-            Button(role: .destructive) { downloadManager.cancel(trackId: track.id) } label: {
-                Label("Cancel Download", systemImage: "xmark.circle")
-            }
-        case .downloaded:
-            Button(role: .destructive) { downloadManager.cancel(trackId: track.id) } label: {
-                Label("Remove Download", systemImage: "trash")
-            }
-        case .failed:
-            Button { downloadManager.download(track) } label: {
-                Label("Retry Download", systemImage: "arrow.clockwise")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var downloadSwipeAction: some View {
-        switch downloadState {
-        case .notDownloaded, .failed:
-            Button { downloadManager.download(track) } label: {
-                Label("Download", systemImage: "arrow.down.circle")
-            }
-        case .queued, .downloading, .paused:
-            Button(role: .destructive) { downloadManager.cancel(trackId: track.id) } label: {
-                Label("Cancel", systemImage: "xmark.circle")
-            }
-        case .downloaded:
-            Button(role: .destructive) { downloadManager.cancel(trackId: track.id) } label: {
-                Label("Remove", systemImage: "trash")
-            }
-        }
+        AddToPlaylistMenuButton(track: track)
+        WakeToThisMenuButton(track: track)
     }
 
     private func queue() {
         coordinator.addToQueue(track)
-        confirmation = FeedConfirmation(message: "Added \u{201C}\(track.title)\u{201D} to Up Next", icon: "checkmark.circle.fill")
+        confirmation.show("Added \u{201C}\(track.title)\u{201D} to Up Next")
     }
 }
 
@@ -653,19 +626,44 @@ private struct FeedCommentsSheet: View {
     let track: Track
 
     @Environment(\.dismiss) private var dismiss
-    @State private var comments: [Comment] = []
+    @StateObject private var pager: Paginator<Comment>
     @State private var draft = ""
-    @State private var isLoading = true
     @State private var isPosting = false
     @State private var errorMessage: String?
     @FocusState private var composerFocused: Bool
 
+    init(track: Track) {
+        self.track = track
+        let trackId = track.id
+        _pager = StateObject(wrappedValue: Paginator(soundCloudSource: PagedSource(
+            first: {
+                let page = try await SoundCloudAPI.shared.getComments(trackId: trackId)
+                return PagedChunk(items: page.collection, next: page.nextHref.map { .url($0) })
+            },
+            next: { cursor in
+                guard case .url(let url) = cursor else { return PagedChunk(items: []) }
+                let page = try await SoundCloudAPI.shared.getPage(Comment.self, from: url)
+                return PagedChunk(items: page.collection, next: page.nextHref.map { .url($0) })
+            }
+        )))
+    }
+
+    private var comments: [Comment] { pager.items }
+
     var body: some View {
         NavigationStack {
             Group {
-                if isLoading && comments.isEmpty {
-                    ProgressView("Loading comments…")
+                if (pager.isLoadingFirst || !pager.hasLoadedFirst && pager.firstError == nil) && comments.isEmpty {
+                    ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let loadError = loadErrorMessage, comments.isEmpty {
+                    ContentUnavailableView {
+                        Label("Couldn\u{2019}t Load Comments", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text(loadError)
+                    } actions: {
+                        Button("Try Again") { Task { await load() } }
+                    }
                 } else if comments.isEmpty {
                     ContentUnavailableView(
                         "No Comments Yet",
@@ -673,28 +671,30 @@ private struct FeedCommentsSheet: View {
                         description: Text("Start the conversation on “\(track.title)”.")
                     )
                 } else {
-                    List(comments) { comment in
-                        SCCommentRow(comment: comment, style: .phone)
-                            .padding(.vertical, 4)
-                            .listRowBackground(Color.clear)
-                            .contextMenu {
-                                Button {
-                                    draft = "@\(comment.user.username) "
-                                    composerFocused = true
-                                } label: {
-                                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                    List {
+                        ForEach(comments) { comment in
+                            SCCommentRow(comment: comment, style: .phone)
+                                .padding(.vertical, 4)
+                                .contextMenu {
+                                    Button {
+                                        draft = "@\(comment.user.username) "
+                                        composerFocused = true
+                                    } label: {
+                                        Label("Reply", systemImage: "arrowshape.turn.up.left")
+                                    }
                                 }
-                            }
+                                .onAppear { pager.loadMoreIfNeeded(after: comment, lead: 10) }
+                        }
+                        PagedFooter(pager: pager)
+                            .listRowSeparator(.hidden)
                     }
                     .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
                 }
             }
-            .background(Color.scBgBase.ignoresSafeArea())
             .navigationTitle("Comments")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
@@ -721,29 +721,32 @@ private struct FeedCommentsSheet: View {
                 .focused($composerFocused)
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, 10)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
 
             Button { Task { await post() } } label: {
                 if isPosting {
                     ProgressView().controlSize(.small)
                 } else {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 30))
+                    Image(systemName: "arrow.up")
+                        .font(.body.weight(.semibold))
                 }
             }
+            .frame(width: 44, height: 44)
+            .buttonStyle(.glassProminent)
+            .buttonBorderShape(.circle)
             .disabled(isPosting || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityLabel("Post comment")
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
-        .background(.bar)
+    }
+
+    private var loadErrorMessage: String? {
+        pager.firstError.map { LoadFailure.classify($0).message(subject: "comments") }
     }
 
     private func load() async {
-        isLoading = true
-        defer { isLoading = false }
-        do { comments = try await SoundCloudAPI.shared.getComments(trackId: track.id).collection }
-        catch { errorMessage = error.localizedDescription }
+        await pager.reload()
     }
 
     private func post() async {
@@ -753,10 +756,10 @@ private struct FeedCommentsSheet: View {
         defer { isPosting = false }
         do {
             let comment = try await SoundCloudAPI.shared.postComment(trackId: track.id, body: body)
-            comments.append(comment)
+            pager.prime(items: pager.items + [comment], cursor: pager.cursor, total: pager.total)
             draft = ""
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = LoadFailure.classify(error).title
         }
     }
 }
@@ -764,43 +767,60 @@ private struct FeedCommentsSheet: View {
 private struct FeedRowLabel: View {
     let activity: FeedActivity
     var activityState: FeedTrackActivity = .none
+    var isLiked = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var isPlayableTrack: Bool { activity.track == nil || activity.track?.streamURL != nil }
 
     var body: some View {
         HStack(spacing: Spacing.md) {
-            ArtworkImage(
-                url: activity.track?.artworkURL ?? activity.playlist?.displayArtworkURL,
-                icon: activity.playlist != nil ? "music.note.list" : "music.note"
-            )
-            .frame(width: 52, height: 52)
-            .clipShape(RoundedRectangle(cornerRadius: Corner.thumb, style: .continuous))
-            .kyleCrowned(
-                user: activity.track?.user ?? activity.playlist?.user,
-                context: activity.track?.title ?? activity.playlist?.title
-            )
+            if !dynamicTypeSize.isAccessibilitySize {
+                ArtworkImage(
+                    url: activity.track?.artworkURL ?? activity.playlist?.displayArtworkURL,
+                    variant: .thumbnail,
+                    icon: activity.playlist != nil ? "music.note.list" : "music.note",
+                    identity: activity.track?.id ?? activity.playlist?.id
+                )
+                .frame(width: 52, height: 52)
+                .clipShape(RoundedRectangle(cornerRadius: Corner.thumb, style: .continuous))
+                .kyleCrowned(
+                    user: activity.track?.user ?? activity.playlist?.user,
+                    context: activity.track?.title ?? activity.playlist?.title
+                )
+            }
 
             VStack(alignment: .leading, spacing: 3) {
-                if activity.isRepost {
+                if let promotedLabel = activity.promotedLabel {
+                    Text(promotedLabel)
+                        .font(.scCaption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
+                } else if activity.isRepost {
                     Label("Reposted by \(activity.actor.displayName)", systemImage: "arrow.2.squarepath")
                         .font(.scCaption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                 }
                 Text(activity.track?.title ?? activity.playlist?.title ?? "")
                     .font(.scBody)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(titleColor)
-                    .lineLimit(1)
+                    .foregroundStyle(activityState == .none ? Color.primary : Color.scAccent)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                 Text(subtitle)
                     .font(.scSubhead)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
             }
 
             Spacer(minLength: Spacing.sm)
+
+            if isLiked {
+                Image(systemName: "heart.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Liked")
+            }
 
             trailing
         }
@@ -809,13 +829,9 @@ private struct FeedRowLabel: View {
         .opacity(isPlayableTrack ? 1 : 0.5)
     }
 
-    private var titleColor: Color {
-        Color.primary
-    }
-
     private var subtitle: String {
         if let playlist = activity.playlist {
-            return "\(playlist.trackCount) tracks \u{00B7} \(playlist.user.displayName)"
+            return "\(playlist.trackCount.trackCountLabel) \u{00B7} \(playlist.user.displayName)"
         }
         return activity.track?.user.displayName ?? ""
     }
@@ -824,16 +840,20 @@ private struct FeedRowLabel: View {
     private var trailing: some View {
         switch activityState {
         case .loading:
-            ProgressView().controlSize(.small)
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("Loading")
         case .playing:
             Image(systemName: "waveform")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.scAccent)
                 .symbolEffect(.variableColor.iterative, isActive: !reduceMotion)
+                .accessibilityLabel("Now Playing")
         case .paused:
             Image(systemName: "pause.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.scAccent.opacity(0.7))
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Color.scAccent)
+                .accessibilityLabel("Paused")
         case .none:
             trailingIdle
         }
@@ -843,147 +863,15 @@ private struct FeedRowLabel: View {
     private var trailingIdle: some View {
         if let track = activity.track {
             if track.streamURL != nil {
-                Text(track.formattedDuration)
-                    .font(.scNumeric.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                Text(SubscriptionService.shared.displayedDuration(for: track))
+                    .font(.scNumeric)
+                    .foregroundStyle(.secondary)
             } else {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.tertiary)
-            }
-        }
-    }
-}
-
-private struct FeedPlaylistDetailView: View {
-    let playlist: Playlist
-    @StateObject private var viewModel = FeedPlaylistDetailViewModel()
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            content
-        }
-        .scrollContentBackground(.hidden)
-        .background(Color.scBgBase.ignoresSafeArea())
-        .navigationTitle(playlist.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .task { await viewModel.load(playlist: playlist) }
-        .feedConfirmationOverlay($viewModel.banner)
-    }
-
-    private var header: some View {
-        HStack(spacing: Spacing.md) {
-            ArtworkImage(url: playlist.displayArtworkURL, icon: "music.note.list")
-                .frame(width: 84, height: 84)
-                .clipShape(RoundedRectangle(cornerRadius: Corner.thumb, style: .continuous))
-                .kyleCrowned(user: playlist.user, context: playlist.title)
-                .shadow(color: .black.opacity(0.28), radius: 14, y: 7)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(playlist.title)
-                    .font(.scTitle)
-                    .kerning(-0.3)
-                    .lineLimit(2)
-                Text("\(playlist.trackCount) tracks \u{00B7} \(playlist.user.displayName)")
+                Label("Unavailable", systemImage: "lock.fill")
                     .font(.scSubhead)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.top, Spacing.sm)
-        .padding(.bottom, Spacing.md)
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch viewModel.state {
-        case .loading:
-            FeedLoadingState(message: "Loading playlist…")
-        case .failed(let failure):
-            SCEmptyState(
-                kind: failure.isFault ? .error : .empty,
-                icon: failure.icon,
-                title: failure.title,
-                message: failure.message(subject: "this playlist"),
-                actionTitle: "Try Again",
-                action: { Task { await viewModel.load(playlist: playlist) } },
-                style: .phone
-            )
-        case .empty:
-            SCEmptyState(icon: "music.note.list", title: "Empty Playlist",
-                         message: "This playlist has no tracks.", style: .phone)
-        case .loaded:
-            List {
-                ForEach(viewModel.tracks) { track in
-                    FeedTrackRow(
-                        activity: FeedActivity(
-                            kind: .track, createdAt: track.createdAt, actor: track.user,
-                            uuid: nil, caption: nil, track: track, playlist: nil
-                        ),
-                        track: track,
-                        context: { viewModel.tracks },
-                        confirmation: $viewModel.banner
-                    )
-                }
-            }
-            .listStyle(.plain)
-            .prefetchArtwork(viewModel.tracks.compactMap(\.artworkURL))
-        }
-    }
-}
-
-@MainActor
-private final class FeedPlaylistDetailViewModel: ObservableObject {
-    enum State: Equatable {
-        case loading, loaded, empty, failed(LoadFailure)
-    }
-
-    @Published private(set) var state: State = .loading
-    @Published private(set) var tracks: [Track] = []
-    @Published var banner: FeedConfirmation?
-
-    func load(playlist: Playlist) async {
-        state = .loading
-        do {
-            let full = try await SoundCloudAPI.shared.getPlaylist(id: playlist.id)
-            let fetched = full.tracks ?? []
-            tracks = fetched
-            state = fetched.isEmpty ? .empty : .loaded
-        } catch {
-            guard !error.isTaskCancellation else { return }
-            state = .failed(LoadFailure.classify(error))
-        }
-    }
-}
-
-private struct FeedLoadingState: View {
-    let message: String
-
-    var body: some View {
-        VStack(spacing: Spacing.md) {
-            Spacer(minLength: 60)
-            ProgressView()
-                .controlSize(.large)
-            Text(message)
-                .font(.scSubhead)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 60)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-private struct FeedLoadingMoreRow: View {
-    var body: some View {
-        HStack {
-            Spacer()
-            ProgressView()
-            Spacer()
-        }
-        .padding(.vertical, Spacing.sm)
-        .listRowSeparator(.hidden)
     }
 }

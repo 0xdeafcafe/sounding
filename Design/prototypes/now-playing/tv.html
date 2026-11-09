@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sounding · Now Playing · Apple TV</title>
+<link rel="stylesheet" href="shared/np.css">
+<link rel="stylesheet" href="tv.css">
+</head>
+<body>
+<div class="stage">
+  <div class="device-wrap">
+    <div class="device tvset" id="device">
+      <div class="tv np-root" id="tv" data-idle="false">
+        <div class="np-bg" id="npBg"></div>
+        <div class="tv-scrim"></div>
+        <div class="tv-main" id="main">
+          <div class="tv-art-wrap" id="artWrap">
+            <div class="tv-art-pause" id="artPause"><div id="artBreathe"><img class="tv-art" id="art" alt=""></div></div>
+            <div class="art-route glass" id="artRoute"></div>
+          </div>
+          <div class="tv-col">
+            <div class="tv-meta" id="titles">
+              <div class="tv-eyebrow" id="eyebrow"></div>
+              <div class="t-title" id="tTitle"></div>
+              <div class="t-artist" id="tArtist"></div>
+              <div class="t-seg" id="tSeg"><span data-ic="setlist"></span><span id="tSegL"></span></div>
+            </div>
+            <div class="tv-progress" id="progress" data-focus="wave">
+              <div id="wave"></div>
+              <div class="times"><span id="tEl"></span><span class="hint">◀ ▶ to scrub</span><span id="tRem"></span></div>
+            </div>
+            <div class="tv-buttons" id="buttons">
+              <button class="tvb sm" data-act="prev" data-label="Previous"><span data-ic="prev"></span></button>
+              <button class="tvb play" data-act="play" data-label="Pause" id="playBtn"></button>
+              <button class="tvb sm" data-act="next" data-label="Next"><span data-ic="next"></span></button>
+              <i class="tv-gap"></i>
+              <button class="tvb" data-act="like" data-label="Like" id="likeBtn"></button>
+              <button class="tvb" data-act="comments" data-label="Comments"><span data-ic="comments"></span></button>
+              <button class="tvb" data-act="upnext" data-label="Up Next"><span data-ic="upnext"></span></button>
+              <button class="tvb" data-act="setlist" data-label="Tracklist"><span data-ic="setlist"></span></button>
+              <button class="tvb" data-act="output" data-label="Output" id="routeBtn"><span id="routeIc"></span></button>
+              <button class="tvb" data-act="more" data-label="More"><span data-ic="more"></span></button>
+            </div>
+          </div>
+        </div>
+        <div class="tv-ambient" id="ambient">
+          <div class="amb-clock" id="clock">9:41</div>
+          <div class="amb-meta"><b id="ambTitle"></b><span id="ambArtist"></span></div>
+        </div>
+        <aside class="tv-panel glass" id="panel">
+          <div class="tvp-panes" id="panes"></div>
+          <div class="tvp-alt" id="alt"></div>
+        </aside>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="shared/data.js"></script>
+<script src="shared/core.js"></script>
+<script src="shared/components.js"></script>
+<script src="tv.js"></script>
+</body>
+</html>

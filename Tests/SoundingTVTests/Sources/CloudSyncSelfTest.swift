@@ -80,8 +80,8 @@ enum CloudSyncSelfTest {
         let plain = Data(#"{"bpm":174.03,"beats":[0,0.345,0.69]}"#.utf8)
         let (bytes, encoding) = AnalysisPayloadCodec.encode(plain)
         let original = AnalysisSyncRecord(
-            cacheKey: "t1#sounding.fftAudioAnalyzer#1#1#180000#aac_256k#256#aac",
-            trackId: "t1", engineName: "sounding.fftAudioAnalyzer", engineVersion: 1, schemaVersion: 1,
+            cacheKey: "t1#apple.musicUnderstanding#1#1#180000#aac_256k#256#aac",
+            trackId: "t1", engineName: "apple.musicUnderstanding", engineVersion: 1, schemaVersion: 1,
             durationMillis: 180_000, preset: "aac_256k", bitrate: 256, codec: "aac",
             payload: bytes, payloadEncoding: encoding, uncompressedByteSize: plain.count,
             payloadDigest: AnalysisPayloadCodec.digest(ofUncompressed: plain),

@@ -1,25 +1,25 @@
 import SwiftUI
 
 struct WatchHomeView: View {
-    @StateObject private var source = DiscoveryHomeSource()
+    @EnvironmentObject private var credentials: WatchCredentialSource
+    @EnvironmentObject private var link: WatchLinkClient
+    @ObservedObject private var source = HomeStore.shared.forYou
     @State private var hasLoadedOnce = false
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: WatchStyle.style.spaceSection) {
-                if source.shelves.isEmpty {
-                    emptyContent
-                } else {
-                    ForEach(source.shelves) { shelf in
-                        WatchHomeShelf(shelf: shelf)
-                    }
-                }
+        List {
+            WatchContinueFromSection()
+            ForEach(source.shelves) { shelf in
+                WatchHomeShelf(shelf: shelf)
             }
-            .padding(.horizontal, WatchStyle.style.spaceSnug)
-            .padding(.bottom, WatchStyle.style.spaceRoomy)
+        }
+        .overlay {
+            if source.shelves.isEmpty, link.continueOffer == nil {
+                emptyContent
+            }
         }
         .navigationTitle("Listen Now")
-        .containerBackground(WatchStyle.style.accent.gradient.opacity(0.28), for: .navigation)
+        .watchNavigationTint()
         .task {
             guard !hasLoadedOnce else { return }
             hasLoadedOnce = true
@@ -33,24 +33,30 @@ struct WatchHomeView: View {
     @ViewBuilder
     private var emptyContent: some View {
         if source.isLoading || !hasLoadedOnce {
-            WatchLoadingRow()
+            WatchLoadingState()
         } else if source.didFailForCredentials {
-            WatchEmptyState(
-                systemImage: "person.crop.circle.badge.xmark",
-                title: "Signed Out",
-                message: "SoundCloud dropped this session. Re-link from Settings."
-            )
+            ContentUnavailableView {
+                Label("Signed Out", systemImage: "person.crop.circle.badge.xmark")
+            } description: {
+                Text("Open Sounding on iPhone to sign in again.")
+            } actions: {
+                Button("Try Again") {
+                    Task {
+                        await credentials.adoptFromPhone()
+                        await source.load()
+                    }
+                }
+                .buttonStyle(.glass)
+            }
         } else if source.didFailCompletely {
-            WatchEmptyState(
-                systemImage: "wifi.slash",
-                title: "Couldn't Load",
-                message: "Check your connection and try again."
-            )
+            WatchErrorState(message: "Check your connection.") {
+                Task { await source.load() }
+            }
         } else {
-            WatchEmptyState(
+            ContentUnavailableView(
+                "Nothing Yet",
                 systemImage: "sparkles",
-                title: "Nothing Here Yet",
-                message: "Play something on iPhone to get picks."
+                description: Text("Play something on iPhone first.")
             )
         }
     }
@@ -77,24 +83,22 @@ private struct WatchHomeShelf: View {
     let shelf: DiscoveryShelf
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WatchStyle.style.spaceTight) {
-            WatchSectionHeader(title: shelf.title)
-
+        Section(shelf.title) {
             switch shelf.content {
             case .tracks(let tracks):
-                ForEach(tracks.prefix(6)) { track in
-                    WatchHomeTrackCard(track: track)
+                ForEach(tracks.prefix(5)) { track in
+                    WatchHomeTrackRow(track: track)
                 }
             default:
-                ForEach(shelf.content.entries.prefix(6)) { entry in
-                    WatchHomeEntryCard(entry: entry)
+                ForEach(shelf.content.entries.prefix(5)) { entry in
+                    WatchHomeEntryRow(entry: entry)
                 }
             }
         }
     }
 }
 
-private struct WatchHomeTrackCard: View {
+private struct WatchHomeTrackRow: View {
     let track: Track
     @EnvironmentObject private var link: WatchLinkClient
 
@@ -102,118 +106,59 @@ private struct WatchHomeTrackCard: View {
         Button {
             link.play(trackId: track.id)
         } label: {
-            WatchHomeCard(
-                artworkURL: track.largeArtworkURL ?? track.artworkURL,
+            WatchTrackRow(
                 title: track.title,
                 subtitle: track.user.displayName,
-                trailingSystemImage: link.nowPlaying.trackId == track.id ? "waveform" : "play.fill"
+                artIdentity: track.id,
+                artworkURL: track.artworkURL,
+                duration: track.duration,
+                isPlaying: link.nowPlaying.trackId == track.id
             )
         }
-        .buttonStyle(.plain)
+        .watchQueueActions(trackId: track.id)
     }
 }
 
-private struct WatchHomeEntryCard: View {
+private struct WatchHomeEntryRow: View {
     let entry: DiscoveryEntry
     @EnvironmentObject private var link: WatchLinkClient
 
     var body: some View {
         switch entry {
         case .playlist(let playlist):
-            Button {
-                link.play(collectionId: playlist.id)
+            NavigationLink {
+                WatchPlaylistDetailView(playlist: playlist)
             } label: {
-                WatchHomeCard(
-                    artworkURL: playlist.largeArtworkURL ?? playlist.artworkURL,
+                WatchTrackRow(
                     title: playlist.title,
                     subtitle: playlist.user.displayName,
-                    trailingSystemImage: "play.fill"
+                    artIdentity: playlist.id,
+                    artworkURL: playlist.artworkURL
                 )
             }
-            .buttonStyle(.plain)
         case .station(let station):
             Button {
                 link.play(collectionId: station.id)
             } label: {
-                WatchHomeCard(
-                    artworkURL: station.artworkURL,
+                WatchTrackRow(
                     title: entry.cardTitle,
-                    subtitle: entry.cardSubtitle,
-                    trailingSystemImage: "dot.radiowaves.left.and.right"
+                    subtitle: entry.cardSubtitle ?? "Station",
+                    artworkURL: station.artworkURL
                 )
             }
-            .buttonStyle(.plain)
+            .accessibilityHint("Plays this station")
         case .user(let user):
             NavigationLink {
                 WatchArtistDetailView(user: user)
             } label: {
-                WatchHomeCard(
-                    artworkURL: user.largeAvatarURL ?? user.avatarURL,
+                WatchTrackRow(
                     title: user.displayName,
-                    subtitle: "\(user.formattedFollowers) followers"
+                    subtitle: "\(user.formattedFollowers) followers",
+                    artIdentity: user.id,
+                    artworkURL: user.largeAvatarURL ?? user.avatarURL,
+                    isCircular: true
                 )
             }
-            .buttonStyle(.plain)
         }
-    }
-}
-
-private struct WatchHomeCard: View {
-    let artworkURL: URL?
-    let title: String
-    let subtitle: String?
-    var trailingSystemImage: String?
-
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            SCArtworkResolver(url: artworkURL) { image in
-                if let image {
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } else {
-                    Rectangle()
-                        .fill(WatchStyle.style.bgOverlay)
-                        .overlay {
-                            Image(systemName: "waveform")
-                                .font(.system(size: 26, weight: .semibold))
-                                .foregroundStyle(WatchStyle.style.textTertiary)
-                        }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            LinearGradient(
-                colors: [.black.opacity(0.85), .black.opacity(0)],
-                startPoint: .bottom,
-                endPoint: .center
-            )
-
-            HStack(alignment: .bottom, spacing: WatchStyle.style.spaceTight) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(WatchStyle.style.fontBodyEmphasis)
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(WatchStyle.style.fontCaption)
-                            .foregroundStyle(.white.opacity(0.75))
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 0)
-                if let trailingSystemImage {
-                    Image(systemName: trailingSystemImage)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-            }
-            .padding(WatchStyle.style.spaceSnug)
-        }
-        .frame(maxWidth: .infinity)
-        .aspectRatio(1.4, contentMode: .fit)
-        .background(WatchStyle.style.bgOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: WatchStyle.style.cornerHero, style: .continuous))
     }
 }

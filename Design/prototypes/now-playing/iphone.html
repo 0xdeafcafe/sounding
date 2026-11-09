@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sounding · Now Playing · iPhone</title>
+<link rel="stylesheet" href="shared/np.css">
+<link rel="stylesheet" href="iphone.css">
+</head>
+<body>
+<div class="stage">
+  <div class="device-wrap">
+    <div class="device phone" id="device">
+      <div class="phone-body">
+        <div class="screen np-root" id="screen" data-state="mini">
+          <div class="lib" id="lib">
+            <div class="lib-scroll">
+              <div class="lib-top">
+                <h1>Library</h1>
+                <span class="lib-me">A</span>
+              </div>
+              <div class="lib-list" id="libList"></div>
+              <h2>Recently Played</h2>
+              <div class="lib-grid" id="libGrid"></div>
+            </div>
+            <div class="lib-dim"></div>
+          </div>
+
+          <div class="bottom-chrome" id="chrome">
+            <div class="mini glass" id="mini">
+              <img class="mini-art" id="miniArt" alt="">
+              <div class="mini-text">
+                <div class="mini-title" id="miniTitle"></div>
+                <div class="mini-sub" id="miniSub"></div>
+              </div>
+              <button class="mini-btn mini-play" id="miniPlay" aria-label="Play"></button>
+              <button class="mini-btn" id="miniNext" aria-label="Next"></button>
+            </div>
+            <div class="tabbar">
+              <nav class="tabs glass">
+                <button class="tab"><span data-ic="home"></span>Home</button>
+                <button class="tab on"><span data-ic="library"></span>Library</button>
+                <button class="tab"><span data-ic="gear"></span>Settings</button>
+              </nav>
+              <button class="tab-search glass" aria-label="Search"><span data-ic="search"></span></button>
+            </div>
+          </div>
+
+          <section class="np" id="np" data-mode="playing" aria-label="Now Playing">
+            <div class="np-bg" id="npBg"></div>
+            <div class="np-grab" id="npGrab"><i></i></div>
+            <div class="np-head-hit" id="headHit"></div>
+
+            <div class="art-slot morph" id="artSlot">
+              <div class="art-pause" id="artPause">
+                <div class="art-breathe" id="artBreathe">
+                  <div class="art-strip" id="artStrip"></div>
+                </div>
+              </div>
+              <div class="art-route glass" id="artRoute"><span data-ic="tv"></span><b>Living Room</b></div>
+            </div>
+
+            <div class="np-title morph" id="titleBlock">
+              <div class="t-title" id="tTitle"></div>
+              <div class="t-artist" id="tArtist"></div>
+            </div>
+            <button class="t-seg morph" id="tSeg"><span data-ic="setlist"></span><span class="t-seg-l" id="tSegL"></span></button>
+
+            <div class="np-actions morph" id="actions">
+              <button class="circ glass" id="likeBtn" aria-label="Like"></button>
+              <button class="circ glass" id="moreBtn" aria-label="More"><span data-ic="more"></span></button>
+            </div>
+
+            <div class="np-modebar morph" id="modebar"></div>
+            <div class="np-panes" id="panes"></div>
+
+            <div class="np-dock morph" id="dock">
+              <div id="wave"></div>
+              <div class="times" id="times"><span id="tEl"></span><span class="t-mid" id="tMid"></span><span id="tRem"></span></div>
+            </div>
+            <div class="np-transport morph" id="transport"></div>
+            <div class="np-volume morph" id="volume"></div>
+
+            <nav class="np-bottom" id="bottom">
+              <button class="bb" data-mode="comments" aria-label="Comments"><span data-ic="comments"></span></button>
+              <button class="bb bb-route" id="routeBtn" aria-label="Output"><span class="bb-ic" data-ic="route"></span><small id="routeL"></small></button>
+              <button class="bb" data-mode="upnext" aria-label="Up Next"><span data-ic="upnext"></span></button>
+            </nav>
+          </section>
+
+          <div class="status" id="status"><span class="st-time">9:41</span><span class="st-r"><i class="st-sig"></i><i class="st-wifi"></i><i class="st-bat"></i></span></div>
+          <div class="island"></div>
+          <div class="home-ind"></div>
+        </div>
+      </div>
+      <i class="btn-side b1"></i><i class="btn-side b2"></i><i class="btn-side b3"></i><i class="btn-side b4"></i>
+    </div>
+  </div>
+</div>
+<script src="shared/data.js"></script>
+<script src="shared/core.js"></script>
+<script src="shared/components.js"></script>
+<script src="iphone.js"></script>
+</body>
+</html>

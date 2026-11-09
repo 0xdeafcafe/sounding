@@ -24,6 +24,7 @@ targets:
   SoundingTV:
     type: application
     platform: tvOS
+    productName: Sounding
     sources:
       - SoundingTV.swiftpm/Sources/Apps/tvOS/App/RootView.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/App/SoundingTVApp.swift
@@ -48,21 +49,25 @@ targets:
       - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Player/PlayerActions.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Player/PlayerView.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Player/TrackMapView.swift
-      - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Polyphony/TVPolyphonyView.swift
+      - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Player/TVNowPlayingBackdrop.swift
+      - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Player/TVNowPlayingControls.swift
+      - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Player/TVNowPlayingIdle.swift
+      - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Player/TVNowPlayingPanel.swift
+      - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Player/TVNowPlayingWaveform.swift
+      - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Player/TVPlayerSupport.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Profile/ProfileTabView.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Search/SearchView.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/Features/Settings/SettingsView.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/Playback/CompanionServer.swift
-      - SoundingTV.swiftpm/Sources/Apps/tvOS/Services/LikesSyncLifecycleCoordinator.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/Services/NowPlayingArtworkProvider.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/Services/PlayerLifecycleObserver.swift
+      - SoundingTV.swiftpm/Sources/Apps/tvOS/TopShelf/TopShelfArtwork.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/TopShelf/TopShelfPublisher.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/UI/Components/PlaylistGridView.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/UI/Components/QRCodeView.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/UI/Components/TrackListView.swift
       - SoundingTV.swiftpm/Sources/Apps/tvOS/UI/Components/UserGridView.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/DeviceSessionStore.swift
-      - SoundingTV.swiftpm/Sources/Auth/Shared/SharedSessionCompanionLink.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/SessionSync.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/SoundCloudCredentialSource.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/TokenTransferProtocol.swift
@@ -119,6 +124,8 @@ targets:
       - SoundingTV.swiftpm/Sources/Core/Playback/MediaSessionNowPlayingBridge.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackStateStore.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/PlayerService.swift
+      - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackClock.swift
+      - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackQueueSource.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/TransitionTypes.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/MixEngineState.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackLoadingState.swift
@@ -128,34 +135,42 @@ targets:
       - SoundingTV.swiftpm/Sources/Core/Playback/RemoteOutputTarget.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/RepeatMode.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/SystemNowPlayingBridge.swift
-      - SoundingTV.swiftpm/Sources/Core/Polyphony/PolyphonyController.swift
-      - SoundingTV.swiftpm/Sources/Core/Polyphony/PolyphonySourcing.swift
       - SoundingTV.swiftpm/Sources/Core/Setlist/DeckIdentity.swift
       - SoundingTV.swiftpm/Sources/Core/Setlist/Setlist.swift
       - SoundingTV.swiftpm/Sources/Core/Setlist/SetlistIntelligenceStore.swift
       - SoundingTV.swiftpm/Sources/Core/Settings/SettingsStore.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/SoundCloudAPI.swift
+      - SoundingTV.swiftpm/Sources/Core/SoundCloud/SoundCloudGateway.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/SubscriptionService.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/TrackActions.swift
       - SoundingTV.swiftpm/Sources/Core/Support/CommentMentionParser.swift
       - SoundingTV.swiftpm/Sources/Core/Support/Log.swift
+      - SoundingTV.swiftpm/Sources/Core/Support/AppRuntime.swift
+      - SoundingTV.swiftpm/Sources/Core/Support/WorkScheduler.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncEngine.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncMapping.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncInbox.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/SecTaskEntitlementBridge.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncEngineController.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CompanionRegistry.swift
-      - SoundingTV.swiftpm/Sources/Core/Sync/WorkshopPool.swift
+      - SoundingTV.swiftpm/Sources/Core/TopShelf/TopShelfLayout.swift
       - SoundingTV.swiftpm/Sources/Core/TopShelf/TopShelfSnapshot.swift
-      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundCloudAppEntities.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundingAppEntities.swift
       - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundCloudPlaybackIntents.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/PlaybackControlBridge.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/PlaybackControlIntents.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundingEntityCatalog.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/AudioSchemaIntents.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/MediaRequest.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SpotlightLibraryLedger.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/SoundingSnapshot.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/SoundingSnapshotPublisher.swift
       - SoundingTV.swiftpm/Sources/Shared/Debug/VisualFixtures.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/AmbientArtworkBackdrop.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/AnalysisBadge.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ArtworkColors.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ArtworkResolver.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/BrandColor.swift
-      - SoundingTV.swiftpm/Sources/Shared/Design/CommentRail.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ContentComponents.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ContentStyle.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/CrossPlatformComponents.swift
@@ -167,9 +182,12 @@ targets:
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/AnalysisLookup.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/ArtworkImage.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/BehindTheTrack.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/CollectionDownloadButton.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/PlayActions.swift
-      - SoundingTV.swiftpm/Sources/Shared/UI/Components/PolyphonyHeroView.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/PulseTimeline.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/PlaybackClockView.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/DJTransitionPlanView.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/VinylPlatterView.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Setlist/SetlistViews.swift
       - SoundingTV.swiftpm/Sources/Shared/ViewModels/ArtistDetailViewModel.swift
       - SoundingTV.swiftpm/Sources/Shared/ViewModels/DiscoveryHomeSource.swift
@@ -183,6 +201,8 @@ targets:
       - SoundingTV-tvOS/Assets.xcassets
     settings:
       base:
+        PRODUCT_NAME: Sounding
+        PRODUCT_MODULE_NAME: SoundingTV
         PRODUCT_BUNDLE_IDENTIFIER: red.forbes.sounding
         TVOS_DEPLOYMENT_TARGET: "27.0"
         TARGETED_DEVICE_FAMILY: 3
@@ -193,16 +213,18 @@ targets:
       - target: SoundingTV-TopShelf
         embed: true
         removeHeaders: true
-    scheme: {}
+    scheme:
+      testTargets:
+        - SoundingTVTests
   SoundingTV iOS:
     type: application
     platform: iOS
+    productName: Sounding
     sources:
       - SoundingTV-iOS/Sources/App/PhoneAppState.swift
       - SoundingTV-iOS/Sources/App/PhoneRootView.swift
       - SoundingTV-iOS/Sources/App/SoundingTViOSApp.swift
       - SoundingTV-iOS/Sources/Auth/SoundCloudLoginView.swift
-      - SoundingTV-iOS/Sources/Services/LikesSyncLifecycleCoordinator.swift
       - SoundingTV-iOS/Sources/Services/NowPlayingArtworkProvider.swift
       - SoundingTV-iOS/Sources/Services/PlayerLifecycleObserver.swift
       - SoundingTV-iOS/Sources/Features/Companion/CompanionRootView.swift
@@ -210,12 +232,11 @@ targets:
       - SoundingTV-iOS/Sources/Features/Companion/QueueManagerView.swift
       - SoundingTV-iOS/Sources/Features/Feed/FeedView.swift
       - SoundingTV-iOS/Sources/Features/Home/PhoneHomeView.swift
+      - SoundingTV-iOS/Sources/Features/Intelligence/PhoneMusicIntelligenceView.swift
       - SoundingTV-iOS/Sources/Features/Library/ArtistDetailView.swift
-      - SoundingTV-iOS/Sources/Features/Library/CollectionDownloadButton.swift
       - SoundingTV-iOS/Sources/Features/Library/LibraryBrowserView.swift
       - SoundingTV-iOS/Sources/Features/Library/PlaylistDetailView.swift
       - SoundingTV-iOS/Sources/Features/Library/TrackSortMenu.swift
-      - SoundingTV-iOS/Sources/Features/Polyphony/PolyphonyView.swift
       - SoundingTV-iOS/Sources/Features/Profile/ProfileView.swift
       - SoundingTV-iOS/Sources/Features/Search/GlobalSearchView.swift
       - SoundingTV-iOS/Sources/Features/Search/SearchCacheRefreshNotice.swift
@@ -230,7 +251,6 @@ targets:
       - SoundingTV.swiftpm/Sources/Auth/Shared/AuthWebSession.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/DeviceSessionStore.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/LinkClient.swift
-      - SoundingTV.swiftpm/Sources/Auth/Shared/SharedSessionCompanionLink.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/SessionSync.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/SoundCloudCredentialSource.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/TokenTransferProtocol.swift
@@ -291,38 +311,47 @@ targets:
       - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackLoadingState.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackStateStore.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/PlayerService.swift
+      - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackClock.swift
+      - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackQueueSource.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/RemoteOutputTarget.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/RepeatMode.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/SystemNowPlayingBridge.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/TransitionTypes.swift
-      - SoundingTV.swiftpm/Sources/Core/Polyphony/PolyphonyController.swift
-      - SoundingTV.swiftpm/Sources/Core/Polyphony/PolyphonySourcing.swift
       - SoundingTV.swiftpm/Sources/Core/Setlist/DeckIdentity.swift
       - SoundingTV.swiftpm/Sources/Core/Setlist/Setlist.swift
       - SoundingTV.swiftpm/Sources/Core/Setlist/SetlistIntelligenceStore.swift
       - SoundingTV.swiftpm/Sources/Core/Settings/SettingsStore.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/SoundCloudAPI.swift
+      - SoundingTV.swiftpm/Sources/Core/SoundCloud/SoundCloudGateway.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/SubscriptionService.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/TrackActions.swift
       - SoundingTV.swiftpm/Sources/Core/Support/CommentMentionParser.swift
       - SoundingTV.swiftpm/Sources/Core/Support/Log.swift
+      - SoundingTV.swiftpm/Sources/Core/Support/AppRuntime.swift
+      - SoundingTV.swiftpm/Sources/Core/Support/WorkScheduler.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncEngine.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncEngineController.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncInbox.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncMapping.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CompanionRegistry.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/SecTaskEntitlementBridge.swift
-      - SoundingTV.swiftpm/Sources/Core/Sync/WorkshopPool.swift
       - SoundingTV.swiftpm/Sources/Core/WatchLink/WatchLinkProtocol.swift
-      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundCloudAppEntities.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundingAppEntities.swift
       - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundCloudPlaybackIntents.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/PlaybackControlBridge.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/PlaybackControlIntents.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundingEntityCatalog.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/AudioSchemaIntents.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/MediaRequest.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SpotlightLibraryLedger.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/SoundingSnapshot.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/SoundingSnapshotPublisher.swift
       - SoundingTV.swiftpm/Sources/Shared/Debug/VisualFixtures.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/AmbientArtworkBackdrop.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/AnalysisBadge.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ArtworkColors.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ArtworkResolver.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/BrandColor.swift
-      - SoundingTV.swiftpm/Sources/Shared/Design/CommentRail.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ContentComponents.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ContentStyle.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/CrossPlatformComponents.swift
@@ -330,17 +359,18 @@ targets:
       - SoundingTV.swiftpm/Sources/Shared/Design/PhoneDesign.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/Tokens.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/WaveformRenderer.swift
-      - SoundingTV.swiftpm/Sources/Shared/LiveActivity/NowPlayingActivityAttributes.swift
-      - SoundingTV.swiftpm/Sources/Shared/LiveActivity/NowPlayingLiveActivity.swift
       - SoundingTV.swiftpm/Sources/Shared/Networking/CompanionClient.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Comments/CommentThreads.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Comments/SCCommentRow.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/AnalysisLookup.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/ArtworkImage.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/BehindTheTrack.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/CollectionDownloadButton.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/PlayActions.swift
-      - SoundingTV.swiftpm/Sources/Shared/UI/Components/PolyphonyHeroView.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/PulseTimeline.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/PlaybackClockView.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/DJTransitionPlanView.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/VinylPlatterView.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Setlist/SetlistViews.swift
       - SoundingTV.swiftpm/Sources/Shared/ViewModels/ArtistDetailViewModel.swift
       - SoundingTV.swiftpm/Sources/Shared/ViewModels/DiscoveryHomeSource.swift
@@ -354,6 +384,8 @@ targets:
       - SoundingTV-iOS/Assets.xcassets
     settings:
       base:
+        PRODUCT_NAME: Sounding
+        PRODUCT_MODULE_NAME: SoundingTV_iOS
         PRODUCT_BUNDLE_IDENTIFIER: red.forbes.sounding
         IPHONEOS_DEPLOYMENT_TARGET: "26.5"
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -361,10 +393,10 @@ targets:
         INFOPLIST_FILE: SoundingTV-iOS/Info.plist
         CODE_SIGN_ENTITLEMENTS: SoundingTV-iOS/SoundingTV-iOS.entitlements
     dependencies:
-      - target: SoundingTV-Widget
+      - target: SoundingTV-Share
         embed: true
         removeHeaders: true
-      - target: SoundingTV-Share
+      - target: SoundingTV-Widget
         embed: true
         removeHeaders: true
       - target: "SoundingTV watchOS"
@@ -374,20 +406,18 @@ targets:
   SoundingTV macOS:
     type: application
     platform: macOS
+    productName: Sounding
     sources:
       - SoundingTV-macOS/Sources/App/MacDecksCommands.swift
-      - SoundingTV-macOS/Sources/App/MacKeyboardShortcutsSheet.swift
       - SoundingTV-macOS/Sources/App/MacRootView.swift
       - SoundingTV-macOS/Sources/App/SoundingMacApp.swift
-      - SoundingTV-macOS/Sources/Debug/DDJ400MappingSelfTest.swift
       - SoundingTV-macOS/Sources/Debug/MacMixAudioSelfTest.swift
       - SoundingTV-macOS/Sources/Auth/MacAccountView.swift
       - SoundingTV-macOS/Sources/Design/MacArtworkCache.swift
       - SoundingTV-macOS/Sources/Design/MacMaterials.swift
       - SoundingTV-macOS/Sources/Design/MacPaneHeader.swift
       - SoundingTV-macOS/Sources/Design/MacWindowChrome.swift
-      - SoundingTV-macOS/Sources/Features/DJ/MIDIControllerHub.swift
-      - SoundingTV-macOS/Sources/Features/DJ/MIDIMixerBridge.swift
+      - SoundingTV-macOS/Sources/Features/DJ/MacDeckControlSurface.swift
       - SoundingTV-macOS/Sources/Features/DJ/MacConsoleView.swift
       - SoundingTV-macOS/Sources/Features/DJ/MacDeckPanel.swift
       - SoundingTV-macOS/Sources/Features/DJ/MacMixerControls.swift
@@ -401,18 +431,15 @@ targets:
       - SoundingTV-macOS/Sources/Features/Library/MacPlaylistsView.swift
       - SoundingTV-macOS/Sources/Features/Library/MacTrackContextMenu.swift
       - SoundingTV-macOS/Sources/Features/Playback/MacNowPlayingView.swift
-      - SoundingTV-macOS/Sources/Features/Playback/MacPolyphonyView.swift
       - SoundingTV-macOS/Sources/Features/Playback/MacQueueSidebar.swift
       - SoundingTV-macOS/Sources/Features/Playback/MacTransportBar.swift
       - SoundingTV-macOS/Sources/Features/Profile/MacProfileView.swift
       - SoundingTV-macOS/Sources/Features/Search/MacSearchView.swift
       - SoundingTV-macOS/Sources/Services/MacAudioSessionCoordinator.swift
-      - SoundingTV-macOS/Sources/Services/LikesSyncLifecycleCoordinator.swift
       - SoundingTV-macOS/Sources/Services/MacSyncCoordinator.swift
       - SoundingTV-macOS/Sources/Services/PlayerLifecycleObserver.swift
       - SoundingTV-macOS/Sources/Services/NowPlayingArtworkProvider.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/LinkClient.swift
-      - SoundingTV.swiftpm/Sources/Auth/Shared/SharedSessionCompanionLink.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/BrandColor.swift
       # Shared runtime files used by the macOS player/DJ surface. Keep these
       # explicit because this target intentionally does not glob the package.
@@ -424,8 +451,6 @@ targets:
       - SoundingTV.swiftpm/Sources/Core/Playback/LoudnessNormalization.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/MixEngineState.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackLoadingState.swift
-      - SoundingTV.swiftpm/Sources/Core/Polyphony/PolyphonySourcing.swift
-      - SoundingTV.swiftpm/Sources/Shared/UI/Components/PolyphonyHeroView.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/DeviceSessionStore.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/SessionSync.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/SoundCloudCredentialSource.swift
@@ -480,35 +505,45 @@ targets:
       - SoundingTV.swiftpm/Sources/Core/Playback/MediaSessionNowPlayingBridge.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackStateStore.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/PlayerService.swift
+      - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackClock.swift
+      - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackQueueSource.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/TransitionTypes.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/RemoteOutputTarget.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/RepeatMode.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/SystemNowPlayingBridge.swift
-      - SoundingTV.swiftpm/Sources/Core/Polyphony/PolyphonyController.swift
       - SoundingTV.swiftpm/Sources/Core/Setlist/DeckIdentity.swift
       - SoundingTV.swiftpm/Sources/Core/Setlist/Setlist.swift
       - SoundingTV.swiftpm/Sources/Core/Setlist/SetlistIntelligenceStore.swift
       - SoundingTV.swiftpm/Sources/Core/Settings/SettingsStore.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/SoundCloudAPI.swift
+      - SoundingTV.swiftpm/Sources/Core/SoundCloud/SoundCloudGateway.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/SubscriptionService.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/TrackActions.swift
       - SoundingTV.swiftpm/Sources/Core/Support/CommentMentionParser.swift
       - SoundingTV.swiftpm/Sources/Core/Support/Log.swift
+      - SoundingTV.swiftpm/Sources/Core/Support/AppRuntime.swift
+      - SoundingTV.swiftpm/Sources/Core/Support/WorkScheduler.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncEngine.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncEngineController.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncInbox.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CloudSyncMapping.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/CompanionRegistry.swift
       - SoundingTV.swiftpm/Sources/Core/Sync/SecTaskEntitlementBridge.swift
-      - SoundingTV.swiftpm/Sources/Core/Sync/WorkshopPool.swift
       - SoundingTV.swiftpm/Sources/Shared/Networking/CompanionClient.swift
-      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundCloudAppEntities.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundingAppEntities.swift
       - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundCloudPlaybackIntents.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/PlaybackControlBridge.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/PlaybackControlIntents.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundingEntityCatalog.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/AudioSchemaIntents.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/MediaRequest.swift
+      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SpotlightLibraryLedger.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/SoundingSnapshot.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/SoundingSnapshotPublisher.swift
       - SoundingTV.swiftpm/Sources/Shared/Debug/VisualFixtures.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/AmbientArtworkBackdrop.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/AnalysisBadge.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ArtworkResolver.swift
-      - SoundingTV.swiftpm/Sources/Shared/Design/CommentRail.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ContentComponents.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ContentStyle.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/CrossPlatformComponents.swift
@@ -518,8 +553,12 @@ targets:
       - SoundingTV.swiftpm/Sources/Shared/UI/Comments/SCCommentRow.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/AnalysisLookup.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/BehindTheTrack.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/CollectionDownloadButton.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/PlayActions.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/PulseTimeline.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/PlaybackClockView.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/DJTransitionPlanView.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/VinylPlatterView.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Setlist/SetlistViews.swift
       - SoundingTV.swiftpm/Sources/Shared/ViewModels/ArtistDetailViewModel.swift
       - SoundingTV.swiftpm/Sources/Shared/ViewModels/DiscoveryHomeSource.swift
@@ -533,6 +572,8 @@ targets:
       - SoundingTV-macOS/Assets.xcassets
     settings:
       base:
+        PRODUCT_NAME: Sounding
+        PRODUCT_MODULE_NAME: SoundingTV_macOS
         PRODUCT_BUNDLE_IDENTIFIER: red.forbes.sounding
         MACOSX_DEPLOYMENT_TARGET: "27.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -542,6 +583,7 @@ targets:
   SoundingTV watchOS:
     type: application
     platform: watchOS
+    productName: Sounding
     sources:
       - SoundingTV-watchOS/Sources/App/SoundingTVWatchApp.swift
       - SoundingTV-watchOS/Sources/Features/DJ/WatchDJView.swift
@@ -560,7 +602,6 @@ targets:
       - SoundingTV-watchOS/Sources/UI/WatchComponents.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/DeviceSessionStore.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/LinkClient.swift
-      - SoundingTV.swiftpm/Sources/Auth/Shared/SharedSessionCompanionLink.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/SessionSync.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/SoundCloudCredentialSource.swift
       - SoundingTV.swiftpm/Sources/Auth/Shared/TokenTransferProtocol.swift
@@ -584,6 +625,8 @@ targets:
       - SoundingTV.swiftpm/Sources/Core/Models/Track.swift
       - SoundingTV.swiftpm/Sources/Core/Models/User.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/AudioSessionCoordinator.swift
+      - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackClock.swift
+      - SoundingTV.swiftpm/Sources/Core/Playback/PlaybackQueueSource.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/RemoteOutputTarget.swift
       - SoundingTV.swiftpm/Sources/Core/Playback/RepeatMode.swift
       - SoundingTV.swiftpm/Sources/Core/Setlist/DeckIdentity.swift
@@ -591,16 +634,17 @@ targets:
       - SoundingTV.swiftpm/Sources/Core/Setlist/SetlistIntelligenceStore.swift
       - SoundingTV.swiftpm/Sources/Core/Settings/SettingsStore.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/SoundCloudAPI.swift
+      - SoundingTV.swiftpm/Sources/Core/SoundCloud/SoundCloudGateway.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/SubscriptionService.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/TrackActions.swift
       - SoundingTV.swiftpm/Sources/Core/Support/CommentMentionParser.swift
       - SoundingTV.swiftpm/Sources/Core/Support/Log.swift
+      - SoundingTV.swiftpm/Sources/Core/Support/WorkScheduler.swift
       - SoundingTV.swiftpm/Sources/Core/WatchLink/WatchLinkProtocol.swift
       - SoundingTV.swiftpm/Sources/Shared/Debug/VisualFixtures.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/AnalysisBadge.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/BrandColor.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ArtworkResolver.swift
-      - SoundingTV.swiftpm/Sources/Shared/Design/CommentRail.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ContentComponents.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/ContentStyle.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/CrossPlatformComponents.swift
@@ -612,6 +656,7 @@ targets:
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/ArtworkImage.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/BehindTheTrack.swift
       - SoundingTV.swiftpm/Sources/Shared/UI/Components/PulseTimeline.swift
+      - SoundingTV.swiftpm/Sources/Shared/UI/Components/PlaybackClockView.swift
       - SoundingTV.swiftpm/Sources/Shared/ViewModels/ArtistDetailViewModel.swift
       - SoundingTV.swiftpm/Sources/Shared/ViewModels/DiscoveryHomeSource.swift
       - SoundingTV.swiftpm/Sources/Shared/ViewModels/FeedViewModel.swift
@@ -623,6 +668,8 @@ targets:
       - SoundingTV-watchOS/Assets.xcassets
     settings:
       base:
+        PRODUCT_NAME: Sounding
+        PRODUCT_MODULE_NAME: SoundingTV_watchOS
         PRODUCT_BUNDLE_IDENTIFIER: red.forbes.sounding.watchkitapp
         WATCHOS_DEPLOYMENT_TARGET: "27.0"
         TARGETED_DEVICE_FAMILY: 4
@@ -631,22 +678,22 @@ targets:
         CODE_SIGN_ENTITLEMENTS: SoundingTV-watchOS/SoundingTV-watchOS.entitlements
     scheme: {}
   SoundingTV-TopShelf:
-    type: tv-app-extension
+    type: app-extension
     platform: tvOS
     sources:
       - SoundingTV-TopShelf/Sources/ContentProvider.swift
       - SoundingTV-TopShelf/Sources/DefaultShelf.swift
       - SoundingTV.swiftpm/Sources/Core/Support/CommentMentionParser.swift
       - SoundingTV.swiftpm/Sources/Core/Support/Log.swift
+      - SoundingTV.swiftpm/Sources/Core/TopShelf/TopShelfLayout.swift
       - SoundingTV.swiftpm/Sources/Core/TopShelf/TopShelfSnapshot.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/SoundingSnapshot.swift
       - path: SoundingTV-TopShelf/Info.plist
         buildPhase: none
       - path: SoundingTV-TopShelf/SoundingTV-TopShelf.entitlements
         buildPhase: none
       - SoundingTV-TopShelf/DefaultShelfArt.png
       - "SoundingTV-TopShelf/DefaultShelfArt@2x.png"
-      - SoundingTV-TopShelf/SignInShelfArt.png
-      - "SoundingTV-TopShelf/SignInShelfArt@2x.png"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: red.forbes.sounding.TopShelf
@@ -654,34 +701,6 @@ targets:
         TARGETED_DEVICE_FAMILY: 3
         INFOPLIST_FILE: SoundingTV-TopShelf/Info.plist
         CODE_SIGN_ENTITLEMENTS: SoundingTV-TopShelf/SoundingTV-TopShelf.entitlements
-    scheme: {}
-  SoundingTV-Widget:
-    type: app-extension
-    platform: iOS
-    sources:
-      - SoundingTV-Widget/Sources/App/SoundingWidgetBundle.swift
-      - SoundingTV-Widget/Sources/Intents/PlaybackControlIntents.swift
-      - SoundingTV-Widget/Sources/Services/WidgetControlSender.swift
-      - SoundingTV-Widget/Sources/Views/NowPlayingLiveActivityWidget.swift
-      - SoundingTV.swiftpm/Sources/Auth/Shared/DeviceSessionStore.swift
-      - SoundingTV.swiftpm/Sources/Auth/Shared/LinkClient.swift
-      - SoundingTV.swiftpm/Sources/Auth/Shared/TokenTransferProtocol.swift
-      - SoundingTV.swiftpm/Sources/Core/Models/DeviceClass.swift
-      - SoundingTV.swiftpm/Sources/Core/Support/CommentMentionParser.swift
-      - SoundingTV.swiftpm/Sources/Core/Support/Log.swift
-      - SoundingTV.swiftpm/Sources/Shared/LiveActivity/NowPlayingActivityAttributes.swift
-      - SoundingTV.swiftpm/Sources/Shared/LiveActivity/NowPlayingLiveActivity.swift
-      - path: SoundingTV-Widget/Info.plist
-        buildPhase: none
-      - path: SoundingTV-Widget/SoundingTV-Widget.entitlements
-        buildPhase: none
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: red.forbes.sounding.Widget
-        IPHONEOS_DEPLOYMENT_TARGET: "26.5"
-        TARGETED_DEVICE_FAMILY: "1,2"
-        INFOPLIST_FILE: SoundingTV-Widget/Info.plist
-        CODE_SIGN_ENTITLEMENTS: SoundingTV-Widget/SoundingTV-Widget.entitlements
     scheme: {}
   SoundingTV-Share:
     type: app-extension
@@ -705,11 +724,12 @@ targets:
       - SoundingTV.swiftpm/Sources/Core/Setlist/Setlist.swift
       - SoundingTV.swiftpm/Sources/Core/Setlist/SetlistIntelligenceStore.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/SoundCloudAPI.swift
+      - SoundingTV.swiftpm/Sources/Core/SoundCloud/SoundCloudGateway.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/SubscriptionService.swift
       - SoundingTV.swiftpm/Sources/Core/SoundCloud/TrackActions.swift
       - SoundingTV.swiftpm/Sources/Core/Support/CommentMentionParser.swift
       - SoundingTV.swiftpm/Sources/Core/Support/Log.swift
-      - SoundingTV.swiftpm/Sources/Shared/AppIntents/SoundCloudAppEntities.swift
+      - SoundingTV.swiftpm/Sources/Core/Support/WorkScheduler.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/BrandColor.swift
       - SoundingTV.swiftpm/Sources/Shared/Design/PhoneDesign.swift
       - path: SoundingTV-Share/Info.plist
@@ -723,6 +743,28 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_FILE: SoundingTV-Share/Info.plist
         CODE_SIGN_ENTITLEMENTS: SoundingTV-Share/SoundingTV-Share.entitlements
+  SoundingTV-Widget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - SoundingTV-Widget/Sources/SoundingWidgetBundle.swift
+      - SoundingTV-Widget/Sources/NowPlayingWidget.swift
+      - SoundingTV-Widget/Sources/PlayPauseControl.swift
+      - SoundingTV-Widget/Sources/ResumeControl.swift
+      - SoundingTV-Widget/Sources/PlaybackControlBridge.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/SoundingSnapshot.swift
+      - SoundingTV.swiftpm/Sources/Shared/Surfaces/PlaybackControlIntents.swift
+      - path: SoundingTV-Widget/Info.plist
+        buildPhase: none
+      - path: SoundingTV-Widget/SoundingTV-Widget.entitlements
+        buildPhase: none
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: red.forbes.sounding.Widget
+        IPHONEOS_DEPLOYMENT_TARGET: "26.5"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_FILE: SoundingTV-Widget/Info.plist
+        CODE_SIGN_ENTITLEMENTS: SoundingTV-Widget/SoundingTV-Widget.entitlements
   SoundingTV-UITests:
     type: bundle.ui-testing
     platform: tvOS
@@ -731,6 +773,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: red.forbes.sounding.UITests
+        GENERATE_INFOPLIST_FILE: YES
         TVOS_DEPLOYMENT_TARGET: "27.0"
         TARGETED_DEVICE_FAMILY: 3
     dependencies:

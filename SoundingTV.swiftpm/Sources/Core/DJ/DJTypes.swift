@@ -8,6 +8,7 @@ struct BeatGrid: Equatable, Sendable, Codable {
     let confidence: Double
     let beats: [TimeInterval]?
     let downbeats: [TimeInterval]?
+    let phraseOffsetBars: Int?
 
     init(
         anchor: TimeInterval,
@@ -16,7 +17,8 @@ struct BeatGrid: Equatable, Sendable, Codable {
         barsPerPhrase: Int = 8,
         confidence: Double,
         beats: [TimeInterval]? = nil,
-        downbeats: [TimeInterval]? = nil
+        downbeats: [TimeInterval]? = nil,
+        phraseOffsetBars: Int? = nil
     ) {
         self.anchor = anchor
         self.beatPeriod = beatPeriod
@@ -25,6 +27,7 @@ struct BeatGrid: Equatable, Sendable, Codable {
         self.confidence = confidence
         self.beats = beats
         self.downbeats = downbeats
+        self.phraseOffsetBars = phraseOffsetBars
     }
 
     static func fromDisplayBPM(
@@ -42,10 +45,83 @@ struct BeatGrid: Equatable, Sendable, Codable {
         )
     }
 
+    static func tempoOnly(_ bpm: Double, barsPerPhrase: Int = 8) -> BeatGrid? {
+        fromDisplayBPM(bpm, barsPerPhrase: barsPerPhrase, confidence: DJEngineConstants.tempoOnlyGridConfidence)
+    }
+
     var bpm: Double { beatPeriod > 0 ? 60.0 / beatPeriod : 0 }
     var barDuration: Double { beatPeriod * 4 }
     var phraseDuration: Double { barDuration * Double(barsPerPhrase) }
-    var firstDownbeat: TimeInterval { anchor + Double(downbeatOffset) * beatPeriod }
+    var firstDownbeat: TimeInterval {
+        if let first = downbeats?.first { return first }
+        return anchor + Double(downbeatOffset) * beatPeriod
+    }
+
+    var isPhaseVerified: Bool { (downbeats?.count ?? 0) >= 2 }
+
+    var firstPhraseBar: Int {
+        guard barsPerPhrase > 0 else { return 0 }
+        return ((phraseOffsetBars ?? 0) % barsPerPhrase + barsPerPhrase) % barsPerPhrase
+    }
+
+    func nearestDownbeat(to seconds: TimeInterval) -> TimeInterval {
+        if let downbeats, !downbeats.isEmpty {
+            return downbeats.min { abs($0 - seconds) < abs($1 - seconds) } ?? seconds
+        }
+        guard barDuration > 0 else { return seconds }
+        return firstDownbeat + ((seconds - firstDownbeat) / barDuration).rounded() * barDuration
+    }
+
+    func phraseStarts(from lower: TimeInterval, through upper: TimeInterval) -> [TimeInterval] {
+        guard barsPerPhrase > 0 else { return [] }
+        if let downbeats, downbeats.count >= 2 {
+            return stride(from: firstPhraseBar, to: downbeats.count, by: barsPerPhrase)
+                .map { downbeats[$0] }
+                .filter { $0 >= lower && $0 <= upper }
+        }
+        guard phraseDuration > 0 else { return [] }
+        var out: [TimeInterval] = []
+        var t = firstDownbeat + Double(firstPhraseBar) * barDuration
+        if t < lower { t += ((lower - t) / phraseDuration).rounded(.up) * phraseDuration }
+        while t <= upper {
+            out.append(t)
+            t += phraseDuration
+        }
+        return out
+    }
+
+    func localBeatPeriod(at seconds: TimeInterval, spanBeats: Int = 16) -> Double {
+        guard let beats, beats.count > spanBeats else { return beatPeriod }
+        let index = beats.firstIndex { $0 >= seconds } ?? beats.count - 1
+        let lower = max(0, min(index - spanBeats / 2, beats.count - 1 - spanBeats))
+        let upper = lower + spanBeats
+        let period = (beats[upper] - beats[lower]) / Double(spanBeats)
+        return period.isFinite && period > 0 ? period : beatPeriod
+    }
+
+    func meanBeatPeriod(from start: TimeInterval, to end: TimeInterval) -> Double {
+        guard let beats, beats.count >= 8, end > start else { return beatPeriod }
+        guard let first = beats.firstIndex(where: { $0 >= start }) else { return beatPeriod }
+        let last = beats.lastIndex { $0 <= end } ?? first
+        guard last - first >= 4 else { return localBeatPeriod(at: start) }
+        let period = (beats[last] - beats[first]) / Double(last - first)
+        return period.isFinite && period > 0 ? period : beatPeriod
+    }
+
+    func localized(from start: TimeInterval, to end: TimeInterval) -> BeatGrid {
+        let period = meanBeatPeriod(from: start, to: end)
+        guard abs(period - beatPeriod) > 1e-9 else { return self }
+        return BeatGrid(
+            anchor: anchor,
+            beatPeriod: period,
+            downbeatOffset: downbeatOffset,
+            barsPerPhrase: barsPerPhrase,
+            confidence: confidence,
+            beats: beats,
+            downbeats: downbeats,
+            phraseOffsetBars: phraseOffsetBars
+        )
+    }
 
     func beatPhase(at time: TimeInterval) -> Double {
         guard beatPeriod > 0 else { return 0 }
@@ -56,10 +132,7 @@ struct BeatGrid: Equatable, Sendable, Codable {
 
     func beatsFromPhraseBoundary(at time: TimeInterval) -> Double {
         guard beatPeriod > 0, phraseDuration > 0 else { return 0 }
-        // `anchor` is the first detected beat, which is not necessarily beat
-        // one of a bar. Phrase parity must be measured from a downbeat or a
-        // perfectly phase-aligned transition can still invert the backbeat.
-        let beatsIn = (time - firstDownbeat) / beatPeriod
+        let beatsIn = (time - firstDownbeat) / beatPeriod - Double(firstPhraseBar * 4)
         let phraseBeats = Double(barsPerPhrase * 4)
         var m = beatsIn.truncatingRemainder(dividingBy: phraseBeats)
         if m < 0 { m += phraseBeats }
@@ -77,30 +150,13 @@ struct BeatGrid: Equatable, Sendable, Codable {
         return anchor + ((seconds - anchor) / beatPeriod).rounded() * beatPeriod
     }
 
-    func nearestBar(to seconds: TimeInterval) -> TimeInterval {
-        if let downbeats, !downbeats.isEmpty {
-            return downbeats.min(by: { abs($0 - seconds) < abs($1 - seconds) }) ?? seconds
-        }
-        guard barDuration > 0 else { return seconds }
-        return firstDownbeat + ((seconds - firstDownbeat) / barDuration).rounded() * barDuration
-    }
-
-    func nextBar(after seconds: TimeInterval, minimumLead: TimeInterval = 0) -> TimeInterval {
-        let earliest = seconds + max(0, minimumLead)
-        if let downbeats, let measured = downbeats.first(where: { $0 >= earliest }) {
-            return measured
-        }
-        guard barDuration > 0 else { return earliest }
-        let steps = ((earliest - firstDownbeat) / barDuration).rounded(.up)
-        return firstDownbeat + steps * barDuration
-    }
-
     static func fromMeasuredBars(
         bpm: Double,
         beats: [TimeInterval],
         bars: [TimeInterval],
         barsPerPhrase: Int = 8,
-        confidence: Double
+        confidence: Double,
+        phraseOffsetBars: Int? = nil
     ) -> BeatGrid? {
         guard bpm.isFinite, bpm > 20, bpm < 300 else { return nil }
         guard let anchor = beats.first ?? bars.first else { return nil }
@@ -119,7 +175,8 @@ struct BeatGrid: Equatable, Sendable, Codable {
             barsPerPhrase: barsPerPhrase,
             confidence: confidence,
             beats: beats.isEmpty ? nil : beats,
-            downbeats: bars.isEmpty ? nil : bars
+            downbeats: bars.isEmpty ? nil : bars,
+            phraseOffsetBars: phraseOffsetBars
         )
     }
 }
@@ -138,6 +195,9 @@ struct FeatureProvenance: OptionSet, Sendable, Codable, Hashable {
     static let envelopeOnly      = FeatureProvenance(rawValue: 1 << 7)
     static let metadataOnly      = FeatureProvenance(rawValue: 1 << 8)
     static let measuredBass      = FeatureProvenance(rawValue: 1 << 9)
+    static let measuredBeatParity = FeatureProvenance(rawValue: 1 << 10)
+    static let measuredStems     = FeatureProvenance(rawValue: 1 << 11)
+    static let guessedBarPhase   = FeatureProvenance(rawValue: 1 << 12)
 
     var caveats: [String] {
         var out: [String] = []
@@ -151,6 +211,7 @@ struct FeatureProvenance: OptionSet, Sendable, Codable, Hashable {
 
 enum SectionKind: String, Codable, Sendable, CaseIterable {
     case ambientIntro, intro, buildup, drop, breakdown, bridge, cooldown, outro, ambientOutro
+    case build
     case unknown
 
     var displayName: String {
@@ -164,6 +225,7 @@ enum SectionKind: String, Codable, Sendable, CaseIterable {
         case .cooldown:     return "cooldown"
         case .outro:        return "outro"
         case .ambientOutro: return "ambient outro"
+        case .build:        return "energy build"
         case .unknown:      return "unlabelled section"
         }
     }
@@ -180,8 +242,8 @@ struct CamelotKey: Codable, Hashable, Sendable {
     let mode: CamelotMode
 
     enum CamelotMode: Int, Codable, Sendable {
-        case minor = 0 // Camelot "A"
-        case major = 1 // Camelot "B"
+        case minor = 0
+        case major = 1
     }
 
     init(wheelPosition: Int, mode: CamelotMode) {
@@ -273,12 +335,27 @@ struct TrackFeatures: Equatable, Sendable {
     let vocalRanges: [ClosedRange<TimeInterval>]
     let bassRanges: [ClosedRange<TimeInterval>]
 
-    /// Explicit user-authored mix points. These are inputs to the pure
-    /// planner, never hidden I/O inside it.
     let preferredEntrySeconds: TimeInterval?
     let preferredExitSeconds: TimeInterval?
 
     let provenance: FeatureProvenance
+
+    let cueHints: [CueHint]
+    let extensionLoop: ClosedRange<TimeInterval>?
+    let heat: [TimeInterval]
+    let boundaries: [TimeInterval]
+    let barProfile: BarProfile?
+    let barStarts: [TimeInterval]
+
+    var contentStart: TimeInterval = 0
+    var earliestExitSeconds: TimeInterval = 0
+    var contentFloor: Double = 0
+    var latestMixStart: TimeInterval?
+    var fileDuration: TimeInterval?
+    var intro: DJIntro?
+    var timbre: TimbreEmbedding?
+    var loopRanges: [ClosedRange<TimeInterval>] = []
+    var arrangement: TrackArrangement?
 
     init(
         trackId: String,
@@ -297,7 +374,13 @@ struct TrackFeatures: Equatable, Sendable {
         bassRanges: [ClosedRange<TimeInterval>] = [],
         preferredEntrySeconds: TimeInterval? = nil,
         preferredExitSeconds: TimeInterval? = nil,
-        provenance: FeatureProvenance = []
+        provenance: FeatureProvenance = [],
+        cueHints: [CueHint] = [],
+        extensionLoop: ClosedRange<TimeInterval>? = nil,
+        heat: [TimeInterval] = [],
+        boundaries: [TimeInterval] = [],
+        barProfile: BarProfile? = nil,
+        barStarts: [TimeInterval] = []
     ) {
         self.trackId = trackId
         self.title = title
@@ -316,6 +399,12 @@ struct TrackFeatures: Equatable, Sendable {
         self.preferredEntrySeconds = preferredEntrySeconds
         self.preferredExitSeconds = preferredExitSeconds
         self.provenance = provenance
+        self.cueHints = cueHints
+        self.extensionLoop = extensionLoop
+        self.heat = heat
+        self.boundaries = boundaries
+        self.barProfile = barProfile
+        self.barStarts = barStarts
     }
 
     func key(at seconds: TimeInterval) -> CamelotKey? {
@@ -375,7 +464,7 @@ struct ExecutorCapabilities: OptionSet, Sendable, Hashable {
     static let loopResize        = ExecutorCapabilities(rawValue: 1 << 10)
     static let delayPerDeck      = ExecutorCapabilities(rawValue: 1 << 11)
     static let masterLimiter     = ExecutorCapabilities(rawValue: 1 << 12)
-    static let reversePlayback   = ExecutorCapabilities(rawValue: 1 << 13)
+    static let mixTimeline       = ExecutorCapabilities(rawValue: 1 << 13)
 
     static let v1MixEngine: ExecutorCapabilities = [
         .crossfade, .threeBandEQ, .lowPassFilter, .timeStretch, .pitchShift,
@@ -385,7 +474,7 @@ struct ExecutorCapabilities: OptionSet, Sendable, Hashable {
     static let fullMixEngine: ExecutorCapabilities = [
         .crossfade, .threeBandEQ, .lowPassFilter, .highPassFilter,
         .timeStretch, .pitchShift, .loopBuffer, .loopResize, .entryCue,
-        .snappedBassSwap, .sampleAccurateCue, .delayPerDeck, .masterLimiter
+        .snappedBassSwap, .sampleAccurateCue, .delayPerDeck, .masterLimiter, .mixTimeline
     ]
 }
 
@@ -398,7 +487,7 @@ enum StageSnap: String, Equatable, Sendable, Codable {
     case free
 }
 
-enum StageAction: Equatable, Sendable {
+enum StageAction: Equatable, Sendable, Codable {
     case loop(bars: Double)
     case clearLoop
     case lowPassTo(hertz: Double, over: TimeInterval)
@@ -408,6 +497,7 @@ enum StageAction: Equatable, Sendable {
     case crossfadeTo(position: Double, over: TimeInterval)
     case rateRatio(Double, over: TimeInterval)
     case hardCut(fadeSeconds: TimeInterval)
+    case echoCut(feedback: Double, release: TimeInterval)
 
     var requiredCapabilities: ExecutorCapabilities {
         switch self {
@@ -420,6 +510,7 @@ enum StageAction: Equatable, Sendable {
         case .crossfadeTo:   return [.crossfade]
         case .rateRatio:     return [.timeStretch]
         case .hardCut:       return [.crossfade]
+        case .echoCut:       return [.delayPerDeck, .crossfade]
         }
     }
 
@@ -437,11 +528,31 @@ enum StageAction: Equatable, Sendable {
         case .crossfadeTo(let p, _):      return "fader to \(Int(p * 100))%"
         case .rateRatio(let r, _):        return String(format: "rate ×%.3f", r)
         case .hardCut:                    return "cut"
+        case .echoCut:                    return "echo out"
+        }
+    }
+
+    var durationSeconds: TimeInterval? {
+        switch self {
+        case .loop, .clearLoop:
+            return nil
+        case .lowPassTo(_, let duration),
+             .highPassTo(_, let duration),
+             .eqLow(_, let duration),
+             .crossfadeTo(_, let duration),
+             .rateRatio(_, let duration):
+            return max(0, duration)
+        case .delayWet(_, _, let duration):
+            return max(0, duration)
+        case .hardCut(let fadeSeconds):
+            return max(0, fadeSeconds)
+        case .echoCut(_, let release):
+            return max(0, release)
         }
     }
 }
 
-struct TransitionStage: Equatable, Sendable {
+struct TransitionStage: Equatable, Sendable, Codable {
     let atSeconds: TimeInterval
     let deck: StageDeck
     let action: StageAction
@@ -455,7 +566,7 @@ struct TransitionStage: Equatable, Sendable {
     }
 }
 
-enum TransitionAccent: Equatable {
+enum TransitionAccent: Equatable, Sendable, Codable {
     case outgoingFilterClose
     case incomingFilterOpen
 }
@@ -485,6 +596,8 @@ struct DJTransitionPlan: Equatable, Sendable {
 
     let profileMinimumScore: Double
 
+    let move: MixMove?
+
     init(
         templateId: TransitionTemplateID,
         profileId: DJProfileID,
@@ -500,7 +613,8 @@ struct DJTransitionPlan: Equatable, Sendable {
         tempoLabel: String,
         accent: TransitionAccent?,
         stages: [TransitionStage] = [],
-        profileMinimumScore: Double
+        profileMinimumScore: Double,
+        move: MixMove? = nil
     ) {
         self.templateId = templateId
         self.profileId = profileId
@@ -517,6 +631,7 @@ struct DJTransitionPlan: Equatable, Sendable {
         self.accent = accent
         self.stages = stages
         self.profileMinimumScore = profileMinimumScore
+        self.move = move
     }
 
     var mixEndSeconds: TimeInterval { exit.seconds + overlapSeconds }
@@ -543,6 +658,30 @@ struct DJTransitionPlan: Equatable, Sendable {
         if !loops.isEmpty { parts.append(loops.joined(separator: " → ") + "-bar loop") }
         parts.append(contentsOf: others)
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    func clampingOverlap(toAtMost maxSeconds: TimeInterval) -> DJTransitionPlan {
+        guard move == nil, maxSeconds > 0, overlapSeconds > maxSeconds else { return self }
+        let ratio = maxSeconds / overlapSeconds
+        return DJTransitionPlan(
+            templateId: templateId,
+            profileId: profileId,
+            outgoingTrackId: outgoingTrackId,
+            incomingTrackId: incomingTrackId,
+            exit: exit,
+            entry: entry,
+            overlapSeconds: maxSeconds,
+            bassSwapAtSeconds: min(bassSwapAtSeconds * ratio, max(0, maxSeconds - 0.05)),
+            bassSwapSeconds: max(0.05, bassSwapSeconds * ratio),
+            incomingRateRatio: incomingRateRatio,
+            tempoFactor: tempoFactor,
+            tempoLabel: tempoLabel,
+            accent: accent,
+            stages: stages.map { stage in
+                TransitionStage(at: min(stage.atSeconds * ratio, maxSeconds), on: stage.deck, stage.action, snap: stage.snap)
+            },
+            profileMinimumScore: profileMinimumScore
+        )
     }
 }
 
@@ -603,19 +742,34 @@ struct SetHistory: Sendable, Equatable {
     let recentTrackIds: [String]
     let energyTrace: [Int]
     let arc: SetArc
+    let recentMoves: [MixMove.Kind]
+    let loopsThisHour: Int
+    let energyTarget: Int?
+    var learned: DJLearnedPriors = .neutral
+    var style: AutoMixStyle = .standard
+    var transitionNet: AutoMixNetModel?
+    var setPriors: LearnedSetPriors?
+    var intent: SetIntent?
+    var setMinute: Double = 0
 
     init(
         recentTemplates: [TransitionTemplateID] = [],
         recentArtists: [String] = [],
         recentTrackIds: [String] = [],
         energyTrace: [Int] = [],
-        arc: SetArc = .rising
+        arc: SetArc = .rising,
+        recentMoves: [MixMove.Kind] = [],
+        loopsThisHour: Int = 0,
+        energyTarget: Int? = nil
     ) {
         self.recentTemplates = recentTemplates
         self.recentArtists = recentArtists
         self.recentTrackIds = recentTrackIds
         self.energyTrace = energyTrace
         self.arc = arc
+        self.recentMoves = recentMoves
+        self.loopsThisHour = loopsThisHour
+        self.energyTarget = energyTarget
     }
 
     static let empty = SetHistory()
@@ -765,6 +919,7 @@ struct DJProfile: Sendable, Equatable, Codable, Identifiable {
 
     let exitRegionFloor: Double
     let allowMidTrackExit: Bool
+    let entryRegionCeiling: Double
     let minimumPlayFraction: Double
 
     let admissibleTemplates: Set<TransitionTemplateID>
@@ -792,6 +947,9 @@ struct DJProfile: Sendable, Equatable, Codable, Identifiable {
     let transitionBarsRange: ClosedRange<Int>
     let energyStepLimit: Int
     let timbreTargetDistance: Double
+
+    let honoursUserTransitionLength: Bool
+    var blendTargetBars: Int?
 }
 
 enum DJFormat {
@@ -816,7 +974,8 @@ enum DJFormat {
 extension DJEngineConstants {
     static let minimumPlannableDuration: TimeInterval = 25
     static let minimumTransitionSeconds: TimeInterval = 3
-    static let maximumTransitionSeconds: TimeInterval = 28
+    static let maximumTransitionSeconds: TimeInterval = 64
+    static let tempoOnlyGridConfidence: Double = 0.3
     static let accentClosedFilterHz: Double = 320
     static let bucketSeconds: TimeInterval = 1.0
 }

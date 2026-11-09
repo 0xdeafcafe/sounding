@@ -1,4 +1,4 @@
-# watchOS for SoundingCloud — plan, with an honest verdict
+# watchOS for Sounding — plan, with an honest verdict
 
 > ## SUPERSEDED — a watchOS target now exists
 >
@@ -72,8 +72,8 @@ Then stop and see whether you ever look at it. If in three months you're glancin
 |---|---|
 | Does the existing Live Activity appear in the watch Smart Stack when the **TV** is playing? | Yes **[DOC]** |
 | Does the system Now Playing app control phone playback correctly from the existing `MPRemoteCommandCenter` wiring? | Yes **[DOC]** |
-| Does the watch's **Remote** app control the Apple TV running SoundingCloud? | Yes for navigation/transport **[DOC]** |
-| Does the Remote/Now Playing path surface *SoundingCloud's own* tvOS `MPNowPlayingInfoCenter` metadata (title/artist/artwork) on the wrist? | **Genuinely unknown.** No Apple statement, no credible first-hand report for third-party tvOS apps. **[UNVERIFIED]** — this is the highest-value hour in the whole plan. If yes, TV now-playing on the wrist is already done and you can close this document. |
+| Does the watch's **Remote** app control the Apple TV running Sounding? | Yes for navigation/transport **[DOC]** |
+| Does the Remote/Now Playing path surface *Sounding's own* tvOS `MPNowPlayingInfoCenter` metadata (title/artist/artwork) on the wrist? | **Genuinely unknown.** No Apple statement, no credible first-hand report for third-party tvOS apps. **[UNVERIFIED]** — this is the highest-value hour in the whole plan. If yes, TV now-playing on the wrist is already done and you can close this document. |
 
 ---
 
@@ -425,11 +425,11 @@ Worth knowing it exists. Not worth rearchitecting the app's identity scheme for.
 
 Apple's sanctioned alternatives — no accounts, CloudKit, Sign In with Apple, or custom text-field forms **[DOC]** — none fit an unofficial client scraping a session cookie.
 
-**[INFER]** So a SoundingCloud watch app is structurally a **dependent satellite**: it can't sign in, can't get a token on its own, can't stream without one, and would show an empty shell to anyone who opened it without their phone. That's the profile Apple's guidance exists to discourage, and it's a genuine argument that the platform is a poor fit for *this specific app* — not a general one.
+**[INFER]** So a Sounding watch app is structurally a **dependent satellite**: it can't sign in, can't get a token on its own, can't stream without one, and would show an empty shell to anyone who opened it without their phone. That's the profile Apple's guidance exists to discourage, and it's a genuine argument that the platform is a poor fit for *this specific app* — not a general one.
 
 Also worth stating plainly: making a third device hold your SoundCloud OAuth token and the TV's pairing secret widens the blast radius of a lost watch, for a feature whose whole value proposition is "glanceable". (The right transfer primitive would be `WCSession.updateApplicationContext(_:)` — no reachability requirement, coalescing, "replaces the previous dictionary" **[DOC]** — not `sendMessage`. Your HMAC-signed `TokenTransferMessage` design wouldn't apply; WatchConnectivity is already an OS-managed encrypted channel.)
 
-**One gotcha to decide deliberately if you ever do ship a target:** `PUICAutoLaunchAudioOptOut` (watchOS 5+) — *"A Boolean value that indicates whether a watchOS app should opt out of automatically launching when its companion iOS app starts playing audio content."* **[DOC]** The **default is to auto-launch**. Ship a watch app without setting this and SoundingCloud will jump onto the wrist every time the phone starts a track. That default is itself a strong hint about what Apple thinks a music app's watch app is *for* — a remote control for the phone, which is exactly the thing the system already provides.
+**One gotcha to decide deliberately if you ever do ship a target:** `PUICAutoLaunchAudioOptOut` (watchOS 5+) — *"A Boolean value that indicates whether a watchOS app should opt out of automatically launching when its companion iOS app starts playing audio content."* **[DOC]** The **default is to auto-launch**. Ship a watch app without setting this and Sounding will jump onto the wrist every time the phone starts a track. That default is itself a strong hint about what Apple thinks a music app's watch app is *for* — a remote control for the phone, which is exactly the thing the system already provides.
 
 ---
 

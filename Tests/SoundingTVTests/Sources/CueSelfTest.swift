@@ -226,7 +226,7 @@ enum CueSelfTest {
             "origin, confidence and reasoning distinguish the two structurally",
             sheet.entries.allSatisfy { entry in
                 switch entry.origin {
-                case .user:      return entry.confidence == nil
+                case .user, .imported: return entry.confidence == nil
                 case .suggested: return entry.confidence != nil && !entry.reasoning.isEmpty
                 }
             }

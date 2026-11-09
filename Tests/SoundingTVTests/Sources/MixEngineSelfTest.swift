@@ -4,9 +4,165 @@ import Accelerate
 import Combine
 import CryptoKit
 import AudioToolbox
+import XCTest
 @testable import SoundingTV
 
+final class MixEnginePureTests: XCTestCase {
+    func testMixLoopSelfTest() {
+        let report = MixLoopSelfTest.run()
+        XCTAssertTrue(report.failures.isEmpty, report.failures.joined(separator: "\n"))
+    }
+
+    func testTranscodingRankSelfTest() {
+        let report = TranscodingRankSelfTest.run()
+        XCTAssertTrue(report.failures.isEmpty, report.failures.joined(separator: "\n"))
+    }
+}
+
 #if DEBUG
+
+@MainActor
+final class MixEngineRuntimeTests: XCTestCase {
+    func testMixImportSelfTest() async {
+        let report = await MixImportSelfTest.run()
+        XCTAssertTrue(report.failures.isEmpty, report.summary)
+    }
+
+    func testMixTranscodeErrorSelfTest() async {
+        let report = await MixTranscodeErrorSelfTest.run()
+        XCTAssertTrue(report.failures.isEmpty, report.summary)
+    }
+
+    func testMixPlaybackFailureSelfTest() async {
+        let report = await MixPlaybackFailureSelfTest.run()
+        XCTAssertTrue(report.failures.isEmpty, report.summary)
+    }
+
+    func testMixTransportSitesSelfTest() async {
+        let report = await MixTransportSitesSelfTest.run()
+        XCTAssertTrue(report.failures.isEmpty, report.summary)
+    }
+
+    func testEngineSuspendsWhileIdleAndResumesOnPlay() async throws {
+        let engine = MixEngine.shared
+        let deck = MixEngine.Deck.a
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mixidletest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer {
+            engine.unload(deck: deck)
+            engine.stop()
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let source = dir.appendingPathComponent("tone.m4a")
+        try await MixImportSelfTest.encodeTestTone(to: source, seconds: 6.0, sampleRate: 44_100)
+        try await engine.load(url: source, into: deck, trackId: "mixidletest")
+
+        engine.play(deck: deck)
+        XCTAssertTrue(engine.isRunning)
+        try await Task.sleep(for: .milliseconds(600))
+        engine.pause(deck: deck)
+        let pausedAt = engine[deck].position
+        XCTAssertGreaterThan(pausedAt, 0.2)
+
+        let runningStart = Self.processCPUSeconds()
+        try await Task.sleep(for: .milliseconds(1800))
+        let runningCPU = (Self.processCPUSeconds() - runningStart) / 1.8
+        try await Task.sleep(for: .milliseconds(1200))
+        XCTAssertFalse(engine.isRunning, "engine should pause after two idle seconds")
+        XCTAssertEqual(engine[deck].level, 0)
+        let suspendedStart = Self.processCPUSeconds()
+        try await Task.sleep(for: .seconds(3))
+        let suspendedCPU = (Self.processCPUSeconds() - suspendedStart) / 3
+        print(String(format: "[MixIdleCPU] paused, engine running: %.2f%%  paused, engine suspended: %.2f%%", runningCPU * 100, suspendedCPU * 100))
+
+        engine.play(deck: deck)
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertTrue(engine[deck].isPlaying)
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertGreaterThan(engine[deck].position, pausedAt + 0.2, "playback should resume from the paused position")
+        XCTAssertLessThan(engine[deck].position, pausedAt + 2.0)
+    }
+
+    func testDecksKeepPlayingAcrossConfigurationChangeOnAirPlay() async throws {
+        let original = PlatformAudioSession.coordinator
+        PlatformAudioSession.coordinator = AirPlayRouteCoordinator(base: original)
+        let engine = MixEngine.shared
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mixroutetest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer {
+            engine.unload(deck: .a)
+            engine.unload(deck: .b)
+            engine.stop()
+            PlatformAudioSession.coordinator = original
+            try? FileManager.default.removeItem(at: dir)
+        }
+        XCTAssertTrue(PlatformAudioSession.isAirPlayRoute)
+
+        let sourceA = dir.appendingPathComponent("a.m4a")
+        let sourceB = dir.appendingPathComponent("b.m4a")
+        try await MixImportSelfTest.encodeTestTone(to: sourceA, seconds: 8.0, sampleRate: 44_100)
+        try await MixImportSelfTest.encodeTestTone(to: sourceB, seconds: 8.0, sampleRate: 44_100)
+        try await engine.load(url: sourceA, into: .a, trackId: "mixroutetest-a")
+        try await engine.load(url: sourceB, into: .b, trackId: "mixroutetest-b")
+        engine.seek(deck: .b, to: 2.0)
+
+        engine.play(decks: [.a, .b])
+        XCTAssertTrue(engine.isRunning)
+        try await Task.sleep(for: .milliseconds(700))
+
+        let beforeA = engine.livePosition(of: .a)
+        let beforeB = engine.livePosition(of: .b)
+        XCTAssertGreaterThan(beforeA, 0.3)
+        XCTAssertGreaterThan(beforeB, 2.3)
+
+        let errorBefore = engine.lastError
+        engine.debugSimulateConfigurationChange()
+
+        XCTAssertTrue(engine.isRunning, "the engine should restart itself after a configuration change")
+        XCTAssertTrue(engine[.a].isPlaying)
+        XCTAssertTrue(engine[.b].isPlaying)
+        XCTAssertEqual(engine.lastError, errorBefore)
+        let afterA = engine.livePosition(of: .a)
+        let afterB = engine.livePosition(of: .b)
+        XCTAssertEqual(afterA, beforeA, accuracy: 0.25, "deck A should keep its position")
+        XCTAssertEqual(afterB, beforeB, accuracy: 0.25, "deck B should keep its position")
+        XCTAssertEqual(afterB - afterA, beforeB - beforeA, accuracy: 0.02, "the decks should stay aligned")
+
+        try await Task.sleep(for: .milliseconds(700))
+        let laterA = engine.livePosition(of: .a)
+        let laterB = engine.livePosition(of: .b)
+        XCTAssertGreaterThan(laterA, afterA + 0.3, "deck A should keep playing")
+        XCTAssertLessThan(laterA, afterA + 1.5)
+        XCTAssertGreaterThan(laterB, afterB + 0.3, "deck B should keep playing")
+        XCTAssertEqual(laterB - laterA, beforeB - beforeA, accuracy: 0.02)
+        XCTAssertLessThanOrEqual(engine.audiblePosition(of: .a), engine.livePosition(of: .a) + 0.01)
+    }
+
+    private static func processCPUSeconds() -> Double {
+        var spec = timespec()
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &spec)
+        return Double(spec.tv_sec) + Double(spec.tv_nsec) / 1_000_000_000
+    }
+}
+
+@MainActor
+private final class AirPlayRouteCoordinator: AudioSessionCoordinating {
+    private let base: (any AudioSessionCoordinating)?
+
+    init(base: (any AudioSessionCoordinating)?) {
+        self.base = base
+    }
+
+    var outputName: String? { "Living Room" }
+    var outputKind: AudioOutputKind { .airPlay }
+    var maximumOutputChannels: Int { 2 }
+    var supportsMultichannel: Bool { false }
+
+    func activatePlayback() { base?.activatePlayback() }
+    func refreshRoute() { base?.refreshRoute() }
+}
 
 private final class ProgressTracker: @unchecked Sendable {
     private let lock = NSLock()
@@ -799,6 +955,466 @@ enum MixLoopSelfTest {
         expectWrap("several laps in", elapsed: AVAudioFramePosition(9.5 * sampleRate), expectedOffsetIntoLoop: AVAudioFramePosition(1.5 * sampleRate))
 
         return report
+    }
+}
+#endif
+
+#if DEBUG
+
+final class MixBlendRecordingTests: XCTestCase {
+    func testMixBlendRecordingSelfTest() async {
+        let report = await MixBlendRecordingSelfTest.run()
+        print(report.summary)
+        XCTAssertTrue(report.failures.isEmpty, report.summary)
+    }
+}
+
+private final class MixTapRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var file: AVAudioFile?
+    private let url: URL
+
+    init(url: URL) {
+        self.url = url
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    func write(_ buffer: AVAudioPCMBuffer) {
+        lock.lock()
+        defer { lock.unlock() }
+        if file == nil {
+            file = try? AVAudioFile(forWriting: url, settings: buffer.format.settings)
+        }
+        try? file?.write(from: buffer)
+    }
+
+    func finish() {
+        lock.lock()
+        file = nil
+        lock.unlock()
+    }
+}
+
+private func makeMixTapBlock(_ recorder: MixTapRecorder) -> AVAudioNodeTapBlock {
+    { buffer, _ in
+        recorder.write(buffer)
+    }
+}
+
+@MainActor
+enum MixBlendRecordingSelfTest {
+
+    private static let scratchDirectory = URL(
+        fileURLWithPath: "/private/tmp/claude-501/-Users-afr-Source-github-com-0xdeafcafe-sounding-tv/d0858a5a-3405-4ecf-b52c-cca88038b0aa/scratchpad",
+        isDirectory: true
+    )
+
+    static func run() async -> MixImportSelfTest.Report {
+        var report = MixImportSelfTest.Report()
+        try? FileManager.default.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
+
+        let engine = MixEngine.shared
+        defer {
+            engine.debugRemoveMainMixerTap()
+            engine.unload(deck: .a)
+            engine.unload(deck: .b)
+            engine.stop()
+        }
+
+        let sourceA = scratchDirectory.appendingPathComponent("mixblend-src-a.caf")
+        let sourceB = scratchDirectory.appendingPathComponent("mixblend-src-b.caf")
+        do {
+            try synthesizeTestTrack(url: sourceA, toneHz: 220, seconds: 40)
+            try synthesizeTestTrack(url: sourceB, toneHz: 880, seconds: 40)
+            report.lines.append("synthesized 40s 44.1kHz stereo fixtures: A=220Hz+128bpm kick, B=880Hz+128bpm kick")
+        } catch {
+            report.failures.append("could not synthesize fixtures: \(error)")
+            return report
+        }
+
+        let (blendLines, blendFailures) = await runCrossfadeScenario(engine: engine, sourceA: sourceA, sourceB: sourceB)
+        report.lines.append(contentsOf: blendLines)
+        report.failures.append(contentsOf: blendFailures)
+
+        let (cutLines, cutFailures) = await runHardCutScenario(engine: engine, sourceA: sourceA, sourceB: sourceB)
+        report.lines.append(contentsOf: cutLines)
+        report.failures.append(contentsOf: cutFailures)
+
+        return report
+    }
+
+    private static func synthesizeTestTrack(
+        url: URL,
+        toneHz: Double,
+        seconds: Double,
+        sampleRate: Double = 44_100
+    ) throws {
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2) else {
+            throw MixEngineError.decodeFailed("could not build the synth format")
+        }
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        let totalFrames = AVAudioFrameCount(seconds * sampleRate)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalFrames) else {
+            throw MixEngineError.decodeFailed("could not allocate the synth buffer")
+        }
+        buffer.frameLength = totalFrames
+        guard let channels = buffer.floatChannelData else {
+            throw MixEngineError.decodeFailed("synth buffer exposed no float channel data")
+        }
+
+        let kickPeriod = 60.0 / 128.0
+        let kickToneHz = 60.0
+        let kickDuration = 0.15
+
+        for frame in 0..<Int(totalFrames) {
+            let t = Double(frame) / sampleRate
+            let tone = sin(2 * .pi * toneHz * t) * 0.3
+            let phase = t.truncatingRemainder(dividingBy: kickPeriod)
+            var kick = 0.0
+            if phase < kickDuration {
+                let envelope = exp(-phase * 28)
+                kick = sin(2 * .pi * kickToneHz * phase) * envelope * 0.5
+            }
+            let sample = Float(max(-1, min(1, tone + kick)))
+            channels[0][frame] = sample
+            channels[1][frame] = sample
+        }
+
+        try file.write(from: buffer)
+    }
+
+    private static func runCrossfadeScenario(
+        engine: MixEngine,
+        sourceA: URL,
+        sourceB: URL
+    ) async -> (lines: [String], failures: [String]) {
+        var lines: [String] = []
+        var failures: [String] = []
+
+        do {
+            try await engine.load(url: sourceA, into: .a, trackId: "mixblend-a")
+            try await engine.load(url: sourceB, into: .b, trackId: "mixblend-b")
+        } catch {
+            failures.append("crossfade scenario: engine.load(file://…) failed: \(error)")
+            return (lines, failures)
+        }
+        guard engine[.a].status.isReady, engine[.b].status.isReady else {
+            failures.append("crossfade scenario: decks did not reach .ready — A=\(engine[.a].status) B=\(engine[.b].status)")
+            return (lines, failures)
+        }
+        lines.append(
+            "loaded both decks via MixEngine.load(url:into:trackId:) — the same local-file path DJSessionDirector "
+                + "uses at armMixSession(); SourceImporter materialises file:// URLs directly (no network, no re-encode)"
+        )
+
+        let outputURL = scratchDirectory.appendingPathComponent("mixblend.wav")
+        let recorder = MixTapRecorder(url: outputURL)
+        engine.debugInstallMainMixerTap(bufferSize: 4096, block: makeMixTapBlock(recorder))
+
+        engine.crossfade = 0
+        engine.play(deck: .a)
+        try? await Task.sleep(for: .seconds(5))
+
+        engine.setEQ(.low, on: .b, toDecibels: MixEngine.bassKillDecibels)
+        engine.seek(deck: .b, to: 0)
+        engine.play(deck: .b)
+
+        let window: TimeInterval = 15
+        engine.crossfade(to: .b, over: window)
+        let swapAt = window * 0.55
+        let swapOver = min(0.5, window * 0.2)
+        try? await Task.sleep(for: .seconds(swapAt))
+        engine.swapBass(from: .a, to: .b, over: swapOver)
+        try? await Task.sleep(for: .seconds(window - swapAt))
+
+        engine.stop(deck: .a)
+        try? await Task.sleep(for: .seconds(5))
+
+        engine.debugRemoveMainMixerTap()
+        recorder.finish()
+        lines.append("recorded crossfade blend (5s A solo, \(Int(window))s crossfade with swapBass at +\(String(format: "%.2f", swapAt))s over \(swapOver)s, 5s B solo) to \(outputURL.path)")
+
+        let samples: [Float]
+        let sampleRate: Double
+        do {
+            (samples, sampleRate) = try loadMonoSamples(url: outputURL)
+        } catch {
+            failures.append("could not reopen the recorded blend for analysis: \(error)")
+            return (lines, failures)
+        }
+        let totalSeconds = Double(samples.count) / sampleRate
+        lines.append("recorded \(String(format: "%.2f", totalSeconds))s (\(samples.count) frames @ \(Int(sampleRate))Hz)")
+
+        let spectral = computeSpectralTrack(samples: samples, sampleRate: sampleRate, freqA: 220, freqB: 880)
+
+        func spectralWindow(_ from: Double, _ to: Double) -> (aDb: Double, bDb: Double) {
+            let inRange = spectral.filter { $0.time >= from && $0.time < to }
+            return (averageDb(inRange.map(\.freqADb)), averageDb(inRange.map(\.freqBDb)))
+        }
+
+        let first3 = spectralWindow(0, 3)
+        lines.append("first 3s: 220Hz=\(fmt(first3.aDb))dB, 880Hz=\(fmt(first3.bDb))dB")
+        if !(first3.aDb - first3.bDb > 20) {
+            failures.append("first 3s should be 220Hz-dominant by >20dB, got 220Hz=\(fmt(first3.aDb))dB 880Hz=\(fmt(first3.bDb))dB (Δ=\(fmt(first3.aDb - first3.bDb))dB)")
+        }
+
+        let midpointTime = 5 + window * 0.5 / 1
+        let midpoint = spectralWindow(midpointTime - 0.5, midpointTime + 0.5)
+        let midDelta = abs(midpoint.aDb - midpoint.bDb)
+        lines.append("crossfade midpoint (t≈\(fmt(midpointTime))s): 220Hz=\(fmt(midpoint.aDb))dB, 880Hz=\(fmt(midpoint.bDb))dB, Δ=\(fmt(midDelta))dB")
+        if midDelta > 12 {
+            failures.append("crossfade midpoint imbalance \(fmt(midDelta))dB exceeds 12dB (220Hz=\(fmt(midpoint.aDb))dB, 880Hz=\(fmt(midpoint.bDb))dB) — the two decks are not audibly overlapping")
+        }
+        let aDropFromSolo = first3.aDb - midpoint.aDb
+        lines.append("220Hz solo→midpoint drop: \(fmt(aDropFromSolo))dB")
+        if aDropFromSolo > 6 {
+            failures.append("220Hz dropped \(fmt(aDropFromSolo))dB from its solo level by the crossfade midpoint (expected ≤6dB for an equal-power blend)")
+        }
+
+        let final3 = spectralWindow(totalSeconds - 3, totalSeconds)
+        lines.append("final 3s: 220Hz=\(fmt(final3.aDb))dB, 880Hz=\(fmt(final3.bDb))dB")
+        if !(final3.bDb - final3.aDb > 20) {
+            failures.append("final 3s should be 880Hz-dominant by >20dB, got 220Hz=\(fmt(final3.aDb))dB 880Hz=\(fmt(final3.bDb))dB (Δ=\(fmt(final3.bDb - final3.aDb))dB)")
+        }
+        let bDropFromSolo = final3.bDb - midpoint.bDb
+        lines.append("880Hz midpoint→solo rise check: midpoint=\(fmt(midpoint.bDb))dB, solo=\(fmt(final3.bDb))dB, Δ=\(fmt(bDropFromSolo))dB")
+        if bDropFromSolo > 6 {
+            failures.append("880Hz sat \(fmt(bDropFromSolo))dB below its solo level at the crossfade midpoint (expected ≤6dB for an equal-power blend)")
+        }
+
+        let transitionRMS = shortTermRMSDb(samples, sampleRate: sampleRate, windowSeconds: 0.02)
+            .filter { $0.time >= 5 && $0.time < 5 + window }
+        let gap = longestSilentRun(transitionRMS, threshold: -50, windowSeconds: 0.02)
+        lines.append("longest near-silent run inside the transition: \(String(format: "%.1f", gap.durationMs))ms (starting t≈\(fmt(gap.startTime))s)")
+        if gap.durationMs >= 100 {
+            failures.append("a \(String(format: "%.1f", gap.durationMs))ms gap of RMS<-50dBFS was found inside the crossfade at t≈\(fmt(gap.startTime))s — the mix drops out rather than blending")
+        }
+
+        let clickPercentile = percentileAbsDelta(samples, percentile: 0.99999)
+        lines.append("99.999th percentile |Δsample| = \(String(format: "%.4f", clickPercentile))")
+        if clickPercentile >= 0.5 {
+            failures.append("99.999th percentile sample-to-sample delta \(String(format: "%.4f", clickPercentile)) is >= 0.5 — audible clicking in the recording")
+        }
+
+        return (lines, failures)
+    }
+
+    private static func runHardCutScenario(
+        engine: MixEngine,
+        sourceA: URL,
+        sourceB: URL
+    ) async -> (lines: [String], failures: [String]) {
+        var lines: [String] = []
+        var failures: [String] = []
+
+        do {
+            try await engine.load(url: sourceA, into: .a, trackId: "mixcut-a")
+            try await engine.load(url: sourceB, into: .b, trackId: "mixcut-b")
+        } catch {
+            failures.append("hard-cut scenario: engine.load(file://…) failed: \(error)")
+            return (lines, failures)
+        }
+        guard engine[.a].status.isReady, engine[.b].status.isReady else {
+            failures.append("hard-cut scenario: decks did not reach .ready — A=\(engine[.a].status) B=\(engine[.b].status)")
+            return (lines, failures)
+        }
+
+        let outputURL = scratchDirectory.appendingPathComponent("mixcut.wav")
+        let recorder = MixTapRecorder(url: outputURL)
+        engine.debugInstallMainMixerTap(bufferSize: 4096, block: makeMixTapBlock(recorder))
+
+        engine.crossfade = 0
+        engine.seek(deck: .b, to: 0)
+        engine.play(deck: .a)
+        try? await Task.sleep(for: .seconds(5))
+
+        let fade: TimeInterval = 0.05
+        if !engine[.b].isPlaying { engine.play(deck: .b) }
+        engine.crossfade(to: .b, over: fade)
+        try? await Task.sleep(for: .seconds(3))
+
+        engine.debugRemoveMainMixerTap()
+        recorder.finish()
+        lines.append(
+            "recorded hard-cut handover (fade=\(fade)s, matching CutOnTheOneTemplate.fadeSeconds — the same value "
+                + "DJSessionDirector.executeStages() passes to engine.crossfade(to:over:) for a .hardCut stage) to \(outputURL.path)"
+        )
+
+        let samples: [Float]
+        let sampleRate: Double
+        do {
+            (samples, sampleRate) = try loadMonoSamples(url: outputURL)
+        } catch {
+            failures.append("could not reopen the recorded hard cut for analysis: \(error)")
+            return (lines, failures)
+        }
+
+        let handoverRMS = shortTermRMSDb(samples, sampleRate: sampleRate, windowSeconds: 0.01)
+            .filter { $0.time >= 4.5 }
+        let gap = longestSilentRun(handoverRMS, threshold: -50, windowSeconds: 0.01)
+        lines.append("hard-cut handover gap: \(String(format: "%.1f", gap.durationMs))ms of RMS<-50dBFS (starting t≈\(fmt(gap.startTime))s, handover requested at t≈5.0s)")
+        if gap.durationMs > 120 {
+            lines.append("FINDING (not a failure per the brief): handover gap \(String(format: "%.1f", gap.durationMs))ms exceeds the 120ms informational threshold")
+        }
+
+        return (lines, failures)
+    }
+
+    private static func fmt(_ value: Double) -> String { String(format: "%.1f", value) }
+
+    private static func averageDb(_ values: [Double]) -> Double {
+        guard !values.isEmpty else { return -160 }
+        let linear = values.map { pow(10, $0 / 20) }
+        let meanLinear = linear.reduce(0, +) / Double(linear.count)
+        return 20 * log10(max(meanLinear, 1e-12))
+    }
+
+    private static func loadMonoSamples(url: URL) throws -> (samples: [Float], sampleRate: Double) {
+        let file = try AVAudioFile(forReading: url)
+        let format = file.processingFormat
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(file.length)) else {
+            throw MixEngineError.decodeFailed("could not allocate the analysis buffer")
+        }
+        try file.read(into: buffer)
+        let frameCount = Int(buffer.frameLength)
+        guard let channelData = buffer.floatChannelData else {
+            throw MixEngineError.decodeFailed("recording exposed no float channel data")
+        }
+        let channelCount = Int(format.channelCount)
+        var mono = [Float](repeating: 0, count: frameCount)
+        if channelCount == 1 {
+            for frame in 0..<frameCount { mono[frame] = channelData[0][frame] }
+        } else {
+            for frame in 0..<frameCount {
+                var sum: Float = 0
+                for channel in 0..<channelCount { sum += channelData[channel][frame] }
+                mono[frame] = sum / Float(channelCount)
+            }
+        }
+        return (mono, format.sampleRate)
+    }
+
+    private static func percentileAbsDelta(_ samples: [Float], percentile: Double) -> Float {
+        guard samples.count > 1 else { return 0 }
+        var deltas = [Float](repeating: 0, count: samples.count - 1)
+        for i in 1..<samples.count { deltas[i - 1] = abs(samples[i] - samples[i - 1]) }
+        deltas.sort()
+        let idx = min(deltas.count - 1, Int(Double(deltas.count) * percentile))
+        return deltas[idx]
+    }
+
+    private static func shortTermRMSDb(
+        _ samples: [Float],
+        sampleRate: Double,
+        windowSeconds: Double
+    ) -> [(time: Double, db: Double)] {
+        let windowFrames = max(1, Int(windowSeconds * sampleRate))
+        var result: [(time: Double, db: Double)] = []
+        var start = 0
+        while start < samples.count {
+            let end = min(samples.count, start + windowFrames)
+            let count = end - start
+            var rms: Float = 0
+            samples.withUnsafeBufferPointer { ptr in
+                vDSP_rmsqv(ptr.baseAddress! + start, 1, &rms, vDSP_Length(count))
+            }
+            let db = 20 * log10(max(rms, 1e-9))
+            result.append((Double(start) / sampleRate, Double(db)))
+            start = end
+        }
+        return result
+    }
+
+    private static func longestSilentRun(
+        _ track: [(time: Double, db: Double)],
+        threshold: Double,
+        windowSeconds: Double
+    ) -> (startTime: Double, durationMs: Double) {
+        var bestStart = 0.0
+        var bestLen = 0
+        var curStart = 0.0
+        var curLen = 0
+        for sample in track {
+            if sample.db < threshold {
+                if curLen == 0 { curStart = sample.time }
+                curLen += 1
+            } else {
+                if curLen > bestLen { bestLen = curLen; bestStart = curStart }
+                curLen = 0
+            }
+        }
+        if curLen > bestLen { bestLen = curLen; bestStart = curStart }
+        return (bestStart, Double(bestLen) * windowSeconds * 1_000)
+    }
+
+    private struct SpectralSample {
+        let time: Double
+        let freqADb: Double
+        let freqBDb: Double
+    }
+
+    private static func computeSpectralTrack(
+        samples: [Float],
+        sampleRate: Double,
+        freqA: Double,
+        freqB: Double,
+        windowSize: Int = 4096,
+        hop: Int = 2048
+    ) -> [SpectralSample] {
+        let log2n = vDSP_Length(round(log2(Double(windowSize))))
+        guard let fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2)) else { return [] }
+        defer { vDSP_destroy_fftsetup(fftSetup) }
+
+        var hannWindow = [Float](repeating: 0, count: windowSize)
+        vDSP_hann_window(&hannWindow, vDSP_Length(windowSize), Int32(vDSP_HANN_NORM))
+
+        let binHz = sampleRate / Double(windowSize)
+        let binA = Int((freqA / binHz).rounded())
+        let binB = Int((freqB / binHz).rounded())
+        let half = windowSize / 2
+
+        var real = [Float](repeating: 0, count: half)
+        var imag = [Float](repeating: 0, count: half)
+        var windowed = [Float](repeating: 0, count: windowSize)
+        var magnitudes = [Float](repeating: 0, count: half)
+
+        var results: [SpectralSample] = []
+        var start = 0
+
+        func magnitudeDb(_ bin: Int) -> Double {
+            guard bin > 0, bin < half else { return -160 }
+            let power = Double(magnitudes[bin])
+            let amplitude = sqrt(power) / Double(windowSize)
+            return 20 * log10(max(amplitude, 1e-9))
+        }
+
+        while start + windowSize <= samples.count {
+            samples.withUnsafeBufferPointer { srcPtr in
+                windowed.withUnsafeMutableBufferPointer { dstPtr in
+                    vDSP_vmul(srcPtr.baseAddress! + start, 1, hannWindow, 1, dstPtr.baseAddress!, 1, vDSP_Length(windowSize))
+                }
+            }
+
+            real.withUnsafeMutableBufferPointer { realPtr in
+                imag.withUnsafeMutableBufferPointer { imagPtr in
+                    var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
+                    windowed.withUnsafeBufferPointer { wPtr in
+                        wPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: half) { complexPtr in
+                            vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(half))
+                        }
+                    }
+                    vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
+                    vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(half))
+                }
+            }
+
+            let time = Double(start) / sampleRate + (Double(windowSize) / sampleRate) / 2
+            results.append(SpectralSample(time: time, freqADb: magnitudeDb(binA), freqBDb: magnitudeDb(binB)))
+
+            start += hop
+        }
+
+        return results
     }
 }
 #endif

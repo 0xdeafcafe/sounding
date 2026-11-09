@@ -43,9 +43,6 @@ struct DeckIdentity: Equatable, Sendable {
     }
 }
 
-/// Best-effort identification of the record playing inside a long mix. It
-/// deliberately presents provenance and confidence: descriptions are strong
-/// evidence, while listener comments are useful hints rather than metadata.
 enum DeckIdentityResolver {
     private struct TracklistEntry {
         let time: TimeInterval
@@ -63,7 +60,7 @@ enum DeckIdentityResolver {
         guard isLikelyMix(track) else { return nil }
 
         let entries = tracklistEntries(in: track.description ?? "")
-        if let entry = entries.last(where: { $0.time <= position + 2 }) {
+        if let entry = entries.last(where: { $0.time <= position }) {
             return DeckIdentity(
                 label: entry.label,
                 searchQuery: searchText(entry.label),
@@ -84,15 +81,35 @@ enum DeckIdentityResolver {
             }
     }
 
-    /// Listener text becomes set-list metadata only when it is an answer to a
-    /// track-ID request. Timestamp proximity by itself is never evidence.
     static func commentIdentities(comments: [Comment]) -> [DeckIdentity] {
-        identificationExchanges(comments: comments).compactMap { exchange in
+        let exchanges = identificationExchanges(comments: comments)
+        var consumedCommentIDs: Set<String> = []
+        var identities = exchanges.compactMap { exchange -> DeckIdentity? in
             guard isIdentificationRequest(exchange.request.body) else { return nil }
             let label = answerLabel(exchange.answer.body)
             guard looksLikeIdentificationAnswer(label) else { return nil }
+            consumedCommentIDs.insert(exchange.answer.id)
             return identity(label: label, exchange: exchange, semantic: false)
         }
+
+        for comment in comments {
+            guard !consumedCommentIDs.contains(comment.id),
+                  let position = comment.timeInTrack,
+                  position >= 0,
+                  CommentMentionParser.mentionToken(in: comment.body) == nil else { continue }
+            let label = standaloneCommentLabel(comment.body)
+            guard looksLikeIdentificationAnswer(label) else { continue }
+            identities.append(DeckIdentity(
+                label: label,
+                searchQuery: searchText(label),
+                source: .listenerComment,
+                evidence: "Listener posted a track ID: “\(comment.body)” (comment #\(comment.id))",
+                confidence: 0.78,
+                startsAt: position,
+                commentID: comment.id
+            ))
+        }
+        return identities
     }
 
     @MainActor
@@ -127,7 +144,7 @@ enum DeckIdentityResolver {
             let proposed = String(raw.dropFirst(3))
                 .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.init(charactersIn: ":-–—\t")))
             let label = cleanedLabel(proposed.isEmpty ? answerLabel(exchange.answer.body) : proposed)
-            guard label.count >= 3, label.count <= 120, !isGenericReaction(label) else { continue }
+            guard looksLikeIdentificationAnswer(label) else { continue }
             identities.append(identity(label: label, exchange: exchange, semantic: true))
         }
         return identities
@@ -136,15 +153,6 @@ enum DeckIdentityResolver {
         #endif
     }
 
-    static func identificationRequestCount(comments: [Comment], at position: TimeInterval) -> Int {
-        comments.filter { comment in
-            guard let time = comment.timeInTrack, abs(time - position) <= 30 else { return false }
-            return isIdentificationRequest(comment.body)
-        }.count
-    }
-
-    /// Exact moments where listeners ask for an ID are high-value Shazam
-    /// probes, even though the request text is intentionally not metadata.
     static func identificationRequestPositions(comments: [Comment]) -> [TimeInterval] {
         var positions: [TimeInterval] = []
         for comment in comments {
@@ -155,26 +163,47 @@ enum DeckIdentityResolver {
         return positions.sorted()
     }
 
-    static func descriptionIdentities(for track: Track) -> [DeckIdentity] {
-        tracklistEntries(in: track.description ?? "").map { entry in
-            DeckIdentity(
-                label: entry.label,
-                searchQuery: searchText(entry.label),
-                source: .descriptionTracklist,
-                evidence: entry.evidence,
-                confidence: 0.94,
-                startsAt: entry.time
-            )
+    static func candidateIdentityPositions(track: Track, comments: [Comment]) -> [TimeInterval] {
+        let candidates = identificationRequestPositions(comments: comments)
+            + descriptionIdentities(for: track).compactMap(\.startsAt)
+            + commentIdentities(comments: comments).compactMap(\.startsAt)
+        var positions: [TimeInterval] = []
+        for position in candidates.sorted() where position >= 0 && position < track.duration {
+            if !positions.contains(where: { abs($0 - position) < 5 }) { positions.append(position) }
         }
+        return positions
     }
 
+    static func descriptionIdentities(for track: Track) -> [DeckIdentity] {
+        tracklistEntries(in: track.description ?? "")
+            .filter { $0.time >= 0 && $0.time < track.duration }
+            .map { entry in
+                DeckIdentity(
+                    label: entry.label,
+                    searchQuery: searchText(entry.label),
+                    source: .descriptionTracklist,
+                    evidence: entry.evidence,
+                    confidence: 0.94,
+                    startsAt: entry.time
+                )
+            }
+    }
+
+    private static let likelyMixRegex = try? NSRegularExpression(
+        pattern: #"\b(dj\s*set|mixtape|mix\s*session|guest\s*mix|radio\s*show|tracklist)\b"#,
+        options: [.caseInsensitive]
+    )
+
     static func isLikelyMix(_ track: Track) -> Bool {
-        if CollectionKind.classify(trackDurationSeconds: track.duration) == .set { return true }
-        let text = "\(track.title) \(track.description ?? "")"
-        return text.range(
-            of: #"(?i)\b(dj\s*set|mixtape|mix\s*session|guest\s*mix|radio\s*show|tracklist)\b"#,
-            options: .regularExpression
-        ) != nil
+        isLikelyMix(title: track.title, description: track.description, duration: track.duration)
+    }
+
+    static func isLikelyMix(title: String, description: String?, duration: TimeInterval) -> Bool {
+        if CollectionKind.classify(trackDurationSeconds: duration) == .set { return true }
+        let text = "\(title) \(description ?? "")"
+        guard let regex = likelyMixRegex else { return false }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.firstMatch(in: text, range: range) != nil
     }
 
     private static func tracklistEntries(in description: String) -> [TracklistEntry] {
@@ -189,7 +218,7 @@ enum DeckIdentityResolver {
             let original = String(description[Range(match.range, in: description) ?? labelRange])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let label = cleanedLabel(String(description[labelRange]))
-            guard label.count >= 3 else { return nil }
+            guard looksLikeIdentificationAnswer(label) else { return nil }
             return TracklistEntry(time: time, label: label, evidence: original)
         }
         .sorted { $0.time < $1.time }
@@ -198,23 +227,25 @@ enum DeckIdentityResolver {
     private static func parseTimestamp(_ text: String) -> TimeInterval? {
         let parts = text.split(separator: ":").compactMap { Double($0) }
         guard parts.count == 2 || parts.count == 3 else { return nil }
-        if parts.count == 2 { return parts[0] * 60 + parts[1] }
-        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        guard parts.allSatisfy({ $0.isFinite && $0 >= 0 }),
+              let seconds = parts.last, seconds < 60 else { return nil }
+        if parts.count == 2 { return parts[0] * 60 + seconds }
+        guard parts[1] < 60 else { return nil }
+        return parts[0] * 3600 + parts[1] * 60 + seconds
     }
 
     private static func cleanedLabel(_ raw: String) -> String {
-        raw
+        SetlistText.normalized(raw
             .replacingOccurrences(of: #"https?://\S+"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"\s+(?:free\s+download|download)\s*$"#, with: "", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"^[#\d.\s]+(?=[A-Za-z])"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.init(charactersIn: "-–—|")))
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.init(charactersIn: "-–—|"))))
     }
 
     private static func searchText(_ label: String) -> String {
-        label
+        SetlistText.normalized(label
             .replacingOccurrences(of: #"\s*\[[^\]]*(?:label|release|out now)[^\]]*\]\s*$"#, with: "", options: [.regularExpression, .caseInsensitive])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private static func identificationExchanges(comments: [Comment]) -> [IdentificationExchange] {
@@ -240,9 +271,6 @@ enum DeckIdentityResolver {
                       abs(requestTime - answerTime) <= 30 else { return false }
                 return userKeys(for: candidate.user).contains(mention)
             }
-            // Prefer an explicit ID request even if that listener added another
-            // comment before somebody answered. The latest linked comment is a
-            // semantic fallback for less formulaic requests such as “need this”.
             let request = candidates.first(where: { isIdentificationRequest($0.body) })
                 ?? candidates.first
             guard let request, let position = request.timeInTrack else { continue }
@@ -255,14 +283,36 @@ enum DeckIdentityResolver {
         cleanedLabel(body.replacingOccurrences(of: #"^@[\w.-]+\s*[:,\-–—]?\s*"#, with: "", options: .regularExpression))
     }
 
-    private static func looksLikeIdentificationAnswer(_ label: String) -> Bool {
+    private static func standaloneCommentLabel(_ body: String) -> String {
+        cleanedLabel(body.replacingOccurrences(
+            of: #"(?i)^(?:(?:track|tune|song)\s*)?(?:id|i\.d\.)\s*[:\-–—]\s*"#,
+            with: "",
+            options: .regularExpression
+        ))
+    }
+
+    static func looksLikeIdentificationAnswer(_ label: String) -> Bool {
         guard label.count >= 5, label.count <= 120,
               !isIdentificationRequest(label), !isGenericReaction(label) else { return false }
-        if label.range(of: #"\s[-–—]\s"#, options: .regularExpression) != nil { return true }
-        if label.range(of: #"(?i)\b.+\s+by\s+.+\b"#, options: .regularExpression) != nil { return true }
-        if label.range(of: #"(?i)\b(remix|edit|bootleg|mashup|vip|dub|rework)\b"#, options: .regularExpression) != nil,
-           label.split(whereSeparator: \Character.isWhitespace).count >= 2 { return true }
-        return false
+        guard label.range(of: #"https?://|www\.|[!?]{2,}"#, options: [.regularExpression, .caseInsensitive]) == nil,
+              label.range(
+                of: #"(?i)^\s*(unknown|unreleased|track\s*id|tune\s*id|song\s*id|id|n/?a|intro|outro|\?+)\s*$"#,
+                options: .regularExpression
+              ) == nil,
+              label.range(
+                of: #"(?i)^\s*(thanks?|love\s+this|what\s+a|great\s+set|nice\s+set|anyone\s+know|please)\b"#,
+                options: .regularExpression
+              ) == nil else { return false }
+
+        let separated = label.range(
+            of: #"^\s*[^\n@]{2,70}(?:\s[-–—]\s|[–—])[^\n@]{2,90}\s*$"#,
+            options: .regularExpression
+        ) != nil
+        let titleByArtist = label.range(
+            of: #"(?i)^\s*[^\n@]{2,80}\s+by\s+[^\n@]{2,80}\s*$"#,
+            options: .regularExpression
+        ) != nil
+        return separated || titleByArtist
     }
 
     private static func identity(

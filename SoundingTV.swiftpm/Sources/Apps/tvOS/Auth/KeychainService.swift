@@ -30,7 +30,7 @@ final class KeychainService: Sendable {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
 
-        let status = SecItemAdd(query as CFDictionary, nil)
+        let status = SoundingKeychain.add(query)
 
         guard status == errSecSuccess else {
             throw KeychainError.saveFailed(status)
@@ -47,7 +47,7 @@ final class KeychainService: Sendable {
         ]
 
         var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = SoundingKeychain.copyMatching(query, &result)
 
         guard status == errSecSuccess,
               let data = result as? Data,
@@ -65,7 +65,7 @@ final class KeychainService: Sendable {
             kSecAttrAccount as String: key
         ]
 
-        let status = SecItemDelete(query as CFDictionary)
+        let status = SoundingKeychain.delete(query)
 
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainError.deleteFailed(status)
@@ -77,14 +77,13 @@ final class KeychainService: Sendable {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service
         ]
-        SecItemDelete(query as CFDictionary)
+        SoundingKeychain.delete(query)
     }
 }
 
 extension KeychainService {
     enum Keys {
         static let oauthToken = "oauth_token"
-        static let tokenExpiry = "token_expiry"
         static let refreshToken = "refresh_token"
         static let clientId = "client_id"
     }

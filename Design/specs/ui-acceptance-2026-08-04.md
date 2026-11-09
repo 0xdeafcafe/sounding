@@ -15,7 +15,7 @@ Status:
 
 - [ ] Ship a real, branded AppIcon for macOS, iOS, tvOS, watchOS and extension
   targets that surface an icon; verify each target’s asset/build setting.
-- [-] Use SoundingCloud orange as the product accent for selection, active
+- [-] Use Sounding orange as the product accent for selection, active
   state and meaningful actions.
 - [-] Keep neutral toolbar/view/filter/overflow controls neutral; do not tint
   every utility icon orange.

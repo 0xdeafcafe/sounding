@@ -1,57 +1,11 @@
 import SwiftUI
 import AppKit
 
-enum MacMusicWindowKind: String {
-    case main
-    case miniPlayer
-
-    var identifier: NSUserInterfaceItemIdentifier {
-        NSUserInterfaceItemIdentifier("SoundingCloud.music.\(rawValue)")
-    }
-}
-
-@MainActor
-final class MacMusicWindowCoordinator {
-    static let shared = MacMusicWindowCoordinator()
-
-    private(set) var requested: MacMusicWindowKind = .main
-
-    private init() {}
-
-    func request(_ kind: MacMusicWindowKind) {
-        requested = kind
-        closeMusicWindows(except: kind)
-    }
-
-    func register(_ window: NSWindow, as kind: MacMusicWindowKind) {
-        window.identifier = kind.identifier
-        guard requested == kind else {
-            window.close()
-            return
-        }
-        closeMusicWindows(except: kind, preserving: window)
-    }
-
-    private func closeMusicWindows(except kind: MacMusicWindowKind, preserving preserved: NSWindow? = nil) {
-        let musicIdentifiers = Set([MacMusicWindowKind.main.identifier, MacMusicWindowKind.miniPlayer.identifier])
-        for window in NSApp.windows where window !== preserved {
-            guard let identifier = window.identifier, musicIdentifiers.contains(identifier) else { continue }
-            if identifier != kind.identifier {
-                // Order the old music window out before SwiftUI instantiates
-                // the requested one. Closing alone is deferred by AppKit and
-                // briefly left both the main player and mini player visible.
-                window.orderOut(nil)
-                window.close()
-            }
-        }
-    }
-}
-
 struct MacWindowChrome: NSViewRepresentable {
-    var musicWindow: MacMusicWindowKind?
+    var configuresMainWindow = false
 
-    init(musicWindow: MacMusicWindowKind? = nil) {
-        self.musicWindow = musicWindow
+    init(configuresMainWindow: Bool = false) {
+        self.configuresMainWindow = configuresMainWindow
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -71,18 +25,11 @@ struct MacWindowChrome: NSViewRepresentable {
 
     private func configure(_ window: NSWindow?) {
         guard let window else { return }
-        guard let musicWindow else { return }
-        // Use AppKit's unified, adaptive window chrome. The previous clear
-        // NSWindow exposed the desktop through the toolbar and removed the
-        // visual boundary between sidebar and content in Light appearance.
+        guard configuresMainWindow else { return }
         window.appearance = nil
-        window.styleMask.insert(.fullSizeContentView)
-        window.toolbarStyle = .unified
-        window.titlebarAppearsTransparent = false
-        window.titlebarSeparatorStyle = .automatic
+        window.titlebarSeparatorStyle = .none
         window.isOpaque = true
         window.backgroundColor = .windowBackgroundColor
-        MacMusicWindowCoordinator.shared.register(window, as: musicWindow)
         #if DEBUG
         applyDebugWindowSizeOverride(window)
         #endif
@@ -100,4 +47,27 @@ struct MacWindowChrome: NSViewRepresentable {
         window.setFrame(frame, display: true)
     }
     #endif
+}
+
+struct MacTrafficLightsKeeper: NSViewRepresentable {
+    let isActive: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { [weak view] in apply(view?.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { [weak nsView] in apply(nsView?.window) }
+    }
+
+    private func apply(_ window: NSWindow?) {
+        guard let window, let toolbar = window.toolbar else { return }
+        if toolbar.isVisible == isActive { toolbar.isVisible = !isActive }
+        window.titleVisibility = isActive ? .hidden : .visible
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            window.standardWindowButton(type)?.isHidden = false
+        }
+    }
 }

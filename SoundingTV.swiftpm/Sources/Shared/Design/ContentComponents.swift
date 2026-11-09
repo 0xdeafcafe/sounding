@@ -1,14 +1,28 @@
 import SwiftUI
 
+private struct ScAdaptiveLineLimit: ViewModifier {
+    let regular: Int
+    let accessibility: Int
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    func body(content: Content) -> some View {
+        content.lineLimit(dynamicTypeSize.isAccessibilitySize ? accessibility : regular)
+    }
+}
+
+extension View {
+    func scAdaptiveLineLimit(_ regular: Int = 1, accessibility: Int = 4) -> some View {
+        modifier(ScAdaptiveLineLimit(regular: regular, accessibility: accessibility))
+    }
+}
+
 struct SCArtwork: View {
     let image: Image?
     let identity: String
     var isAvailable: Bool = true
     var style: SCContentStyle = .tv
     var cornerRadius: CGFloat?
-    /// Dense lists should opt out: generated mesh artwork owns an ambient
-    /// animation task and is far too expensive when dozens of rows are alive.
-    var usesGeneratedFallback = true
+    var subject: SoundingArtSubject = .track
 
     var body: some View {
         ZStack {
@@ -16,16 +30,8 @@ struct SCArtwork: View {
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-            } else if usesGeneratedFallback {
-                GeneratedArtworkCard(identity: identity, mode: .blob, style: style)
             } else {
-                Rectangle()
-                    .fill(Color.primary.opacity(0.075))
-                    .overlay {
-                        Image(systemName: "music.note")
-                            .font(.system(size: style.iconStrokeWidth * 6, weight: .medium))
-                            .foregroundStyle(Color.secondary.opacity(0.7))
-                    }
+                SoundingArtworkView(identity: identity, subject: subject)
             }
 
             if !isAvailable {
@@ -36,7 +42,7 @@ struct SCArtwork: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius ?? style.artworkCorner, style: .continuous))
-        .accessibilityHidden(image == nil && isAvailable)
+        .accessibilityHidden(isAvailable)
         .accessibilityLabel(isAvailable ? "" : "Unavailable")
     }
 }
@@ -58,15 +64,15 @@ struct SCSectionHeader: View {
                 label
             }
         }
+        .accessibilityAddTraits(.isHeader)
     }
 
     private var label: some View {
         VStack(alignment: .leading, spacing: style.spaceHair) {
             if let eyebrow {
-                Text(eyebrow.uppercased())
+                Text(eyebrow)
                     .font(style.fontEyebrow)
                     .foregroundStyle(style.textSecondary)
-                    .kerning(1.6)
             }
             HStack(spacing: style.spaceHair) {
                 Text(title)
@@ -93,6 +99,7 @@ struct SCTrackRow<Trailing: View>: View {
     var eyebrowIcon: String?
 
     let artworkImage: Image?
+    var artIdentity: String?
     var isAvailable: Bool = true
     var badges: SCAnalysisBadgeRow?
     var crownUser: User?
@@ -102,7 +109,7 @@ struct SCTrackRow<Trailing: View>: View {
 
     var body: some View {
         HStack(spacing: style.spaceSnug) {
-            SCArtwork(image: artworkImage, identity: title, isAvailable: isAvailable, style: style)
+            SCArtwork(image: artworkImage, identity: artIdentity ?? title, isAvailable: isAvailable, style: style)
                 .frame(width: style.rowArtworkSize, height: style.rowArtworkSize)
                 .kyleCrowned(user: crownUser, context: crownContext)
 
@@ -122,11 +129,11 @@ struct SCTrackRow<Trailing: View>: View {
                 Text(title)
                     .font(style.fontBody)
                     .foregroundStyle(isAvailable ? style.textPrimary : style.textTertiary)
-                    .lineLimit(1)
+                    .scAdaptiveLineLimit()
                 Text(subtitle)
                     .font(style.fontSubheadline)
                     .foregroundStyle(style.textSecondary)
-                    .lineLimit(1)
+                    .scAdaptiveLineLimit()
                 if let badges {
                     badges
                         .padding(.top, style.spaceHair / 2)
@@ -168,15 +175,20 @@ struct SCMediaCard: View {
     let title: String
     let subtitle: String?
     let artworkImage: Image?
+    var artIdentity: String?
+    var artSubject: SoundingArtSubject = .track
     var isAvailable: Bool = true
     var crownUser: User?
     var crownContext: String?
     var style: SCContentStyle = .tv
     var progress: Double?
+    var isPrivate = false
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: style.spaceTight) {
-            SCArtwork(image: artworkImage, identity: title, isAvailable: isAvailable, style: style)
+            SCArtwork(image: artworkImage, identity: artIdentity ?? title, isAvailable: isAvailable, style: style, subject: artSubject)
                 .aspectRatio(1, contentMode: .fit)
                 .kyleCrowned(user: crownUser, context: crownContext)
                 .overlay(alignment: .bottom) {
@@ -191,12 +203,12 @@ struct SCMediaCard: View {
                 Text(title)
                     .font(style.fontBodyEmphasis)
                     .foregroundStyle(isAvailable ? style.textPrimary : style.textTertiary)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                 if let subtitle {
-                    Text(subtitle)
+                    Text(privateMarked: subtitle, isPrivate: isPrivate)
                         .font(style.fontCaption)
                         .foregroundStyle(style.textSecondary)
-                        .lineLimit(1)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                 }
             }
         }
@@ -239,6 +251,8 @@ struct SCArtistCard: View {
     var crownContext: String?
     var style: SCContentStyle = .tv
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var resolvedDiameter: CGFloat { diameter ?? style.artistCircleDiameter }
 
     private static let unreadArcInset: CGFloat = 0.14645
@@ -247,7 +261,7 @@ struct SCArtistCard: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: style.spaceTight) {
-            SCArtwork(image: avatarImage, identity: identity ?? name, style: style)
+            SCArtwork(image: avatarImage, identity: identity ?? name, style: style, subject: .person)
                 .frame(width: resolvedDiameter, height: resolvedDiameter)
                 .clipShape(Circle())
                 .kyleCrowned(user: crownUser, context: crownContext)
@@ -259,14 +273,14 @@ struct SCArtistCard: View {
                 Text(name)
                     .font(style.fontBodyEmphasis)
                     .foregroundStyle(style.textPrimary)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity)
                 if let subtitle {
                     Text(subtitle)
                         .font(style.fontCaption)
                         .foregroundStyle(style.textSecondary)
-                        .lineLimit(1)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                         .truncationMode(.tail)
                         .frame(maxWidth: .infinity)
                 }
@@ -358,10 +372,9 @@ struct SCHeroCard: View {
 
             VStack(alignment: .leading, spacing: style.spaceHair) {
                 if let eyebrow {
-                    Text(eyebrow.uppercased())
+                    Text(eyebrow)
                         .font(style.fontCaptionEmphasis)
                         .foregroundStyle(.white.opacity(0.85))
-                        .kerning(1.2)
                         .lineLimit(1)
                 }
                 Text(title)
@@ -397,6 +410,20 @@ struct SCEmptyState: View {
     var action: (() -> Void)?
     var style: SCContentStyle = .tv
 
+    #if os(iOS)
+    var body: some View {
+        ContentUnavailableView {
+            Label(title, systemImage: kind == .error ? "exclamationmark.triangle.fill" : icon)
+        } description: {
+            if let message { Text(message) }
+        } actions: {
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.bordered)
+            }
+        }
+    }
+    #else
     var body: some View {
         VStack(spacing: style.spaceSnug) {
             Image(systemName: kind == .error ? "exclamationmark.triangle.fill" : icon)
@@ -430,5 +457,16 @@ struct SCEmptyState: View {
         }
         .frame(maxWidth: .infinity)
         .padding(style.spaceRoomy)
+    }
+    #endif
+}
+
+extension Text {
+    init(privateMarked string: String, isPrivate: Bool) {
+        if isPrivate {
+            self = Text("\(Image(systemName: "lock.fill")) \(string)").accessibilityLabel("Private, \(string)")
+        } else {
+            self.init(verbatim: string)
+        }
     }
 }

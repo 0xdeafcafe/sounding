@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sounding · Now Playing prototypes</title>
+<link rel="stylesheet" href="shared/np.css">
+<style>
+  body { overflow: auto; background: var(--surface-2); color: var(--label); -webkit-user-select: text; user-select: text; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 64px 40px 80px; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 40px; }
+  h1 { margin: 0; font: 700 44px/1.1 var(--font-display); letter-spacing: -0.03em; }
+  .sub { margin-top: 10px; font-size: 17px; color: var(--label-2); }
+  .theme { display: flex; background: var(--surface-3); border-radius: 9px; padding: 2px; }
+  .theme button { height: 28px; padding: 0 14px; border-radius: 7px; font-size: 13px; color: var(--label-2); }
+  .theme button.on { background: var(--surface); color: var(--label); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
+  html[data-theme='dark'] .theme button.on { background: #636366; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 22px; }
+  .card { background: var(--surface); border-radius: 22px; overflow: hidden; box-shadow: 0 0 0 0.5px var(--sep); display: flex; flex-direction: column; }
+  .thumb { display: block; aspect-ratio: 16 / 11; background: #111; overflow: hidden; position: relative; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; object-position: center top; transition: transform 0.6s var(--spring); }
+  .thumb:hover img { transform: scale(1.03); }
+  .thumb.contain, .thumb.contain img { object-fit: contain; background: #e6e6eb; }
+  .body { padding: 18px 20px 20px; }
+  .body h2 { margin: 0; font: 600 21px/1.2 var(--font-display); letter-spacing: -0.02em; }
+  .body h2 a { color: inherit; text-decoration: none; }
+  .body p { margin: 6px 0 14px; color: var(--label-2); font-size: 14px; line-height: 1.45; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips a { font-size: 13px; padding: 5px 11px; border-radius: 14px; background: var(--surface-2); color: var(--label); text-decoration: none; }
+  .chips a:hover { background: var(--surface-3); }
+  .notes { margin-top: 56px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 28px 36px; }
+  .notes h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+  .notes p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--label-2); }
+  .notes-h { margin: 64px 0 0; font: 700 26px/1.2 var(--font-display); letter-spacing: -0.02em; }
+  footer { margin-top: 56px; font-size: 13px; color: var(--label-3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Now Playing</h1>
+      <div class="sub">Interactive prototypes for iPhone, iPad, Mac, Apple TV and Apple Watch · November 2026</div>
+    </div>
+    <div class="theme" id="theme"><button data-v="auto">Auto</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
+  </header>
+
+  <div class="grid">
+    <article class="card">
+      <a class="thumb" href="iphone.html"><img src="shots/iphone-playing-dark.jpg" alt="iPhone Now Playing"></a>
+      <div class="body">
+        <h2><a href="iphone.html">iPhone 17 Pro Max</a></h2>
+        <p>One calm screen. Up Next, Comments and Tracklist are modes: the artwork morphs into a header and the transport docks below.</p>
+        <div class="chips" data-dev="iphone">
+          <a data-q="">Mini player</a><a data-q="state=np">Playing</a><a data-q="mode=upnext">Up Next</a><a data-q="mode=comments">Comments</a><a data-q="mode=setlist">Tracklist</a><a data-q="mode=setlist&amp;identify=1">Identify</a><a data-q="sheet=output">Output</a><a data-q="sheet=menu">••• menu</a><a data-q="sheet=cues">Cue Points</a><a data-q="sheet=share">Share</a><a data-q="sheet=decks">Decks</a><a data-q="output=tv">Playing on Living Room</a>
+        </div>
+      </div>
+    </article>
+    <article class="card">
+      <a class="thumb" href="ipad.html"><img src="shots/ipad-tracklist-dark.jpg" alt="iPad Now Playing"></a>
+      <div class="body">
+        <h2><a href="ipad.html">iPad Pro 13″</a></h2>
+        <p>Side by side. Player on the left; Up Next, Comments, Tracklist and About always visible on the right.</p>
+        <div class="chips" data-dev="ipad">
+          <a data-q="pane=setlist">Tracklist</a><a data-q="pane=comments">Comments</a><a data-q="pane=upnext">Up Next</a><a data-q="pane=about">About</a><a data-q="state=shell">App + mini player</a><a data-q="pop=output">Output</a><a data-q="pop=menu">••• menu</a>
+        </div>
+      </div>
+    </article>
+    <article class="card">
+      <a class="thumb" href="mac.html"><img src="shots/mac-full-dark.jpg" alt="Mac Now Playing"></a>
+      <div class="body">
+        <h2><a href="mac.html">Mac</a></h2>
+        <p>A compact transport bar with Play On, an inspector for the panes, and a full-window Now Playing.</p>
+        <div class="chips" data-dev="mac">
+          <a data-q="">Library + bar</a><a data-q="insp=comments">Inspector</a><a data-q="state=take">Full window</a><a data-q="state=take&amp;pane=upnext">Full window · Up Next</a><a data-q="pop=output">Play On</a>
+        </div>
+      </div>
+    </article>
+    <article class="card">
+      <a class="thumb" href="tv.html"><img src="shots/tv-playing-dark.jpg" alt="Apple TV Now Playing"></a>
+      <div class="body">
+        <h2><a href="tv.html">Apple TV</a></h2>
+        <p>10-foot layout. Focus by arrow keys: focused buttons lift and invert, panels slide in from the right, and it settles into an ambient state when idle.</p>
+        <div class="chips" data-dev="tv">
+          <a data-q="">Playing</a><a data-q="panel=upnext">Up Next</a><a data-q="panel=comments">Comments</a><a data-q="panel=setlist">Tracklist</a><a data-q="panel=output">Output</a><a data-q="panel=more">More</a><a data-q="idle=1">Ambient</a>
+        </div>
+      </div>
+    </article>
+    <article class="card">
+      <a class="thumb contain" href="watch.html"><img src="shots/watch-playing.jpg" alt="Apple Watch Now Playing"></a>
+      <div class="body">
+        <h2><a href="watch.html">Apple Watch Ultra 49mm</a></h2>
+        <p>Artwork-tinted Now Playing with a progress ring and the crown for volume. Scroll over the watch to turn it.</p>
+        <div class="chips" data-dev="watch">
+          <a data-q="">Playing</a><a data-q="page=upnext">Up Next</a><a data-q="page=setlist">Tracklist</a><a data-q="page=output">Output</a>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <h2 class="notes-h">Decisions</h2>
+  <div class="notes">
+    <div><h3>One calm screen</h3><p>Everything fits above the fold. Lists are modes rather than a scroll: the artwork shrinks into a header and the waveform and transport stay docked.</p></div>
+    <div><h3>Colour from the artwork</h3><p>Each track's palette drives the drifting background, the glass tint and one tinted element: the artist name. Track changes cross-fade. The brand copper only appears in app chrome.</p></div>
+    <div><h3>Glass for chrome only</h3><p>Transport glyphs are bare. Glass is reserved for Like, •••, sheets, menus and panels, so there are never more than two or three glass shapes on screen.</p></div>
+    <div><h3>A motion budget</h3><p>Only three things move on their own: the playhead, the slow background drift and the artwork breathing with the music. Everything else moves when you touch it, on transforms and opacity with spring curves.</p></div>
+    <div><h3>Physical state</h3><p>Pausing shrinks the artwork. Scrubbing grows the waveform under your finger. Moving to another device nudges the artwork and shows where it's playing.</p></div>
+    <div><h3>Mixes get a tracklist</h3><p>The current entry sits under the artist and in the waveform's segments. The list follows the playhead, and Identify fills unknown IDs in place.</p></div>
+    <div><h3>Comments, quietly</h3><p>In Playing, at most one comment bubble appears near the waveform, at most every seven seconds. The full conversation lives in Comments and arrives at its timestamp.</p></div>
+    <div><h3>Reduce Motion</h3><p>Turns off the drift, breathing and morphs. Mode changes become cross-fades and the comment bubble only fades.</p></div>
+  </div>
+  <footer>Every page has a control panel for switching track, mode, sheet, output, appearance, Reduce Motion and playback speed. Space plays and pauses; ← → skip.</footer>
+</div>
+<script src="shared/data.js"></script>
+<script src="shared/core.js"></script>
+<script>
+  (function () {
+    const NP = window.NP;
+    const saved = localStorage.getItem('np-theme');
+    if (saved) { NP.settings.theme = saved; NP.applySettings(); }
+    const btns = document.querySelectorAll('#theme button');
+    const paint = () => {
+      btns.forEach((b) => b.classList.toggle('on', b.dataset.v === NP.settings.theme));
+      document.querySelectorAll('.chips').forEach((c) => c.querySelectorAll('a').forEach((a) => {
+        const q = [a.dataset.q, NP.settings.theme !== 'auto' ? 'theme=' + NP.settings.theme : ''].filter(Boolean).join('&');
+        a.href = `${c.dataset.dev}.html${q ? '?' + q : ''}`;
+      }));
+    };
+    btns.forEach((b) => (b.onclick = () => { NP.settings.theme = b.dataset.v; localStorage.setItem('np-theme', b.dataset.v); NP.applySettings(); paint(); }));
+    paint();
+  })();
+</script>
+</body>
+</html>

@@ -3,8 +3,6 @@ import Network
 import Combine
 import SwiftUI
 
-/// Backward-compatible alias for the shared SoundCloud credential source in the
-/// Share extension.
 typealias ShareCredentialSource = SoundCloudCredentialSource
 
 @MainActor
@@ -21,32 +19,30 @@ final class ShareTVClient {
         var errorDescription: String? {
             switch self {
             case .notPaired:
-                return "This iPhone isn't linked to an Apple TV yet. Open SoundingCloud on the Apple TV and follow the sign-in screen there."
+                return "Link this \(DeviceClass.current.displayName) to your Apple TV in Sounding first."
             case .discoveryFailed(let message):
-                return "Couldn't search the network: \(message)"
+                return "Couldn't find your Apple TV. \(message)"
             case .connectionFailed(let message):
-                return "Lost the connection to the Apple TV: \(message)"
+                return "Lost connection to your Apple TV. \(message)"
             case .rejected(let message):
                 return message
             case .timedOut:
-                return "Your Apple TV didn't respond in time. Make sure it's awake and on the same Wi-Fi."
+                return "Your Apple TV didn't respond. Make sure it's on and on the same Wi-Fi."
             case .trackNotInQueue:
-                return "Couldn't confirm the track landed in the queue."
+                return "Couldn't confirm it was added."
             }
         }
     }
 
     private nonisolated(unsafe) var browser: NWBrowser?
-    private nonisolated(unsafe) var connection: NWConnection?
     private nonisolated(unsafe) var timeoutTask: Task<Void, Never>?
+    private var channel: CompanionChannel?
 
-    private var framer = MessageFramer()
     private var continuation: CheckedContinuation<QueueStatePayload, Error>?
 
     private var baselineRevision = -1
 
-    private var sessionId: String?
-    private var secret: Data?
+    private var signer: CompanionCommandSigner?
 
     deinit {
         cancelNetworkResources()
@@ -55,15 +51,13 @@ final class ShareTVClient {
     private nonisolated func cancelNetworkResources() {
         timeoutTask?.cancel()
         browser?.cancel()
-        connection?.cancel()
     }
 
     func connect(timeout: Duration = .seconds(8)) async throws -> QueueStatePayload {
         guard let link = LinkedCompanionStore.load(), let secret = link.secret else {
             throw SendError.notPaired
         }
-        sessionId = link.sessionId
-        self.secret = secret
+        signer = CompanionCommandSigner(sessionId: link.sessionId, secret: secret)
 
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
@@ -73,18 +67,34 @@ final class ShareTVClient {
     }
 
     func add(trackId: String, toIndex: Int = -1, timeout: Duration = .seconds(8)) async throws -> QueueStatePayload {
-        try await sendQueueCommand(.queueAdd, fromIndex: -1, toIndex: toIndex, trackId: trackId, timeout: timeout)
+        try await send(timeout: timeout) { $0.queue(.queueAdd, toIndex: toIndex, trackId: trackId, revision: $1) }
     }
 
     func replace(trackId: String, timeout: Duration = .seconds(8)) async throws -> QueueStatePayload {
-        try await sendQueueCommand(.queueReplace, fromIndex: -1, toIndex: -1, trackId: trackId, timeout: timeout)
+        try await send(timeout: timeout) { $0.queue(.queueReplace, trackId: trackId, revision: $1) }
+    }
+
+    func load(trackIds: [String], timeout: Duration = .seconds(15)) async throws -> QueueStatePayload {
+        try await send(timeout: timeout) { signer, _ in
+            signer.load(trackIds: trackIds, startIndex: 0, positionSeconds: 0, autoplay: true)
+        }
+    }
+
+    func nextState(timeout: Duration = .seconds(15)) async throws -> QueueStatePayload {
+        guard channel != nil else { throw SendError.connectionFailed("Not connected") }
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            armTimeout(timeout)
+        }
     }
 
     func jump(to trackId: String, in queue: QueueStatePayload, timeout: Duration = .seconds(8)) async throws -> QueueStatePayload {
         guard let index = queue.tracks.lastIndex(where: { $0.id == trackId }) else {
             throw SendError.trackNotInQueue
         }
-        return try await sendQueueCommand(.queueJump, fromIndex: index, toIndex: -1, trackId: trackId, timeout: timeout)
+        return try await send(timeout: timeout) {
+            $0.queue(.queueJump, fromIndex: index, trackId: trackId, revision: $1)
+        }
     }
 
     func disconnect() {
@@ -92,41 +102,25 @@ final class ShareTVClient {
         timeoutTask = nil
         browser?.cancel()
         browser = nil
-        connection?.cancel()
-        connection = nil
+        channel?.cancel()
+        channel = nil
     }
 
-    private func sendQueueCommand(
-        _ type: MessageType, fromIndex: Int, toIndex: Int, trackId: String, timeout: Duration
+    private func send(
+        timeout: Duration,
+        _ build: @escaping (CompanionCommandSigner, Int) -> TokenTransferMessage
     ) async throws -> QueueStatePayload {
-        guard let connection, let sessionId, let secret else {
+        guard let channel, let signer else {
             throw SendError.connectionFailed("Not connected")
         }
 
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
             armTimeout(timeout)
-
-            let command = QueueCommandPayload.create(
-                type: type, fromIndex: fromIndex, toIndex: toIndex, trackId: trackId,
-                revision: max(0, baselineRevision),
-                sessionId: sessionId, secret: secret
-            )
-
-            guard let data = try? TokenTransferMessage
-                .queueCommand(type, sessionId: sessionId, command: command)
-                .framed()
-            else {
-                finish(.failure(SendError.connectionFailed("Failed to encode command")))
-                return
-            }
-
-            connection.send(content: data, completion: .contentProcessed { [weak self] error in
+            channel.send(build(signer, baselineRevision)) { [weak self] error in
                 guard let error else { return }
-                Task { @MainActor in
-                    self?.finish(.failure(SendError.connectionFailed(error.localizedDescription)))
-                }
-            })
+                self?.finish(.failure(SendError.connectionFailed(error.localizedDescription)))
+            }
         }
     }
 
@@ -140,26 +134,18 @@ final class ShareTVClient {
     }
 
     private func startDiscovery(sessionId: String, secret: Data) {
-        let parameters = NWParameters()
-        parameters.includePeerToPeer = false
-
-        let newBrowser = NWBrowser(
-            for: .bonjour(type: BonjourConstants.serviceType, domain: BonjourConstants.serviceDomain),
-            using: parameters
-        )
-
-        let prefix = String(sessionId.prefix(8))
+        let newBrowser = CompanionEndpoint.makeBrowser()
 
         newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.channel == nil else { return }
                 for result in results {
-                    guard case .service(let name, _, _, _) = result.endpoint else { continue }
-                    guard name.hasPrefix(BonjourConstants.companionServiceName), name.contains(prefix) else { continue }
+                    guard case .service(let name, _, _, _) = result.endpoint,
+                          CompanionEndpoint.isCompanionService(name, sessionId: sessionId) else { continue }
 
                     self.browser?.cancel()
                     self.browser = nil
-                    self.openConnection(to: result.endpoint, sessionId: sessionId, secret: secret)
+                    self.openChannel(to: result.endpoint, sessionId: sessionId, secret: secret)
                     return
                 }
             }
@@ -176,64 +162,31 @@ final class ShareTVClient {
         newBrowser.start(queue: .main)
     }
 
-    private func openConnection(to endpoint: NWEndpoint, sessionId: String, secret: Data) {
-        framer = MessageFramer()
-
-        let parameters = NWParameters.tcp
-        parameters.includePeerToPeer = false
-
-        let newConnection = NWConnection(to: endpoint, using: parameters)
-        newConnection.stateUpdateHandler = { [weak self] state in
-            Task { @MainActor in
-                guard let self, newConnection === self.connection else { return }
-                switch state {
-                case .ready:
-                    self.receive(on: newConnection)
-                case .failed(let error):
-                    self.connection = nil
-                    self.finish(.failure(SendError.connectionFailed(error.localizedDescription)))
-                case .cancelled:
-                    self.connection = nil
-                default:
+    private func openChannel(to endpoint: NWEndpoint, sessionId: String, secret: Data) {
+        let newChannel = CompanionChannel(to: endpoint, sessionId: sessionId, secret: secret, keepalive: false)
+        channel = newChannel
+        newChannel.start(
+            onEvent: { [weak self, weak newChannel] event in
+                guard let self, let newChannel, self.channel === newChannel else { return }
+                switch event {
+                case .ready, .waiting:
                     break
+                case .failed(let reason):
+                    self.channel = nil
+                    self.finish(.failure(SendError.connectionFailed(reason)))
+                case .closed:
+                    self.channel = nil
+                    self.finish(.failure(SendError.connectionFailed("Your Apple TV closed the connection.")))
                 }
+            },
+            onMessage: { [weak self] message in
+                self?.handle(message, sessionId: sessionId, secret: secret)
             }
-        }
-
-        connection = newConnection
-        newConnection.start(queue: .main)
+        )
     }
 
-    private func receive(on connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
-            Task { @MainActor in
-                guard let self, connection === self.connection else { return }
-
-                if let error {
-                    self.connection = nil
-                    self.finish(.failure(SendError.connectionFailed(error.localizedDescription)))
-                    return
-                }
-
-                if let data, !data.isEmpty {
-                    self.framer.append(data)
-                    while let message = try? self.framer.next() {
-                        self.handle(message)
-                    }
-                }
-
-                if isComplete {
-                    self.connection = nil
-                    self.finish(.failure(SendError.connectionFailed("The Apple TV closed the connection.")))
-                } else {
-                    self.receive(on: connection)
-                }
-            }
-        }
-    }
-
-    private func handle(_ message: TokenTransferMessage) {
-        guard let sessionId, message.sessionId == sessionId, let secret else { return }
+    private func handle(_ message: TokenTransferMessage, sessionId: String, secret: Data) {
+        guard message.sessionId == sessionId else { return }
 
         switch message.type {
         case .error:
@@ -241,20 +194,18 @@ final class ShareTVClient {
 
         case .queueState:
             guard let queue = message.queue,
-                  queue.verify(sessionId: sessionId, secret: secret) else {
-                return // Unsigned or forged — silently drop.
-            }
-            guard queue.revision > baselineRevision else { return }
+                  queue.verify(sessionId: sessionId, secret: secret),
+                  queue.revision > baselineRevision else { return }
             baselineRevision = queue.revision
             finish(.success(queue))
 
         default:
-            break // `playback_state`, `dj_state` — legitimate traffic this client isn't waiting for.
+            break
         }
     }
 
     private func finish(_ result: Result<QueueStatePayload, Error>) {
-        guard let continuation else { return } // No pending call — ignore.
+        guard let continuation else { return }
         self.continuation = nil
         timeoutTask?.cancel()
         timeoutTask = nil
@@ -287,10 +238,13 @@ final class ShareViewModel: ObservableObject {
         case resolving
         case resolveFailed(String)
         case resolved(SoundCloudAPI.ResolvedItem)
+        case unresolved(URL)
         case working(Progress)
         case succeeded(String)
         case failed(String)
     }
+
+    typealias Handoff = @MainActor (URL, QueueAction) -> Bool
 
     static let maxBatchTracks = 100
 
@@ -300,6 +254,13 @@ final class ShareViewModel: ObservableObject {
     private var sourceURL: URL?
     private(set) var lastResolvedItem: SoundCloudAPI.ResolvedItem?
     private let client = ShareTVClient()
+    private let handoff: Handoff?
+
+    init(handoff: Handoff? = nil) {
+        self.handoff = handoff
+    }
+
+    var handsOffToApp: Bool { handoff != nil }
 
     func begin(with url: URL?) async {
         guard let url, Self.isSoundCloudHost(url) else {
@@ -309,7 +270,7 @@ final class ShareViewModel: ObservableObject {
         sourceURL = url
 
         guard let session = DeviceSessionStore.load(), session.isUsable else {
-            state = .notSignedIn
+            state = handsOffToApp ? .unresolved(url) : .notSignedIn
             return
         }
 
@@ -321,9 +282,9 @@ final class ShareViewModel: ObservableObject {
         } catch APIError.notFound {
             state = .resolveFailed("Couldn't find that link. It may be private, deleted, or region-locked.")
         } catch APIError.unauthorized {
-            state = .notSignedIn
+            state = handsOffToApp ? .unresolved(url) : .notSignedIn
         } catch {
-            state = .resolveFailed(Self.describe(error))
+            state = handsOffToApp ? .unresolved(url) : .resolveFailed(Self.describe(error))
         }
     }
 
@@ -333,6 +294,13 @@ final class ShareViewModel: ObservableObject {
         } else {
             Task { await begin(with: sourceURL) }
         }
+    }
+
+    func handOff(_ action: QueueAction) {
+        guard let handoff, let sourceURL else { return }
+        state = handoff(sourceURL, action)
+            ? .succeeded("Opening in Sounding.")
+            : .failed("Couldn't open Sounding.")
     }
 
     static func isSoundCloudHost(_ url: URL) -> Bool {
@@ -348,6 +316,10 @@ final class ShareViewModel: ObservableObject {
     }
 
     func perform(_ action: QueueAction, on item: SoundCloudAPI.ResolvedItem) async {
+        guard !handsOffToApp else {
+            handOff(action)
+            return
+        }
         switch item {
         case .track(let track):
             await run(itemLabel: track.title, action: action) { return [track.id] }
@@ -417,6 +389,17 @@ final class ShareViewModel: ObservableObject {
             case .replace:
                 guard let firstId = trackIds.first else { break }
                 state = .working(.step(trackIds.count > 1 ? "Replacing queue…" : "Replacing queue and playing…"))
+                do {
+                    var loaded = try await client.load(trackIds: trackIds)
+                    while loaded.tracks.first?.id != firstId {
+                        loaded = try await client.nextState()
+                    }
+                    queue = loaded
+                    addedCount = trackIds.count
+                    break
+                } catch ShareTVClient.SendError.rejected(_) {
+                    Log.link.info("[ShareTVClient] Apple TV doesn't load whole queues; replacing track by track")
+                }
                 queue = try await client.replace(trackId: firstId)
                 addedCount += 1
                 for (index, trackId) in trackIds.dropFirst().enumerated() {
@@ -478,45 +461,43 @@ struct ShareRootView: View {
 
     var body: some View {
         Group {
-            if #available(iOS 27.0, *) {
+            if #available(iOS 27.0, macOS 27.0, *) {
                 makeBody()
                     .asyncImageURLSession(Self.cachingImageSession)
             } else {
                 makeBody()
             }
         }
+        .tint(.scAccent)
     }
 
     @ViewBuilder
     private func makeBody() -> some View {
         NavigationStack {
-            ZStack {
-                Color.scBackgroundGradient.ignoresSafeArea()
-                content
-            }
-            .navigationTitle("Send to Apple TV")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onFinish)
+            content
+                .navigationTitle(viewModel.handsOffToApp ? "Play in Sounding" : "Send to Apple TV")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel", action: onFinish)
+                    }
                 }
-            }
         }
-        .preferredColorScheme(.dark)
-        .tint(.scAccent)
     }
 
     @ViewBuilder
     private var content: some View {
         switch viewModel.state {
         case .extractingURL, .resolving:
-            LoadingStateView(message: "Looking that up…")
+            ProgressView("Loading…")
 
         case .notASoundCloudURL:
             MessageStateView(
-                systemImage: "link.badge.plus",
+                systemImage: "link",
                 title: "Not a SoundCloud Link",
-                message: "Share a track, playlist, or profile link from SoundCloud, Safari, or Messages.",
+                message: "Share a SoundCloud track, playlist or profile.",
                 actionTitle: "Done",
                 action: onFinish
             )
@@ -525,7 +506,7 @@ struct ShareRootView: View {
             MessageStateView(
                 systemImage: "person.crop.circle.badge.exclamationmark",
                 title: "Not Signed In",
-                message: "Open SoundingCloud on this iPhone, sign in, then share again.",
+                message: "Sign in to Sounding, then share again.",
                 actionTitle: "Done",
                 action: onFinish
             )
@@ -533,7 +514,7 @@ struct ShareRootView: View {
         case .resolveFailed(let message):
             MessageStateView(
                 systemImage: "exclamationmark.triangle",
-                title: "Couldn't Load This",
+                title: "Couldn’t Load",
                 message: message,
                 actionTitle: "Try Again",
                 action: { viewModel.retry() }
@@ -542,16 +523,22 @@ struct ShareRootView: View {
         case .resolved(let item):
             ResolvedItemView(item: item, viewModel: viewModel)
 
+        case .unresolved(let url):
+            UnresolvedLinkView(url: url, viewModel: viewModel)
+
         case .working(let progress):
             if let item = viewModel.lastResolvedItem {
                 SendingView(item: item, progress: progress)
             } else {
-                LoadingStateView(message: progress.label, fraction: progress.fraction)
+                ProgressView(value: progress.fraction) {
+                    Text(progress.label)
+                }
+                .padding()
             }
 
         case .succeeded(let message):
-            MessageStateView(systemImage: "checkmark.circle.fill", title: "Sent", message: message, tint: .scSuccess)
-                .task { // Auto-dismiss rather than making the user tap Cancel after the fact.
+            MessageStateView(systemImage: "checkmark.circle", title: "Sent", message: message)
+                .task {
                     try? await Task.sleep(for: .seconds(1.6))
                     onFinish()
                 }
@@ -559,9 +546,8 @@ struct ShareRootView: View {
         case .failed(let message):
             MessageStateView(
                 systemImage: "wifi.exclamationmark",
-                title: "Couldn't Send",
+                title: "Couldn’t Send",
                 message: message,
-                tint: .scDestructive,
                 actionTitle: "Try Again",
                 action: { viewModel.retry() }
             )
@@ -574,50 +560,18 @@ private struct SendingView: View {
     let progress: ShareViewModel.Progress
 
     var body: some View {
-        VStack(spacing: Spacing.xl) {
-            ItemPreviewCard(item: item)
-
-            VStack(spacing: Spacing.sm) {
-                if let fraction = progress.fraction {
-                    SwiftUI.ProgressView(value: fraction)
-                        .tint(.scAccent)
-                } else {
-                    SwiftUI.ProgressView()
-                        .tint(.scAccent)
+        Form {
+            Section {
+                ItemHeaderRow(item: item)
+            }
+            Section {
+                ProgressView(value: progress.fraction) {
+                    Text(progress.label)
+                        .monospacedDigit()
                 }
-
-                Text(progress.label)
-                    .font(.scSubhead)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
             }
-            .frame(maxWidth: .infinity)
-
-            Spacer(minLength: 0)
         }
-        .padding(Spacing.lg)
-    }
-}
-
-private struct LoadingStateView: View {
-    let message: String
-    var fraction: Double?
-
-    var body: some View {
-        VStack(spacing: Spacing.md) {
-            if let fraction {
-                SwiftUI.ProgressView(value: fraction)
-                    .tint(.scAccent)
-                    .frame(maxWidth: 240)
-            } else {
-                SwiftUI.ProgressView().tint(.scAccent)
-            }
-            Text(message)
-                .font(.scSubhead)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .formStyle(.grouped)
     }
 }
 
@@ -625,33 +579,20 @@ private struct MessageStateView: View {
     var systemImage: String
     var title: String
     var message: String
-    var tint: Color = .scAccent
     var actionTitle: String?
     var action: (() -> Void)?
 
     var body: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: systemImage)
-                .font(.system(size: 40, weight: .medium))
-                .foregroundStyle(tint)
-            Text(title)
-                .font(.scTitle2)
+        ContentUnavailableView {
+            Label(title, systemImage: systemImage)
+        } description: {
             Text(message)
-                .font(.scBody)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-
+        } actions: {
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderedProminent)
-                    .tint(.scAccent)
-                    .foregroundStyle(Color.scAccentOn)
-                    .controlSize(.large)
-                    .padding(.top, Spacing.sm)
             }
         }
-        .padding(Spacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -680,7 +621,7 @@ private struct ItemPreview {
             artworkURL = user.avatarURL
             title = user.displayName
             subtitle = "@\(user.permalink) · \(user.formattedTracks) tracks"
-            kindLabel = "Profile"
+            kindLabel = user.kindLabel
             isCircularArtwork = true
         }
     }
@@ -691,48 +632,41 @@ private func shareThumbnailURL(_ url: URL?) -> URL? {
     return URL(string: url.absoluteString.replacingOccurrences(of: "-large", with: "-t200x200")) ?? url
 }
 
-private struct ItemPreviewCard: View {
+private struct ItemHeaderRow: View {
     let item: SoundCloudAPI.ResolvedItem
 
     var body: some View {
         let info = ItemPreview(item)
-        return VStack(spacing: Spacing.sm) {
+        return HStack(spacing: 12) {
             AsyncImage(url: shareThumbnailURL(info.artworkURL)) { phase in
                 switch phase {
                 case .success(let image):
                     image.resizable().scaledToFill()
                 default:
                     ZStack {
-                        Color.primary.opacity(0.08)
+                        Rectangle().fill(.fill.quaternary)
                         Image(systemName: info.isCircularArtwork ? "person.fill" : "music.note")
-                            .font(.system(size: 28))
                             .foregroundStyle(.tertiary)
                     }
                 }
             }
-            .frame(width: 120, height: 120)
+            .frame(width: 60, height: 60)
             .clipShape(
                 info.isCircularArtwork
                     ? AnyShape(Circle())
-                    : AnyShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+                    : AnyShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             )
-            .padding(.bottom, Spacing.xs)
 
-            Text(info.kindLabel.uppercased())
-                .font(.scCaption)
-                .foregroundStyle(Color.scAccent)
-                .kerning(1.2)
-            Text(info.title)
-                .font(.scTitle)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-            Text(info.subtitle)
-                .font(.scSubhead)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(info.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                Text("\(info.kindLabel) · \(info.subtitle)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
-        .frame(maxWidth: .infinity)
-        .scCard(cornerRadius: Radius.xl, padding: Spacing.lg)
     }
 }
 
@@ -759,26 +693,49 @@ private struct ResolvedItemView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: Spacing.xl) {
-                preview
-                actions
+        Form {
+            Section {
+                ItemHeaderRow(item: item)
             }
-            .padding(Spacing.lg)
+
+            QueueActionsSection(footer: batchFooter) { action in
+                Task { await viewModel.perform(action, on: item) }
+            }
+            .disabled(batchCount == 0)
+
+            if !viewModel.handsOffToApp {
+                Section {
+                    Button(role: .destructive) {
+                        isConfirmingReplace = true
+                    } label: {
+                        Label("Replace Queue", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+                .disabled(batchCount == 0)
+            }
         }
+        .formStyle(.grouped)
         .disabled(viewModel.isBusy)
         .confirmationDialog(
             "Replace Queue?",
             isPresented: $isConfirmingReplace,
             titleVisibility: .visible
         ) {
-            Button("Replace & Play", role: .destructive) {
+            Button("Replace and Play", role: .destructive) {
                 Task { await viewModel.perform(.replace, on: item) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(replaceConfirmationMessage)
         }
+    }
+
+    private var batchFooter: String? {
+        guard let count = batchCount else { return nil }
+        if count > ShareViewModel.maxBatchTracks {
+            return "The first \(ShareViewModel.maxBatchTracks) of \(count) tracks are sent."
+        }
+        return count == 1 ? "1 track." : "\(count) tracks."
     }
 
     private var replaceConfirmationMessage: String {
@@ -791,86 +748,125 @@ private struct ResolvedItemView: View {
         } else {
             subject = "“\(itemLabel)”"
         }
-        return "This clears everything queued on your Apple TV and plays \(subject) instead. It can't be undone."
-    }
-
-    private var preview: some View { ItemPreviewCard(item: item) }
-
-    private var actions: some View {
-        VStack(spacing: Spacing.sm) {
-            ActionButton(title: addToEndLabel, systemImage: "text.badge.plus", style: .prominent) {
-                Task { await viewModel.perform(.addToEnd, on: item) }
-            }
-            ActionButton(title: playNextLabel, systemImage: "arrow.turn.down.right", style: .secondary) {
-                Task { await viewModel.perform(.playNext, on: item) }
-            }
-            ActionButton(title: "Play Now on Apple TV", systemImage: "play.fill", style: .secondary) {
-                Task { await viewModel.perform(.playNow, on: item) }
-            }
-            ActionButton(title: replaceLabel, systemImage: "arrow.triangle.2.circlepath", style: .destructive) {
-                isConfirmingReplace = true
-            }
-            .padding(.top, Spacing.xs)
-        }
-        .disabled(batchCount == 0)
-    }
-
-    private var addToEndLabel: String {
-        guard let count = batchCount else { return "Add to End of Queue" }
-        return count > ShareViewModel.maxBatchTracks
-            ? "Add First \(ShareViewModel.maxBatchTracks) to End of Queue"
-            : "Add All (\(count)) to End of Queue"
-    }
-
-    private var playNextLabel: String {
-        guard let count = batchCount else { return "Play Next" }
-        return count > ShareViewModel.maxBatchTracks
-            ? "Play First \(ShareViewModel.maxBatchTracks) Next"
-            : "Play All (\(count)) Next"
-    }
-
-    private var replaceLabel: String {
-        guard let count = batchCount else { return "Replace Queue" }
-        return count > ShareViewModel.maxBatchTracks
-            ? "Replace Queue with First \(ShareViewModel.maxBatchTracks)"
-            : "Replace Queue with All (\(count))"
+        return "Clears the Apple TV queue and plays \(subject)."
     }
 }
 
-private struct ActionButton: View {
-    enum Style { case prominent, secondary, destructive }
-
-    let title: String
-    let systemImage: String
-    let style: Style
-    let action: () -> Void
+private struct QueueActionsSection: View {
+    var footer: String?
+    let perform: (ShareViewModel.QueueAction) -> Void
 
     var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.scHeadline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Spacing.sm)
+        Section {
+            Button {
+                perform(.playNow)
+            } label: {
+                Label("Play Now", systemImage: "play.fill")
+            }
+            Button {
+                perform(.playNext)
+            } label: {
+                Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
+            }
+            Button {
+                perform(.addToEnd)
+            } label: {
+                Label("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward")
+            }
+        } footer: {
+            if let footer {
+                Text(footer)
+            }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(tint)
-        .foregroundStyle(foreground)
-        .controlSize(.large)
+    }
+}
+
+private struct UnresolvedLinkView: View {
+    let url: URL
+    @ObservedObject var viewModel: ShareViewModel
+
+    var body: some View {
+        Form {
+            Section {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.headline)
+                            .lineLimit(2)
+                        Text("SoundCloud")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "link")
+                }
+            }
+
+            QueueActionsSection { action in
+                viewModel.handOff(action)
+            }
+        }
+        .formStyle(.grouped)
     }
 
-    private var tint: Color {
-        switch style {
-        case .prominent: return .scAccent
-        case .secondary: return Color.primary.opacity(0.12)
-        case .destructive: return .scDestructive
+    private var title: String {
+        let path = url.pathComponents.filter { $0 != "/" }
+        return path.last?.replacingOccurrences(of: "-", with: " ") ?? url.absoluteString
+    }
+}
+
+@MainActor
+enum ShareItemExtractor {
+    static func soundCloudCandidateURL(in items: [NSExtensionItem]) async -> URL? {
+        for item in items {
+            guard let attachments = item.attachments else { continue }
+            for provider in attachments {
+                if let url = await loadURL(from: provider) {
+                    return url
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func loadURL(from provider: NSItemProvider) async -> URL? {
+        if provider.canLoadObject(ofClass: NSURL.self),
+           let url = await urlObject(from: provider) {
+            return url
+        }
+
+        if provider.canLoadObject(ofClass: NSString.self),
+           let text = await stringObject(from: provider) {
+            return firstURL(in: text)
+        }
+
+        return nil
+    }
+
+    private static func urlObject(from provider: NSItemProvider) async -> URL? {
+        await withCheckedContinuation { continuation in
+            provider.loadObject(ofClass: NSURL.self) { object, _ in
+                let url = (object as? NSURL).map { $0 as URL }
+                continuation.resume(returning: url)
+            }
         }
     }
 
-    private var foreground: Color {
-        switch style {
-        case .prominent:   return .scAccentOn
-        case .destructive: return .scDestructiveOn
-        case .secondary:   return .primary
+    private static func stringObject(from provider: NSItemProvider) async -> String? {
+        await withCheckedContinuation { continuation in
+            provider.loadObject(ofClass: NSString.self) { object, _ in
+                let string = (object as? NSString).map { $0 as String }
+                continuation.resume(returning: string)
+            }
         }
+    }
+
+    private static func firstURL(in text: String) -> URL? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        let urls = detector.matches(in: text, range: range).compactMap(\.url)
+        return urls.first { ShareViewModel.isSoundCloudHost($0) } ?? urls.first
     }
 }

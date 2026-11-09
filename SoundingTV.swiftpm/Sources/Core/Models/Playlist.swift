@@ -16,6 +16,13 @@ struct Playlist: Identifiable, Codable, Hashable, Sendable {
     let isAlbum: Bool
     let sharing: String
     let user: User
+    let lastModified: Date?
+    let releaseDate: Date?
+    let labelName: String?
+    let license: String?
+    let genre: String?
+    let setType: String?
+    let tags: [String]
 
     let tracks: [Track]?
 
@@ -64,6 +71,13 @@ struct Playlist: Identifiable, Codable, Hashable, Sendable {
         case createdAt = "created_at"
         case isAlbum = "is_album"
         case sharing
+        case lastModified = "last_modified"
+        case releaseDate = "release_date"
+        case labelName = "label_name"
+        case license
+        case genre
+        case setType = "set_type"
+        case tagList = "tag_list"
     }
 
     init(from decoder: Decoder) throws {
@@ -85,6 +99,13 @@ struct Playlist: Identifiable, Codable, Hashable, Sendable {
         isAlbum = try container.decodeIfPresent(Bool.self, forKey: .isAlbum) ?? false
         sharing = try container.decodeIfPresent(String.self, forKey: .sharing) ?? "public"
         user = try container.decode(User.self, forKey: .user)
+        lastModified = (try? container.decodeIfPresent(Date.self, forKey: .lastModified)) ?? nil
+        releaseDate = (try? container.decodeIfPresent(Date.self, forKey: .releaseDate)) ?? nil
+        labelName = Self.text(container, .labelName)
+        license = Self.text(container, .license)
+        genre = Self.text(container, .genre)
+        setType = Self.text(container, .setType)
+        tags = TrackAbout.parseTagList(Self.text(container, .tagList) ?? "")
 
         if var elements = try? container.nestedUnkeyedContainer(forKey: .tracks) {
             let manifest = try PlaylistTracksDecoder.drain(&elements)
@@ -122,6 +143,13 @@ struct Playlist: Identifiable, Codable, Hashable, Sendable {
         try container.encode(isAlbum, forKey: .isAlbum)
         try container.encode(sharing, forKey: .sharing)
         try container.encode(user, forKey: .user)
+        try container.encodeIfPresent(lastModified, forKey: .lastModified)
+        try container.encodeIfPresent(releaseDate, forKey: .releaseDate)
+        try container.encodeIfPresent(labelName, forKey: .labelName)
+        try container.encodeIfPresent(license, forKey: .license)
+        try container.encodeIfPresent(genre, forKey: .genre)
+        try container.encodeIfPresent(setType, forKey: .setType)
+        if !tags.isEmpty { try container.encode(Self.tagList(tags), forKey: .tagList) }
 
         if let manifest = trackIDs {
             let hydrated = Dictionary(
@@ -140,6 +168,16 @@ struct Playlist: Identifiable, Codable, Hashable, Sendable {
         }
     }
 
+    private static func tagList(_ tags: [String]) -> String {
+        tags.map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
+    }
+
+    private static func text(_ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> String? {
+        guard let value = (try? container.decodeIfPresent(String.self, forKey: key)) ?? nil else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
@@ -150,6 +188,13 @@ struct Playlist: Identifiable, Codable, Hashable, Sendable {
 }
 
 extension Playlist {
+
+    var isPrivate: Bool { sharing == "private" }
+
+    func isOwned(by userID: String?) -> Bool {
+        guard let userID else { return false }
+        return user.id == userID && !isAlbum
+    }
 
     var loadedTracks: [Track] { tracks ?? [] }
 
@@ -432,24 +477,6 @@ struct ResilientArray<Element: Decodable>: Decodable {
     }
 }
 
-struct PageCursor<Element: Codable> {
-    private(set) var lastPage: Page<Element>?
-
-    private(set) var isExhausted = false
-
-    var canLoadMore: Bool { !isExhausted && lastPage?.nextHref != nil }
-
-    mutating func advance(to page: Page<Element>) {
-        lastPage = page
-        isExhausted = page.nextHref == nil
-    }
-
-    mutating func reset() {
-        lastPage = nil
-        isExhausted = false
-    }
-}
-
 extension Array where Element: Identifiable {
     mutating func appendUnique(contentsOf newItems: [Element]) {
         var seen = Set(map(\.id))
@@ -460,7 +487,7 @@ extension Array where Element: Identifiable {
 
     func isNearEnd(_ item: Element, lead: Int) -> Bool {
         guard !isEmpty else { return false }
-        return item.id == self[Swift.max(0, count - lead)].id
+        return suffix(Swift.max(1, lead)).contains { $0.id == item.id }
     }
 }
 
@@ -522,6 +549,36 @@ enum CollectionKind: String {
         case .set:      return "Set"
         case .playlist: return "Playlist"
         case .track:    return "Track"
+        }
+    }
+}
+
+enum CollectionPageKind: Equatable {
+    case album
+    case playlist
+    case set
+
+    init(playlist: Playlist) {
+        if playlist.isAlbum {
+            self = .album
+        } else {
+            self = CollectionKind.classify(playlist: playlist) == .set ? .set : .playlist
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .album: return "Album"
+        case .playlist: return "Playlist"
+        case .set: return "Set"
+        }
+    }
+
+    var fallbackSymbol: String {
+        switch self {
+        case .album: return "square.stack"
+        case .playlist: return "music.note.list"
+        case .set: return "clock.arrow.2.circlepath"
         }
     }
 }

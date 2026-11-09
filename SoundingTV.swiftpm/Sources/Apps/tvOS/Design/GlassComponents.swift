@@ -26,133 +26,117 @@ private struct LiquidGlass<S: Shape>: ViewModifier {
     let tint: Color?
     let interactive: Bool
 
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
     func body(content: Content) -> some View {
-        let effect: Glass = {
-            var g: Glass = .regular
-            if let tint { g = g.tint(tint) }
-            if interactive { g = g.interactive() }
-            return g
-        }()
-        content.glassEffect(effect, in: shape)
+        if reduceTransparency {
+            content
+                .background(Color.scGlassFill, in: shape)
+                .background(tint ?? .clear, in: shape)
+        } else {
+            let effect: Glass = {
+                var g: Glass = .regular
+                if let tint { g = g.tint(tint) }
+                if interactive { g = g.interactive() }
+                return g
+            }()
+            content.glassEffect(effect, in: shape)
+        }
     }
 }
 
-struct DynamicBackground: View {
-    @ObservedObject var colors: ArtworkColors = .shared
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+struct TVPaging {
+    var isLoading: Bool
+    var failed: Bool
+    var isPaused: Bool
+    var loadMore: () -> Void
+    var retry: () -> Void
 
-    private static let artworkLayerOpacity: Double = 0.55
-    private static let additiveHeadroom: Double = 1.15
-
-    var body: some View {
-        ZStack {
-            Color.scBgBase
-
-            if let artwork = colors.current.artwork {
-                artwork
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .blur(radius: 90, opaque: true)
-                    .opacity(Self.artworkLayerOpacity)
-                    .saturation(1.35)
-            }
-
-            LinearGradient(
-                colors: [
-                    colors.current.primary.opacity(0.55),
-                    colors.current.secondary.opacity(0.85)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .blendMode(.overlay)
-
-            Color.black.opacity(
-                colors.current.backdropScrim(
-                    layerOpacity: Self.artworkLayerOpacity,
-                    additiveHeadroom: Self.additiveHeadroom
-                )
-            )
-
-            LinearGradient(
-                colors: [Color.clear, Color.black.opacity(0.50)],
-                startPoint: .center,
-                endPoint: .bottom
-            )
-        }
-        .ignoresSafeArea()
-        .scMotion(Motion.ambient, reduceMotion: reduceMotion, value: colors.current.primary)
-        .scMotion(Motion.ambient, reduceMotion: reduceMotion, value: colors.current.secondary)
-    }
-}
-
-struct AmbientBackdrop: View {
-    @ObservedObject var colors: ArtworkColors = .shared
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private static let artworkLayerOpacity: Double = 0.30
-    private static let additiveHeadroom: Double = 1.10
-
-    private var palette: ArtworkColors.Palette { colors.current }
-
-    var body: some View {
-        ZStack {
-            Color.scBgBase
-
-            if let artwork = palette.artwork {
-                artwork
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .blur(radius: 120, opaque: true)
-                    .saturation(1.30)
-                    .opacity(Self.artworkLayerOpacity)
-
-                LinearGradient(
-                    colors: [palette.primary.opacity(0.55), palette.secondary.opacity(0.85)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .blendMode(.overlay)
-
-                Color.black.opacity(
-                    palette.backdropScrim(
-                        layerOpacity: Self.artworkLayerOpacity,
-                        additiveHeadroom: Self.additiveHeadroom
-                    )
-                )
-            } else {
-                fallbackField
-            }
-
-        }
-        .ignoresSafeArea()
-        .scMotion(Motion.ambient, reduceMotion: reduceMotion, value: palette.primary)
-        .scMotion(Motion.ambient, reduceMotion: reduceMotion, value: palette.accent)
+    @MainActor
+    init?<Item: Identifiable>(_ pager: Paginator<Item>) {
+        guard pager.hasMore || pager.isLoadingMore || pager.didFailLoadingMore else { return nil }
+        isLoading = pager.isLoadingMore
+        failed = pager.didFailLoadingMore
+        isPaused = pager.isPaused
+        loadMore = { pager.requestMore() }
+        retry = { Task { await pager.retry() } }
     }
 
-    private var fallbackField: some View {
-        ZStack {
-            gradedField
-            RadialGradient(
-                colors: [Color.scAccent.opacity(0.05), .clear],
-                center: .topLeading,
-                startRadius: 120,
-                endRadius: 1900
-            )
-        }
+    init(
+        isLoading: Bool,
+        failed: Bool,
+        isPaused: Bool,
+        loadMore: @escaping () -> Void,
+        retry: @escaping () -> Void
+    ) {
+        self.isLoading = isLoading
+        self.failed = failed
+        self.isPaused = isPaused
+        self.loadMore = loadMore
+        self.retry = retry
     }
 
-    private var gradedField: LinearGradient {
-        LinearGradient(
-            stops: [
-                .init(color: Color(red: 0.1067, green: 0.1003, blue: 0.1014), location: 0.0),
-                .init(color: Color(red: 0.1799, green: 0.1651, blue: 0.1601), location: 0.55),
-                .init(color: Color(red: 0.2673, green: 0.2431, blue: 0.2219), location: 1.0),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+    static func combining(_ parts: [TVPaging?]) -> TVPaging? {
+        let active = parts.compactMap { $0 }
+        guard !active.isEmpty else { return nil }
+        return TVPaging(
+            isLoading: active.contains { $0.isLoading },
+            failed: active.contains { $0.failed },
+            isPaused: active.contains { $0.isPaused },
+            loadMore: { active.forEach { $0.loadMore() } },
+            retry: { active.filter(\.failed).forEach { $0.retry() } }
         )
+    }
+}
+
+struct TVShelfFooter: View {
+    let paging: TVPaging
+    var height: CGFloat = 240
+
+    var body: some View {
+        TVPagedFooter(paging: paging)
+            .frame(width: 360, height: height)
+    }
+}
+
+struct TVPagedFooter: View {
+    let paging: TVPaging
+
+    var body: some View {
+        PagedFooter(
+            isLoading: paging.isLoading,
+            failed: paging.failed,
+            isPaused: paging.isPaused,
+            retry: paging.retry,
+            reachedEnd: paging.loadMore
+        )
+        .font(.tvCallout)
+        .buttonStyle(TVRetryButtonStyle())
+        .focusEffectDisabled()
+    }
+}
+
+private struct TVRetryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        FocusedLabel(configuration: configuration)
+    }
+
+    private struct FocusedLabel: View {
+        let configuration: ButtonStyle.Configuration
+        @Environment(\.isFocused) private var isFocused
+
+        var body: some View {
+            configuration.label
+                .font(.tvCalloutEmph)
+                .foregroundStyle(isFocused ? Color.scChromeFocusOn : Color.scTextPrimary)
+                .padding(.horizontal, Space.base)
+                .padding(.vertical, Space.snug)
+                .background(
+                    isFocused ? Color.scChromeFocus : Color.white.opacity(0.10),
+                    in: Capsule(style: .continuous)
+                )
+                .opacity(configuration.isPressed ? 0.85 : 1)
+        }
     }
 }
 
@@ -169,148 +153,7 @@ struct LoadingMoreRow: View {
         .padding(.vertical, Space.base)
         .padding(.horizontal, Space.roomy)
         .focusable(false)
-    }
-}
-
-struct ContentSkeleton: View {
-    enum Lockup: Equatable {
-        case list(rows: Int = 6)
-        case grid(columns: Int, rows: Int = 3, circular: Bool = false)
-    }
-
-    let lockup: Lockup
-    let title: String
-
-    @State private var sweep: CGFloat = 0
-    @FocusState private var skeletonFocused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private static let sweepDuration: Double = 1.6
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.gutter) {
-            header
-            shapes
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .scFocus(skeletonFocused, cornerRadius: Corner.card, reduceMotion: reduceMotion)
-        .focusable()
-        .focused($skeletonFocused)
-        .focusEffectDisabled()
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityIdentifier("content.skeleton")
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.linear(duration: Self.sweepDuration).repeatForever(autoreverses: false)) {
-                sweep = 1
-            }
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: Space.snug) {
-            ProgressView()
-                .progressViewStyle(.circular)
-                .tint(.white)
-            Text(title)
-                .font(.tvBodyEmph)
-                .foregroundStyle(Color.scTextSecondary)
-        }
-    }
-
-    @ViewBuilder
-    private var shapes: some View {
-        switch lockup {
-        case .list(let rows):
-            VStack(spacing: Space.tight) {
-                ForEach(0..<max(1, rows), id: \.self) { _ in
-                    listRow
-                }
-            }
-
-        case .grid(let columns, let rows, let circular):
-            VStack(spacing: Space.gutter) {
-                ForEach(0..<max(1, rows), id: \.self) { _ in
-                    HStack(spacing: Space.gutter) {
-                        ForEach(0..<max(1, columns), id: \.self) { _ in
-                            gridCell(circular: circular)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var listRow: some View {
-        HStack(spacing: Space.snug) {
-            plate(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
-                .frame(width: 84, height: 84)
-
-            VStack(alignment: .leading, spacing: Space.hair) {
-                bar(width: 620, height: 22)
-                bar(width: 340, height: 18)
-            }
-
-            Spacer(minLength: Space.snug)
-
-            bar(width: 84, height: 18)
-        }
-        .padding(Space.snug)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func gridCell(circular: Bool) -> some View {
-        let alignment: HorizontalAlignment = circular ? .center : .leading
-        let frameAlignment: Alignment = circular ? .center : .leading
-        return VStack(alignment: alignment, spacing: Space.tight) {
-            Group {
-                if circular {
-                    plate(Circle())
-                } else {
-                    plate(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
-                }
-            }
-            .aspectRatio(1, contentMode: .fit)
-
-            GeometryReader { geo in
-                VStack(alignment: alignment, spacing: 0) {
-                    bar(width: geo.size.width * 0.75, height: 22)
-                        .padding(.vertical, 4)
-                    bar(width: geo.size.width * 0.5, height: 18)
-                        .padding(.vertical, 4)
-                }
-                .frame(width: geo.size.width, alignment: frameAlignment)
-            }
-            .frame(height: 62)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func bar(width: CGFloat, height: CGFloat) -> some View {
-        plate(Capsule())
-            .frame(width: max(24, width), height: height)
-    }
-
-    private func plate<S: Shape>(_ shape: S) -> some View {
-        shape
-            .fill(Color.scBgRaised)
-            .overlay {
-                if !reduceMotion {
-                    GeometryReader { geo in
-                        let band = max(80, geo.size.width * 0.45)
-                        LinearGradient(
-                            colors: [.clear, Color.white.opacity(0.10), .clear],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: band)
-                        .offset(x: -band + sweep * (geo.size.width + band))
-                    }
-                    .allowsHitTesting(false)
-                }
-            }
-            .clipShape(shape)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -328,59 +171,115 @@ struct StatusPanel: View {
     var actionTitle: String?
     var action: (() -> Void)?
     var minHeight: CGFloat = 520
+    var actionFocus: FocusState<Bool>.Binding? = nil
 
     @FocusState private var panelFocused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var buttonFocused: Bool
 
     private var hasAction: Bool { actionTitle != nil && action != nil }
 
+    private var focusBinding: FocusState<Bool>.Binding { actionFocus ?? $buttonFocused }
+
     var body: some View {
-        VStack(spacing: Space.snug) {
+        if hasAction {
+            panel
+                .accessibilityElement(children: .contain)
+        } else {
+            panel
+                .focusable()
+                .focused($panelFocused)
+                .focusEffectDisabled()
+                .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var panel: some View {
+        Group {
             switch kind {
             case .loading:
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .scaleEffect(1.5)
-                    .tint(.white)
-            case .empty:
-                Image(systemName: icon)
-                    .font(.system(size: 88, weight: .heavy))
-                    .foregroundStyle(Color.scTextTertiary)
-            case .error:
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 72, weight: .heavy))
-                    .foregroundStyle(Color.scDestructive)
-            }
-
-            Text(title)
-                .font(.tvHeadline)
-                .foregroundStyle(Color.scTextPrimary)
-                .multilineTextAlignment(.center)
-
-            if let message {
-                Text(message)
-                    .font(.tvBody)
-                    .foregroundStyle(Color.scTextSecondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 900)
-            }
-
-            if let actionTitle, let action {
-                Button(action: action) {
-                    Text(actionTitle)
+                VStack(spacing: Space.snug) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.large)
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .controlSize(.large)
-                .tint(.scAccent)
-                .foregroundStyle(Color.scAccentOn)
-                .padding(.top, Space.tight)
+            case .empty, .error:
+                ContentUnavailableView {
+                    Label(title, systemImage: kind == .error ? "exclamationmark.triangle" : icon)
+                } description: {
+                    if let message {
+                        Text(message)
+                    }
+                } actions: {
+                    if let actionTitle, let action {
+                        Button(actionTitle, action: action)
+                            .focused(focusBinding)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, minHeight: minHeight)
-        .scFocus(panelFocused, cornerRadius: Corner.card, reduceMotion: reduceMotion)
-        .focusable(!hasAction)
-        .focused($panelFocused)
-        .focusEffectDisabled()
+    }
+}
+
+struct TVGlassPillStyle: ButtonStyle {
+    var isProminent = false
+    var diameter: CGFloat?
+
+    func makeBody(configuration: Configuration) -> some View {
+        Styled(configuration: configuration, isProminent: isProminent, diameter: diameter)
+    }
+
+    private struct Styled: View {
+        let configuration: Configuration
+        let isProminent: Bool
+        let diameter: CGFloat?
+        @Environment(\.isFocused) private var isFocused
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @Environment(\.collectionAccent) private var accent
+
+        private var restingTint: Color? {
+            guard isProminent else { return nil }
+            return accent?.wash(for: .dark) ?? Color.white.opacity(0.22)
+        }
+
+        var body: some View {
+            configuration.label
+                .frame(width: diameter, height: diameter)
+                .foregroundStyle(isFocused ? Color.scChromeFocusOn : Color.scTextPrimary)
+                .background {
+                    Capsule()
+                        .fill(Color.scChromeFocus)
+                        .opacity(isFocused ? 1 : 0)
+                }
+                .liquidGlass(in: Capsule(), tint: restingTint)
+                .contentShape(Capsule())
+                .scaleEffect(isFocused ? 1.08 : 1)
+                .shadow(color: isFocused ? Color.scFocusShadow : .clear, radius: 18, y: 10)
+                .opacity(configuration.isPressed ? 0.85 : 1)
+                .focusEffectDisabled()
+                .animation(reduceMotion ? nil : Motion.focus, value: isFocused)
+        }
+    }
+}
+
+struct TVGlassPillLabel: View {
+    let title: String
+    var systemImage: String?
+
+    var body: some View {
+        Group {
+            if let systemImage {
+                Label(title, systemImage: systemImage)
+            } else {
+                Text(title)
+            }
+        }
+        .font(.tvBodyEmph)
+        .lineLimit(1)
+        .padding(.horizontal, 44)
+        .padding(.vertical, 18)
     }
 }

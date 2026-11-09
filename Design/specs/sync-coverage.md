@@ -5,6 +5,8 @@ Audit written 2026-08-04 ~03:00 CEST, against the working tree as found (see
 elsewhere in the tree while this was written; nothing below touches the
 in-flight macOS area, #108/#113/#115).
 
+> **Update 2026-11-09 — settings scopes.** Settings now have four scopes (synced to the Apple ID, account-tagged, account on this device, device-local) and sync per key over the same `SettingsEntry` records, with account records named `<deviceId>.account.<accountHash>`. See the bible §9 "Settings scopes"; the Settings row below predates it.
+
 > **Update 2026-08-04, later the same day — gaps 1 and 2 are closed.** Cue
 > points and settings now both sync continuously rather than once per launch.
 > The affected rows and ranked gaps below carry inline `**Closed**` notes

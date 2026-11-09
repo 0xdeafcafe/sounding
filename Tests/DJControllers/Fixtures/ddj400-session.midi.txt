@@ -1,0 +1,38 @@
+# DDJ-400 session replay: status data1 data2 (hex), one message per line.
+# Built from the DDJ-400 MIDI message list, not captured from hardware.
+# Deck A: play, cue press and release, hot cue 3, jog touch and turn, tempo, volume, EQ.
+90 0B 7F
+90 0B 00
+90 0C 7F
+90 0C 00
+97 02 64
+97 02 00
+90 36 7F
+B0 22 46
+B0 22 3C
+B0 22 40
+90 36 00
+B0 00 40
+B0 20 00
+B0 13 7F
+B0 33 7F
+B0 0F 00
+B0 2F 00
+# Deck B: cue, sync, loop in/out, loop toggle, hot cue 1, filter.
+91 0C 7F
+91 0C 00
+91 58 7F
+91 58 00
+91 10 7F
+91 11 7F
+91 4D 7F
+99 00 7F
+B6 18 00
+B6 38 00
+# Mixer: crossfader full right.
+B6 1F 7F
+B6 3F 7F
+# Unmapped: hot cue clear page, jog search, a stray channel.
+98 02 7F
+B0 29 46
+B3 22 46

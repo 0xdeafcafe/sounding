@@ -52,7 +52,7 @@ enum AnalysisCacheSelfTest {
         let (cache, dir) = scratchCache()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let key = AnalysisCacheKey(trackId: "1", engine: .fftAudioAnalyzer(), schemaVersion: 1, fingerprint: fingerprint())
+        let key = AnalysisCacheKey(trackId: "1", engine: .musicUnderstanding(), schemaVersion: 1, fingerprint: fingerprint())
         let computeCount = Counter()
 
         do {
@@ -82,8 +82,8 @@ enum AnalysisCacheSelfTest {
         let (cache, dir) = scratchCache()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let keyV1 = AnalysisCacheKey(trackId: "2", engine: .fftAudioAnalyzer(), schemaVersion: 1, fingerprint: fingerprint())
-        let keyV2 = AnalysisCacheKey(trackId: "2", engine: .fftAudioAnalyzer(), schemaVersion: 2, fingerprint: fingerprint())
+        let keyV1 = AnalysisCacheKey(trackId: "2", engine: .musicUnderstanding(), schemaVersion: 1, fingerprint: fingerprint())
+        let keyV2 = AnalysisCacheKey(trackId: "2", engine: .musicUnderstanding(), schemaVersion: 2, fingerprint: fingerprint())
 
         do {
             _ = try await cache.value(for: keyV1, as: SyntheticAnalysis.self, compute: { SyntheticAnalysis(bpm: 100, beats: []) }, features: noFeatures)
@@ -106,8 +106,8 @@ enum AnalysisCacheSelfTest {
         let (cache, dir) = scratchCache()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let keyV1 = AnalysisCacheKey(trackId: "3", engine: .fftAudioAnalyzer(version: 1), schemaVersion: 1, fingerprint: fingerprint())
-        let keyV2 = AnalysisCacheKey(trackId: "3", engine: .fftAudioAnalyzer(version: 2), schemaVersion: 1, fingerprint: fingerprint())
+        let keyV1 = AnalysisCacheKey(trackId: "3", engine: .musicUnderstanding(version: 1), schemaVersion: 1, fingerprint: fingerprint())
+        let keyV2 = AnalysisCacheKey(trackId: "3", engine: .musicUnderstanding(version: 2), schemaVersion: 1, fingerprint: fingerprint())
 
         do {
             _ = try await cache.value(for: keyV1, as: SyntheticAnalysis.self, compute: { SyntheticAnalysis(bpm: 100, beats: []) }, features: noFeatures)
@@ -130,8 +130,8 @@ enum AnalysisCacheSelfTest {
         let (cache, dir) = scratchCache()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let hqKey = AnalysisCacheKey(trackId: "4", engine: .fftAudioAnalyzer(), schemaVersion: 1, fingerprint: fingerprint(preset: "aac_256k", bitrate: 256))
-        let lowQualityKey = AnalysisCacheKey(trackId: "4", engine: .fftAudioAnalyzer(), schemaVersion: 1, fingerprint: fingerprint(preset: "opus_0_0", bitrate: 64))
+        let hqKey = AnalysisCacheKey(trackId: "4", engine: .musicUnderstanding(), schemaVersion: 1, fingerprint: fingerprint(preset: "aac_256k", bitrate: 256))
+        let lowQualityKey = AnalysisCacheKey(trackId: "4", engine: .musicUnderstanding(), schemaVersion: 1, fingerprint: fingerprint(preset: "opus_0_0", bitrate: 64))
 
         do {
             _ = try await cache.value(for: hqKey, as: SyntheticAnalysis.self, compute: { SyntheticAnalysis(bpm: 128, beats: []) }, features: noFeatures)
@@ -161,7 +161,7 @@ enum AnalysisCacheSelfTest {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         func key(_ trackId: String) -> AnalysisCacheKey {
-            AnalysisCacheKey(trackId: trackId, engine: .fftAudioAnalyzer(), schemaVersion: 1, fingerprint: fingerprint())
+            AnalysisCacheKey(trackId: trackId, engine: .musicUnderstanding(), schemaVersion: 1, fingerprint: fingerprint())
         }
 
         do {
@@ -190,7 +190,7 @@ enum AnalysisCacheSelfTest {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         func key(_ trackId: String) -> AnalysisCacheKey {
-            AnalysisCacheKey(trackId: trackId, engine: .fftAudioAnalyzer(), schemaVersion: 1, fingerprint: fingerprint())
+            AnalysisCacheKey(trackId: trackId, engine: .musicUnderstanding(), schemaVersion: 1, fingerprint: fingerprint())
         }
 
         do {
@@ -224,7 +224,7 @@ enum AnalysisCacheSelfTest {
         let (cache, dir) = scratchCache()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let key = AnalysisCacheKey(trackId: "stampede", engine: .fftAudioAnalyzer(), schemaVersion: 1, fingerprint: fingerprint())
+        let key = AnalysisCacheKey(trackId: "stampede", engine: .musicUnderstanding(), schemaVersion: 1, fingerprint: fingerprint())
         let counter = Counter()
         let callerCount = 25
 
@@ -264,7 +264,7 @@ enum AnalysisCacheSelfTest {
         bpm: Double,
         key: CamelotKey? = nil,
         genre: String? = nil,
-        engine: AnalysisEngineIdentity = .fftAudioAnalyzer(),
+        engine: AnalysisEngineIdentity = .musicUnderstanding(),
         schemaVersion: Int = 1
     ) async throws -> AnalysisCacheKey {
         let cacheKey = AnalysisCacheKey(trackId: trackId, engine: engine, schemaVersion: schemaVersion, fingerprint: fingerprint())
@@ -288,7 +288,7 @@ enum AnalysisCacheSelfTest {
             try await seedRecallRow(cache, trackId: "near-half-but-outside-tolerance", bpm: 87 * 1.10)
 
             let results = await cache.recallCandidates(
-                CandidateRecallQuery(engine: .fftAudioAnalyzer(), schemaVersion: 1, bpm: BPMWindow(seedBPM: 174))
+                CandidateRecallQuery(engine: .musicUnderstanding(), schemaVersion: 1, bpm: BPMWindow(seedBPM: 174))
             )
 
             let expected: Set<String> = ["unity", "half", "double"]
@@ -299,7 +299,7 @@ enum AnalysisCacheSelfTest {
             }
 
             let unityOnly = await cache.recallCandidates(
-                CandidateRecallQuery(engine: .fftAudioAnalyzer(), schemaVersion: 1, bpm: BPMWindow(seedBPM: 174, includeHalfDouble: false))
+                CandidateRecallQuery(engine: .musicUnderstanding(), schemaVersion: 1, bpm: BPMWindow(seedBPM: 174, includeHalfDouble: false))
             )
             if unityOnly == ["unity"] {
                 report.lines.append("includeHalfDouble: false narrows recall back to the unity tempo only")
@@ -324,7 +324,7 @@ enum AnalysisCacheSelfTest {
             try await seedRecallRow(cache, trackId: "incompatible", bpm: 120, key: CamelotKey(wheelPosition: 1, mode: .major))
 
             let results = await cache.recallCandidates(
-                CandidateRecallQuery(engine: .fftAudioAnalyzer(), schemaVersion: 1, key: seedKey)
+                CandidateRecallQuery(engine: .musicUnderstanding(), schemaVersion: 1, key: seedKey)
             )
             let expected: Set<String> = ["same", "next", "prev", "relative-minor"]
             if Set(results) == expected {
@@ -345,7 +345,7 @@ enum AnalysisCacheSelfTest {
             try await seedRecallRow(cache, trackId: "bpm-only", bpm: 120)
 
             let byBPM = await cache.recallCandidates(
-                CandidateRecallQuery(engine: .fftAudioAnalyzer(), schemaVersion: 1, bpm: BPMWindow(seedBPM: 120))
+                CandidateRecallQuery(engine: .musicUnderstanding(), schemaVersion: 1, bpm: BPMWindow(seedBPM: 120))
             )
             if byBPM == ["bpm-only"] {
                 report.lines.append("a row with no key/genre is still found by a BPM-only query — NULL key doesn't leak into an unrelated filter")
@@ -354,7 +354,7 @@ enum AnalysisCacheSelfTest {
             }
 
             let byKey = await cache.recallCandidates(
-                CandidateRecallQuery(engine: .fftAudioAnalyzer(), schemaVersion: 1, key: CamelotKey(wheelPosition: 8, mode: .major))
+                CandidateRecallQuery(engine: .musicUnderstanding(), schemaVersion: 1, key: CamelotKey(wheelPosition: 8, mode: .major))
             )
             if byKey.isEmpty {
                 report.lines.append("the same row is correctly absent from a key-filtered query (its key is genuinely unknown)")
@@ -362,9 +362,9 @@ enum AnalysisCacheSelfTest {
                 report.failures.append("NULL-scoping (key query): expected [], got \(byKey)")
             }
 
-            let coverage = await cache.featureCoverage(engine: .fftAudioAnalyzer(), schemaVersion: 1)
+            let coverage = await cache.featureCoverage(engine: .musicUnderstanding(), schemaVersion: 1)
             let byGenre = await cache.recallCandidates(
-                CandidateRecallQuery(engine: .fftAudioAnalyzer(), schemaVersion: 1, genre: "house")
+                CandidateRecallQuery(engine: .musicUnderstanding(), schemaVersion: 1, genre: "house")
             )
             if coverage.withGenre == 0, byGenre.isEmpty {
                 report.lines.append("genre filter with zero genre coverage (\(coverage)) returns an honest empty result, not a crash or false match")
@@ -386,7 +386,7 @@ enum AnalysisCacheSelfTest {
             }
 
             let query = CandidateRecallQuery(
-                engine: .fftAudioAnalyzer(),
+                engine: .musicUnderstanding(),
                 schemaVersion: 1,
                 excludingTrackId: "t0",
                 bpm: BPMWindow(seedBPM: 120),

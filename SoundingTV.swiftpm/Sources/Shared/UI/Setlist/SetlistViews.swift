@@ -1,108 +1,84 @@
 import Foundation
 import SwiftUI
 
-struct OnDecksIndicator: View {
-    let identity: SetlistSegment?
-    let isScanning: Bool
-    let action: () -> Void
+#if canImport(AVFoundation) && !os(tvOS)
+@MainActor
+private final class SetlistPreviewController: ObservableObject {
+    @Published private(set) var activeID: String?
+    @Published private(set) var label: String?
+    @Published private(set) var isLoading = false
+    @Published private(set) var errorMessage: String?
 
-    #if os(tvOS)
-    @FocusState private var focused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ObservedObject private var artworkColors = ArtworkColors.shared
-    #endif
+    private var requestTask: Task<Void, Never>?
+    private var stopTask: Task<Void, Never>?
+    private var requestGeneration = 0
 
-    var body: some View {
-        #if os(tvOS)
-        HStack(spacing: Space.snug) {
-            Image(systemName: isScanning ? "waveform.badge.magnifyingglass" : "music.note.list")
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(artworkColors.current.accent)
-                .symbolEffect(.pulse, isActive: isScanning && !reduceMotion)
-                .frame(width: 42, height: 42)
+    func previewSet(track: Track, at position: TimeInterval, id: String, label: String) {
+        if activeID == id {
+            stop(resumeMainPlayback: true)
+            return
+        }
+        beginPreview(track: track, position: position, id: id, label: label)
+    }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(tvOSDetail)
-                    .font(.system(size: 25, weight: .semibold))
-                    .foregroundStyle(Color.scTextPrimary)
-                    .lineLimit(1)
-                Text(tvOSContext)
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(Color.scTextTertiary)
-                    .lineLimit(1)
+    func previewSong(_ track: Track, id: String? = nil) {
+        let previewID = id ?? "song#\(track.id)"
+        if activeID == previewID {
+            stop(resumeMainPlayback: true)
+            return
+        }
+        beginPreview(track: track, position: 0, id: previewID, label: track.title)
+    }
+
+    func stop(resumeMainPlayback: Bool) {
+        requestGeneration &+= 1
+        requestTask?.cancel()
+        requestTask = nil
+        stopTask?.cancel()
+        stopTask = nil
+        activeID = nil
+        label = nil
+        isLoading = false
+
+        Task { @MainActor in
+            await PlayerService.shared.endPreviewPlayback(resumeOriginal: resumeMainPlayback)
+        }
+    }
+
+    private func beginPreview(
+        track: Track,
+        position: TimeInterval,
+        id: String,
+        label: String
+    ) {
+        requestGeneration &+= 1
+        let generation = requestGeneration
+        requestTask?.cancel()
+        stopTask?.cancel()
+        errorMessage = nil
+        activeID = id
+        self.label = label
+        isLoading = true
+
+        requestTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await PlayerService.shared.beginPreviewPlayback(of: track, at: position)
+            guard !Task.isCancelled, generation == requestGeneration else { return }
+            if let playbackError = PlayerService.shared.playbackErrorMessage {
+                errorMessage = playbackError
+                stop(resumeMainPlayback: true)
+                return
             }
-
-            Spacer(minLength: Space.snug)
-
-            Text("Set list")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(focused ? Color.scTextPrimary : Color.scTextSecondary)
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color.scTextTertiary)
-        }
-        .padding(.horizontal, Space.snug)
-        .frame(maxWidth: .infinity, minHeight: 72)
-        .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
-        .liquidGlass(
-            in: RoundedRectangle(cornerRadius: Corner.control, style: .continuous),
-            interactive: false
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
-                .strokeBorder(Color.white.opacity(focused ? 0.28 : 0), lineWidth: 1.5)
-                .allowsHitTesting(false)
-        }
-        .scaleEffect(focused ? 1.025 : 1)
-        .shadow(color: focused ? .black.opacity(0.32) : .clear, radius: 12, y: 5)
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: focused)
-        .onTapGesture(perform: action)
-        .accessibilityLabel(label)
-        .accessibilityHint("Opens the detected set list")
-        #else
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: isScanning ? "waveform.badge.magnifyingglass" : "opticaldisc.fill")
-                    .symbolEffect(.pulse, isActive: isScanning)
-                Text(label)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Text(identity == nil ? "view" : "edit")
-                    .foregroundStyle(.secondary)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.tertiary)
+            isLoading = false
+            stopTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(20))
+                guard !Task.isCancelled, self?.requestGeneration == generation else { return }
+                self?.stop(resumeMainPlayback: true)
             }
-            .font(.subheadline.weight(.semibold))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityHint("Opens the setlist we found")
-        .scGlassCapsule()
-        #endif
-    }
-
-    #if os(tvOS)
-    private var tvOSDetail: String {
-        if let identity { return identity.displayLabel }
-        return isScanning ? "Identifying what is playing…" : "Nothing identified at this point"
-    }
-
-    private var tvOSContext: String {
-        identity == nil ? "Detected set list" : "Playing now in this set"
-    }
-    #endif
-
-    private var label: String {
-        if let identity { return "Now in this set: \(identity.displayLabel)" }
-        return isScanning ? "Setlist: identifying this track…" : "Setlist: track not identified"
     }
 }
+#endif
 
 struct SetlistEditorView: View {
     let track: Track
@@ -118,135 +94,202 @@ struct SetlistEditorView: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @State private var editingSegment: SetlistSegment?
     @State private var searchingSegment: SetlistSegment?
-    @State private var discoveredLocalFileURL: URL?
+    @State private var playlistSegment: SetlistSegment?
+    @State private var playingLinkedSegmentID: String?
+    @State private var segmentActionError: String?
     @State private var shouldScanAfterDownload = false
     @State private var downloadScanMessage: String?
-    #if !SOUNDING_SHARE_EXTENSION
     @State private var trackAnalysis: TrackAnalysisSummary?
+    #if canImport(AVFoundation) && !os(tvOS)
+    @StateObject private var preview = SetlistPreviewController()
     #endif
 
     var body: some View {
-        content
-            .task(id: "\(track.id)#\(comments.count)") {
-                store.seed(track: track, comments: comments)
+        NavigationStack {
+            container
+                .navigationTitle("Setlist")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                #if !os(tvOS)
+                .toolbar { toolbarContent }
+                #endif
+        }
+        .task(id: "\(track.id)#\(comments.count)") {
+            store.seed(track: track, comments: comments)
+            if comments.isEmpty {
+                await store.hydrateMetadataIfNeeded(for: track)
             }
-            .onChange(of: downloadState, initial: true) { _, state in
-                handleDownloadState(state)
-            }
-            #if !SOUNDING_SHARE_EXTENSION
-            .task(id: track.id) {
-                trackAnalysis = await AnalysisLookup.summaries(for: [track])[track.id]
-            }
+        }
+        .task(id: track.id) {
+            trackAnalysis = await AnalysisLookup.summaries(for: [track])[track.id]
+        }
+        .onChange(of: downloadState, initial: true) { _, state in
+            handleDownloadState(state)
+        }
+        .onDisappear {
+            #if canImport(AVFoundation) && !os(tvOS)
+            preview.stop(resumeMainPlayback: true)
             #endif
-            .sheet(item: $editingSegment) { segment in
-                SetlistSegmentEditView(segment: segment) { updated in
-                    store.update(updated, trackId: track.id)
-                }
+        }
+        .sheet(item: $editingSegment) { segment in
+            SetlistSegmentEditView(segment: segment) { updated in
+                store.update(updated, trackId: track.id)
             }
-            .sheet(item: $searchingSegment) { segment in
-                SetlistSoundCloudSearchView(
-                    segment: segment,
-                    onLink: { result in store.link(result, to: segment.id, trackId: track.id) },
-                    onPlay: onPlaySearchResult
+        }
+        .sheet(item: $searchingSegment) { segment in
+            SetlistSoundCloudSearchView(
+                segment: segment,
+                onLink: { result in store.link(result, to: segment.id, trackId: track.id) },
+                onPlay: { result in
+                    #if canImport(AVFoundation) && !os(tvOS)
+                    preview.previewSong(result)
+                    #else
+                    onPlaySearchResult(result)
+                    #endif
+                }
+            )
+        }
+        .sheet(item: $playlistSegment) { segment in
+            if let soundCloudTrackID = segment.soundCloudTrackId {
+                SetlistPlaylistPickerView(
+                    soundCloudTrackID: soundCloudTrackID,
+                    trackLabel: segment.displayLabel
                 )
             }
+        }
+        .alert("Couldn’t Complete", isPresented: Binding(
+            get: { segmentActionError != nil },
+            set: { if !$0 { segmentActionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { segmentActionError = nil }
+        } message: {
+            Text(segmentActionError ?? "")
+        }
     }
 
     @ViewBuilder
-    private var content: some View {
-        #if os(tvOS)
-        tvOSContent
+    private var container: some View {
+        #if os(macOS)
+        Form { sections }
+            .formStyle(.grouped)
         #else
-        formContent
+        List { sections }
         #endif
     }
 
-    private var formContent: some View {
-        NavigationStack {
-            List {
-                Section {
-                    scanStatus
-                    #if !SOUNDING_SHARE_EXTENSION
-                    if let trackAnalysis, !trackAnalysis.isEmpty {
-                        #if os(macOS)
-                        trackAnalysis.badgeRow(style: .mac)
-                        #else
-                        trackAnalysis.badgeRow(style: .phone)
-                        #endif
-                    }
-                    #endif
-                    if let currentSegment {
-                        Button { onSeek(currentSegment.startSeconds) } label: {
-                            LabeledContent("Now in this set", value: currentSegment.displayLabel)
-                        }
-                    }
-                } header: {
-                    Text("Audio scan")
-                } footer: {
-                    Text("Downloads this mix for offline playback, then checks sample points with Shazam. Uploader timestamps and useful listener IDs are included too. Progress is saved, so you can leave this screen.")
-                }
-
-                Section("Identified tracks") {
-                    if segments.isEmpty {
-                        ContentUnavailableView(
-                            "Nothing Identified Yet",
-                            systemImage: "waveform.badge.magnifyingglass",
-                            description: Text("Start an audio scan above, or leave a synced Mac open to work on it there.")
-                        )
-                    } else {
-                        ForEach(segments) { segment in
-                            segmentRow(segment)
-                        }
-                    }
-                }
-
-                Section {
-                    Button {
-                        store.setSaved(!isSaved, trackId: track.id)
-                    } label: {
-                        Label(
-                            isSaved ? "Remove Saved Setlist" : "Save Identified Setlist",
-                            systemImage: isSaved ? "bookmark.slash" : "bookmark"
-                        )
-                    }
-
-                    if isSaved, let setlist {
-                        #if !os(tvOS)
-                        ShareLink(item: store.exportText(for: setlist)) {
-                            Label("Share or Export Setlist", systemImage: "square.and.arrow.up")
-                        }
-                        #else
-                        Label("Identified setlist saved to Setlists", systemImage: "checkmark.circle.fill")
-                        #endif
-                    }
-                } header: {
-                    Text("Save this result")
-                } footer: {
-                    Text("Saves only the identified setlist in Setlists on your synced devices. It does not duplicate or download the original mix.")
-                }
-
-                if !store.savedSetlists.isEmpty {
-                    Section {
-                        NavigationLink {
-                            SavedSetlistsLibraryView()
-                        } label: {
-                            LabeledContent("Saved Setlists", value: "\(store.savedSetlists.count)")
-                        }
-                    }
+    @ViewBuilder
+    private var sections: some View {
+        Section {
+            scanStatus
+            if let trackAnalysis, !trackAnalysis.isEmpty {
+                trackAnalysis.badgeRow(style: analysisStyle)
+            }
+            if let currentSegment {
+                Button { previewInSet(currentSegment) } label: {
+                    LabeledContent("Current Track", value: currentSegment.displayLabel)
                 }
             }
-            .navigationTitle("Setlist")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+            #if canImport(AVFoundation) && !os(tvOS)
+            if preview.isLoading || preview.activeID != nil {
+                HStack {
+                    if preview.isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Label(preview.label ?? "Preview", systemImage: "headphones")
+                        .lineLimit(1)
+                    Spacer()
+                    Button("Stop") { preview.stop(resumeMainPlayback: true) }
+                }
+            }
+            #endif
+        } header: {
+            Text("Identify")
+        } footer: {
+            Text("Needs the mix downloaded first. Tracks are matched with Shazam, helped by timestamps from the uploader and listeners.")
+        }
+
+        Section {
+            if segments.isEmpty {
+                ContentUnavailableView(
+                    "No Tracks Yet",
+                    systemImage: "waveform.badge.magnifyingglass",
+                    description: Text("Use Identify Tracks to fill in this list.")
+                )
+            } else {
+                segmentRows
+            }
+            Button(action: addTrackAtCurrentPosition) {
+                Label("Add Track at \(SetlistViewFormat.clock(currentPosition))", systemImage: "plus")
+            }
+        } header: {
+            Text("Tracks")
+        }
+
+        #if os(tvOS)
+        Section {
+            Button {
+                store.setSaved(!isSaved, trackId: track.id)
+            } label: {
+                Label(
+                    isSaved ? "Remove from Saved Setlists" : "Save Setlist",
+                    systemImage: isSaved ? "bookmark.slash" : "bookmark"
+                )
+            }
+        }
+        #endif
+
+        if !store.savedSetlists.isEmpty {
+            Section {
+                NavigationLink {
+                    SavedSetlistsLibraryView()
+                } label: {
+                    LabeledContent("Saved Setlists", value: "\(store.savedSetlists.count)")
                 }
             }
         }
     }
 
+    #if !os(tvOS)
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        #if os(iOS)
+        ToolbarItem(placement: .topBarLeading) {
+            EditButton()
+        }
+        #endif
+        ToolbarItem(placement: .confirmationAction) {
+            Button("Done") { dismiss() }
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                store.setSaved(!isSaved, trackId: track.id)
+            } label: {
+                Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
+            }
+        }
+        if isSaved, let setlist {
+            ToolbarItem(placement: .primaryAction) {
+                ShareLink(item: store.exportText(for: setlist))
+            }
+        }
+    }
+    #endif
+
+    private var analysisStyle: SCContentStyle {
+        #if os(macOS)
+        .mac
+        #elseif os(tvOS)
+        .tv
+        #else
+        .phone
+        #endif
+    }
+
     private var setlist: GeneratedSetlist? { store.setlist(for: track.id) }
     private var segments: [SetlistSegment] {
-        (setlist?.segments ?? []).filter { !$0.isDeleted }.sorted { $0.startSeconds < $1.startSeconds }
+        setlist?.activeSegments ?? []
     }
     private var currentSegment: SetlistSegment? { setlist?.segment(at: currentPosition) }
     private var isSaved: Bool { setlist?.isSaved ?? false }
@@ -276,96 +319,69 @@ struct SetlistEditorView: View {
         #endif
         return downloads.state(for: track.id)
     }
-    private var scanFileURL: URL? { discoveredLocalFileURL ?? localFileURL }
+    private var canScanAudio: Bool { localFileURL != nil || downloads.isLocallyAvailable(track) }
 
     @ViewBuilder
     private var scanStatus: some View {
         if isScanning {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    ProgressView()
-                    VStack(alignment: .leading) {
-                        Text("Scanning downloaded audio")
-                        Text(scanProgressLabel)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                if let progress {
-                    ProgressView(value: progress.fraction)
-                        .progressViewStyle(.linear)
-                }
+            ProgressView(value: progress?.fraction) {
+                Text("Identifying")
+            } currentValueLabel: {
+                Text(scanProgressLabel)
             }
         } else if isDownloading {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    ProgressView()
-                    VStack(alignment: .leading) {
-                        Text(downloadHeadline)
-                        Text(downloadDetail)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+            DownloadFractionReader(trackId: track.id) { _ in
+                ProgressView(value: downloadFraction) {
+                    Text(downloadHeadline)
+                } currentValueLabel: {
+                    Text(downloadDetail)
                 }
-                if let fraction = downloadFraction {
-                    ProgressView(value: fraction)
-                        .progressViewStyle(.linear)
-                }
-                Button(role: .destructive) {
-                    shouldScanAfterDownload = false
-                    downloads.cancel(trackId: track.id)
-                } label: {
-                    Label("Cancel Download", systemImage: "xmark.circle")
-                }
+            }
+            Button(role: .destructive) {
+                shouldScanAfterDownload = false
+                downloads.removeDownload(.track(track.id))
+            } label: {
+                Label("Cancel Download", systemImage: "xmark.circle")
             }
         } else if case .paused = downloadState {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Download paused", systemImage: "pause.circle")
-                Button {
-                    shouldScanAfterDownload = true
-                    downloads.resume(trackId: track.id)
-                } label: {
-                    Label("Resume Download and Scan", systemImage: "arrow.down.circle")
-                }
+            LabeledContent("Download", value: "Paused")
+            Button {
+                shouldScanAfterDownload = true
+                downloads.resume(trackId: track.id)
+            } label: {
+                Label("Resume Download", systemImage: "arrow.down.circle")
             }
         } else if case .failed(let reason) = downloadState {
-            VStack(alignment: .leading, spacing: 6) {
-                Label(reason, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-                Button(action: beginDownloadAndScan) {
-                    Label("Retry Download and Scan", systemImage: "arrow.clockwise")
-                }
+            Label(reason, systemImage: "exclamationmark.triangle")
+            Button(action: beginDownloadAndScan) {
+                Label("Retry Download", systemImage: "arrow.clockwise")
             }
         } else if let error = store.scanErrors[track.id] {
-            VStack(alignment: .leading, spacing: 6) {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-                if scanFileURL != nil {
-                    Button(action: beginAudioScan) {
-                        Label("Retry Audio Scan", systemImage: "arrow.clockwise")
-                    }
+            Label(error, systemImage: "exclamationmark.triangle")
+            if canScanAudio {
+                Button(action: beginAudioScan) {
+                    Label("Retry Identify", systemImage: "arrow.clockwise")
                 }
             }
         } else {
             LabeledContent("Coverage", value: scanCounts)
 
-            if scanFileURL != nil {
+            if canScanAudio {
                 Button(action: beginAudioScan) {
                     Label(
-                        (setlist?.completedProbeCount ?? 0) > 0 ? "Rescan Unmatched Spots" : "Scan Downloaded Audio",
+                        (setlist?.completedProbeCount ?? 0) > 0 ? "Identify Remaining" : "Identify Tracks",
                         systemImage: "waveform.badge.magnifyingglass"
                     )
                 }
             } else {
                 Button(action: beginDownloadAndScan) {
-                    Label("Download Mix and Start Scan", systemImage: "arrow.down.circle")
+                    Label("Identify Tracks", systemImage: "waveform.badge.magnifyingglass")
                 }
             }
 
             if let downloadScanMessage {
-                Text(downloadScanMessage)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                Label(downloadScanMessage, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -386,27 +402,27 @@ struct SetlistEditorView: View {
 
     private var downloadHeadline: String {
         switch downloadState {
-        case .queued: return "Waiting to download"
-        case .downloading: return "Downloading mix for audio scan"
-        default: return "Preparing audio scan"
+        case .queued: return "Waiting to Download"
+        case .downloading: return "Downloading"
+        default: return "Preparing"
         }
     }
 
     private var downloadDetail: String {
-        guard let fraction = downloadFraction else { return "The scan will start automatically when it finishes." }
-        return "\(Int((fraction * 100).rounded()))% · Scan starts automatically after download"
+        guard let fraction = downloadFraction else { return "Identifying starts when the download finishes" }
+        return "\(Int((fraction * 100).rounded()))% · Identifying starts when finished"
     }
 
     private var scanProgressLabel: String {
         guard let progress else { return scanCounts }
-        let position = progress.positionSeconds.map { " · checking \(SetlistViewFormat.clock($0))" } ?? ""
-        return "\(progress.completed) of \(progress.total) spots\(position) · \(segments.count) tracks found"
+        let position = progress.positionSeconds.map { " · \(SetlistViewFormat.clock($0))" } ?? ""
+        return "\(progress.completed) of \(progress.total)\(position) · \(segments.count) tracks"
     }
 
     private func beginDownloadAndScan() {
         downloadScanMessage = nil
         if let refusal = downloads.downloadRefusalReason(for: track) {
-            downloadScanMessage = refusal.errorDescription ?? "This mix cannot be downloaded."
+            downloadScanMessage = refusal.errorDescription ?? "This mix can’t be downloaded."
             return
         }
         shouldScanAfterDownload = true
@@ -414,27 +430,23 @@ struct SetlistEditorView: View {
     }
 
     private func beginAudioScan() {
-        guard let fileURL = scanFileURL else {
-            downloadScanMessage = "The downloaded audio could not be opened."
-            return
-        }
         shouldScanAfterDownload = false
         Task {
+            let lease = await downloads.temporaryPlaintextFile(for: track)
+            guard let fileURL = lease?.url ?? localFileURL else {
+                downloadScanMessage = "The downloaded audio couldn’t be opened."
+                return
+            }
             await store.retryUnknowns(track: track, localFileURL: fileURL, comments: comments)
+            lease?.release()
         }
     }
 
     private func handleDownloadState(_ state: DownloadState) {
         switch state {
         case .queued, .downloading:
-            // If this sheet is open while the mix is downloading, its scan UI
-            // promises that analysis follows. Preserve that promise even when
-            // the transfer started elsewhere in the app.
             shouldScanAfterDownload = true
         case .downloaded:
-            if discoveredLocalFileURL == nil {
-                discoveredLocalFileURL = downloads.localFileURL(for: track)
-            }
             if shouldScanAfterDownload { beginAudioScan() }
         case .notDownloaded, .paused, .failed:
             break
@@ -442,426 +454,241 @@ struct SetlistEditorView: View {
     }
 
     private var scanCounts: String {
-        guard let setlist else { return "Not scanned yet" }
+        guard let setlist else { return "Not identified" }
         let matches = setlist.recognizedProbeCount
         let probes = setlist.completedProbeCount
         if probes == 0 {
             return segments.isEmpty
-                ? "Audio not scanned"
-                : "\(segments.count) listed tracks · Audio not scanned"
+                ? "Not identified"
+                : "\(segments.count) tracks · Not identified"
         }
-        return "\(segments.count) tracks · \(matches)/\(probes) spots matched"
+        return "\(segments.count) tracks · \(matches) of \(probes) spots matched"
+    }
+
+    // MARK: - Rows
+
+    @ViewBuilder
+    private var segmentRows: some View {
+        #if os(tvOS)
+        ForEach(segments) { segment in
+            segmentRow(segment)
+        }
+        #else
+        ForEach(segments) { segment in
+            segmentRow(segment)
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        store.remove(segmentId: segment.id, trackId: track.id)
+                    } label: {
+                        Label("Remove", systemImage: "trash")
+                    }
+                    Button { editingSegment = segment } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                }
+                .swipeActions(edge: .leading) {
+                    if segment.soundCloudTrackId != nil {
+                        Button { previewLinkedTrack(for: segment) } label: {
+                            Label("Preview Track", systemImage: "headphones")
+                        }
+                        .tint(Color.scAccent)
+                    } else {
+                        Button { searchingSegment = segment } label: {
+                            Label("Find", systemImage: "magnifyingglass")
+                        }
+                        .tint(Color.scAccent)
+                    }
+                }
+        }
+        .onDelete { offsets in
+            for segment in offsets.map({ segments[$0] }) {
+                store.remove(segmentId: segment.id, trackId: track.id)
+            }
+        }
+        #endif
     }
 
     private func segmentRow(_ segment: SetlistSegment) -> some View {
-        HStack(spacing: 12) {
-            Button { onSeek(segment.startSeconds) } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(segment.displayLabel)
-                        .font(.body.weight(segment.startSeconds <= currentPosition ? .semibold : .regular))
-                        .lineLimit(2)
-                    HStack(spacing: 6) {
-                        Text(SetlistViewFormat.clock(segment.startSeconds))
-                            .monospacedDigit()
-                        Text(segment.source.displayName)
-                        if segment.soundCloudTrackId != nil {
-                            Label("Linked", systemImage: "link")
-                        }
+        Button { previewInSet(segment) } label: {
+            LabeledContent {
+                HStack(spacing: 6) {
+                    if playingLinkedSegmentID == segment.id {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else if currentSegment?.id == segment.id {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .foregroundStyle(.tint)
                     }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    Text(segmentTimeRange(segment))
+                        .monospacedDigit()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            segmentMenu(for: segment)
-        }
-    }
-
-    private func segmentMenu(for segment: SetlistSegment) -> some View {
-        Menu {
-            Button { editingSegment = segment } label: {
-                Label("Edit", systemImage: "pencil")
-            }
-            Button { searchingSegment = segment } label: {
-                Label("Search SoundCloud", systemImage: "magnifyingglass")
-            }
-            Button(role: .destructive) {
-                store.remove(segmentId: segment.id, trackId: track.id)
             } label: {
-                Label("Remove", systemImage: "trash")
-            }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-                .font(.title3)
-        }
-        .accessibilityLabel("Actions for \(segment.displayLabel)")
-    }
-
-    // MARK: - tvOS
-
-    #if os(tvOS)
-    @Namespace private var setlistGlass
-    @FocusState private var libraryLinkFocused: Bool
-
-    private var style: SCContentStyle { .tv }
-
-    private var tvOSContent: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: style.spaceSection) {
-                    tvOSHeader
-                    tvOSIntelligenceCard
-                    tvOSSetListCard
-
-                    if isSaved, setlist != nil {
-                        Label("Identified setlist saved to Setlists", systemImage: "checkmark.circle.fill")
-                            .font(style.fontBody)
-                            .foregroundStyle(style.success)
-                    }
-
-                    if !store.savedSetlists.isEmpty {
-                        tvOSLibraryLink
-                    }
-                }
-                .padding(.horizontal, style.spaceGutter * 2)
-                .padding(.vertical, style.spaceSection)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .background(Color.scBackground.ignoresSafeArea())
-        }
-    }
-
-    private var tvOSHeader: some View {
-        HStack(alignment: .top, spacing: style.spaceRoomy) {
-            VStack(alignment: .leading, spacing: style.spaceTight) {
-                Eyebrow(text: "Setlist")
-                Text(track.title)
-                    .font(style.fontTitle)
-                    .foregroundStyle(style.textPrimary)
+                Text(segment.displayLabel)
+                    .foregroundStyle(.primary)
                     .lineLimit(2)
-                Text(track.user.displayName)
-                    .font(style.fontHeadline)
-                    .foregroundStyle(style.textSecondary)
-                    .lineLimit(1)
+                Text(segmentDetail(segment))
+                    .foregroundStyle(.secondary)
             }
-
-            Spacer(minLength: style.spaceBase)
-
-            GlassEffectContainer {
-                HStack(spacing: style.spaceSnug) {
-                    Button {
-                        store.setSaved(!isSaved, trackId: track.id)
-                    } label: {
-                        GlassChip(
-                            icon: isSaved ? "bookmark.fill" : "bookmark",
-                            text: isSaved ? "Remove Saved Setlist" : "Save Setlist",
-                            id: "save-toggle",
-                            namespace: setlistGlass,
-                            interactive: true
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    Button { dismiss() } label: {
-                        GlassChip(
-                            icon: "xmark",
-                            text: "Done",
-                            id: "done",
-                            namespace: setlistGlass,
-                            interactive: true
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+            .contentShape(Rectangle())
         }
-    }
-
-    private var tvOSIntelligenceCard: some View {
-        VStack(alignment: .leading, spacing: style.spaceBase) {
-            Eyebrow(text: "Set Intelligence")
-
-            if let trackAnalysis, !trackAnalysis.isEmpty {
-                trackAnalysis.badgeRow(style: style)
-            }
-
-            tvOSScanStatus
-
-            if let currentSegment {
-                Button { onSeek(currentSegment.startSeconds) } label: {
-                    HStack(spacing: style.spaceSnug) {
-                        Label("Now in this set", systemImage: "opticaldisc.fill")
-                            .font(style.fontBodyEmphasis)
-                            .foregroundStyle(style.textPrimary)
-                        Spacer(minLength: style.spaceSnug)
-                        Text(currentSegment.displayLabel)
-                            .font(style.fontBody)
-                            .foregroundStyle(style.textSecondary)
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, style.spaceSnug)
-                    .padding(.vertical, style.spaceTight)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: style.cornerControl, style: .continuous)
-                            .fill(Color.white.opacity(0.05))
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: style.cornerControl, style: .continuous))
-                }
-                .buttonStyle(SetlistTVRowButtonStyle())
-            }
-
-            GlassEffectContainer {
-                HStack(spacing: style.spaceSnug) {
-                    if let localFileURL {
-                        Button {
-                            Task {
-                                await store.retryUnknowns(
-                                    track: track,
-                                    localFileURL: localFileURL,
-                                    comments: comments
-                                )
-                            }
-                        } label: {
-                            GlassChip(
-                                icon: "arrow.clockwise",
-                                text: "Retry Unknown Spots",
-                                id: "retry-unknowns",
-                                namespace: setlistGlass,
-                                interactive: true
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isScanning)
-                    } else {
-                        Button(action: onDownload) {
-                            GlassChip(
-                                icon: "arrow.down.circle",
-                                text: "Download Audio for Deep Scan",
-                                id: "download-scan",
-                                namespace: setlistGlass,
-                                interactive: true
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            Text("Uploader timestamps and the useful listener IDs get combined with native ShazamKit matches. Every position we check is saved and synced, so a long set picks up where you left it on another device.")
-                .font(style.fontCaption)
-                .foregroundStyle(style.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(style.spaceBase)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: style.cornerCard, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-        )
-        .focusSection()
+        .buttonStyle(.plain)
+        .libraryRowPreviewShape()
+        .contextMenu { segmentMenuItems(for: segment) }
+        .accessibilityLabel(segment.displayLabel)
     }
 
     @ViewBuilder
-    private var tvOSScanStatus: some View {
-        if isScanning {
-            HStack(spacing: style.spaceSnug) {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .tint(style.textPrimary)
-                VStack(alignment: .leading, spacing: style.spaceHair) {
-                    Text("Scanning in the background")
-                        .font(style.fontBodyEmphasis)
-                        .foregroundStyle(style.textPrimary)
-                    Text(scanCounts)
-                        .font(style.fontCaption)
-                        .foregroundStyle(style.textSecondary)
-                }
+    private func segmentMenuItems(for segment: SetlistSegment) -> some View {
+        Button { previewInSet(segment) } label: {
+            Label("Preview Here", systemImage: "play")
+        }
+        if segment.soundCloudTrackId != nil {
+            Button { previewLinkedTrack(for: segment) } label: {
+                Label("Preview Track", systemImage: "headphones")
             }
-        } else if let error = store.scanErrors[track.id] {
-            Label(error, systemImage: "exclamationmark.triangle")
-                .font(style.fontBody)
-                .foregroundStyle(style.warning)
-        } else {
-            HStack {
-                Text("Coverage")
-                    .font(style.fontBody)
-                    .foregroundStyle(style.textSecondary)
-                Spacer()
-                Text(scanCounts)
-                    .font(style.fontBodyEmphasis)
-                    .foregroundStyle(style.textPrimary)
+            Button { playlistSegment = segment } label: {
+                Label("Add to Playlist", systemImage: "text.badge.plus")
             }
         }
-    }
-
-    private var tvOSSetListCard: some View {
-        VStack(alignment: .leading, spacing: style.spaceBase) {
-            Eyebrow(text: "Setlist")
-
-            if segments.isEmpty {
-                VStack(alignment: .leading, spacing: style.spaceTight) {
-                    Label("Nothing Identified Yet", systemImage: "waveform.badge.magnifyingglass")
-                        .font(style.fontBodyEmphasis)
-                        .foregroundStyle(style.textPrimary)
-                    Text("The deep scan runs on the Mac, so leave that app open. Or retry the audio you already have, here.")
-                        .font(style.fontCaption)
-                        .foregroundStyle(style.textSecondary)
-                }
-            } else {
-                VStack(spacing: style.spaceTight) {
-                    ForEach(segments) { segment in
-                        tvOSSegmentRow(segment)
-                    }
-                }
-            }
+        Divider()
+        Button { editingSegment = segment } label: {
+            Label("Edit", systemImage: "pencil")
         }
-        .padding(style.spaceBase)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: style.cornerCard, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-        )
-        .focusSection()
-    }
-
-    private func tvOSSegmentRow(_ segment: SetlistSegment) -> some View {
-        HStack(spacing: style.spaceSnug) {
-            Button { onSeek(segment.startSeconds) } label: {
-                HStack(spacing: style.spaceSnug) {
-                    Text(SetlistViewFormat.clock(segment.startSeconds))
-                        .font(style.fontCaptionEmphasis)
-                        .monospacedDigit()
-                        .foregroundStyle(style.accent)
-
-                    VStack(alignment: .leading, spacing: style.spaceHair) {
-                        Text(segment.displayLabel)
-                            .font(style.fontBody.weight(segment.startSeconds <= currentPosition ? .semibold : .regular))
-                            .foregroundStyle(style.textPrimary)
-                            .lineLimit(1)
-                        HStack(spacing: style.spaceTight) {
-                            Text(segment.source.displayName)
-                            if segment.soundCloudTrackId != nil {
-                                Label("Linked", systemImage: "link")
-                            }
-                        }
-                        .font(style.fontCaption)
-                        .foregroundStyle(style.textSecondary)
-                    }
-
-                    Spacer(minLength: style.spaceSnug)
-                }
-                .padding(.horizontal, style.spaceSnug)
-                .padding(.vertical, style.spaceTight)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: style.cornerControl, style: .continuous)
-                        .fill(Color.white.opacity(0.05))
-                )
-                .contentShape(RoundedRectangle(cornerRadius: style.cornerControl, style: .continuous))
-            }
-            .buttonStyle(SetlistTVRowButtonStyle())
-
-            segmentMenu(for: segment)
-                .font(.system(size: 28, weight: .semibold))
-        }
-    }
-
-    private var tvOSLibraryLink: some View {
-        NavigationLink {
-            SavedSetlistsLibraryView()
-        } label: {
-            HStack(spacing: style.spaceSnug) {
-                Label("Saved Setlists", systemImage: "bookmark.fill")
-                    .font(style.fontBodyEmphasis)
-                    .foregroundStyle(style.textPrimary)
-                Spacer(minLength: style.spaceSnug)
-                Text("\(store.savedSetlists.count)")
-                    .font(style.fontBody)
-                    .foregroundStyle(style.textSecondary)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(style.textTertiary)
-            }
-            .padding(.horizontal, style.spaceSnug)
-            .padding(.vertical, style.spaceTight)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: style.cornerControl, style: .continuous)
-                    .fill(Color.white.opacity(0.05))
+        Button { searchingSegment = segment } label: {
+            Label(
+                segment.soundCloudTrackId == nil ? "Find on SoundCloud" : "Change Link",
+                systemImage: "magnifyingglass"
             )
-            .contentShape(RoundedRectangle(cornerRadius: style.cornerControl, style: .continuous))
         }
-        .focused($libraryLinkFocused)
-        .modifier(SetlistTVFocus(focused: libraryLinkFocused))
+        Button(role: .destructive) {
+            store.remove(segmentId: segment.id, trackId: track.id)
+        } label: {
+            Label("Remove", systemImage: "trash")
+        }
     }
-    #endif
-}
 
-#if os(tvOS)
+    private func segmentDetail(_ segment: SetlistSegment) -> String {
+        var parts = [segment.source.displayName]
+        if segment.shazamId != nil, segment.source != .shazam { parts.append("Shazam") }
+        if segment.soundCloudTrackId != nil { parts.append("Linked") }
+        return parts.joined(separator: " · ")
+    }
 
-private struct SetlistTVFocus: ViewModifier {
-    let focused: Bool
-    var cornerRadius: CGFloat = Corner.control
+    private func segmentTimeRange(_ segment: SetlistSegment) -> String {
+        guard let setlist else { return SetlistViewFormat.clock(segment.startSeconds) }
+        return "\(SetlistViewFormat.clock(segment.startSeconds))–\(SetlistViewFormat.clock(setlist.endSeconds(for: segment)))"
+    }
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private func previewInSet(_ segment: SetlistSegment) {
+        #if canImport(AVFoundation) && !os(tvOS)
+        preview.previewSet(
+            track: track,
+            at: segment.startSeconds,
+            id: "set#\(segment.id)",
+            label: segment.displayLabel
+        )
+        #else
+        onSeek(segment.startSeconds)
+        #endif
+    }
 
-    func body(content: Content) -> some View {
-        content
-            .scaleEffect(focused ? 1.06 : 1.0)
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.scAccent.opacity(focused ? 0.90 : 0), lineWidth: 4)
+    private func previewLinkedTrack(for segment: SetlistSegment) {
+        guard let soundCloudTrackID = segment.soundCloudTrackId,
+              playingLinkedSegmentID == nil else { return }
+        playingLinkedSegmentID = segment.id
+        Task { @MainActor in
+            defer { playingLinkedSegmentID = nil }
+            do {
+                let linkedTrack = try await SoundCloudAPI.shared.getTrack(id: soundCloudTrackID)
+                #if canImport(AVFoundation) && !os(tvOS)
+                preview.previewSong(linkedTrack, id: "linked#\(segment.id)")
+                #else
+                onPlaySearchResult(linkedTrack)
+                #endif
+            } catch {
+                segmentActionError = error.localizedDescription
             }
-            .shadow(color: .black.opacity(focused ? 0.45 : 0), radius: 24, y: 12)
-            .animation(reduceMotion ? nil : Motion.focus, value: focused)
-            .focusEffectDisabled()
+        }
+    }
+
+    private func addTrackAtCurrentPosition() {
+        let position = min(max(0, currentPosition), max(track.duration, 0))
+        editingSegment = SetlistSegment(
+            id: "user#\(UUID().uuidString)",
+            startSeconds: position,
+            observedAtSeconds: position,
+            artist: nil,
+            title: "",
+            version: nil,
+            source: .user,
+            confidence: 1,
+            evidence: "Added manually",
+            shazamId: nil,
+            soundCloudTrackId: nil,
+            isUserEdited: true,
+            updatedAt: Date()
+        )
     }
 }
 
-private struct SetlistTVRowButtonStyle: ButtonStyle {
-    var cornerRadius: CGFloat = Corner.control
+struct SavedSetlistsCount<Content: View>: View {
+    @ObservedObject private var store = SetlistIntelligenceStore.shared
+    @ViewBuilder var content: (Int) -> Content
 
-    func makeBody(configuration: Configuration) -> some View {
-        FocusedLabel(configuration: configuration, cornerRadius: cornerRadius)
+    var body: some View {
+        content(store.savedSetlists.count)
     }
+}
 
-    private struct FocusedLabel: View {
-        let configuration: Configuration
-        let cornerRadius: CGFloat
+struct SavedSetlistsLabel: View {
+    let count: Int
 
-        @Environment(\.isFocused) private var isFocused
-
-        var body: some View {
-            configuration.label
-                .opacity(configuration.isPressed ? 0.85 : 1)
-                .modifier(SetlistTVFocus(focused: isFocused, cornerRadius: cornerRadius))
+    var body: some View {
+        LabeledContent {
+            Text("\(count)")
+                .monospacedDigit()
+        } label: {
+            Label("Setlists", systemImage: "list.number")
         }
     }
 }
 
-#endif
-
-private struct SavedSetlistsLibraryView: View {
+struct SavedSetlistsLibraryView: View {
     @ObservedObject private var store = SetlistIntelligenceStore.shared
 
     var body: some View {
-        List(store.savedSetlists, id: \.trackId) { setlist in
-            NavigationLink {
-                SavedSetlistDetailView(setlist: setlist)
-            } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(setlist.trackTitle)
-                    Text("\(setlist.segments.filter { !$0.isDeleted }.count) identified tracks")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        List {
+            ForEach(store.savedSetlists, id: \.trackId) { setlist in
+                NavigationLink {
+                    SavedSetlistDetailView(setlist: setlist)
+                } label: {
+                    LabeledContent {
+                        Text("\(setlist.activeSegments.count)")
+                    } label: {
+                        Text(setlist.trackTitle)
+                    }
+                }
+                #if !os(tvOS)
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        store.setSaved(false, trackId: setlist.trackId)
+                    } label: {
+                        Label("Remove", systemImage: "trash")
+                    }
+                }
+                #endif
+            }
+        }
+        .navigationTitle("Setlists")
+        .overlay {
+            if store.savedSetlists.isEmpty {
+                ContentUnavailableView {
+                    SoundingArtEmptyLabel(title: "No Saved Setlists", identity: "empty.setlists", motif: .crossfader)
+                } description: {
+                    Text("Open a mix's setlist while it plays and tap the bookmark to keep it here.")
                 }
             }
         }
-        .navigationTitle("Saved Setlists")
     }
 }
 
@@ -871,19 +698,23 @@ private struct SavedSetlistDetailView: View {
 
     var body: some View {
         List {
-            ForEach(setlist.segments.filter { !$0.isDeleted }.sorted { $0.startSeconds < $1.startSeconds }) { segment in
-                LabeledContent(
-                    SetlistViewFormat.clock(segment.startSeconds),
-                    value: segment.displayLabel
-                )
+            ForEach(setlist.activeSegments) { segment in
+                LabeledContent {
+                    Text("\(SetlistViewFormat.clock(segment.startSeconds))–\(SetlistViewFormat.clock(setlist.endSeconds(for: segment)))")
+                        .monospacedDigit()
+                } label: {
+                    Text(segment.displayLabel)
+                }
             }
-            #if !os(tvOS)
-            ShareLink(item: store.exportText(for: setlist)) {
-                Label("Share or Export", systemImage: "square.and.arrow.up")
-            }
-            #endif
         }
         .navigationTitle(setlist.trackTitle)
+        #if !os(tvOS)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                ShareLink(item: store.exportText(for: setlist))
+            }
+        }
+        #endif
     }
 }
 
@@ -900,21 +731,32 @@ private struct SetlistSegmentEditView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Artist", text: Binding(
-                    get: { draft.artist ?? "" },
-                    set: { draft.artist = $0.isEmpty ? nil : $0 }
-                ))
-                TextField("Track title", text: $draft.title)
-                TextField("Version / edit", text: Binding(
-                    get: { draft.version ?? "" },
-                    set: { draft.version = $0.isEmpty ? nil : $0 }
-                ))
-                LabeledContent("Starts at") {
-                    TextField("Seconds", value: $draft.startSeconds, format: .number)
-                        .multilineTextAlignment(.trailing)
+                Section {
+                    TextField("Artist", text: Binding(
+                        get: { draft.artist ?? "" },
+                        set: { draft.artist = $0.isEmpty ? nil : $0 }
+                    ))
+                    TextField("Title", text: $draft.title)
+                    TextField("Version", text: Binding(
+                        get: { draft.version ?? "" },
+                        set: { draft.version = $0.isEmpty ? nil : $0 }
+                    ))
+                }
+                Section {
+                    LabeledContent("Starts At") {
+                        TextField("Seconds", value: $draft.startSeconds, format: .number)
+                            .multilineTextAlignment(.trailing)
+                            .labelsHidden()
+                    }
                 }
             }
-            .navigationTitle("Edit Set Entry")
+            #if os(macOS)
+            .formStyle(.grouped)
+            #endif
+            .navigationTitle(draft.title.isEmpty ? "New Track" : "Edit Track")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -929,6 +771,9 @@ private struct SetlistSegmentEditView: View {
                 }
             }
         }
+        #if os(macOS)
+        .frame(minWidth: 420, minHeight: 300)
+        #endif
     }
 }
 
@@ -942,6 +787,7 @@ private struct SetlistSoundCloudSearchView: View {
     @State private var results: [Track] = []
     @State private var isSearching = false
     @State private var errorMessage: String?
+    @State private var searchGeneration = 0
 
     init(segment: SetlistSegment, onLink: @escaping (Track) -> Void, onPlay: @escaping (Track) -> Void) {
         self.segment = segment
@@ -953,84 +799,196 @@ private struct SetlistSoundCloudSearchView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    HStack {
-                        TextField("Artist and track", text: $query)
-                            .onSubmit { search() }
-                        Button("Search") { search() }
-                            .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
-                    }
-                }
+                ForEach(results) { result in
+                    Button {
+                        onLink(result)
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 12) {
+                            SCArtworkResolver(url: result.artworkURL, variant: .thumbnail) { image in
+                                if let image {
+                                    image.resizable().scaledToFill()
+                                } else {
+                                    Image(systemName: "music.note")
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                        .background(.quaternary)
+                                }
+                            }
+                            .frame(width: 44, height: 44)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
-                if isSearching {
-                    ProgressView("Searching SoundCloud…")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(result.title)
+                                    .lineLimit(1)
+                                Text(result.user.displayName)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    .contextMenu {
+                        Button { onPlay(result) } label: {
+                            Label("Preview", systemImage: "headphones")
+                        }
+                    }
+                    #if !os(tvOS)
+                    .swipeActions(edge: .leading) {
+                        Button { onPlay(result) } label: {
+                            Label("Preview", systemImage: "headphones")
+                        }
+                        .tint(Color.scAccent)
+                    }
+                    #endif
+                }
+            }
+            .overlay {
+                if isSearching, results.isEmpty {
+                    ProgressView()
                 } else if let errorMessage {
                     ContentUnavailableView("Search Failed", systemImage: "wifi.exclamationmark", description: Text(errorMessage))
                 } else if results.isEmpty {
                     ContentUnavailableView.search(text: query)
-                } else {
-                    Section("Results") {
-                        ForEach(results) { result in
-                            HStack(spacing: 12) {
-                                AsyncImage(url: result.artworkURL) { phase in
-                                    if case .success(let image) = phase {
-                                        image.resizable().scaledToFill()
-                                    } else {
-                                        Image(systemName: "music.note")
-                                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                            .background(.quaternary)
-                                    }
-                                }
-                                .frame(width: 46, height: 46)
-                                .clipShape(RoundedRectangle(cornerRadius: 7))
-
-                                VStack(alignment: .leading) {
-                                    Text(result.title).lineLimit(1)
-                                    Text(result.user.displayName)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-
-                                Button { onPlay(result) } label: {
-                                    Image(systemName: "play.fill")
-                                }
-                                .accessibilityLabel("Play this result")
-                                Button("Link") {
-                                    onLink(result)
-                                    dismiss()
-                                }
-                            }
-                        }
-                    }
                 }
             }
-            .navigationTitle("Search SoundCloud")
+            .searchable(text: $query, prompt: "Artist and Title")
+            .navigationTitle("Link Track")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Cancel") { dismiss() }
                 }
             }
         }
-        .task { await performSearch() }
-    }
-
-    private func search() {
-        Task { await performSearch() }
+        #if os(macOS)
+        .frame(minWidth: 620, idealWidth: 680, minHeight: 500, idealHeight: 580)
+        #endif
+        .task(id: query) {
+            try? await Task.sleep(for: .milliseconds(280))
+            guard !Task.isCancelled else { return }
+            await performSearch()
+        }
     }
 
     @MainActor
     private func performSearch() async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        searchGeneration &+= 1
+        let generation = searchGeneration
         isSearching = true
         errorMessage = nil
-        defer { isSearching = false }
+        defer {
+            if generation == searchGeneration { isSearching = false }
+        }
         do {
-            results = try await SoundCloudAPI.shared.searchTracks(query: trimmed, limit: 20).collection
+            var found = try await SoundCloudAPI.shared.searchTracks(query: trimmed, limit: 30).collection
+
+            let titleOnly = segment.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if found.isEmpty,
+               !titleOnly.isEmpty,
+               titleOnly.caseInsensitiveCompare(trimmed) != .orderedSame {
+                found = try await SoundCloudAPI.shared.searchTracks(query: titleOnly, limit: 30).collection
+            }
+
+            guard generation == searchGeneration, !Task.isCancelled else { return }
+            var seen = Set<String>()
+            results = found.filter { seen.insert($0.id).inserted }
         } catch {
+            guard generation == searchGeneration, !Task.isCancelled else { return }
             results = []
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct SetlistPlaylistPickerView: View {
+    let soundCloudTrackID: String
+    let trackLabel: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var playlists: [PlaylistSummary] = []
+    @State private var isLoading = true
+    @State private var addingToPlaylistID: String?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(playlists) { playlist in
+                        Button {
+                            add(to: playlist)
+                        } label: {
+                            LabeledContent {
+                                if addingToPlaylistID == playlist.id {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                            } label: {
+                                Text(playlist.title)
+                            }
+                        }
+                        .disabled(addingToPlaylistID != nil)
+                    }
+                } header: {
+                    Text(trackLabel)
+                }
+            }
+            .overlay {
+                if isLoading {
+                    ProgressView()
+                } else if let errorMessage {
+                    ContentUnavailableView(
+                        "Couldn’t Load Playlists",
+                        systemImage: "wifi.exclamationmark",
+                        description: Text(errorMessage)
+                    )
+                } else if playlists.isEmpty {
+                    ContentUnavailableView("No Playlists", systemImage: "music.note.list")
+                }
+            }
+            .navigationTitle("Add to Playlist")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 420, minHeight: 360)
+        #endif
+        .task { await loadPlaylists() }
+    }
+
+    @MainActor
+    private func loadPlaylists() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            playlists = try await SoundCloudAPI.shared.getMyPlaylists().collection
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func add(to playlist: PlaylistSummary) {
+        guard addingToPlaylistID == nil else { return }
+        addingToPlaylistID = playlist.id
+        Task { @MainActor in
+            do {
+                try await SoundCloudAPI.shared.addTrack(soundCloudTrackID, toPlaylist: playlist.id)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+                addingToPlaylistID = nil
+            }
         }
     }
 }

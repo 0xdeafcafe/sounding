@@ -1,10 +1,21 @@
 #if DEBUG
 import Foundation
+import XCTest
 @testable import SoundingTV
+
+final class DJEngineTests: XCTestCase {
+    func testDJEngineSelfTest() {
+        let report = DJEngineSelfTest.run()
+        if !report.failures.isEmpty { print(report.lines.joined(separator: "\n")) }
+        XCTAssertTrue(report.failures.isEmpty, report.failures.joined(separator: "\n"))
+    }
+}
 
 enum DJEngineSelfTest {
 
     static func near(_ a: Double, _ b: Double, _ tol: Double = 0.005) -> Bool { abs(a - b) <= tol }
+
+    static let blendTemplates: Set<TransitionTemplateID> = [DJMoveIDs.blend, DJTemplates.filterFadeOut, DJTemplates.filterBloomIn, DJTemplates.highPassThinOut]
 
     static func run() -> MixImportSelfTest.Report {
         var report = MixImportSelfTest.Report()
@@ -28,6 +39,14 @@ enum DJEngineSelfTest {
         testCamelot(expect: expect, note: note)
         testStagedSchedule(expect: expect, note: note)
         testRealAnalysedTracks(expect: expect, note: note)
+        testEntryRegionCeiling(expect: expect, note: note)
+        testEntryRunwayVeto(expect: expect, note: note)
+        testStageSnapQuantisation(expect: expect, note: note)
+        testTransitionStartPositionClamp(expect: expect, note: note)
+        testDistilledAnalysisPayload(expect: expect, note: note)
+        testUserTransitionLengthHonoured(expect: expect, note: note)
+        testEnvelopeValleyMidTrackExit(expect: expect, note: note)
+        testCleanCutFallbackRespectsPersonality(expect: expect, note: note)
 
         return report
     }
@@ -514,21 +533,40 @@ enum DJEngineSelfTest {
         let junkie = DJProfile.junkie
 
         let full = registry.admissible(for: junkie, capabilities: .v1MixEngine)
-        expect("all five v1 templates are admissible with the v1 engine", full.count == 5)
+        expect("all v1-engine-compatible templates are admissible (echoOut and the timeline moves need more)", full.count == 5)
+        expect("the EQ blend move replaced the legacy bass swap in the profile",
+               !full.contains { $0.id == DJTemplates.bassSwapBlend } && junkie.admissibleTemplates.contains(DJMoveIDs.blend))
         note("  admissible: \(full.map(\.id.rawValue).joined(separator: ", "))")
 
         var reduced = ExecutorCapabilities.v1MixEngine
         reduced.remove(.snappedBassSwap)
         let without = registry.admissible(for: junkie, capabilities: reduced)
-        expect("removing snappedBassSwap removes exactly the templates that need it", without.count == 3)
-        expect("bassSwapBlend disappears without its capability",
-               !without.contains { $0.id == DJTemplates.bassSwapBlend })
+        expect("removing snappedBassSwap removes exactly the templates that need it", without.count == 4)
+        expect("halfTimeBlend disappears without its capability",
+               !without.contains { $0.id == DJTemplates.halfTimeBlend })
         expect("cutOnTheOne survives — it only needs a crossfader",
                without.contains { $0.id == DJTemplates.cutOnTheOne })
         note("  without snappedBassSwap: \(without.map(\.id.rawValue).joined(separator: ", "))")
 
-        let weddingSet = registry.admissible(for: .weddingDJ, capabilities: .v1MixEngine)
+        let weddingSet = registry.admissible(for: .weddingDJ, capabilities: .fullMixEngine)
         expect("Wedding's admissible set is its own list", Set(weddingSet.map(\.id)) == DJProfile.weddingDJ.admissibleTemplates)
+
+        let fullEngineSet = registry.admissible(for: junkie, capabilities: .fullMixEngine)
+        expect("the full engine capability set admits every junkie-listed template",
+               fullEngineSet.count == junkie.admissibleTemplates.count)
+        expect("highPassThinOut is admissible under the full engine default",
+               fullEngineSet.contains { $0.id == DJTemplates.highPassThinOut })
+        expect("the loop build is admissible under the full engine default",
+               fullEngineSet.contains { $0.id == DJMoveIDs.loopRoll })
+        expect("echoOut is admissible under the full engine default",
+               fullEngineSet.contains { $0.id == DJTemplates.echoOut })
+
+        let placeholder = features(id: "cap-default", title: "Placeholder", duration: 200, bpm: 128)
+        let defaultInputs = PhantomDJEngine.PlanningInputs(
+            outgoing: placeholder, candidates: [], profile: junkie, seedComponents: ["cap-default"]
+        )
+        expect("PlanningInputs defaults to the truthful full engine capability set",
+               defaultInputs.capabilities == .fullMixEngine)
     }
 
     private static func testBassSwapDecoupling(
@@ -543,7 +581,7 @@ enum DJEngineSelfTest {
         let junkie = DJBlendMath.bassSwap(window: window, grid: grid, profile: .junkie)
 
         expect("the swap is not the fade window", wedding.duration < window / 10)
-        expect("Wedding swaps in two beats", near(wedding.duration, grid.beatPeriod * 2, 1e-9))
+        expect("Wedding swaps in one beat, on the phrase line", near(wedding.duration, grid.beatPeriod, 1e-9))
         expect("Junkie swaps in one", near(junkie.duration, grid.beatPeriod, 1e-9))
         expect("the swap lands on a phrase boundary inside the fade",
                near(wedding.at.truncatingRemainder(dividingBy: grid.phraseDuration), 0, 1e-9))
@@ -554,6 +592,12 @@ enum DJEngineSelfTest {
         let ungridded = DJBlendMath.bassSwap(window: window, grid: nil, profile: .weddingDJ)
         expect("without a grid the swap is still half a second, not the window", ungridded.duration <= 0.5)
         note("  no grid → swap at \(String(format: "%.2f", ungridded.at))s over \(String(format: "%.2f", ungridded.duration))s")
+
+        let gridNoPhrase = BeatGrid(anchor: 0, beatPeriod: 60.0 / 140.0, barsPerPhrase: 0, confidence: 0.9)
+        let tempoAwareFallback = DJBlendMath.bassSwap(window: 20, grid: gridNoPhrase, profile: .weddingDJ)
+        let expectedFallback = min(0.6, max(0.3, gridNoPhrase.beatPeriod))
+        expect("a known tempo without a usable phrase length still swaps in one beat, not the flat 0.5s",
+               near(tempoAwareFallback.duration, expectedFallback, 1e-9))
     }
 
     private static func testProfileDifferentiation(
@@ -587,7 +631,7 @@ enum DJEngineSelfTest {
             return DJPlanner.plan(
                 outgoing: outgoing, candidates: [incoming], profile: profile,
                 templates: DJTemplates.v1Registry, scoring: DJTerms.v1Registry,
-                capabilities: .v1MixEngine, history: .empty, rng: &rng
+                capabilities: .fullMixEngine, history: .empty, rng: &rng
             )
         }
 
@@ -606,22 +650,22 @@ enum DJEngineSelfTest {
 
         expect("the two profiles reach different scores", !near(wBest.score, jBest.score, 0.02))
 
-        let wBlend = w.ranked.first { $0.plan.templateId == DJTemplates.bassSwapBlend }
-        let jBlend = j.ranked.first { $0.plan.templateId == DJTemplates.bassSwapBlend }
+        let wBlend = w.ranked.first { blendTemplates.contains($0.plan.templateId) }
+        let jBlend = j.ranked.first { blendTemplates.contains($0.plan.templateId) }
         guard let wBlend, let jBlend else {
-            expect("both profiles considered a bass-swap blend", false)
+            expect("both profiles considered a blend", false)
             return
         }
-        note("  bass-swap blend: Wedding \(String(format: "%.3f", wBlend.score)), Junkie \(String(format: "%.3f", jBlend.score))")
+        note("  blend: Wedding \(String(format: "%.3f", wBlend.score)), Junkie \(String(format: "%.3f", jBlend.score))")
         expect("Wedding's blend of this pair does not reach its threshold", !wBlend.fires)
         expect("Junkie's blend of the same pair does", jBlend.fires)
         expect("Junkie scores the blend far higher", jBlend.score > wBlend.score + 0.4)
 
         expect("Wedding falls back to the clean cut", wBest.plan.templateId == DJTemplates.cutOnTheOne)
-        expect("Junkie takes the blend", jBest.plan.templateId == DJTemplates.bassSwapBlend)
+        expect("Junkie takes a blend", blendTemplates.contains(jBest.plan.templateId))
 
-        expect("Wedding's blend scores 0.235 ± 0.02", near(wBlend.score, 0.235, 0.02))
-        expect("Junkie's blend scores 0.839 ± 0.02", near(jBlend.score, 0.839, 0.02))
+        expect("Wedding vetoes the blend across a two-step key change", wBlend.score == 0)
+        expect("Junkie's blend clears its threshold comfortably", jBlend.score >= DJProfile.junkie.minimumScoreToFire + 0.2)
 
         let wExits = DJPointFinder.exitCandidates(in: outgoing, profile: .weddingDJ)
         let jExits = DJPointFinder.exitCandidates(in: outgoing, profile: .junkie)
@@ -731,13 +775,9 @@ enum DJEngineSelfTest {
             vocals: [], bass: [16...260]
         )
 
-        let automaticExits = DJPointFinder.exitCandidates(in: outgoing, profile: .automaticDJ)
-        let weddingExits = DJPointFinder.exitCandidates(in: outgoing, profile: .weddingDJ)
-        let automaticEarliest = automaticExits.map(\.seconds).min() ?? outgoing.duration
-        let weddingEarliest = weddingExits.map(\.seconds).min() ?? outgoing.duration
-
-        expect("Auto DJ considers a transition before the final quarter", automaticEarliest < outgoing.duration * 0.75)
-        expect("Auto DJ considers an earlier exit than Wedding DJ", automaticEarliest < weddingEarliest)
+        let junkieExits = DJPointFinder.exitCandidates(in: outgoing, profile: .junkie)
+        let junkieEarliest = junkieExits.map(\.seconds).min() ?? outgoing.duration
+        expect("Junkie considers a transition before the final quarter", junkieEarliest < outgoing.duration * 0.75)
 
         let selected = PhantomDJEngine.plan(.init(
             outgoing: outgoing,
@@ -745,9 +785,334 @@ enum DJEngineSelfTest {
             profile: .automaticDJ,
             seedComponents: ["automatic-mid-track"]
         )).plan
-        expect("Auto DJ produces a usable plan for a strong mid-track breakdown", selected != nil)
-        expect("Auto DJ chooses the strong breakdown instead of waiting for the ending",
-               (selected?.mixPointSeconds ?? outgoing.duration) < outgoing.duration * 0.75)
+        expect("Auto Mix produces a usable plan", selected != nil)
+        expect("Auto Mix leaves after the mid-track breakdown, not on it",
+               (selected?.mixPointSeconds ?? 0) > 192)
+        expect("Auto Mix's blend ends in the last fifth of the track",
+               (selected?.mixEndSeconds ?? 0) >= outgoing.duration * 0.8)
+        expect("Auto Mix blends for at least 16 bars",
+               (selected?.transitionSeconds ?? 0) >= 16 * 2 - 0.01)
+        expect("Auto Mix's blend finishes inside the track",
+               (selected?.mixEndSeconds ?? .infinity) <= outgoing.duration + 0.01)
+
+        let cued = features(
+            id: "auto-cue-out", title: "Cued", duration: 300, bpm: 120,
+            downbeatsKnown: true, key: "Am", energy: 6,
+            sections: [TrackSection(kind: .outro, start: 270, end: 300)],
+            genre: .techHouse,
+            envelope: envelope(seconds: 300, calmFrom: 270),
+            vocals: [], bass: [0...300]
+        )
+        let cuedWithExit = TrackFeatures(
+            trackId: cued.trackId, title: cued.title, artist: cued.artist, duration: cued.duration,
+            beatGrid: cued.beatGrid, keyRegions: cued.keyRegions, sections: cued.sections,
+            energyLevel: cued.energyLevel, envelope: cued.envelope, genre: cued.genre,
+            vocalRanges: cued.vocalRanges, bassRanges: cued.bassRanges,
+            preferredExitSeconds: 96, provenance: cued.provenance
+        )
+        let cuedExits = DJPointFinder.exitCandidates(in: cuedWithExit, profile: .automaticDJ)
+        expect("a user mix-out cue before 45% is still an exit candidate",
+               cuedExits.contains { near($0.seconds, 96, 0.01) })
+    }
+
+    private static func testEntryRegionCeiling(
+        expect: (String, @autoclosure () -> Bool) -> Void,
+        note: (String) -> Void
+    ) {
+        note("── entry region ceiling ──")
+        let structured = features(
+            id: "entry-struct", title: "Structured", duration: 400, bpm: 128, downbeatsKnown: true,
+            sections: [
+                TrackSection(kind: .intro, start: 0, end: 8),
+                TrackSection(kind: .buildup, start: 100, end: 140)
+            ]
+        )
+        let autoEntries = DJPointFinder.entryCandidates(in: structured, profile: .automaticDJ)
+        expect("Auto DJ's wider 35% entry ceiling admits a structured section starting at 100s",
+               autoEntries.contains { near($0.seconds, 100, 1) })
+        let weddingEntries = DJPointFinder.entryCandidates(in: structured, profile: .weddingDJ)
+        expect("Wedding DJ's tighter 20% ceiling excludes the same 100s section",
+               !weddingEntries.contains { near($0.seconds, 100, 1) })
+        let junkieEntries = DJPointFinder.entryCandidates(in: structured, profile: .junkie)
+        expect("Junkie's 55% ceiling also admits the 100s section",
+               junkieEntries.contains { near($0.seconds, 100, 1) })
+
+        let envelopeOnly = features(
+            id: "entry-envelope", title: "EnvelopeOnly", duration: 400, bpm: nil,
+            envelope: envelope(seconds: 400, calmFrom: 200)
+        )
+        let autoEnvelopeEntries = DJPointFinder.entryCandidates(in: envelopeOnly, profile: .automaticDJ)
+        expect("without structural or beat-grid data, entries still respect the flat 20% ceiling",
+               autoEnvelopeEntries.allSatisfy { $0.seconds <= 400 * 0.20 + 0.5 })
+    }
+
+    private static func testEntryRunwayVeto(
+        expect: (String, @autoclosure () -> Bool) -> Void,
+        note: (String) -> Void
+    ) {
+        note("── entry runway veto ──")
+        let outgoing = features(
+            id: "runway-out", title: "Outgoing", duration: 400, bpm: 128, downbeatsKnown: true,
+            sections: [TrackSection(kind: .breakdown, start: 200, end: 230)]
+        )
+        let incoming = features(
+            id: "runway-in", title: "TightRunway", duration: 80, bpm: 128, downbeatsKnown: true,
+            sections: [TrackSection(kind: .buildup, start: 44, end: 80)]
+        )
+
+        var rng = SeededGenerator(["entry-runway-veto"])
+        let result = DJPlanner.plan(
+            outgoing: outgoing, candidates: [incoming], profile: .junkie,
+            templates: DJTemplates.v1Registry, scoring: DJTerms.v1Registry,
+            capabilities: .fullMixEngine, history: .empty, rng: &rng
+        )
+
+        expect("no admitted plan enters TightRunway without at least a transition window plus 30s left",
+               result.ranked.allSatisfy {
+                   incoming.duration - $0.plan.entry.seconds >= $0.plan.overlapSeconds + 30 - 0.05
+               })
+        expect("at least one candidate plan was rejected for lacking entry runway",
+               result.rejections.contains { $0.reason.contains("runway") })
+    }
+
+    private static func testStageSnapQuantisation(
+        expect: (String, @autoclosure () -> Bool) -> Void,
+        note: (String) -> Void
+    ) {
+        note("── stage snap quantisation ──")
+        guard let grid = BeatGrid.fromDisplayBPM(120, anchor: 0, confidence: 0.9) else {
+            expect("120 BPM grid resolves", false)
+            return
+        }
+        let beat = grid.beatPeriod
+        let bar = grid.barDuration
+        let phrase = grid.phraseDuration
+
+        let onBeat = MixTransitionPerformer.quantizedSourceSeconds(nominal: beat * 2, snap: .beat, grid: grid)
+        expect("a nominal time already on a beat boundary is unchanged", near(onBeat, beat * 2, 1e-9))
+
+        let midBeat = MixTransitionPerformer.quantizedSourceSeconds(nominal: beat * 2.4, snap: .beat, grid: grid)
+        expect("a mid-beat nominal time snaps forward to the next beat", near(midBeat, beat * 3, 1e-9))
+
+        let midBar = MixTransitionPerformer.quantizedSourceSeconds(nominal: bar * 1.1, snap: .bar, grid: grid)
+        expect("a mid-bar nominal time snaps forward to the next bar", near(midBar, bar * 2, 1e-9))
+
+        let midPhrase = MixTransitionPerformer.quantizedSourceSeconds(nominal: phrase * 0.5, snap: .phrase, grid: grid)
+        expect("a mid-phrase nominal time snaps forward to the next phrase", near(midPhrase, phrase, 1e-9))
+
+        let free = MixTransitionPerformer.quantizedSourceSeconds(nominal: beat * 2.4, snap: .free, grid: grid)
+        expect("a free stage is not quantised at all", near(free, beat * 2.4, 1e-9))
+
+        let noGrid = MixTransitionPerformer.quantizedSourceSeconds(nominal: 12.3, snap: .bar, grid: nil)
+        expect("without a grid, quantisation falls back to the nominal time unchanged", near(noGrid, 12.3, 1e-9))
+    }
+
+    private static func testTransitionStartPositionClamp(
+        expect: (String, @autoclosure () -> Bool) -> Void,
+        note: (String) -> Void
+    ) {
+        note("── transition start position clamp ──")
+        let clampedLate = PlaybackTimelinePolicy.transitionStartPosition(
+            195, duration: 200, transitionSeconds: 10
+        )
+        expect("a too-late entry clamps into the widest window that still fits the transition",
+               near(clampedLate, 185, 1e-9))
+
+        let comfortable = PlaybackTimelinePolicy.transitionStartPosition(
+            40, duration: 200, transitionSeconds: 10
+        )
+        expect("an entry with plenty of runway is left untouched", near(comfortable, 40, 1e-9))
+
+        let negative = PlaybackTimelinePolicy.transitionStartPosition(
+            -5, duration: 200, transitionSeconds: 10
+        )
+        expect("a negative entry clamps up to zero, not the old zero-punt", near(negative, 0, 1e-9))
+
+        let noDuration = PlaybackTimelinePolicy.transitionStartPosition(
+            30, duration: 0, transitionSeconds: 10
+        )
+        expect("an unknown duration falls back to the raw position", near(noDuration, 30, 1e-9))
+    }
+
+    private static func testDistilledAnalysisPayload(
+        expect: (String, @autoclosure () -> Bool) -> Void,
+        note: (String) -> Void
+    ) {
+        note("── distilled analysis payload ──")
+
+        let payload = MusicUnderstandingDistilledResult(
+            beatSeconds: [0.5, 1.0, 1.5],
+            barSeconds: [0.5, 2.5],
+            beatsPerMinute: 128,
+            phraseStartSeconds: [0.5, 16.5],
+            structureRanges: [
+                MusicUnderstandingDistilledResult.Range(start: 0, end: 30),
+                MusicUnderstandingDistilledResult.Range(start: 30, end: 90)
+            ],
+            keyRanges: [MusicUnderstandingDistilledResult.KeyRange(start: 0, end: 90, wheelPosition: 8, mode: 0)],
+            vocalRanges: [MusicUnderstandingDistilledResult.Range(start: 10, end: 40)],
+            bassRanges: nil,
+            drumRanges: [],
+            integratedLUFS: -14.2
+        )
+
+        guard let data = try? JSONEncoder().encode(payload),
+              let decoded = try? JSONDecoder().decode(MusicUnderstandingDistilledResult.self, from: data) else {
+            expect("distilled payload round-trips through Codable", false)
+            return
+        }
+        expect("the beat grid survives the round trip", decoded.beatSeconds == payload.beatSeconds)
+        expect("bar seconds survive the round trip", decoded.barSeconds == payload.barSeconds)
+        expect("structure ranges survive the round trip", decoded.structureRanges.count == 2)
+        expect("key ranges keep their camelot wheel position and mode",
+               decoded.keyRanges.first?.wheelPosition == 8 && decoded.keyRanges.first?.mode == 0)
+        expect("a nil instrument-activity result stays nil, not an empty array", decoded.bassRanges == nil)
+        expect("an empty-but-measured instrument result stays an empty array, not nil",
+               decoded.drumRanges != nil && decoded.drumRanges?.isEmpty == true)
+        expect("integrated LUFS survives the round trip", decoded.integratedLUFS == payload.integratedLUFS)
+        note("  encoded size: \(data.count) bytes for \(payload.beatSeconds.count + payload.barSeconds.count) grid points")
+
+        if #available(iOS 27.0, macOS 27.0, tvOS 27.0, *) {
+            let shortKey = MusicUnderstandingDistilledResult.KeyRange(start: 0, end: 30, wheelPosition: 8, mode: 0)
+            let longKey = MusicUnderstandingDistilledResult.KeyRange(start: 30, end: 150, wheelPosition: 9, mode: 1)
+            let multiKey = MusicUnderstandingDistilledResult(
+                beatSeconds: [], barSeconds: [], beatsPerMinute: nil, phraseStartSeconds: [],
+                structureRanges: [], keyRanges: [shortKey, longKey],
+                vocalRanges: nil, bassRanges: nil, drumRanges: nil, integratedLUFS: nil
+            )
+            let majority = MusicUnderstandingProducer.majorityKey(multiKey)
+            expect("majority key picks the longer-duration range, not the first one",
+                   majority?.label == CamelotKey(wheelPosition: 9, mode: .major).label)
+        }
+    }
+
+    private static func testUserTransitionLengthHonoured(
+        expect: (String, @autoclosure () -> Bool) -> Void,
+        note: (String) -> Void
+    ) {
+        note("── user transition length vs personality ──")
+
+        let outgoing = features(
+            id: "utl-out", title: "Outgoing", duration: 360, bpm: 128, downbeatsKnown: true,
+            key: "Am", energy: 6, genre: .techHouse,
+            envelope: envelope(seconds: 360, calmFrom: 280)
+        )
+        let incoming = features(
+            id: "utl-in", title: "Incoming", duration: 340, bpm: 128, downbeatsKnown: true,
+            key: "Em", energy: 6, genre: .techHouse,
+            envelope: envelope(seconds: 340, calmFrom: 260)
+        )
+
+        func bassSwapOverlaps(_ profile: DJProfile) -> [TimeInterval] {
+            var rng = SeededGenerator(["user-transition-length", profile.id.rawValue])
+            let result = DJPlanner.plan(
+                outgoing: outgoing, candidates: [incoming], profile: profile,
+                templates: DJTemplates.v1Registry, scoring: DJTerms.v1Registry,
+                capabilities: .fullMixEngine, history: .empty, rng: &rng,
+                userTransitionSeconds: 6
+            )
+            return result.ranked
+                .filter { blendTemplates.contains($0.plan.templateId) }
+                .map(\.plan.overlapSeconds)
+        }
+
+        let weddingOverlaps = bassSwapOverlaps(.weddingDJ)
+        let automaticOverlaps = bassSwapOverlaps(.automaticDJ)
+        guard !weddingOverlaps.isEmpty, !automaticOverlaps.isEmpty else {
+            expect("both profiles propose at least one blend for this pair", false)
+            return
+        }
+        let cap = max(6 * 1.5, 6 + 4) + 0.05
+        note("  6s requested: Wedding DJ overlaps \(weddingOverlaps.map { String(format: "%.1f", $0) }.joined(separator: ", "))s, Auto Mix overlaps \(automaticOverlaps.map { String(format: "%.1f", $0) }.joined(separator: ", "))s")
+
+        expect("Wedding DJ clamps every bass-swap proposal near the user's short transition length",
+               weddingOverlaps.allSatisfy { $0 <= cap })
+        expect("Auto Mix keeps full 16-32-bar blends despite the same seconds-based request",
+               automaticOverlaps.contains { $0 >= 16 * (60.0 / 128 * 4) - 0.05 })
+        expect("honoursUserTransitionLength differentiates the profiles",
+               DJProfile.weddingDJ.honoursUserTransitionLength && !DJProfile.automaticDJ.honoursUserTransitionLength)
+    }
+
+    private static func testEnvelopeValleyMidTrackExit(
+        expect: (String, @autoclosure () -> Bool) -> Void,
+        note: (String) -> Void
+    ) {
+        note("── envelope-derived mid-track exit (Junkie vs Wedding) ──")
+
+        let duration: TimeInterval = 600
+        var wave = [Float](repeating: 0.8, count: 600)
+        for i in 300..<340 { wave[i] = 0.2 }
+
+        let outgoing = features(
+            id: "valley-out", title: "Outgoing", duration: duration, bpm: 128,
+            key: "Am", energy: 6, genre: .techHouse, envelope: wave
+        )
+        let incoming = features(
+            id: "valley-in", title: "Incoming", duration: 400, bpm: 128,
+            key: "Am", energy: 6, genre: .techHouse,
+            envelope: [Float](repeating: 0.8, count: 400)
+        )
+
+        let junkieExits = DJPointFinder.exitCandidates(in: outgoing, profile: .junkie)
+        let midTrack = junkieExits.filter { $0.seconds > duration * 0.25 && $0.seconds < duration * 0.9 }
+        expect("Junkie finds at least one exit strictly inside the mid-track window", !midTrack.isEmpty)
+        note("  mid-track exits: \(midTrack.map { DJFormat.time($0.seconds) }.joined(separator: ", "))")
+
+        let junkiePlan = PhantomDJEngine.plan(.init(
+            outgoing: outgoing, candidates: [incoming], profile: .junkie,
+            seedComponents: ["mid-track-valley-junkie"]
+        )).plan
+        expect("Junkie produces a plan for the valley track", junkiePlan != nil)
+        if let junkiePlan {
+            expect("Junkie's best plan mixes well before the end, not a duration-4 clean cut",
+                   junkiePlan.mixPointSeconds < duration - 60)
+            note("  Junkie: \(junkiePlan.templateId?.rawValue ?? "?") @ \(DJFormat.time(junkiePlan.mixPointSeconds)) — \(junkiePlan.reasoning)")
+        }
+
+        let weddingExits = DJPointFinder.exitCandidates(in: outgoing, profile: .weddingDJ)
+        expect("Wedding still refuses a mid-track exit on the same track",
+               weddingExits.allSatisfy { $0.seconds >= duration * 0.72 - 1 })
+
+        let weddingPlan = PhantomDJEngine.plan(.init(
+            outgoing: outgoing, candidates: [incoming], profile: .weddingDJ,
+            seedComponents: ["mid-track-valley-wedding"]
+        )).plan
+        expect("Wedding produces a plan for the valley track", weddingPlan != nil)
+        if let weddingPlan {
+            expect("Wedding's plan lands in the outro region, not the mid-track valley",
+                   weddingPlan.mixPointSeconds >= duration * 0.72 - 1)
+            note("  Wedding: \(weddingPlan.templateId?.rawValue ?? "?") @ \(DJFormat.time(weddingPlan.mixPointSeconds))")
+        }
+    }
+
+    private static func testCleanCutFallbackRespectsPersonality(
+        expect: (String, @autoclosure () -> Bool) -> Void,
+        note: (String) -> Void
+    ) {
+        note("── clean-cut fallback respects personality ──")
+
+        let duration: TimeInterval = 600
+        if let junkieFallback = PhantomDJEngine.cleanCutFallbackPlan(
+            outgoingDuration: duration, incomingTrackId: "x", profile: .junkie
+        ) {
+            expect("Junkie's no-analysis fallback cuts well before the literal end",
+                   junkieFallback.mixPointSeconds <= duration * 0.75)
+            expect("Junkie's fallback reasoning explains the energy-dip cut, not silence",
+                   junkieFallback.reasoning.contains("energy dip") || junkieFallback.reasoning.contains("No analysis"))
+            note("  Junkie fallback (no envelope): \(DJFormat.time(junkieFallback.mixPointSeconds)) — \(junkieFallback.reasoning)")
+        } else {
+            expect("Junkie's no-analysis fallback produces a plan for a 600s track", false)
+        }
+
+        if let weddingFallback = PhantomDJEngine.cleanCutFallbackPlan(
+            outgoingDuration: duration, incomingTrackId: "x", profile: .weddingDJ
+        ) {
+            expect("Wedding's no-analysis fallback still plays out to the very end",
+                   weddingFallback.mixPointSeconds > duration - 5)
+            note("  Wedding fallback (no envelope): \(DJFormat.time(weddingFallback.mixPointSeconds))")
+        } else {
+            expect("Wedding's no-analysis fallback produces a plan for a 600s track", false)
+        }
     }
 
     private static func testCamelot(
@@ -799,19 +1164,20 @@ enum DJEngineSelfTest {
         let registry = DJTemplates.v1Registry
         expect("the loop roll-down is registered",
                registry.templates[DJTemplates.loopRollDown] != nil)
-        expect("Junkie names it",
-               DJProfile.junkie.admissibleTemplates.contains(DJTemplates.loopRollDown))
-        expect("Wedding does not name it",
-               !DJProfile.weddingDJ.admissibleTemplates.contains(DJTemplates.loopRollDown))
-        expect("v1 capabilities filter it out",
+        expect("Junkie names the timeline loop build instead",
+               DJProfile.junkie.admissibleTemplates.contains(DJMoveIDs.loopRoll))
+        expect("Wedding does not name a loop",
+               !DJProfile.weddingDJ.admissibleTemplates.contains(DJTemplates.loopRollDown)
+                   && !DJProfile.weddingDJ.admissibleTemplates.contains(DJMoveIDs.loopRoll))
+        expect("v1 capabilities filter the loop build out",
                !registry.admissible(for: .junkie, capabilities: .v1MixEngine)
-                   .contains { $0.id == DJTemplates.loopRollDown })
+                   .contains { $0.id == DJMoveIDs.loopRoll })
 
-        var withResize = ExecutorCapabilities.v1MixEngine
-        withResize.insert(.loopResize)
-        expect("adding loopResize is all it takes to admit it",
-               registry.admissible(for: .junkie, capabilities: withResize)
-                   .contains { $0.id == DJTemplates.loopRollDown })
+        var withTimeline = ExecutorCapabilities.v1MixEngine
+        withTimeline.formUnion([.loopResize, .highPassFilter, .delayPerDeck, .mixTimeline])
+        expect("the sample-accurate timeline admits it",
+               registry.admissible(for: .junkie, capabilities: withTimeline)
+                   .contains { $0.id == DJMoveIDs.loopRoll })
 
         var rng = SeededGenerator(["stage-test"])
         let exits = DJPointFinder.exitCandidates(in: hot, profile: .junkie)

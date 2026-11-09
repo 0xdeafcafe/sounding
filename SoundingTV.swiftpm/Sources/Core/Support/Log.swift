@@ -6,6 +6,7 @@ enum Log {
     static let api = Logger(subsystem: subsystem, category: "api")
     static let auth = Logger(subsystem: subsystem, category: "auth")
     static let player = Logger(subsystem: subsystem, category: "player")
+    static let playback = Logger(subsystem: subsystem, category: "playback")
     static let dj = Logger(subsystem: subsystem, category: "dj")
     static let analysis = Logger(subsystem: subsystem, category: "analysis")
     static let download = Logger(subsystem: subsystem, category: "download")

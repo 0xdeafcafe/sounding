@@ -29,6 +29,23 @@ enum PhantomDJEngine {
         let stages: [TransitionStage]
         let outgoingBeatGrid: BeatGrid?
         let incomingBeatGrid: BeatGrid?
+        let move: MixMove?
+        let incomingTitle: String?
+        var incomingMidCutDecibels: Double = 0
+        var selection: DJFlowChoice?
+        var feedback: AutoMixTransitionFeatures?
+        var outgoingFeatures: TrackFeatures?
+        var entryNote: String?
+
+        func carryingExtras(from other: Plan) -> Plan {
+            var copy = self
+            copy.incomingMidCutDecibels = other.incomingMidCutDecibels
+            copy.selection = other.selection
+            copy.feedback = other.feedback
+            copy.outgoingFeatures = other.outgoingFeatures
+            copy.entryNote = other.entryNote
+            return copy
+        }
 
         init(
             mixPointSeconds: TimeInterval,
@@ -46,7 +63,9 @@ enum PhantomDJEngine {
             rationale: PlanRationale? = nil,
             stages: [TransitionStage] = [],
             outgoingBeatGrid: BeatGrid? = nil,
-            incomingBeatGrid: BeatGrid? = nil
+            incomingBeatGrid: BeatGrid? = nil,
+            move: MixMove? = nil,
+            incomingTitle: String? = nil
         ) {
             self.mixPointSeconds = mixPointSeconds
             self.transitionSeconds = transitionSeconds
@@ -64,9 +83,105 @@ enum PhantomDJEngine {
             self.stages = stages
             self.outgoingBeatGrid = outgoingBeatGrid
             self.incomingBeatGrid = incomingBeatGrid
+            self.move = move
+            self.incomingTitle = incomingTitle
+        }
+
+        var moveHeadline: String? {
+            guard let move else { return nil }
+            let title = incomingTitle ?? "the next track"
+            let jump = move.kind == .jump ? max(0, entrySeconds - mixPointSeconds) : nil
+            return move.headline(into: title, durationSeconds: jump)
         }
 
         var mixEndSeconds: TimeInterval { mixPointSeconds + transitionSeconds }
+
+        /// Executor-faithful stages for consoles and companions. The older
+        /// blend templates are implemented by `beginDefaultTransition`
+        /// rather than explicit `TransitionStage` values; project those same
+        /// crossfader, bass-swap and filter operations here so a Junkie mix
+        /// never appears idle while the engine is actively performing it.
+        var presentationStages: [TransitionStage] {
+            guard stages.isEmpty else {
+                return stages.sorted { $0.atSeconds < $1.atSeconds }
+            }
+
+            let window = max(0, transitionSeconds)
+
+            if templateId == DJTemplates.cutOnTheOne {
+                return [
+                    TransitionStage(at: 0, on: .outgoing, .hardCut(fadeSeconds: window), snap: .free),
+                    TransitionStage(at: 0, on: .incoming, .crossfadeTo(position: 1, over: window), snap: .free)
+                ]
+            }
+
+            let swapAt = min(max(0, bassSwapAtSeconds), window)
+            let swapDuration = min(max(0, bassSwapSeconds), max(0, window - swapAt))
+            var projected: [TransitionStage] = []
+
+            if abs(incomingRateRatio - 1) > 0.0005 {
+                projected.append(TransitionStage(
+                    at: 0,
+                    on: .incoming,
+                    .rateRatio(incomingRateRatio, over: 0),
+                    snap: .free
+                ))
+            }
+
+            projected.append(TransitionStage(
+                at: 0,
+                on: .incoming,
+                .crossfadeTo(position: 1, over: window),
+                snap: .free
+            ))
+            if templateId == DJTemplates.highPassThinOut {
+                projected.append(TransitionStage(
+                    at: 0,
+                    on: .outgoing,
+                    .highPassTo(hertz: HighPassThinOutTemplate.targetHertz, over: window),
+                    snap: .free
+                ))
+            } else {
+                projected.append(TransitionStage(
+                    at: swapAt,
+                    on: .outgoing,
+                    .eqLow(decibels: MixEngine.eqGainRange.lowerBound, over: swapDuration),
+                    snap: .bar
+                ))
+            }
+            projected.append(TransitionStage(
+                at: swapAt,
+                on: .incoming,
+                .eqLow(decibels: 0, over: swapDuration),
+                snap: .bar
+            ))
+
+            switch accent {
+            case .outgoingFilterClose:
+                projected.append(TransitionStage(
+                    at: 0,
+                    on: .outgoing,
+                    .lowPassTo(hertz: DJEngineConstants.accentClosedFilterHz, over: window),
+                    snap: .free
+                ))
+            case .incomingFilterOpen:
+                projected.append(TransitionStage(
+                    at: 0,
+                    on: .incoming,
+                    .lowPassTo(hertz: MixEngine.filterCutoffRange.upperBound, over: window),
+                    snap: .free
+                ))
+            case nil:
+                break
+            }
+
+            return projected.sorted { lhs, rhs in
+                if lhs.atSeconds == rhs.atSeconds {
+                    return lhs.action.summary < rhs.action.summary
+                }
+                return lhs.atSeconds < rhs.atSeconds
+            }
+        }
 
         init(_ scored: ScoredPlan, outroShape: OutroShape) {
             self.init(
@@ -83,7 +198,8 @@ enum PhantomDJEngine {
                 profileId: scored.plan.profileId,
                 templateId: scored.plan.templateId,
                 rationale: scored.rationale,
-                stages: scored.plan.stages
+                stages: scored.plan.stages,
+                move: scored.plan.move
             )
         }
 
@@ -104,8 +220,39 @@ enum PhantomDJEngine {
                 rationale: rationale,
                 stages: stages,
                 outgoingBeatGrid: outgoing,
-                incomingBeatGrid: incoming
-            )
+                incomingBeatGrid: incoming,
+                move: move,
+                incomingTitle: incomingTitle
+            ).carryingExtras(from: self)
+        }
+
+        func titled(_ title: String?) -> Plan {
+            Plan(
+                mixPointSeconds: mixPointSeconds,
+                transitionSeconds: transitionSeconds,
+                outroShape: outroShape,
+                accent: accent,
+                reasoning: reasoning,
+                entrySeconds: entrySeconds,
+                bassSwapAtSeconds: bassSwapAtSeconds,
+                bassSwapSeconds: bassSwapSeconds,
+                incomingRateRatio: incomingRateRatio,
+                incomingTrackId: incomingTrackId,
+                profileId: profileId,
+                templateId: templateId,
+                rationale: rationale,
+                stages: stages,
+                outgoingBeatGrid: outgoingBeatGrid,
+                incomingBeatGrid: incomingBeatGrid,
+                move: move,
+                incomingTitle: title
+            ).carryingExtras(from: self)
+        }
+
+        func selected(_ choice: DJFlowChoice?) -> Plan {
+            var copy = self
+            copy.selection = choice
+            return copy
         }
     }
 
@@ -200,23 +347,58 @@ enum PhantomDJEngine {
     static func cleanCutFallbackPlan(
         outgoingDuration: TimeInterval,
         incomingTrackId: String?,
-        profileId: DJProfileID?,
-        reasoning: String = "Analysis is still arriving — playing this track out, then making a clean cut."
+        profile: DJProfile?,
+        envelope: [Float] = [],
+        reasoning: String? = nil
     ) -> Plan? {
         guard outgoingDuration.isFinite, outgoingDuration > CutOnTheOneTemplate.fadeSeconds else { return nil }
-        let cutAt = max(0, outgoingDuration - CutOnTheOneTemplate.fadeSeconds - 0.5)
+        let baseReasoning = reasoning ?? "Analysis is still arriving — playing this track out, then making a clean cut."
+
+        guard let profile, profile.allowMidTrackExit else {
+            let cutAt = max(0, outgoingDuration - CutOnTheOneTemplate.fadeSeconds - 0.5)
+            return Plan(
+                mixPointSeconds: cutAt,
+                transitionSeconds: CutOnTheOneTemplate.fadeSeconds,
+                outroShape: .hardStop,
+                accent: nil,
+                reasoning: baseReasoning,
+                entrySeconds: 0,
+                bassSwapAtSeconds: 0,
+                bassSwapSeconds: CutOnTheOneTemplate.fadeSeconds,
+                incomingRateRatio: 1,
+                incomingTrackId: incomingTrackId,
+                profileId: profile?.id,
+                templateId: DJTemplates.cutOnTheOne
+            )
+        }
+
+        let latest = outgoingDuration - CutOnTheOneTemplate.fadeSeconds - 0.5
+        let earliest = profile.minimumPlayFraction * outgoingDuration
+        let finalReasoning: String
+        var cutAt: TimeInterval
+
+        if let valley = DJPointFinder.bestValleyStart(envelope: envelope, duration: outgoingDuration, after: earliest),
+           valley < latest {
+            cutAt = valley
+            finalReasoning = "\(baseReasoning) No analysis yet — cutting at an energy dip found in the waveform, not the end of the track."
+        } else {
+            cutAt = max(earliest, outgoingDuration * 0.6)
+            finalReasoning = "\(baseReasoning) No analysis yet — cutting past \(Int((profile.minimumPlayFraction * 100).rounded()))% of the track rather than waiting for the end."
+        }
+        cutAt = max(0, min(cutAt, latest))
+
         return Plan(
             mixPointSeconds: cutAt,
             transitionSeconds: CutOnTheOneTemplate.fadeSeconds,
             outroShape: .hardStop,
             accent: nil,
-            reasoning: reasoning,
+            reasoning: finalReasoning,
             entrySeconds: 0,
             bassSwapAtSeconds: 0,
             bassSwapSeconds: CutOnTheOneTemplate.fadeSeconds,
             incomingRateRatio: 1,
             incomingTrackId: incomingTrackId,
-            profileId: profileId,
+            profileId: profile.id,
             templateId: DJTemplates.cutOnTheOne
         )
     }
@@ -228,14 +410,16 @@ enum PhantomDJEngine {
         let history: SetHistory
         let capabilities: ExecutorCapabilities
         let seedComponents: [String]
+        let userTransitionSeconds: Double?
 
         init(
             outgoing: TrackFeatures,
             candidates: [TrackFeatures],
             profile: DJProfile,
             history: SetHistory = .empty,
-            capabilities: ExecutorCapabilities = .v1MixEngine,
-            seedComponents: [String]
+            capabilities: ExecutorCapabilities = .fullMixEngine,
+            seedComponents: [String],
+            userTransitionSeconds: Double? = nil
         ) {
             self.outgoing = outgoing
             self.candidates = candidates
@@ -243,6 +427,7 @@ enum PhantomDJEngine {
             self.history = history
             self.capabilities = capabilities
             self.seedComponents = seedComponents
+            self.userTransitionSeconds = userTransitionSeconds
         }
     }
 
@@ -256,25 +441,81 @@ enum PhantomDJEngine {
             scoring: DJTerms.v1Registry,
             capabilities: inputs.capabilities,
             history: inputs.history,
-            rng: &rng
+            rng: &rng,
+            userTransitionSeconds: inputs.userTransitionSeconds
         )
     }
 
     static func plan(_ inputs: PlanningInputs) -> (plan: Plan?, result: PlanningResult) {
         let result = rank(inputs)
-        let selected = selectPlan(from: result, profile: inputs.profile)
+        return (select(result, inputs: inputs), result)
+    }
+
+    static func select(_ result: PlanningResult, inputs: PlanningInputs) -> Plan? {
+        let minimumBlend = inputs.outgoing.beatGrid.map {
+            $0.barDuration * Double(inputs.profile.transitionBarsRange.lowerBound) - 0.05
+        }
+        let selected = selectPlan(
+            from: result, profile: inputs.profile, minimumBlendSeconds: minimumBlend,
+            outgoingBarSeconds: inputs.outgoing.beatGrid?.barDuration,
+            runwaysFavourBlend: { plan in
+                inputs.candidates.first { $0.trackId == plan.incomingTrackId }.map {
+                    runwaysFavourBlend(outgoing: inputs.outgoing, incoming: $0)
+                } ?? false
+            },
+            referenceSeconds: { plan in
+                inputs.outgoing.beatGrid.map {
+                    $0.barDuration * Double(inputs.profile.referenceBars(
+                        outgoing: inputs.outgoing,
+                        incoming: inputs.candidates.first { $0.trackId == plan.incomingTrackId }
+                    ))
+                }
+            }
+        )
         let incomingGrid = selected?.incomingTrackId.flatMap { id in
             inputs.candidates.first(where: { $0.trackId == id })?.beatGrid
         }
-        return (
-            selected?.withBeatGrids(outgoing: inputs.outgoing.beatGrid, incoming: incomingGrid),
-            result
-        )
+        return selected?.withBeatGrids(outgoing: inputs.outgoing.beatGrid, incoming: incomingGrid)
     }
 
-    static func selectPlan(from result: PlanningResult, profile: DJProfile) -> Plan? {
-        if let winner = firingWinner(from: result, profile: profile) {
+    static func selectPlan(
+        from result: PlanningResult,
+        profile: DJProfile,
+        minimumBlendSeconds: TimeInterval? = nil,
+        outgoingBarSeconds: TimeInterval? = nil,
+        runwaysFavourBlend: (DJTransitionPlan) -> Bool = { _ in false },
+        referenceSeconds: (DJTransitionPlan) -> TimeInterval? = { _ in nil }
+    ) -> Plan? {
+        if let winner = firingWinner(
+            from: result, profile: profile, minimumBlendSeconds: minimumBlendSeconds, outgoingBarSeconds: outgoingBarSeconds, runwaysFavourBlend: runwaysFavourBlend, referenceSeconds: referenceSeconds
+        ) {
+            let cuts = winner.plan.templateId == DJTemplates.cutOnTheOne || winner.plan.move?.kind == .cut
+            if cuts, winner.plan.exit.confidence < 1, let softer = stepDown(from: result, outgoingBarSeconds: outgoingBarSeconds) {
+                return Plan(softer, outroShape: outroShape(for: softer.plan.exit.kind))
+            }
             return Plan(winner, outroShape: outroShape(for: winner.plan.exit.kind))
+        }
+
+        if !result.ranked.contains(where: { $0.plan.exit.confidence >= 1 }),
+           let soft = stepDown(from: result, outgoingBarSeconds: outgoingBarSeconds) {
+            let plan = Plan(soft, outroShape: outroShape(for: soft.plan.exit.kind))
+            return Plan(
+                mixPointSeconds: plan.mixPointSeconds,
+                transitionSeconds: plan.transitionSeconds,
+                outroShape: plan.outroShape,
+                accent: plan.accent,
+                reasoning: refusalReasoning(result, profile: profile, fallback: soft.rationale.headline),
+                entrySeconds: plan.entrySeconds,
+                bassSwapAtSeconds: plan.bassSwapAtSeconds,
+                bassSwapSeconds: plan.bassSwapSeconds,
+                incomingRateRatio: plan.incomingRateRatio,
+                incomingTrackId: plan.incomingTrackId,
+                profileId: plan.profileId,
+                templateId: plan.templateId,
+                rationale: plan.rationale,
+                stages: plan.stages,
+                move: plan.move
+            )
         }
 
         // A blend that misses the profile's confidence floor must not sneak
@@ -305,44 +546,118 @@ enum PhantomDJEngine {
         )
     }
 
-    /// Ranking still establishes quality. For the everyday automatic profile,
-    /// an earlier phrase is more useful than an outro when it is within a small
-    /// quality margin of the top result. This keeps the director lively without
-    /// accepting a weak transition merely because it occurs sooner.
-    private static func firingWinner(from result: PlanningResult, profile: DJProfile) -> ScoredPlan? {
+    private static func firingWinner(
+        from result: PlanningResult,
+        profile: DJProfile,
+        minimumBlendSeconds: TimeInterval?,
+        outgoingBarSeconds: TimeInterval?,
+        runwaysFavourBlend: (DJTransitionPlan) -> Bool,
+        referenceSeconds: (DJTransitionPlan) -> TimeInterval?
+    ) -> ScoredPlan? {
         guard let best = result.firing else { return nil }
-        guard profile.id == .automatic else { return best }
+        let firing = result.ranked.filter { $0.fires && $0.plan.templateId != DJTemplates.cutOnTheOne }
+        if let cued = firing.filter({ $0.plan.exit.confidence >= 1 }).max(by: { $0.score < $1.score }) {
+            return cued
+        }
+        if result.ranked.contains(where: { $0.plan.exit.confidence >= 1 }) {
+            return nil
+        }
+        guard !profile.allowMidTrackExit else { return best }
 
-        let nearBestFloor = max(profile.minimumScoreToFire, best.score - 0.08)
-        return result.ranked
-            .filter {
-                $0.fires
-                    && $0.score >= nearBestFloor
-                    && $0.plan.templateId != DJTemplates.cutOnTheOne
-            }
-            .min {
-                if abs($0.plan.exit.seconds - $1.plan.exit.seconds) > 0.5 {
-                    return $0.plan.exit.seconds < $1.plan.exit.seconds
+        let blends = firing.filter { $0.plan.move == nil || $0.plan.move?.kind == .loopMix || $0.plan.move?.kind == .blend }
+        let bestMove = firing.filter { $0.plan.move != nil && $0.plan.move?.kind != .loopMix && $0.plan.move?.kind != .blend }.max(by: { $0.score < $1.score })
+        let long = minimumBlendSeconds.map { minimum in blends.filter { $0.plan.overlapSeconds >= minimum } } ?? []
+        let textbook = long.filter { scored in
+            guard let bar = outgoingBarSeconds, bar > 0 else { return false }
+            let reference = referenceSeconds(scored.plan) ?? Self.textbookBlendBars * bar
+            return scored.plan.overlapSeconds >= min(Self.textbookBlendBars * bar, reference) - 0.05
+        }
+        let pool = !textbook.isEmpty ? textbook : long.isEmpty ? blends : long
+        guard let poolBest = pool.max(by: { $0.score < $1.score }) else { return bestMove ?? best }
+        let runwayBlend = !long.isEmpty && profile.adventure < 1 && runwaysFavourBlend(poolBest.plan)
+        let landingMargin = bestMove.map { Self.landsHard($0.plan) && profile.adventure < 1 ? Self.hardLandingMargin : 0 } ?? 0
+        if let bestMove, !runwayBlend, bestMove.score >= poolBest.score + profile.moveMargin + landingMargin { return bestMove }
+        let nearBestFloor = max(profile.minimumScoreToFire, poolBest.score - 0.08)
+        func lengthRank(_ scored: ScoredPlan) -> Double {
+            guard let reference = referenceSeconds(scored.plan), reference > 0 else { return (scored.plan.overlapSeconds / 2).rounded() }
+            return -abs(log2(max(0.5, scored.plan.overlapSeconds) / reference) * 4).rounded()
+        }
+        let loops = pool.filter { $0.plan.move?.kind == .loopMix }
+        let plain = pool.filter { $0.plan.move?.kind != .loopMix }
+        let blend = plain
+            .filter { $0.score >= nearBestFloor }
+            .max { lhs, rhs in
+                let lhsLength = lengthRank(lhs)
+                let rhsLength = lengthRank(rhs)
+                if lhsLength != rhsLength { return lhsLength < rhsLength }
+                if abs(lhs.plan.exit.seconds - rhs.plan.exit.seconds) > 0.5 {
+                    return lhs.plan.exit.seconds < rhs.plan.exit.seconds
                 }
-                return $0.score > $1.score
+                return lhs.score < rhs.score
             }
-            ?? best
+        let loop = loops.max { $0.score < $1.score }
+        switch (blend, loop) {
+        case let (blend?, loop?): return loop.score > (plain.map(\.score).max() ?? blend.score) ? loop : blend
+        case let (blend?, nil): return blend
+        case let (nil, loop?): return loop
+        default: return best
+        }
     }
 
     static func outroShape(for kind: SectionKind) -> OutroShape {
         switch kind {
         case .ambientOutro:                    return .fadeToSilence
         case .breakdown, .cooldown, .bridge:   return .breakdown
-        case .outro, .intro, .buildup, .drop, .ambientIntro: return .hardStop
+        case .outro, .intro, .buildup, .build, .drop, .ambientIntro: return .hardStop
         case .unknown:                         return .unknown
         }
     }
 
-    static func refusalReasoning(_ result: PlanningResult, profile: DJProfile) -> String {
+    static let stepDownBlendBars = 16.0
+    static let textbookBlendBars = 16.0
+    static let hardLandingMargin = 0.15
+
+    static func landsHard(_ plan: DJTransitionPlan) -> Bool {
+        guard let kind = plan.move?.kind else { return false }
+        return [.cut, .dropOnTheOne, .fxBuild, .loopRoll].contains(kind)
+    }
+    static let blendRunwayBars = 16.0
+
+    static func runwaysFavourBlend(outgoing: TrackFeatures, incoming: TrackFeatures) -> Bool {
+        guard outgoing.provenance.contains(.measuredVocals), incoming.provenance.contains(.measuredVocals),
+              let outBar = outgoing.beatGrid?.barDuration, let inBar = incoming.beatGrid?.barDuration,
+              outBar > 0, inBar > 0 else { return false }
+        let outRunway = (outgoing.duration - (outgoing.vocalRanges.map(\.upperBound).max() ?? 0)) / outBar
+        let inRunway = (incoming.vocalRanges.map(\.lowerBound).min() ?? incoming.duration) / inBar
+        return outRunway >= blendRunwayBars && inRunway >= blendRunwayBars
+    }
+
+    static func stepDown(from result: PlanningResult, outgoingBarSeconds: TimeInterval?) -> ScoredPlan? {
+        let usable = result.ranked.filter { $0.score > 0 }
+        func latest(_ plans: [ScoredPlan]) -> ScoredPlan? {
+            plans.max { lhs, rhs in
+                if abs(lhs.plan.exit.seconds - rhs.plan.exit.seconds) > 0.5 { return lhs.plan.exit.seconds < rhs.plan.exit.seconds }
+                return lhs.score < rhs.score
+            }
+        }
+        let blends = usable.filter { scored in
+            guard scored.plan.move == nil || scored.plan.move?.kind == .blend, scored.plan.templateId != DJTemplates.cutOnTheOne,
+                  let bar = outgoingBarSeconds, bar > 0 else { return false }
+            return scored.plan.overlapSeconds <= Self.stepDownBlendBars * bar + 0.05
+        }
+        if let blend = blends.max(by: { $0.score < $1.score }) { return blend }
+        let filters = usable.filter { [DJTemplates.filterFadeOut, DJTemplates.filterBloomIn, DJTemplates.highPassThinOut].contains($0.plan.templateId) }
+        if let filter = filters.max(by: { $0.score < $1.score }) { return filter }
+        let echoes = usable.filter { $0.plan.templateId == DJTemplates.echoOut || $0.plan.templateId == DJMoveIDs.echoOut }
+        return latest(echoes)
+    }
+
+    static func refusalReasoning(_ result: PlanningResult, profile: DJProfile, fallback: String? = nil) -> String {
+        let ending = fallback.map { " — stepping down: \($0)." } ?? " — playing out to a clean cut."
         if let best = result.ranked.first {
             return best.rationale.reasoning
                 + " Scored \(String(format: "%.2f", best.score)) against "
-                + "\(profile.displayName)'s \(String(format: "%.2f", profile.minimumScoreToFire)) threshold — playing out to a clean cut."
+                + "\(profile.displayName)'s \(String(format: "%.2f", profile.minimumScoreToFire)) threshold" + ending
         }
         if let rejection = result.rejections.first {
             return "No mix — \(rejection.reason). Playing out to a clean cut."

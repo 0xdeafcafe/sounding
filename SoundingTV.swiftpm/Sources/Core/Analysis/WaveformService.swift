@@ -87,6 +87,11 @@ enum WaveformError: Error, LocalizedError, Equatable, Sendable {
         }
     }
 
+    var isRateLimited: Bool {
+        if case .serverError(429) = self { return true }
+        return false
+    }
+
     var isPermanent: Bool {
         switch self {
         case .noWaveformURL, .imageOnly, .notFound, .malformedDocument: return true
@@ -129,6 +134,9 @@ final class WaveformService: ObservableObject {
     @Published private(set) var states: [String: WaveformState] = [:]
 
     private let cache = NSCache<NSString, WaveformEntry>()
+    private var recentReady: [String: Waveform] = [:]
+    private var recentReadyOrder: [String] = []
+    private static let recentReadyLimit = 8
     private var inFlight: [String: Task<Result<Waveform, WaveformError>, Never>] = [:]
 
     private init() {
@@ -136,7 +144,13 @@ final class WaveformService: ObservableObject {
     }
 
     func state(for trackId: String) -> WaveformState {
+        if let waveform = recentReady[trackId] {
+            return .ready(waveform)
+        }
         if let entry = cache.object(forKey: trackId as NSString) {
+            if case .success(let waveform) = entry.result {
+                retainRecentlyReady(waveform, for: trackId)
+            }
             return entry.state
         }
         return states[trackId] ?? .pending
@@ -164,7 +178,14 @@ final class WaveformService: ObservableObject {
     func waveform(for track: Track) async -> Result<Waveform, WaveformError> {
         let key = track.id
 
+        if let waveform = recentReady[key] {
+            retainRecentlyReady(waveform, for: key)
+            return .success(waveform)
+        }
         if let entry = cache.object(forKey: key as NSString) {
+            if case .success(let waveform) = entry.result {
+                retainRecentlyReady(waveform, for: key)
+            }
             return entry.result
         }
         if let running = inFlight[key] {
@@ -180,7 +201,7 @@ final class WaveformService: ObservableObject {
 
         states[key] = .loading
         let task = Task<Result<Waveform, WaveformError>, Never> {
-            await Self.fetch(url)
+            await Self.fetchWithRetry(url)
         }
         inFlight[key] = task
         let result = await task.value
@@ -189,8 +210,16 @@ final class WaveformService: ObservableObject {
         return finish(key, result)
     }
 
+    #if DEBUG
+    func installFixture(_ waveform: Waveform, for trackId: String) {
+        finish(trackId, .success(waveform))
+    }
+    #endif
+
     func invalidate(trackId: String) {
         cache.removeObject(forKey: trackId as NSString)
+        recentReady[trackId] = nil
+        recentReadyOrder.removeAll { $0 == trackId }
         states[trackId] = nil
     }
 
@@ -202,7 +231,8 @@ final class WaveformService: ObservableObject {
         switch result {
         case .success(let waveform):
             cache.setObject(WaveformEntry(result), forKey: key as NSString)
-            states[key] = .ready(waveform)
+            retainRecentlyReady(waveform, for: key)
+            states[key] = nil
         case .failure(let error):
             if error.isPermanent {
                 cache.setObject(WaveformEntry(result), forKey: key as NSString)
@@ -212,8 +242,43 @@ final class WaveformService: ObservableObject {
         return result
     }
 
+    private func retainRecentlyReady(_ waveform: Waveform, for key: String) {
+        recentReady[key] = waveform
+        recentReadyOrder.removeAll { $0 == key }
+        recentReadyOrder.append(key)
+        while recentReadyOrder.count > Self.recentReadyLimit {
+            let evicted = recentReadyOrder.removeFirst()
+            recentReady[evicted] = nil
+        }
+    }
+
     private static func isImageWaveform(_ url: URL) -> Bool {
         ["png", "jpg", "jpeg", "gif"].contains(url.pathExtension.lowercased())
+    }
+
+    private nonisolated static func fetchWithRetry(_ url: URL) async -> Result<Waveform, WaveformError> {
+        var lastResult: Result<Waveform, WaveformError> = .failure(.network("Waveform request did not start"))
+        let backoff = SoundCloudBackoff(base: 0.4, cap: 4)
+        let retries = 2
+
+        for attempt in 0...retries {
+            let result = await fetch(url)
+            lastResult = result
+            switch result {
+            case .success:
+                return result
+            case .failure(let error):
+                guard !error.isPermanent, !error.isRateLimited, attempt < retries, !Task.isCancelled else {
+                    return result
+                }
+                do {
+                    try await Task.sleep(for: backoff.duration(attempt: attempt))
+                } catch {
+                    return result
+                }
+            }
+        }
+        return lastResult
     }
 
     private nonisolated static func fetch(_ url: URL) async -> Result<Waveform, WaveformError> {
@@ -221,22 +286,27 @@ final class WaveformService: ObservableObject {
         request.addValue("application/json", forHTTPHeaderField: "Accept")
 
         let data: Data
-        let response: URLResponse
+        let response: HTTPURLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await SoundCloudGateway.shared.data(
+                for: request,
+                context: .init(
+                    intent: .playback,
+                    lane: .waveform,
+                    allowsBackground: true
+                )
+            )
         } catch {
             return .failure(.network(error.localizedDescription))
         }
 
-        if let http = response as? HTTPURLResponse {
-            switch http.statusCode {
-            case 200..<300: break
-            case 404:       return .failure(.notFound(url))
-            default:        return .failure(.serverError(http.statusCode))
-            }
-            if let mime = http.mimeType, mime.hasPrefix("image/") {
-                return .failure(.imageOnly(url))
-            }
+        switch response.statusCode {
+        case 200..<300: break
+        case 404:       return .failure(.notFound(url))
+        default:        return .failure(.serverError(response.statusCode))
+        }
+        if let mime = response.mimeType, mime.hasPrefix("image/") {
+            return .failure(.imageOnly(url))
         }
 
         guard let document = try? JSONDecoder().decode(WaveformDocument.self, from: data),
@@ -370,8 +440,6 @@ final class MusicPulse {
         guard self.trackId == trackId else { return }
         self.analysis = (analysis?.isEmpty ?? true) ? nil : analysis
     }
-
-    var hasBeatGrid: Bool { !(analysis?.beats.isEmpty ?? true) }
 
     var resting: Pulse {
         Pulse(position: anchorPosition, energy: 0, impact: 0, beatPhase: nil)

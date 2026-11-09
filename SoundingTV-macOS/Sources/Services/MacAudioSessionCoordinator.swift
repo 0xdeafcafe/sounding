@@ -82,7 +82,7 @@ final class MacAudioSessionCoordinator: AudioSessionCoordinating {
         let block: AudioObjectPropertyListenerBlock = { _, _ in
             MainActor.assumeIsolated {
                 MacAudioSessionCoordinator.shared.refreshRoute()
-                NotificationCenter.default.post(name: .audioOutputRouteDidChange, object: nil)
+                PlatformAudioSession.noteRouteChange()
             }
         }
 
@@ -123,7 +123,7 @@ final class MacAudioSessionCoordinator: AudioSessionCoordinating {
         let block: AudioObjectPropertyListenerBlock = { _, _ in
             MainActor.assumeIsolated {
                 MacAudioSessionCoordinator.shared.refreshRoute()
-                NotificationCenter.default.post(name: .audioOutputRouteDidChange, object: nil)
+                PlatformAudioSession.noteRouteChange()
             }
         }
 

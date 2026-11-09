@@ -1,5 +1,14 @@
 import Foundation
+import XCTest
 @testable import SoundingTV
+
+final class SoundCloudCredentialSourceTests: XCTestCase {
+    @MainActor
+    func testCredentialSourceSelfTest() {
+        let report = SoundCloudCredentialSourceSelfTest.run()
+        XCTAssertTrue(report.failures.isEmpty, report.failures.joined(separator: "\n"))
+    }
+}
 
 @MainActor
 enum SoundCloudCredentialSourceSelfTest {
@@ -17,9 +26,81 @@ enum SoundCloudCredentialSourceSelfTest {
     static func run() -> Report {
         var report = Report()
         healthCases(&report)
+        refreshResponseCases(&report)
+        refreshPresentationCases(&report)
         devSeedCases(&report)
         storedSessionCases(&report)
+        launchPresentationCases(&report)
         return report
+    }
+
+    private static func launchPresentationCases(_ report: inout Report) {
+        func needs(
+            establishing: Bool, signedOut: Bool, healthNeedsSignIn: Bool, explicitSignOut: Bool
+        ) -> Bool {
+            SoundCloudCredentialSourcePolicy.needsSignIn(
+                isEstablishingSessionAtLaunch: establishing,
+                isSignedOut: signedOut,
+                healthNeedsSignIn: healthNeedsSignIn,
+                hasExplicitLocalSignOut: explicitSignOut
+            )
+        }
+        expect(&report, "establishing + transiently unusable store keeps the shell",
+               !needs(establishing: true, signedOut: true, healthNeedsSignIn: true, explicitSignOut: false))
+        expect(&report, "establishing + recorded sign-out goes straight to sign-in",
+               needs(establishing: true, signedOut: true, healthNeedsSignIn: true, explicitSignOut: true))
+        expect(&report, "establishing + usable session keeps the shell",
+               !needs(establishing: true, signedOut: false, healthNeedsSignIn: true, explicitSignOut: false))
+        expect(&report, "settled + signed out requires sign-in",
+               needs(establishing: false, signedOut: true, healthNeedsSignIn: false, explicitSignOut: false))
+        expect(&report, "settled + rejected health requires sign-in",
+               needs(establishing: false, signedOut: false, healthNeedsSignIn: true, explicitSignOut: false))
+        expect(&report, "settled + healthy needs nothing",
+               !needs(establishing: false, signedOut: false, healthNeedsSignIn: false, explicitSignOut: false))
+    }
+
+    private static func refreshResponseCases(_ report: inout Report) {
+        func body(_ error: String) -> Data { Data(#"{"error":"\#(error)"}"#.utf8) }
+
+        expect(&report, "invalid_grant rejects the refresh attempt",
+               SoundCloudTokenRefresh.failureOutcome(statusCode: 400, data: body("invalid_grant")) == .unrecoverable)
+        expect(&report, "invalid_client is not retried as a user token",
+               SoundCloudTokenRefresh.failureOutcome(statusCode: 401, data: body("invalid_client")) == .unrecoverable)
+        expect(&report, "generic 401 remains retryable",
+               SoundCloudTokenRefresh.failureOutcome(statusCode: 401, data: Data()) == .transient)
+        expect(&report, "generic 403 remains retryable",
+               SoundCloudTokenRefresh.failureOutcome(statusCode: 403, data: Data()) == .transient)
+        expect(&report, "403 body cannot masquerade as OAuth rejection",
+               SoundCloudTokenRefresh.failureOutcome(statusCode: 403, data: body("invalid_grant")) == .transient)
+        expect(&report, "rate-limited refresh remains retryable",
+               SoundCloudTokenRefresh.failureOutcome(statusCode: 429, data: body("rate_limited")) == .transient)
+        expect(&report, "malformed refresh request does not erase auth",
+               SoundCloudTokenRefresh.failureOutcome(statusCode: 400, data: body("invalid_request")) == .transient)
+        expect(&report, "server refresh failure remains retryable",
+               SoundCloudTokenRefresh.failureOutcome(statusCode: 503, data: Data()) == .transient)
+    }
+
+    private static func refreshPresentationCases(_ report: inout Report) {
+        expect(&report, "rejected refresh + valid token preserves signed-in UI",
+               !SoundCloudCredentialSourcePolicy.launchRefreshRequiresReconnect(
+                    refreshOutcome: .unrecoverable,
+                    tokenValidation: .valid
+               ))
+        expect(&report, "rejected refresh + inconclusive probe preserves signed-in UI",
+               !SoundCloudCredentialSourcePolicy.launchRefreshRequiresReconnect(
+                    refreshOutcome: .unrecoverable,
+                    tokenValidation: .unavailable("offline")
+               ))
+        expect(&report, "only rejected refresh + rejected token requests reconnect",
+               SoundCloudCredentialSourcePolicy.launchRefreshRequiresReconnect(
+                    refreshOutcome: .unrecoverable,
+                    tokenValidation: .rejected
+               ))
+        expect(&report, "transient refresh never requests reconnect",
+               !SoundCloudCredentialSourcePolicy.launchRefreshRequiresReconnect(
+                    refreshOutcome: .transient,
+                    tokenValidation: .rejected
+               ))
     }
 
     private static func expect(_ report: inout Report, _ label: String, _ condition: Bool) {

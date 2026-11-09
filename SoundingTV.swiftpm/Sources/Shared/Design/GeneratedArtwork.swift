@@ -12,6 +12,10 @@ enum GeneratedArtworkIdentity {
         return h
     }
 
+    static func seed(_ id: String) -> UInt64 {
+        UInt64(id) ?? hash(id)
+    }
+
     static func unit(_ string: String, salt: UInt64 = 0) -> Double {
         let h = hash(string) &+ salt
         return Double(h % 1_000_000) / 1_000_000
@@ -22,220 +26,16 @@ enum GeneratedArtworkIdentity {
     }
 }
 
-struct GeneratedGradient: Equatable {
-    let identity: String
-    private let baseHue: Double
-
-    init(identity: String) {
-        self.identity = identity
-        self.baseHue = GeneratedArtworkIdentity.hue(for: identity)
-    }
-
-    private static let saturationRange = 0.58...0.82
-    private static let brightnessRange = 0.32...0.56
-
-    private func stop(hueOffset: Double, satBias: Double, briBias: Double) -> Color {
-        let hue = (baseHue + hueOffset).truncatingRemainder(dividingBy: 1)
-        let normalizedHue = hue < 0 ? hue + 1 : hue
-        let sat = Self.saturationRange.lowerBound
-            + (Self.saturationRange.upperBound - Self.saturationRange.lowerBound) * satBias
-        let bri = Self.brightnessRange.lowerBound
-            + (Self.brightnessRange.upperBound - Self.brightnessRange.lowerBound) * briBias
-        return Color(hue: normalizedHue, saturation: sat, brightness: bri)
-    }
-
-    var meshColors: [Color] {
-        [
-            stop(hueOffset: -0.035, satBias: 0.85, briBias: 0.35),
-            stop(hueOffset: -0.010, satBias: 0.60, briBias: 0.70),
-            stop(hueOffset:  0.020, satBias: 0.90, briBias: 0.55),
-            stop(hueOffset: -0.020, satBias: 0.40, briBias: 0.50),
-            stop(hueOffset:  0.000, satBias: 0.70, briBias: 1.00),
-            stop(hueOffset:  0.030, satBias: 0.55, briBias: 0.65),
-            stop(hueOffset: -0.005, satBias: 0.95, briBias: 0.30),
-            stop(hueOffset:  0.015, satBias: 0.65, briBias: 0.60),
-            stop(hueOffset:  0.040, satBias: 0.80, briBias: 0.40),
-        ]
-    }
-
-    var duotoneTint: Color {
-        stop(hueOffset: 0, satBias: 0.85, briBias: 0.55)
-    }
-
-    func mesh(drift: Double = 0) -> MeshGradient {
-        let d = Float(drift)
-        return MeshGradient(
-            width: 3,
-            height: 3,
-            points: [
-                SIMD2<Float>(0.0, 0.0),          SIMD2<Float>(0.5 + d, 0.0),       SIMD2<Float>(1.0, 0.0),
-                SIMD2<Float>(0.0, 0.5 - d),      SIMD2<Float>(0.5, 0.5 + d),       SIMD2<Float>(1.0, 0.5),
-                SIMD2<Float>(0.0, 1.0),          SIMD2<Float>(0.5 - d, 1.0),       SIMD2<Float>(1.0, 1.0),
-            ],
-            colors: meshColors
-        )
-    }
-}
-
-enum GeneratedArtworkGlyph: String, CaseIterable, Sendable {
-    case diamond = "diamond"
-    case waveform = "waveform"
-    case flame = "flame"
-    case headphones = "headphones"
-    case guitars = "guitars"
-    case pianokeys = "pianokeys"
-    case radio = "dot.radiowaves.left.and.right"
-    case micro = "music.mic"
-    case speaker = "hifispeaker"
-    case sparkles = "sparkles"
-    case heart = "heart"
-    case moonStars = "moon.stars"
-    case bolt = "bolt"
-    case globe = "globe"
-    case metronome = "metronome"
-    case chartBar = "chart.bar"
-    case leaf = "leaf"
-    case sunMax = "sun.max"
-    case snow = "snowflake"
-    case car = "car"
-    case figureRun = "figure.run"
-    case bed = "bed.double"
-    case tram = "tram"
-    case theatermasks = "theatermasks"
-
-    var systemImage: String { rawValue }
-
-    private static let keywordMap: [(keyword: String, glyph: GeneratedArtworkGlyph)] = [
-        ("hip-hop", .micro), ("hip hop", .micro), ("rap", .micro),
-        ("r&b", .micro), ("soul", .micro),
-        ("electronic", .waveform), ("edm", .waveform), ("house", .waveform),
-        ("techno", .waveform), ("trance", .waveform), ("dubstep", .bolt),
-        ("drum and bass", .bolt), ("dnb", .bolt), ("bass", .bolt),
-        ("rock", .guitars), ("metal", .guitars), ("punk", .guitars),
-        ("indie", .guitars), ("alternative", .guitars),
-        ("classical", .pianokeys), ("jazz", .pianokeys), ("piano", .pianokeys),
-        ("acoustic", .guitars), ("folk", .guitars), ("country", .guitars),
-        ("pop", .sparkles), ("dance", .waveform),
-        ("reggae", .sunMax), ("dancehall", .sunMax), ("afrobeat", .sunMax),
-        ("latin", .sunMax), ("blues", .micro),
-        ("chill", .moonStars), ("ambient", .moonStars), ("sleep", .bed),
-        ("focus", .leaf), ("study", .leaf), ("meditation", .leaf),
-        ("workout", .figureRun), ("fitness", .figureRun), ("running", .figureRun),
-        ("party", .sparkles), ("love", .heart), ("romance", .heart),
-        ("radio", .radio), ("live", .speaker), ("concert", .speaker),
-        ("charts", .chartBar), ("top", .chartBar), ("essentials", .chartBar),
-        ("winter", .snow), ("summer", .sunMax),
-        ("drive", .car), ("road trip", .car),
-        ("soundtrack", .theatermasks), ("movie", .theatermasks), ("show", .theatermasks),
-        ("podcast", .micro), ("world", .globe),
-        ("new music", .sparkles), ("mood", .moonStars),
-    ]
-
-    static func match(_ identity: String) -> GeneratedArtworkGlyph {
-        let lowered = identity.lowercased()
-        for (keyword, glyph) in keywordMap where lowered.contains(keyword) {
-            return glyph
-        }
-        let all = GeneratedArtworkGlyph.allCases
-        let index = Int(GeneratedArtworkIdentity.hash(identity) % UInt64(all.count))
-        return all[index]
-    }
-}
-
-struct GeneratedArtworkIcon: View {
-    let glyph: GeneratedArtworkGlyph
-    let cardEdge: CGFloat
-    var tint: Color = .white.opacity(0.92)
-
-    var body: some View {
-        Image(systemName: glyph.systemImage)
-            .font(.system(size: cardEdge * 0.38, weight: .thin))
-            .symbolRenderingMode(.monochrome)
-            .foregroundStyle(tint)
-            .minimumScaleFactor(0.8)
-    }
-}
-
 struct GeneratedArtworkCard: View {
-    enum Mode {
-        case blob
-        case duotone(Image)
-    }
-
     let identity: String
-    var mode: Mode = .blob
+    var subject: SoundingArtSubject = .track
     var style: SCContentStyle = .tv
-    var glyphOverride: GeneratedArtworkGlyph?
-    var showGlyphOnDuotone: Bool = false
-    var isAnimated: Bool = true
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var driftPhase: Double = 0
-
-    private var gradient: GeneratedGradient { GeneratedGradient(identity: identity) }
-    private var resolvedGlyph: GeneratedArtworkGlyph {
-        glyphOverride ?? GeneratedArtworkGlyph.match(identity)
-    }
+    var colorScheme: ColorScheme?
 
     var body: some View {
-        GeometryReader { geo in
-            let edge = min(geo.size.width, geo.size.height)
-
-            ZStack {
-                background(edge: edge)
-
-                switch mode {
-                case .blob:
-                    GeneratedArtworkIcon(glyph: resolvedGlyph, cardEdge: edge)
-                case .duotone:
-                    if showGlyphOnDuotone {
-                        GeneratedArtworkIcon(glyph: resolvedGlyph, cardEdge: edge)
-                    }
-                }
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
+        SoundingArtworkView(identity: identity, subject: subject, colorScheme: colorScheme)
             .clipShape(RoundedRectangle(cornerRadius: style.cornerCard, style: .continuous))
-        }
-        .task {
-            guard isAnimated else { return }
-            await runDrift()
-        }
     }
-
-    @ViewBuilder
-    private func background(edge: CGFloat) -> some View {
-        switch mode {
-        case .blob:
-            gradient.mesh(drift: reduceMotion ? 0 : driftPhase)
-
-        case .duotone(let artwork):
-            artwork
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .saturation(0)
-                .overlay(Rectangle().fill(gradient.duotoneTint).blendMode(.color))
-                .overlay(Color.black.opacity(0.16))
-        }
-    }
-
-    private func runDrift() async {
-        while !Task.isCancelled {
-            if reduceMotion || prefersReducedResourceUsage {
-                try? await Task.sleep(for: .seconds(1))
-                continue
-            }
-            withAnimation(SCContentMotion.ambient) {
-                driftPhase = driftPhase == 0 ? 0.06 : 0
-            }
-            try? await Task.sleep(for: .seconds(3.2))
-        }
-    }
-
-    #if os(iOS) || os(tvOS)
-    @Environment(\.soundingReducedResourceUsage) private var prefersReducedResourceUsage
-    #else
-    private var prefersReducedResourceUsage: Bool { false }
-    #endif
 }
 
 actor PlaylistMosaicComposer {
@@ -243,43 +43,52 @@ actor PlaylistMosaicComposer {
 
     static let compositionEdge: CGFloat = 512
 
-    private var cache: [String: CGImage] = [:]
-    private var cacheOrder: [String] = []
-    private let cacheLimit = 40
+    static let memory: SCArtworkMemoryCache = {
+        #if os(watchOS)
+        return SCArtworkMemoryCache(costLimit: 4 * 1024 * 1024, countLimit: 8)
+        #else
+        return SCArtworkMemoryCache(costLimit: 48 * 1024 * 1024, countLimit: 64)
+        #endif
+    }()
 
     private init() {}
+
+    nonisolated static func cachedMosaic(for urls: [URL], edge: CGFloat = PlaylistMosaicComposer.compositionEdge) -> CGImage? {
+        let sources = distinct(urls)
+        guard !sources.isEmpty else { return nil }
+        return memory.image(forKey: cacheKey(urls: sources, edge: edge))
+    }
 
     func mosaic(for urls: [URL], edge: CGFloat = PlaylistMosaicComposer.compositionEdge) async -> CGImage? {
         let sources = Self.distinct(urls)
         guard !sources.isEmpty else { return nil }
-        let key = cacheKey(urls: sources, edge: edge)
-        if let cached = cache[key] { return cached }
+        let key = Self.cacheKey(urls: sources, edge: edge)
+        if let cached = Self.memory.image(forKey: key) { return cached }
+
+        let loaded = await withTaskGroup(of: (Int, CGImage?).self, returning: [CGImage?].self) { group in
+            for (index, url) in sources.enumerated() {
+                group.addTask { (index, await Self.loadTile(url)) }
+            }
+            var results = [CGImage?](repeating: nil, count: sources.count)
+            for await (index, image) in group { results[index] = image }
+            return results
+        }
 
         var images: [CGImage] = []
         var fingerprints = Set<Int>()
-        for url in sources {
-            let source = url.soundCloudArtworkVariant("t500x500")
-            var image = await loadCGImage(url: source)
-            if image == nil, source != url {
-                image = await loadCGImage(url: url)
-            }
-            guard let image else { continue }
+        for image in loaded.compactMap({ $0 }) {
             guard fingerprints.insert(Self.fingerprint(image)).inserted else { continue }
             images.append(image)
         }
         guard let first = images.first else { return nil }
 
         let composed = Self.compose(images: images, edge: edge) ?? first
-        store(composed, for: key)
+        Self.memory.insert(composed, forKey: key)
         return composed
     }
 
-    private func store(_ image: CGImage, for key: String) {
-        cache[key] = image
-        cacheOrder.append(key)
-        guard cacheOrder.count > cacheLimit else { return }
-        let oldest = cacheOrder.removeFirst()
-        cache[oldest] = nil
+    func purge() {
+        Self.memory.removeAll()
     }
 
     nonisolated static func fingerprint(_ image: CGImage) -> Int {
@@ -309,12 +118,12 @@ actor PlaylistMosaicComposer {
         return result
     }
 
-    private func cacheKey(urls: [URL], edge: CGFloat) -> String {
+    private nonisolated static func cacheKey(urls: [URL], edge: CGFloat) -> String {
         "\(Int(edge.rounded()))|" + urls.map(\.soundCloudArtworkIdentity).joined(separator: "|")
     }
 
-    private func loadCGImage(url: URL) async -> CGImage? {
-        await SCArtworkStore.shared.cgImage(for: url, variant: .signed)
+    private nonisolated static func loadTile(_ url: URL) async -> CGImage? {
+        await SCArtworkStore.shared.cgImage(for: url, variant: .standard)
     }
 
     nonisolated static func cells(count: Int, edge: Int) -> [CGRect] {
@@ -390,65 +199,25 @@ struct PlaylistArtworkView: View {
     let artworkURL: URL?
     let trackArtworkURLs: [URL]
     var style: SCContentStyle = .tv
-    var glyphOverride: GeneratedArtworkGlyph?
-
-    @State private var mosaicImage: CGImage?
 
     var body: some View {
         GeometryReader { geo in
-            let edge = min(geo.size.width, geo.size.height)
-            content(edge: edge)
-                .frame(width: geo.size.width, height: geo.size.height)
+            SCCollectionArtworkResolver(artworkURL: artworkURL, trackArtworkURLs: trackArtworkURLs) { image in
+                if let image {
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    GeneratedArtworkCard(identity: identity, subject: .collection, style: style)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
         .clipShape(RoundedRectangle(cornerRadius: style.cornerCard, style: .continuous))
-        .task(id: taskID) {
-            await resolveMosaicIfNeeded()
-        }
     }
 
     static func distinctArtworkURLs(from urls: [URL?]) -> [URL] {
         PlaylistMosaicComposer.distinct(urls.compactMap { $0 })
-    }
-
-    private var distinctURLs: [URL] { Self.distinctArtworkURLs(from: trackArtworkURLs) }
-    private var taskID: String { distinctURLs.map(\.soundCloudArtworkIdentity).joined(separator: "|") }
-
-    @ViewBuilder
-    private func content(edge: CGFloat) -> some View {
-        if let artworkURL {
-            AsyncImage(url: artworkURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fill)
-                default:
-                    mosaicOrBlob(edge: edge)
-                }
-            }
-        } else {
-            mosaicOrBlob(edge: edge)
-        }
-    }
-
-    @ViewBuilder
-    private func mosaicOrBlob(edge: CGFloat) -> some View {
-        if let mosaicImage {
-            Image(decorative: mosaicImage, scale: 1)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-        } else {
-            GeneratedArtworkCard(identity: identity, mode: .blob, style: style, glyphOverride: glyphOverride)
-        }
-    }
-
-    private func resolveMosaicIfNeeded() async {
-        let urls = distinctURLs
-        guard !urls.isEmpty else {
-            mosaicImage = nil
-            return
-        }
-        let composed = await PlaylistMosaicComposer.shared.mosaic(for: urls)
-        guard !Task.isCancelled else { return }
-        mosaicImage = composed
     }
 }
 

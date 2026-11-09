@@ -1,4 +1,6 @@
+import Combine
 import SwiftUI
+import TipKit
 import UIKit
 
 enum PhoneChrome {
@@ -7,134 +9,181 @@ enum PhoneChrome {
 
 struct PhoneSettingsView: View {
     @EnvironmentObject private var client: CompanionClient
-    @EnvironmentObject private var polyphony: PolyphonyController
     @EnvironmentObject private var linkOffers: LinkOfferBrowser
-    @EnvironmentObject private var cloudOffers: CloudPairingOfferMonitor
     @ObservedObject private var store = SettingsStore.shared
     @ObservedObject private var subscription = SubscriptionService.shared
     @ObservedObject private var downloads = DownloadManager.shared
-    @ObservedObject private var player = PlayerService.shared
+    @ObservedObject private var localMusic = LocalMusicLibrary.shared
     @ObservedObject private var credentials = SoundCloudCredentialSource.shared
     @ObservedObject private var activityPoller = SoundCloudActivityPoller.shared
+    @ObservedObject private var scout = ScoutMonitor.shared
+    @ObservedObject private var homeLighting = HomeLightingDirector.shared
+    @ObservedObject private var wakeAlarms = WakeAlarmStore.shared
     @Environment(\.scenePhase) private var scenePhase
 
+    var selection: Binding<SettingsDeepLink?>?
+
     @State private var debugDeepLink: SettingsDeepLink? = SettingsDeepLink.fromEnvironment
-    @State private var intelligenceSummary = "–"
 
-    var body: some View {
-        List {
-            Section {
-                CategoryLink(
-                    icon: "person.crop.circle.fill", tint: SettingsGlyph.account,
-                    title: "Account", summary: accountSummary,
-                    isUrgent: accountIsUrgent
-                ) { AccountSettingsDetail() }
-
-                if !credentials.needsSignIn {
-                    CategoryLink(
-                        icon: "star.fill", tint: SettingsGlyph.subscription,
-                        title: "Subscription", summary: subscriptionSummary,
-                        isUrgent: subscriptionIsUrgent
-                    ) { SubscriptionSettingsDetail() }
-
-                    CategoryLink(
-                        icon: activityPoller.unreadCount > 0 ? "bell.badge.fill" : "bell.fill",
-                        tint: SettingsGlyph.activity,
-                        title: "Activity",
-                        summary: activitySummary
-                    ) { PhoneActivityInboxView() }
-
-                    CategoryLink(
-                        icon: "bubble.left.and.bubble.right.fill", tint: SettingsGlyph.activity,
-                        title: "Messages", summary: "SoundCloud inbox"
-                    ) { PhoneMessagesView() }
-                }
-            } footer: {
-                Text(credentials.needsSignIn
-                     ? "Sign in to access account settings."
-                     : subscriptionFooter)
-            }
-            .listRowBackground(Color.scBgOverlay)
-
-            Section {
-                CategoryLink(
-                    icon: "appletv.fill", tint: SettingsGlyph.devices,
-                    title: "Companion", summary: appleTVSummary,
-                    isUrgent: appleTVIsUrgent
-                ) { CompanionRootView() }
-
-                CategoryLink(
-                    icon: "play.fill", tint: SettingsGlyph.playback,
-                    title: "Playback", summary: playbackSummary
-                ) { PlaybackSettingsDetail() }
-
-                if !credentials.needsSignIn {
-                    CategoryLink(
-                        icon: "point.3.connected.trianglepath.dotted", tint: SettingsGlyph.polyphony,
-                        title: "Polyphony", summary: polyphonySummary
-                    ) { PolyphonyView() }
-
-                    CategoryLink(
-                        icon: "arrow.down", tint: SettingsGlyph.downloads,
-                        title: "Downloads", summary: downloadsSummary
-                    ) { DownloadsSettingsDetail() }
-
-                    CategoryLink(
-                        icon: "waveform", tint: SettingsGlyph.intelligence,
-                        title: "Music Intelligence", summary: intelligenceSummary
-                    ) { MusicIntelligenceSettingsDetail() }
-                }
-            }
-            .listRowBackground(Color.scBgOverlay)
-
-            Section {
-                CategoryLink(
-                    icon: "gearshape.fill", tint: SettingsGlyph.about,
-                    title: "About & Advanced",
-                    summary: "\(currentAppVersion()) (\(currentAppBuild()))"
-                ) { AboutAdvancedSettingsDetail() }
-            }
-            .listRowBackground(Color.scBgOverlay)
-        }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Color.scBgBase.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom) { Color.clear.frame(height: PhoneChrome.floatingClearance) }
-        .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.large)
-        .navigationDestination(item: $debugDeepLink) { link in
-            switch link {
-            case .account:      AccountSettingsDetail()
-            case .subscription: SubscriptionSettingsDetail()
-            case .activity:     PhoneActivityInboxView()
-            case .messages:     PhoneMessagesView()
-            case .playback:     PlaybackSettingsDetail()
-            case .downloads:    DownloadsSettingsDetail()
-            case .intelligence: MusicIntelligenceSettingsDetail()
-            case .devices:      CompanionRootView()
-            case .about:        AboutAdvancedSettingsDetail()
-            }
-        }
-        .task {
-            credentials.refreshFromStore()
-            let snapshot = await AnalysisDataUsage.snapshot()
-            intelligenceSummary = snapshot.analysedTrackCount == 0
-                ? "None"
-                : (snapshot.analysedTrackCount == 1 ? "1 track" : "\(snapshot.analysedTrackCount) tracks")
-        }
-        .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
-            credentials.refreshFromStore()
+    init(selection: Binding<SettingsDeepLink?>? = nil) {
+        self.selection = selection
+        if selection != nil {
+            _debugDeepLink = State(initialValue: nil)
         }
     }
 
+    var body: some View {
+        categoryList
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(selection == nil ? .large : .inline)
+            .navigationDestination(item: $debugDeepLink) { link in
+                SettingsDeepLink.destination(for: link)
+            }
+            .task {
+                await credentials.prepareStoreAtLaunch()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                credentials.refreshFromStore()
+            }
+    }
+
+    @ViewBuilder
+    private var categoryList: some View {
+        if let selection {
+            List {
+                Section {
+                    SettingsSidebarAccountRow(selection: selection, isUrgent: accountIsUrgent)
+                }
+                categories
+            }
+            .listStyle(.sidebar)
+            .environment(\.settingsCategorySelection, selection)
+        } else {
+            List { categories }
+                .listStyle(.insetGrouped)
+        }
+    }
+
+    @ViewBuilder
+    private var categories: some View {
+        Section {
+            if selection == nil {
+                CategoryLink(
+                    link: .account,
+                    icon: .account,
+                    title: "Account", summary: accountSummary,
+                    isUrgent: accountIsUrgent
+                ) { AccountSettingsDetail() }
+            }
+
+            CategoryLink(
+                link: .subscription,
+                icon: .subscription,
+                title: "Subscription", summary: subscriptionSummary,
+                isUrgent: subscriptionIsUrgent
+            ) { SubscriptionSettingsDetail() }
+
+            CategoryLink(
+                link: .activity,
+                icon: .activity,
+                title: "Activity",
+                summary: activitySummary
+            ) { PhoneActivityInboxView() }
+
+            CategoryLink(
+                link: .scout,
+                icon: .scout,
+                title: "Scout", summary: scoutSummary
+            ) { ScoutSettingsView() }
+
+            CategoryLink(
+                link: .messages,
+                icon: .messages,
+                title: "Messages", summary: "SoundCloud inbox"
+            ) { PhoneMessagesView() }
+        } footer: {
+            if credentials.needsSignIn, selection == nil {
+                Text("Sign in to access account settings.")
+            }
+        }
+
+        Section {
+            CategoryLink(
+                link: .playback,
+                icon: .playback,
+                title: "Playback", summary: playbackSummary
+            ) { PlaybackSettingsDetail() }
+
+            CategoryLink(
+                link: .alarms,
+                icon: .alarms,
+                title: "Alarms", summary: wakeAlarms.summary
+            ) { WakeAlarmsView() }
+
+            CategoryLink(
+                link: .analysis,
+                icon: .analysis,
+                title: "Music Analysis", summary: store.analyseMusicOnDevice ? "On" : "Off"
+            ) { MusicAnalysisSettingsDetail() }
+        }
+
+        Section {
+            CategoryLink(
+                link: .devices,
+                icon: .devices,
+                title: "Devices", summary: devicesSummary
+            ) { PhoneDevicesView() }
+            .popoverTip(client.state == .unlinked ? LinkAppleTVTip() : nil, arrowEdge: .top)
+
+            CategoryLink(
+                link: .homeLighting,
+                icon: .homeLighting,
+                title: "Home Lighting", summary: homeLighting.summary
+            ) { HomeLightingSettingsView().settingsDetailChrome("Home Lighting") }
+        }
+
+        Section {
+            CategoryLink(
+                link: .downloads,
+                icon: .downloads,
+                title: "Downloads", summary: downloadsSummary
+            ) { DownloadsSettingsDetail() }
+
+            CategoryLink(
+                link: .musicFolders,
+                icon: .musicFolders,
+                title: "Music Folders", summary: LocalMusicFormat.folderSummary(localMusic)
+            ) { MusicFoldersSettingsView() }
+
+            CategoryLink(
+                link: .library,
+                icon: .library,
+                title: "Library", summary: ""
+            ) { LibrarySettingsDetail() }
+
+            CategoryLink(
+                link: .about,
+                icon: .about,
+                title: "About & Advanced",
+                summary: "\(currentAppVersion()) (\(currentAppBuild()))"
+            ) { AboutAdvancedSettingsDetail() }
+        }
+    }
+
+    private var scoutSummary: String {
+        guard scout.isEnabled else { return "Off" }
+        let count = scout.artists.filter(\.isEnabled).count
+        return count == 0 ? "On" : "\(count) \(count == 1 ? "artist" : "artists")"
+    }
+
     private var accountSummary: String {
-        switch credentials.sessionHealth {
-        case .rejected:
+        switch credentials.accountStatus {
+        case .needsReconnect:
             return "Needs Sign-In"
         case .signedOut:
             return "Please Sign In"
-        case .healthy, .unverified:
+        case .signedIn:
             if let user = credentials.currentUser { return "@\(user.username)" }
             return "Signed In"
         }
@@ -143,23 +192,14 @@ struct PhoneSettingsView: View {
     private var accountIsUrgent: Bool { credentials.isSessionRejected }
 
     private var subscriptionSummary: String {
-        guard !credentials.isSignedOut, !credentials.isSessionRejected else { return "Sign In Required" }
+        guard !credentials.sessionHealth.needsSignIn else { return "Sign In Required" }
         guard subscription.authenticatedAccountID != nil else { return "Checking…" }
         if downloads.scheduledDeletionDate != nil { return "Downloads at risk" }
-        return tierDisplayName(subscription.tier)
-    }
-
-    private var subscriptionFooter: String {
-        guard !credentials.isSignedOut, !credentials.isSessionRejected else {
-            return "Sign in to check your plan. Existing downloads stay on this iPhone."
-        }
-        return subscription.statusDescription
+        return subscription.tier.displayName
     }
 
     private var subscriptionIsUrgent: Bool {
-        if downloads.scheduledDeletionDate != nil { return true }
-        if case .verifiedNotSubscribed = subscription.verification { return true }
-        return false
+        downloads.scheduledDeletionDate != nil
     }
 
     private var playbackSummary: String { store.streamingQualityCeiling.displayName }
@@ -175,62 +215,270 @@ struct PhoneSettingsView: View {
             : byteString(downloads.usedBytes)
     }
 
-    private var appleTVSummary: String {
-        if !client.isLinked, linkOffers.offer != nil || cloudOffers.hasOffer {
-            return "Wants to Sign In"
+    private var devicesSummary: String {
+        let state = AppleTVDebugStory.forcedState ?? client.state
+        if state == .unlinked {
+            return linkOffers.offer != nil ? "Apple TV Found" : "None"
         }
-        return tvStatusText(client.state)
+        let needsSignIn = PeerSignInPrompt.resolve(client: client, offers: linkOffers.offers) != nil
+        if client.links.count > 1, !needsSignIn {
+            return "\(client.links.count) Apple TVs"
+        }
+        return deviceStatusText(state, needsSignIn: needsSignIn)
+    }
+}
+
+private struct SettingsCategorySelectionKey: EnvironmentKey {
+    static let defaultValue: Binding<SettingsDeepLink?>? = nil
+}
+
+private extension EnvironmentValues {
+    var settingsCategorySelection: Binding<SettingsDeepLink?>? {
+        get { self[SettingsCategorySelectionKey.self] }
+        set { self[SettingsCategorySelectionKey.self] = newValue }
+    }
+}
+
+struct PadSettingsSplitView: View {
+    let nowPlaying: PadNowPlaying
+
+    @State private var selection: SettingsDeepLink? = SettingsDeepLink.fromEnvironment ?? .account
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        if horizontalSizeClass == .compact {
+            NavigationStack { PhoneSettingsView() }
+        } else {
+            NavigationSplitView {
+                PhoneSettingsView(selection: $selection)
+                    .toolbar(removing: .sidebarToggle)
+                    .navigationSplitViewColumnWidth(
+                        min: dynamicTypeSize.isAccessibilitySize ? 400 : 300,
+                        ideal: dynamicTypeSize.isAccessibilitySize ? 480 : 340,
+                        max: dynamicTypeSize.isAccessibilitySize ? 560 : 420
+                    )
+            } detail: {
+                NavigationStack {
+                    if let selection {
+                        SettingsDeepLink.destination(for: selection)
+                            .id(selection)
+                    } else {
+                        ContentUnavailableView("Settings", systemImage: "gearshape")
+                    }
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) { miniPlayer }
+            }
+            .ignoresSafeArea(.container, edges: .top)
+        }
+    }
+}
+
+private extension PadSettingsSplitView {
+    @ViewBuilder
+    var miniPlayer: some View {
+        if nowPlaying.isVisible {
+            TransportBarView(
+                isExpanded: nowPlaying.isExpanded,
+                heroID: nowPlaying.heroID,
+                heroNamespace: nowPlaying.namespace
+            )
+            .upNextTrackDropTarget()
+            .glassEffect(.regular, in: .capsule)
+            .padding(.horizontal, Space.tight)
+            .padding(.bottom, Space.tight)
+        }
+    }
+}
+
+private struct SettingsSidebarLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 12) {
+            configuration.icon
+            configuration.title
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+}
+
+private struct SettingsSidebarRowModifier: ViewModifier {
+    let isSelected: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.vertical, 2)
+            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+            .listRowSeparator(.hidden)
+            .listRowBackground(
+                Capsule()
+                    .fill(isSelected ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.clear))
+                    .padding(.horizontal, 4)
+            )
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+private extension View {
+    func settingsSidebarRow(isSelected: Bool) -> some View {
+        modifier(SettingsSidebarRowModifier(isSelected: isSelected))
+    }
+}
+
+private struct SettingsSidebarAccountRow: View {
+    let selection: Binding<SettingsDeepLink?>
+    let isUrgent: Bool
+
+    @ObservedObject private var credentials = SoundCloudCredentialSource.shared
+    @ObservedObject private var subscription = SubscriptionService.shared
+
+    private var isSelected: Bool { selection.wrappedValue == .account }
+
+    private var user: User? {
+        #if DEBUG
+        if VisualFixtures.isEnabled { return VisualFixtures.currentUser }
+        #endif
+        return credentials.isSignedOut ? nil : credentials.currentUser
     }
 
-    private var appleTVIsUrgent: Bool {
-        if case .failed = client.state { return true }
-        return false
+    var body: some View {
+        Button {
+            selection.wrappedValue = .account
+        } label: {
+            HStack(spacing: 12) {
+                avatar
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(user?.displayName ?? (credentials.isSignedOut ? "Sign In" : "SoundCloud"))
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(isSelected ? Color.scAccent : Color.primary)
+                Spacer(minLength: 0)
+                if isUrgent {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(.red)
+                        .accessibilityLabel("Needs attention")
+                }
+            }
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .settingsSidebarRow(isSelected: isSelected)
     }
 
-    private var polyphonySummary: String {
-        switch polyphony.mode {
-        case .leading: return polyphony.speakerCount == 1 ? "Leading · 1 good boy" : "Leading · \(polyphony.speakerCount) good boys"
-        case .startingLeader: return "Starting…"
-        case .connecting(let leaderName): return "Joining \(leaderName)…"
-        case .speaker(let leaderName): return "Following \(leaderName)"
-        case .failed: return "Needs Attention"
-        case .idle: return "Play Together"
+    private var subtitle: String {
+        if credentials.isSessionRejected { return "Needs Sign-In" }
+        if let user {
+            guard subscription.authenticatedAccountID != nil, let plan = subscription.tier.planName else { return "@\(user.username)" }
+            return "@\(user.username) \u{00B7} \(plan)"
+        }
+        return credentials.isSignedOut ? "SoundCloud Account" : "Signed In"
+    }
+
+    @ViewBuilder
+    private var avatar: some View {
+        if let user {
+            ArtworkThumbnail(
+                url: user.avatarURL,
+                systemImage: "person.fill",
+                isCircle: true,
+                size: 48,
+                identity: user.id
+            )
+            .accessibilityHidden(true)
+        } else {
+            Image(systemName: "person.crop.circle.fill")
+                .font(.system(size: 44))
+                .foregroundStyle(.secondary)
+                .frame(width: 48, height: 48)
+                .accessibilityHidden(true)
         }
     }
 }
 
 private struct CategoryLink<Destination: View>: View {
-    let icon: String
-    let tint: GlyphTint
+    let link: SettingsDeepLink
+    let icon: SettingsIcon
     let title: String
     let summary: String
     var isUrgent: Bool = false
     @ViewBuilder let destination: () -> Destination
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.settingsCategorySelection) private var selection
+
+    private var usesSelection: Bool { selection != nil }
+    private var isSelected: Bool { selection?.wrappedValue == link }
+
     var body: some View {
-        NavigationLink {
-            destination()
-        } label: {
-            LabeledContent {
-                HStack(spacing: 4) {
-                    if isUrgent {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundStyle(Color.scDestructive)
-                    }
-                    Text(summary)
-                        .foregroundStyle(isUrgent ? Color.scDestructive : Color.scTextSecondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .layoutPriority(1)
-                }
+        if let selection {
+            Button {
+                selection.wrappedValue = link
             } label: {
-                SettingsLabel(title, systemImage: icon, tint: tint)
+                label
+                    .foregroundStyle(isSelected ? Color.scAccent : Color.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(.rect)
             }
+            .buttonStyle(.plain)
+            .settingsSidebarRow(isSelected: isSelected)
+        } else {
+            NavigationLink {
+                destination()
+            } label: {
+                label
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if usesSelection {
+            HStack(spacing: 8) {
+                SettingsIconLabel(title, icon: icon)
+                    .labelStyle(SettingsSidebarLabelStyle())
+                Spacer(minLength: 0)
+                if isUrgent {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(.red)
+                        .accessibilityLabel("Needs attention")
+                }
+            }
+        } else if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 4) {
+                SettingsIconLabel(title, icon: icon)
+                summaryView
+            }
+        } else {
+            LabeledContent {
+                summaryView
+            } label: {
+                SettingsIconLabel(title, icon: icon)
+            }
+        }
+    }
+
+    private var summaryView: some View {
+        HStack(spacing: 4) {
+            if isUrgent {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.red)
+                    .accessibilityLabel("Needs attention")
+            }
+            Text(summary)
+                .foregroundStyle(isUrgent ? .red : .secondary)
+                .multilineTextAlignment(dynamicTypeSize.isAccessibilitySize ? .leading : .trailing)
         }
     }
 }
 
-private struct PhoneActivityInboxView: View {
+struct PhoneActivityInboxView: View {
     @ObservedObject private var poller = SoundCloudActivityPoller.shared
     @ObservedObject private var credentials = SoundCloudCredentialSource.shared
     @Environment(\.openURL) private var openURL
@@ -242,19 +490,17 @@ private struct PhoneActivityInboxView: View {
                 SCEmptyState(
                     icon: "person.crop.circle.badge.exclamationmark",
                     title: "Sign In to See Activity",
-                    message: "Followers, messages, and your SoundCloud stream are account-only.",
+                    message: "Sign in to see new followers, messages and Following activity.",
                     actionTitle: "Sign In",
                     action: { isShowingSignIn = true },
                     style: .phone
                 )
-                .phoneStateLayout()
             } else if poller.inbox.isEmpty {
                 ContentUnavailableView(
                     "No New Activity",
                     systemImage: "bell",
-                    description: Text("New followers, messages, and stream activity will appear here.")
+                    description: Text("New followers, messages and Following activity appear here.")
                 )
-                .phoneStateLayout()
             } else {
                 List {
                     ForEach(poller.inbox) { event in
@@ -262,31 +508,16 @@ private struct PhoneActivityInboxView: View {
                             poller.markRead(id: event.id)
                             if let destination = event.destination { openURL(destination) }
                         } label: {
-                            HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: symbol(for: event.kind))
-                                    .foregroundStyle(event.readAt == nil ? Color.scAccent : Color.scTextSecondary)
-                                    .frame(width: 28, height: 28)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(event.title)
-                                        .font(.subheadline.weight(event.readAt == nil ? .bold : .semibold))
-                                        .foregroundStyle(Color.scTextPrimary)
-                                    Text(event.body)
-                                        .font(.caption)
-                                        .foregroundStyle(Color.scTextSecondary)
-                                        .lineLimit(3)
-                                    Text(event.date, style: .relative)
-                                        .font(.caption2)
-                                        .foregroundStyle(Color.scTextTertiary)
-                                }
-                            }
-                            .padding(.vertical, 3)
+                            activityRow(event)
                         }
+                        .foregroundStyle(.primary)
                     }
                 }
                 .listStyle(.insetGrouped)
             }
         }
         .navigationTitle("Activity")
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $isShowingSignIn) {
             NavigationStack {
                 SoundCloudLoginView.standalone {
@@ -300,6 +531,36 @@ private struct PhoneActivityInboxView: View {
                 Button("Mark All Read") { poller.markAllRead() }
             }
         }
+    }
+
+    private func activityRow(_ event: SoundCloudInboxEvent) -> some View {
+        let isUnread = event.readAt == nil
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol(for: event.kind))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    if isUnread {
+                        Circle()
+                            .fill(.tint)
+                            .frame(width: 8, height: 8)
+                    }
+                    Text(event.title)
+                        .font(.subheadline.weight(isUnread ? .bold : .regular))
+                }
+                Text(event.body)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                Text(event.date, style: .relative)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(isUnread ? "Unread" : "Read")
     }
 
     private func symbol(for kind: SoundCloudInboxEvent.Kind) -> String {
@@ -321,27 +582,27 @@ private struct PhoneMessagesView: View {
             if needsSignIn {
                 SCEmptyState(
                     icon: "bubble.left.and.bubble.right",
-                    title: "Messages Need an Account",
+                    title: "Sign In to See Messages",
                     message: "Sign in to read and reply to your SoundCloud messages.",
                     actionTitle: "Sign In",
                     action: { isShowingSignIn = true },
                     style: .phone
                 )
-                .phoneStateLayout()
             } else if model.isLoading, model.conversations.isEmpty {
-                LoadingState(message: "Loading messages…")
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.conversations.isEmpty {
                 ContentUnavailableView {
                     Label(model.errorMessage == nil ? "No Messages Yet" : "Messages Unavailable", systemImage: "bubble.left.and.bubble.right")
                 } description: {
-                    Text(model.errorMessage ?? "Conversations from SoundCloud will appear here.")
+                    Text(model.errorMessage ?? "Conversations from SoundCloud appear here.")
                 } actions: {
                     if model.errorMessage != nil {
                         Button("Try Again") { Task { await model.load() } }
+                            .buttonStyle(.bordered)
                     }
                     Link("Open SoundCloud Inbox", destination: SoundCloudAPI.webInboxURL)
                 }
-                .phoneStateLayout()
             } else {
                 List(model.conversations) { conversation in
                     NavigationLink {
@@ -360,8 +621,6 @@ private struct PhoneMessagesView: View {
                 .refreshable { await model.load() }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Color.scBgBase.ignoresSafeArea())
         .navigationTitle("Messages")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: credentials.currentUser?.id) { await model.load() }
@@ -402,36 +661,34 @@ private struct PhoneConversationRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: counterpart?.avatarURL) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
-                Image(systemName: "person.fill")
-                    .foregroundStyle(Color.scTextSecondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.scBgRaised)
-            }
-            .frame(width: 46, height: 46)
-            .clipShape(Circle())
+            ArtworkThumbnail(
+                url: counterpart?.avatarURL,
+                systemImage: "person.fill",
+                isCircle: true,
+                size: 46,
+                identity: counterpart?.id
+            )
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack {
-                    Text(counterpart?.username ?? "Conversation")
-                        .font(.subheadline.weight(conversation.unreadCount > 0 ? .bold : .semibold))
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    if conversation.unreadCount > 0 {
-                        Text("\(conversation.unreadCount)")
-                            .font(.caption2.bold())
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.scAccent, in: Capsule())
-                    }
-                }
+                Text(counterpart?.username ?? "Conversation")
+                    .font(.body.weight(conversation.unreadCount > 0 ? .semibold : .regular))
+                    .lineLimit(1)
                 Text(conversation.latestMessage?.body ?? "No preview")
-                    .font(.caption)
-                    .foregroundStyle(Color.scTextSecondary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            if conversation.unreadCount > 0 {
+                Text("\(conversation.unreadCount)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.tint, in: Capsule())
+                    .accessibilityLabel("\(conversation.unreadCount) unread")
             }
         }
         .padding(.vertical, 4)
@@ -476,40 +733,39 @@ private struct PhoneConversationView: View {
             }
 
             if let errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(Color.scWarning)
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
                     .padding(.vertical, 8)
-                    .background(Color.scWarning.opacity(0.10))
             }
 
             HStack(alignment: .bottom, spacing: 10) {
-                TextField("Message…", text: $draft, axis: .vertical)
+                TextField("Message", text: $draft, axis: .vertical)
                     .lineLimit(1...5)
                     .textFieldStyle(.plain)
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Color.scBgRaised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
 
                 Button { Task { await send() } } label: {
                     if isSending {
                         ProgressView().controlSize(.small)
                     } else {
                         Image(systemName: "arrow.up")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
+                            .font(.body.weight(.semibold))
                     }
                 }
-                .frame(width: 40, height: 40)
-                .background(Color.scAccent, in: Circle())
+                .frame(width: 44, height: 44)
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("Send")
                 .disabled(isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || counterpart == nil)
             }
-            .padding()
-            .background(.regularMaterial)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
         }
-        .background(Color.scBgBase.ignoresSafeArea())
         .navigationTitle(counterpart?.username ?? "Conversation")
         .navigationBarTitleDisplayMode(.inline)
         .overlay {
@@ -532,17 +788,17 @@ private struct PhoneConversationView: View {
             VStack(alignment: outgoing ? .trailing : .leading, spacing: 4) {
                 Text(message.body)
                     .font(.body)
-                    .foregroundStyle(outgoing ? .white : Color.scTextPrimary)
+                    .foregroundStyle(outgoing ? .white : .primary)
                     .padding(.horizontal, 13)
                     .padding(.vertical, 9)
                     .background(
-                        outgoing ? Color.scAccent : Color.scBgRaised,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        outgoing ? Color.scAccent : Color(uiColor: .secondarySystemFill),
+                        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                     )
                 if message.createdAt != .distantPast {
                     Text(message.createdAt.formatted(date: .omitted, time: .shortened))
                         .font(.caption2)
-                        .foregroundStyle(Color.scTextTertiary)
+                        .foregroundStyle(.secondary)
                 }
             }
             if !outgoing { Spacer(minLength: 44) }
@@ -561,7 +817,7 @@ private struct PhoneConversationView: View {
         } catch SoundCloudMessagingError.unavailable {
             errorMessage = SoundCloudMessagingError.unavailable.localizedDescription
         } catch {
-            if conversation.messages.isEmpty { errorMessage = error.localizedDescription }
+            if conversation.messages.isEmpty { errorMessage = LoadFailure.classify(error).message(subject: "this conversation") }
         }
     }
 
@@ -584,7 +840,7 @@ private struct PhoneConversationView: View {
             }
             draft = ""
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = LoadFailure.classify(error).title
         }
     }
 
@@ -618,7 +874,7 @@ private final class PhoneMessagesModel: ObservableObject {
                     > ($1.latestMessage?.createdAt ?? $1.lastUpdatedAt ?? .distantPast)
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = LoadFailure.classify(error).message(subject: "your messages")
         }
     }
 
@@ -644,75 +900,6 @@ private final class PhoneMessagesModel: ObservableObject {
     #endif
 }
 
-private struct SettingsLabel: View {
-    let title: String
-    let systemImage: String
-    let tint: GlyphTint
-
-    init(_ title: String, systemImage: String, tint: GlyphTint) {
-        self.title = title
-        self.systemImage = systemImage
-        self.tint = tint
-    }
-
-    var body: some View {
-        Label {
-            Text(title)
-        } icon: {
-            Image(systemName: systemImage)
-                .foregroundStyle(tint.on)
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(tint.fill)
-                )
-        }
-    }
-}
-
-private struct GlyphTint {
-    let fill: Color
-    let on: Color
-}
-
-private enum SettingsGlyph {
-    static let account = GlyphTint(fill: .scAccent, on: .scAccentOn)
-    static let subscription = GlyphTint(fill: .scWarning, on: .scWarningOn)
-    static let activity = GlyphTint(fill: .scAccent.opacity(0.82), on: .scAccentOn)
-    static let playback = GlyphTint(
-        fill: Color(red: 0.30, green: 0.64, blue: 1.00),
-        on: Color(red: 0.00, green: 0.06, blue: 0.10)
-    )
-    static let downloads = GlyphTint(fill: .scSuccess, on: .scSuccessOn)
-    static let polyphony = GlyphTint(
-        fill: Color(red: 0.65, green: 0.25, blue: 0.92),
-        on: .white
-    )
-    static let intelligence = GlyphTint(
-        fill: Color(red: 0.36, green: 0.80, blue: 0.89),
-        on: Color(red: 0.02, green: 0.09, blue: 0.11)
-    )
-    static let devices = GlyphTint(
-        fill: Color(red: 0.66, green: 0.55, blue: 1.00),
-        on: Color(red: 0.05, green: 0.04, blue: 0.10)
-    )
-    static let about = GlyphTint(
-        fill: Color(white: 0.69),
-        on: Color(white: 0.08)
-    )
-}
-
-private func tierDisplayName(_ tier: SubscriptionService.Tier) -> String {
-    switch tier {
-    case .free: return "Free"
-    case .go: return "Go"
-    case .goPlus: return "Go+"
-    case .creatorPro: return "Creator"
-    case .unknown: return "Unknown"
-    }
-}
-
 private func verificationDisplay(_ verification: SubscriptionService.VerificationStatus) -> String {
     switch verification {
     case .verified: return "Verified"
@@ -723,20 +910,9 @@ private func verificationDisplay(_ verification: SubscriptionService.Verificatio
 
 private func verificationTint(_ verification: SubscriptionService.VerificationStatus) -> Color {
     switch verification {
-    case .verified: return .scSuccess
-    case .unverifiable(let withinGrace): return withinGrace ? .scWarning : .scTextTertiary
-    case .verifiedNotSubscribed: return .scDestructive
-    }
-}
-
-private func tvStatusText(_ state: CompanionClient.State) -> String {
-    switch state {
-    case .unlinked: return "Not Paired"
-    case .idle: return "Idle"
-    case .searching: return "Searching…"
-    case .connecting: return "Connecting…"
-    case .connected: return "Connected"
-    case .failed: return "Unreachable"
+    case .verified: return .green
+    case .unverifiable(let withinGrace): return withinGrace ? .orange : .secondary
+    case .verifiedNotSubscribed: return .red
     }
 }
 
@@ -755,13 +931,6 @@ private func byteString(_ bytes: Int64) -> String {
     return formatter.string(fromByteCount: bytes)
 }
 
-private func cacheByteString(_ bytes: Int64) -> String {
-    let formatter = ByteCountFormatter()
-    formatter.countStyle = .file
-    formatter.allowedUnits = [.useKB, .useMB, .useGB]
-    return formatter.string(fromByteCount: bytes)
-}
-
 private func formatSeconds(_ seconds: Double) -> String {
     let total = Int(seconds.rounded())
     let minutes = total / 60
@@ -775,24 +944,54 @@ private extension View {
     func settingsDetailChrome(_ title: String) -> some View {
         self
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Color.scBgBase.ignoresSafeArea())
-            .safeAreaInset(edge: .bottom) { Color.clear.frame(height: PhoneChrome.floatingClearance) }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
     }
 }
 
+enum SettingsDebugFlags {
+    static var opensSignOut: String? {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["SOUNDING_TV_OPEN_SIGN_OUT"]
+        #else
+        nil
+        #endif
+    }
+}
+
 enum SettingsDeepLink: String, Identifiable, Hashable {
-    case account, subscription, activity, messages, playback, downloads, intelligence, devices, about
+    case account, subscription, activity, scout, messages, playback, alarms, downloads, musicFolders, library, analysis, devices, homeLighting, about, yourMoves, networkActivity
 
     var id: String { rawValue }
+
+    @MainActor @ViewBuilder
+    static func destination(for link: SettingsDeepLink) -> some View {
+        switch link {
+        case .account:      AccountSettingsDetail()
+        case .subscription: SubscriptionSettingsDetail()
+        case .activity:     PhoneActivityInboxView()
+        case .scout:        ScoutSettingsView()
+        case .messages:     PhoneMessagesView()
+        case .playback:     PlaybackSettingsDetail()
+        case .alarms:       WakeAlarmsView()
+        case .downloads:    DownloadsSettingsDetail()
+        case .musicFolders: MusicFoldersSettingsView()
+        case .library:      LibrarySettingsDetail()
+        case .analysis:     MusicAnalysisSettingsDetail()
+        case .devices:      PhoneDevicesView()
+        case .homeLighting: HomeLightingSettingsView().settingsDetailChrome("Home Lighting")
+        case .about:        AboutAdvancedSettingsDetail()
+        case .yourMoves:    AutoMixMovesView().settingsDetailChrome("Your Moves")
+        case .networkActivity: NetworkActivityView()
+        }
+    }
 
     static var fromEnvironment: SettingsDeepLink? {
         #if DEBUG
         guard let raw = ProcessInfo.processInfo.environment["SOUNDING_TV_PHONE_SETTINGS"] else {
             return nil
         }
+        if raw == "networkActivity", NetworkActivityFixture.isRequested { NetworkActivityFixture.seed() }
         return SettingsDeepLink(rawValue: raw)
         #else
         return nil
@@ -800,23 +999,26 @@ enum SettingsDeepLink: String, Identifiable, Hashable {
     }
 }
 
-private struct AccountSettingsDetail: View {
+struct AccountSettingsDetail: View {
     @ObservedObject private var credentials = SoundCloudCredentialSource.shared
+    @ObservedObject private var subscription = SubscriptionService.shared
+    @EnvironmentObject private var client: CompanionClient
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var isSigningOut = false
     @State private var isRetrying = false
-    @State private var showingSignOutConfirmation = false
+    @State private var showingSignOutConfirmation = SettingsDebugFlags.opensSignOut == "here"
+    @State private var showingSignOutEverywhereConfirmation = SettingsDebugFlags.opensSignOut == "everywhere"
     @State private var isShowingSignIn = false
 
     var body: some View {
         List {
-            switch credentials.sessionHealth {
-            case .healthy, .unverified:
+            switch credentials.accountStatus {
+            case .signedIn:
                 profileSection
                 signOutSection
-            case .rejected(let kind):
-                rejectedSection(kind)
+            case .needsReconnect:
+                rejectedSection(rejectionKind)
                 signOutSection
             case .signedOut:
                 signInSection
@@ -826,7 +1028,7 @@ private struct AccountSettingsDetail: View {
         .sheet(isPresented: $isShowingSignIn) { signInSheet }
         .settingsDetailChrome("Account")
         .task {
-            credentials.refreshFromStore()
+            await credentials.prepareStoreAtLaunch()
             await credentials.revalidate()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -834,53 +1036,55 @@ private struct AccountSettingsDetail: View {
             credentials.refreshFromStore()
             Task { await credentials.revalidate() }
         }
-        .confirmationDialog("Sign Out of SoundCloud", isPresented: $showingSignOutConfirmation) {
-            Button("Sign Out", role: .destructive) { signOut() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Your account content is removed from this iPhone. Public browsing and playback stay available, and your other devices remain signed in.")
-        }
+
+    }
+
+    private func profileSubtitle(_ user: User) -> String {
+        guard subscription.authenticatedAccountID != nil, let plan = subscription.tier.planName else { return "@\(user.username)" }
+        return "@\(user.username) \u{00B7} \(plan)"
     }
 
     private var profileSection: some View {
         Section {
             if let user = credentials.currentUser {
-                HStack(spacing: 12) {
-                    AsyncImage(url: user.avatarURL) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill()
-                        } else {
-                            Circle().fill(Color.scBgRaised)
+                NavigationLink {
+                    ProfileView()
+                } label: {
+                    HStack(spacing: 12) {
+                        ArtworkThumbnail(
+                            url: user.avatarURL,
+                            systemImage: "person.fill",
+                            isCircle: true,
+                            size: 56,
+                            identity: user.id,
+                            crownUser: user,
+                            crownContext: user.displayName
+                        )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(user.displayName).font(.headline)
+                            Text(profileSubtitle(user))
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .frame(width: 56, height: 56)
-                    .clipShape(Circle())
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(user.displayName).font(.headline)
-                        Text("@\(user.username)")
-                            .font(.subheadline)
-                            .foregroundStyle(Color.scTextSecondary)
-                    }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
-
-                NavigationLink("View Profile") { ProfileView() }
+                .accessibilityHint("Shows your profile")
             } else {
                 LabeledContent("SoundCloud", value: statusText)
             }
-        } footer: {
-            if credentials.sessionHealth == .unverified {
-                Text("Checking this sign-in with SoundCloud…")
-            }
         }
-        .listRowBackground(Color.scBgOverlay)
+    }
+
+    private var rejectionKind: SoundCloudCredentialSource.RejectionKind {
+        if case .rejected(let kind) = credentials.sessionHealth { return kind }
+        return .accountRejected
     }
 
     private var statusText: String {
-        switch credentials.sessionHealth {
-        case .healthy: return "Signed In"
-        case .unverified: return "Signed In"
-        case .rejected: return "Not Working"
+        switch credentials.accountStatus {
+        case .signedIn: return "Signed In"
+        case .needsReconnect: return "Not Working"
         case .signedOut: return "Please Sign In"
         }
     }
@@ -891,10 +1095,23 @@ private struct AccountSettingsDetail: View {
                 showingSignOutConfirmation = true
             }
             .disabled(isSigningOut)
-        } footer: {
-            Text("Clears this iPhone's authentication and cached account content. Your Apple TV and other devices stay signed in.")
+            .confirmationDialog("Sign Out of SoundCloud?", isPresented: $showingSignOutConfirmation, titleVisibility: .visible) {
+                Button("Sign Out", role: .destructive) { signOut() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(AccountSignOut.stayingSignedInMessage(client: client) ?? "Only this \(DeviceClass.current.displayName) signs out.")
+            }
+            Button("Sign Out of All Devices", role: .destructive) {
+                showingSignOutEverywhereConfirmation = true
+            }
+            .disabled(isSigningOut)
+            .confirmationDialog("Sign Out of All Devices?", isPresented: $showingSignOutEverywhereConfirmation, titleVisibility: .visible) {
+                Button("Sign Out of All Devices", role: .destructive) { signOutEverywhere() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(AccountSignOut.everywhereMessage(client: client))
+            }
         }
-        .listRowBackground(Color.scBgOverlay)
     }
 
     private var soundCloudManagementSection: some View {
@@ -932,9 +1149,8 @@ private struct AccountSettingsDetail: View {
         } header: {
             Text("SoundCloud Account")
         } footer: {
-            Text("Opens SoundCloud's own website for sensitive account changes. SoundingCloud never handles passwords, authenticator secrets, backup codes, or billing details.")
+            Text("Opens soundcloud.com.")
         }
-        .listRowBackground(Color.scBgOverlay)
     }
 
     private func soundCloudSettingsLink(
@@ -948,38 +1164,40 @@ private struct AccountSettingsDetail: View {
                 Spacer()
                 Image(systemName: "arrow.up.right")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.scTextSecondary)
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
     private func rejectedSection(_ kind: SoundCloudCredentialSource.RejectionKind) -> some View {
         Section {
-            Label {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Sign-In Not Working").font(.headline)
-                    Text(rejectionExplanation(kind))
-                        .font(.footnote)
-                        .foregroundStyle(Color.scTextSecondary)
-                }
-            } icon: {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(Color.scWarning)
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Sign-In Not Working", systemImage: "exclamationmark.triangle.fill")
+                    .font(.headline)
+                    .symbolRenderingMode(.multicolor)
+                Text(rejectionExplanation(kind))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
+            .padding(.vertical, 2)
 
-            Button("Reauthenticate") { isShowingSignIn = true }
+            if kind == .refreshUnreachable {
+                Button(isRetrying ? "Trying Again…" : "Try Again") { retry() }
+                    .disabled(isRetrying)
+            } else {
+                Button("Reconnect SoundCloud") { isShowingSignIn = true }
+            }
         }
-        .listRowBackground(Color.scBgOverlay)
     }
 
     private func rejectionExplanation(_ kind: SoundCloudCredentialSource.RejectionKind) -> String {
         switch kind {
         case .accountRejected:
-            return "SoundCloud rejected this iPhone's access. Sign in again to reconnect your account."
+            return "Sign in again to reconnect your account."
         case .noRefreshCapability:
-            return "This iPhone's sign-in couldn't renew itself. Sign in again - it won't happen every time."
+            return "Sign in again to keep using your account."
         case .refreshUnreachable:
-            return "SoundCloud couldn't be reached to renew this sign-in. It may recover on its own, or try again now."
+            return "SoundCloud couldn't be reached. Try again."
         }
     }
 
@@ -989,17 +1207,14 @@ private struct AccountSettingsDetail: View {
         } footer: {
             Text(signInFooter)
         }
-        .listRowBackground(Color.scBgOverlay)
     }
 
     private var signInFooter: String {
         switch credentials.lastSignOutReason {
-        case .accountRejected:
-            return "SoundCloud rejected this iPhone's access. Sign in again to reconnect your account."
-        case .noRefreshCapability:
-            return "This iPhone's sign-in couldn't renew itself. Sign in again - it won't happen every time."
+        case .accountRejected, .noRefreshCapability:
+            return "Sign in again to reconnect your account."
         case nil:
-            return "Home, Search, and public pages work in guest mode. Please sign in to save, follow, message, or download."
+            return "Sign in to save, follow, message and download."
         }
     }
 
@@ -1015,7 +1230,16 @@ private struct AccountSettingsDetail: View {
         guard !isSigningOut else { return }
         isSigningOut = true
         Task {
-            await credentials.signOut()
+            await AccountSignOut.signOutThisDevice(client: client, credentials: credentials)
+            isSigningOut = false
+        }
+    }
+
+    private func signOutEverywhere() {
+        guard !isSigningOut else { return }
+        isSigningOut = true
+        Task {
+            await AccountSignOut.signOutEverywhere(client: client, credentials: credentials)
             isSigningOut = false
         }
     }
@@ -1037,7 +1261,6 @@ private struct SubscriptionSettingsDetail: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var isChecking = false
-    @State private var didCopy = false
 
     var body: some View {
         List {
@@ -1047,18 +1270,13 @@ private struct SubscriptionSettingsDetail: View {
                     Text(statusDisplay)
                         .foregroundStyle(hasAccountContext
                             ? verificationTint(subscription.verification)
-                            : Color.scTextSecondary)
+                            : .secondary)
                 } label: {
                     Text("Status")
                 }
-            } header: {
-                Text("Plan")
             } footer: {
-                Text(isSignedOut
-                     ? "Sign in to check your plan. Existing downloads stay on this iPhone but are unavailable until then."
-                     : subscription.statusDescription)
+                Text(isSignedOut ? "Sign in to check your plan." : subscription.statusDescription)
             }
-            .listRowBackground(Color.scBgOverlay)
 
             Section {
                 Button {
@@ -1080,56 +1298,29 @@ private struct SubscriptionSettingsDetail: View {
                         Spacer()
                         Image(systemName: "arrow.up.right")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color.scTextSecondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
             } footer: {
-                Text("Check Again reads the current plan. Billing, upgrades, and cancellation stay on SoundCloud's website.")
+                Text("Billing and cancellation are managed on SoundCloud.")
             }
-            .listRowBackground(Color.scBgOverlay)
 
             if let deletionDate = downloads.scheduledDeletionDate {
                 Section {
                     Label {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Downloads Will Be Removed").font(.headline)
+                            Text("Go+ Downloads Will Be Removed").font(.headline)
                             Text("Deleted on \(deletionDate.formatted(date: .abbreviated, time: .shortened)) unless the subscription is renewed.")
                                 .font(.footnote)
-                                .foregroundStyle(Color.scTextSecondary)
+                                .foregroundStyle(.secondary)
                         }
                     } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(Color.scDestructive)
+                            .foregroundStyle(.red)
                     }
-                } footer: {
-                    Text("SoundCloud couldn't verify the account plan; existing encrypted downloads remain account-bound.")
                 }
-                .listRowBackground(Color.scBgOverlay)
             }
 
-            if hasAccountContext {
-                Section {
-                    if let raw = subscription.lastRawSubscriptionDescription {
-                        Text(raw)
-                            .font(.footnote.monospaced())
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Button {
-                            UIPasteboard.general.string = raw
-                            didCopy = true
-                        } label: {
-                            Label(didCopy ? "Copied" : "Copy Plan Details", systemImage: didCopy ? "checkmark" : "doc.on.doc")
-                        }
-                    } else {
-                        Text("Not checked yet.").foregroundStyle(Color.scTextSecondary)
-                    }
-                } header: {
-                    Text("Diagnostics")
-                } footer: {
-                    Text("Exactly what SoundCloud reported about this account's plan. If the plan above reads as Unknown, copy this - the product id identifies a plan the app hasn't seen before.")
-                }
-                .listRowBackground(Color.scBgOverlay)
-            }
         }
         .settingsDetailChrome("Subscription")
         .onChange(of: scenePhase) { _, phase in
@@ -1139,7 +1330,7 @@ private struct SubscriptionSettingsDetail: View {
     }
 
     private var isSignedOut: Bool {
-        credentials.isSignedOut || credentials.isSessionRejected
+        credentials.sessionHealth.needsSignIn
     }
 
     private var hasAccountContext: Bool {
@@ -1149,7 +1340,7 @@ private struct SubscriptionSettingsDetail: View {
     private var planDisplay: String {
         if isSignedOut { return "Unavailable" }
         guard hasAccountContext else { return "Checking…" }
-        return tierDisplayName(subscription.tier)
+        return subscription.tier.planName ?? subscription.tier.displayName
     }
 
     private var statusDisplay: String {
@@ -1161,7 +1352,6 @@ private struct SubscriptionSettingsDetail: View {
     private func check() {
         guard !isChecking else { return }
         isChecking = true
-        didCopy = false
         Task {
             await subscription.verifyNow()
             isChecking = false
@@ -1169,9 +1359,49 @@ private struct SubscriptionSettingsDetail: View {
     }
 }
 
+@MainActor
+final class PublisherFeed<Value>: ObservableObject {
+    @Published private(set) var value: Value
+    private var cancellable: AnyCancellable?
+
+    init<P: Publisher>(
+        initial: Value,
+        publisher: P,
+        isDuplicate: @escaping (Value, Value) -> Bool
+    ) where P.Output == Value, P.Failure == Never {
+        value = initial
+        cancellable = publisher
+            .removeDuplicates(by: isDuplicate)
+            .sink { [weak self] next in self?.value = next }
+    }
+}
+
+private struct AutoMixStatusRow: View {
+    @ObservedObject private var player = PlayerService.shared
+
+    var body: some View {
+        let decision = player.automaticMixDecision
+        let text: String = {
+            if let countdown = decision.countdownText(currentTime: player.currentTime) {
+                return "\(decision.statusLabel) \(countdown)"
+            }
+            return decision.statusLabel
+        }()
+        LabeledContent("Status", value: text)
+    }
+}
+
 private struct PlaybackSettingsDetail: View {
     @ObservedObject private var store = SettingsStore.shared
-    @ObservedObject private var player = PlayerService.shared
+
+    private var personalityFooter: String {
+        DJProfile.profile(id: store.djDefaultProfileId)?.adventureSummary ?? "Blends one track into the next."
+    }
+    @StateObject private var route = PublisherFeed(
+        initial: PlayerService.shared.outputRoute,
+        publisher: PlayerService.shared.$outputRoute,
+        isDuplicate: ==
+    )
 
     var body: some View {
         List {
@@ -1183,46 +1413,41 @@ private struct PlaybackSettingsDetail: View {
                 } label: {
                     Text("Streaming Quality")
                 }
-                Picker(selection: store.downloadQualityCeilingBinding) {
-                    ForEach(QualityCeiling.allCases) { level in
-                        Text(qualityRowLabel(level)).tag(level)
-                    }
-                } label: {
-                    Text("Download Quality")
-                }
+                Toggle("Allow Cellular Streaming", isOn: store.cellularStreamingAllowedBinding)
             } header: {
-                Text("Quality")
+                Text("Streaming")
             } footer: {
-                Text("Caps the bitrate used while listening live and the bitrate saved for offline playback. "
-                     + QualitySizeEstimator.summaryLine() + " - approximate, based on SoundCloud's own preset bitrates."
-                     + pinnedNote(for: [("Streaming", SettingKeys.StreamingQualityCeiling.self.isPinned(store)),
-                                        ("Download", SettingKeys.DownloadQualityCeiling.self.isPinned(store))]))
+                Text("Higher quality uses more data.")
             }
-            .listRowBackground(Color.scBgOverlay)
-
-            CollectionQualityOverridesSection()
 
             Section {
-                Toggle("Auto-Mix", isOn: store.djAutoMixEnabledBinding)
+                Toggle("Auto Mix", isOn: store.djAutoMixEnabledBinding)
                 if store.djAutoMixEnabled {
-                    Picker("Personality", selection: store.djDefaultProfileIdBinding) {
+                    Picker("Style", selection: store.djDefaultProfileIdBinding) {
                         ForEach(DJProfile.all) { profile in
-                            Text(profile.displayName).tag(profile.id)
+                            Text(profile.styleName).tag(profile.id)
                         }
                     }
-                    LabeledContent("Status", value: autoMixStatusText)
+                    Picker("Blend", selection: store.djBlendBinding) {
+                        ForEach(DJBlendLength.allCases) { blend in
+                            Text(blend.displayName).tag(blend)
+                        }
+                    }
+                    Toggle("Keep Queue Order", isOn: store.djKeepQueueOrderBinding)
+                    NavigationLink("Your Moves") {
+                        AutoMixMovesView().settingsDetailChrome("Your Moves")
+                    }
+                    AutoMixStatusRow()
                 }
             } header: {
                 Text("DJ")
             } footer: {
-                Text("Auto-Mix keeps the next deck ready in the background, picks a bass swap, filter move, "
-                     + "half-time blend or clean cut from the analysis it trusts, then acts at the chosen moment. "
-                     + (DJProfile.profile(id: store.djDefaultProfileId)?.blurb ?? "") + " "
-                     + "Switch it off for manual decks: seeking moves playback, and only Cue or a hot-cue action creates a cue point. "
-                     + "Unavailable while streaming to AirPlay speakers, since beat-matching needs a local output with predictable latency."
-                     + pinnedNote(for: [("Auto-Mix", SettingKeys.DJAutoMixEnabled.self.isPinned(store))]))
+                Text(store.djAutoMixEnabled ? personalityFooter : "Blends one track into the next.")
             }
-            .listRowBackground(Color.scBgOverlay)
+
+            if store.djAutoMixEnabled {
+                AutoMixEnergySection()
+            }
 
             Section {
                 Picker("Minimum Set Length", selection: store.setMinimumDurationSecondsBinding) {
@@ -1230,42 +1455,51 @@ private struct PlaybackSettingsDetail: View {
                         Text(GeneratedLibraryCollections.durationLabel(duration)).tag(duration)
                     }
                 }
+                LibrarySyncStatusRow()
             } header: {
                 Text("Library")
             } footer: {
-                Text("Sets are generated from duration metadata in your liked tracks. No track audio is downloaded."
-                    + pinnedNote(for: [("Set length", SettingKeys.SetMinimumDurationSeconds.self.isPinned(store))]))
+                Text("Liked tracks at least this long appear in Sets.")
             }
-            .listRowBackground(Color.scBgOverlay)
-
-            SyncScopeSection(store: store, pinnedNoun: "this iPhone")
 
             Section {
-                Toggle("Allow Cellular Streaming", isOn: store.cellularStreamingAllowedBinding)
+                Toggle("Share Sounding Links", isOn: store.shareSoundingLinksBinding)
             } header: {
-                Text("Cellular")
+                Text("Sharing")
             } footer: {
-                Text("Off means playback only starts on Wi-Fi. This setting always stays on this iPhone.")
+                Text("Friends without Sounding get the SoundCloud link.")
             }
-            .listRowBackground(Color.scBgOverlay)
 
             Section {
-                LabeledContent("Output", value: player.outputRoute.outputName ?? "Unavailable")
+                Toggle("Lyrics from LRCLIB", isOn: store.lyricsEnabledBinding)
+            } header: {
+                Text("Lyrics")
+            } footer: {
+                Text("Sends the track's title, artist and length to lrclib.net to find lyrics.")
+            }
+
+            Section {
+                Toggle("Live Activity", isOn: store.liveActivitiesEnabledBinding)
+            } header: {
+                Text("Lock Screen")
+            } footer: {
+                Text("Appears on the Lock Screen and in the Dynamic Island during Auto Mix, a mix with a tracklist or a Sleep Timer.")
+            }
+
+            Section {
+                LabeledContent("Output", value: route.value.outputName ?? "Unavailable")
                 LabeledContent("Channels", value: channelDescription)
                 LabeledContent("Spatial Audio", value: "Stereo widened")
             } header: {
                 Text("Audio")
-            } footer: {
-                Text("Stereo is widened to whatever the current output can render. Not Dolby Atmos - SoundCloud serves no Atmos masters.")
             }
-            .listRowBackground(Color.scBgOverlay)
         }
         .settingsDetailChrome("Playback")
     }
 
     private var channelDescription: String {
-        player.outputRoute.supportsMultichannel
-            ? "\(player.outputRoute.maximumOutputChannels)-channel"
+        route.value.supportsMultichannel
+            ? "\(route.value.maximumOutputChannels)-channel"
             : "Stereo"
     }
 
@@ -1273,259 +1507,35 @@ private struct PlaybackSettingsDetail: View {
         if let mb = QualitySizeEstimator.approximateMBPerHour(for: level) {
             return "\(level.displayName) (~\(Int(mb.rounded())) MB/hr)"
         }
-        return "\(level.displayName) (varies, no cap)"
-    }
-
-    private var autoMixStatusText: String {
-        let decision = player.automaticMixDecision
-        if let countdown = decision.countdownText(currentTime: player.currentTime) {
-            return "\(decision.statusLabel) \(countdown)"
-        }
-        return decision.statusLabel
-    }
-
-    private func pinnedNote(for entries: [(String, Bool)]) -> String {
-        let pinned = entries.filter(\.1).map(\.0)
-        guard !pinned.isEmpty else { return "" }
-        return " " + pinned.joined(separator: " and ")
-            + (pinned.count == 1 ? " is" : " are")
-            + " kept on this iPhone rather than synced."
+        return level.displayName
     }
 }
 
-private struct CollectionQualityOverridesSection: View {
-    @ObservedObject private var credentials = SoundCloudCredentialSource.shared
-    @ObservedObject private var overrideStore = CollectionQualityOverrideStore.shared
-
-    private enum LoadState {
-        case idle, loading, loaded([Playlist]), failed
-    }
-
-    @State private var state: LoadState = .idle
-
-    var body: some View {
-        Section {
-            switch state {
-            case .idle, .loading:
-                HStack {
-                    Text("Loading Playlists…").foregroundStyle(Color.scTextSecondary)
-                    Spacer()
-                    ProgressView()
-                }
-            case .failed:
-                Text("Couldn't load playlists.").foregroundStyle(Color.scTextSecondary)
-            case .loaded(let playlists) where playlists.isEmpty:
-                Text("No playlists yet.").foregroundStyle(Color.scTextSecondary)
-            case .loaded(let playlists):
-                ForEach(playlists) { playlist in
-                    playlistRow(playlist)
-                }
-            }
-        } header: {
-            Text("Quality by Collection")
-        } footer: {
-            Text("Overrides the streaming and download quality above, for one playlist only. "
-                 + "Sets and long-form uploads are labelled, so it's easy to drop a tier "
-                 + "where the loss matters least.")
-        }
-        .listRowBackground(Color.scBgOverlay)
-        .task { await load() }
-    }
-
-    private func playlistRow(_ playlist: Playlist) -> some View {
-        let kind = CollectionKind.classify(playlist: playlist)
-        let binding = Binding<QualityCeiling?>(
-            get: { overrideStore.override(for: playlist.id) },
-            set: { overrideStore.setOverride($0, for: playlist.id) }
-        )
-        return VStack(alignment: .leading, spacing: 4) {
-            Picker(selection: binding) {
-                Text("Use Default").tag(QualityCeiling?.none)
-                ForEach(QualityCeiling.allCases) { level in
-                    Text(qualityRowLabel(level)).tag(QualityCeiling?.some(level))
-                }
-            } label: {
-                Text(playlist.title)
-            }
-            HStack(spacing: 4) {
-                Text(kind.displayName)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(kind == .set ? Color.scAccent : Color.scTextTertiary)
-                Text("· ~\(byteString(estimatedSize(for: playlist, override: binding.wrappedValue)))")
-                    .font(.caption2)
-                    .foregroundStyle(Color.scTextTertiary)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func estimatedSize(for playlist: Playlist, override: QualityCeiling?) -> Int64 {
-        QualitySizeEstimator.estimatedBytes(for: playlist, ceiling: override ?? SettingsStore.shared.downloadQualityCeiling)
-    }
-
-    private func qualityRowLabel(_ level: QualityCeiling) -> String {
-        if let mb = QualitySizeEstimator.approximateMBPerHour(for: level) {
-            return "\(level.displayName) (~\(Int(mb.rounded())) MB/hr)"
-        }
-        return "\(level.displayName) (varies, no cap)"
-    }
-
-    private func load() async {
-        guard case .idle = state else { return }
-        state = .loading
-        guard let user = await credentials.waitForCurrentUser() else {
-            state = .failed
-            return
-        }
-        do {
-            let page = try await SoundCloudAPI.shared.getUserPlaylists(userId: user.id, limit: 50)
-            state = .loaded(page.collection)
-        } catch {
-            state = .failed
-        }
-    }
-}
-
-private extension SettingDefinition {
-    @MainActor
-    static func isPinned(_ store: SettingsStore) -> Bool {
-        store.effectiveScope(Self.self) == .deviceLocal
-    }
-}
-
-private struct SyncScopeSection: View {
-    @ObservedObject var store: SettingsStore
-    let pinnedNoun: String
-
-    var body: some View {
-        Section {
-            row("Streaming Quality", SettingKeys.StreamingQualityCeiling.self)
-            row("Download Quality", SettingKeys.DownloadQualityCeiling.self)
-            row("DJ Auto-Mix", SettingKeys.DJAutoMixEnabled.self)
-            row("DJ Personality", SettingKeys.DJDefaultProfileId.self)
-            row("Set Length", SettingKeys.SetMinimumDurationSeconds.self)
-        } header: {
-            Text("Sync")
-        } footer: {
-            Text("These settings are shared with your paired device. Turn one off to keep \(pinnedNoun)'s own value.")
-        }
-        .listRowBackground(Color.scBgOverlay)
-    }
-
-    private func row<K: SettingDefinition>(_ title: String, _ key: K.Type) -> some View {
-        Toggle(title, isOn: Binding(
-            get: { store.effectiveScope(key) == .synced },
-            set: { store.setForceDeviceLocal(key, !$0) }
-        ))
-    }
-}
-
-private struct MusicIntelligenceSettingsDetail: View {
-    @State private var snapshot: AnalysisDataSnapshot?
-    @State private var showingClearAnalysisConfirmation = false
-    @State private var showingClearLibraryConfirmation = false
+private struct LibrarySettingsDetail: View {
+    @AppStorage(TrackColumnLayout.storageKey) private var layout = TrackColumnLayout.standard
 
     var body: some View {
         List {
             Section {
-                LabeledContent("Tracks Analysed", value: count(\.analysedTrackCount))
-                LabeledContent("Results Stored", value: count(\.resultCount))
-                LabeledContent("From Other Devices", value: count(\.syncedResultCount))
-                LabeledContent("Analysis Data", value: usageText)
-            } header: {
-                Text("Analysis")
-            } footer: {
-                Text("Tempo, key, genre and waveform results measured from your music. Tempo and key are measured on this iPhone once a track is downloaded, then synced to your Apple TV, which can't measure them itself. The least-recently-used results are dropped automatically to stay inside the budget.")
-            }
-            .listRowBackground(Color.scBgOverlay)
-
-            Section {
-                LabeledContent("Tempo & Key", value: count(\.tempoKeyCount))
-                LabeledContent("Genre", value: count(\.genreCount))
-                LabeledContent("Waveforms", value: count(\.waveformCount))
-            } header: {
-                Text("Results by Kind")
-            }
-            .listRowBackground(Color.scBgOverlay)
-
-            Section {
-                LabeledContent("Library Cache", value: libraryText)
-            } footer: {
-                Text("An offline copy of your library so it opens instantly. Clearing it re-downloads the listings next time you open the library. The space the file reserved is reused, not returned.")
-            }
-            .listRowBackground(Color.scBgOverlay)
-
-            Section {
-                Button("Clear Analysis Data", role: .destructive) {
-                    showingClearAnalysisConfirmation = true
+                NavigationLink {
+                    TrackColumnsSettingsView()
+                } label: {
+                    LabeledContent("Columns", value: "\(layout.enabled.count) Shown")
                 }
-                Button("Clear Library Cache", role: .destructive) {
-                    showingClearLibraryConfirmation = true
-                }
-            } footer: {
-                Text("Clearing never interrupts playback. Analysis is rebuilt the next time it's needed.")
             }
-            .listRowBackground(Color.scBgOverlay)
         }
-        .settingsDetailChrome("Music Intelligence")
-        .task { await refresh() }
-        .confirmationDialog("Clear Analysis Data", isPresented: $showingClearAnalysisConfirmation) {
-            Button("Clear Analysis Data", role: .destructive) {
-                Task {
-                    await AnalysisDataUsage.clearAnalysisData()
-                    await refresh()
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Removes every stored tempo, key, genre and waveform result on this iPhone, including ones synced from other devices. Playback keeps going, and analysis is rebuilt when it's needed again.")
-        }
-        .confirmationDialog("Clear Library Cache", isPresented: $showingClearLibraryConfirmation) {
-            Button("Clear Library Cache", role: .destructive) {
-                Task {
-                    await AnalysisDataUsage.clearLibraryCache()
-                    await refresh()
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Empties the offline copy of your library on this iPhone. It re-downloads next time you open the library.")
-        }
-    }
-
-    private func refresh() async {
-        snapshot = await AnalysisDataUsage.snapshot()
-    }
-
-    private func count(_ keyPath: KeyPath<AnalysisDataSnapshot, Int>) -> String {
-        guard let snapshot else { return "–" }
-        let value = snapshot[keyPath: keyPath]
-        return snapshot.isTruncated ? "\(value)+" : "\(value)"
-    }
-
-    private var usageText: String {
-        guard let snapshot else { return "–" }
-        return "\(cacheByteString(snapshot.usedBytes)) of \(cacheByteString(snapshot.maxBytes))"
-    }
-
-    private var libraryText: String {
-        guard let snapshot else { return "–" }
-        return cacheByteString(snapshot.libraryDiskBytes)
+        .settingsDetailChrome("Library")
     }
 }
 
 private struct DownloadsSettingsDetail: View {
-    @EnvironmentObject private var companionClient: CompanionClient
-    @ObservedObject private var store = SettingsStore.shared
-    @ObservedObject private var subscription = SubscriptionService.shared
     @ObservedObject private var downloads = DownloadManager.shared
-    @ObservedObject private var credentials = SoundCloudCredentialSource.shared
 
-    @State private var showingRemoveDownloadsConfirmation = false
-    @State private var remoteDownloads: [String: [DownloadManifestSyncRecord]] = [:]
-    @State private var transferringDeviceIDs: Set<String> = []
+    @StateObject private var cache = CacheUsageModel()
+    @State private var showingRedownloadConfirmation = false
+    @State private var showingRemoveAllConfirmation = false
 
-    private static let cellularSectionID = "downloads-cellular-section"
+    private static let lastSectionID = "downloads-last-section"
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -1535,7 +1545,7 @@ private struct DownloadsSettingsDetail: View {
                     guard ProcessInfo.processInfo.environment["SOUNDING_TV_PHONE_SCROLL_BOTTOM"] == "1" else { return }
                     try? await Task.sleep(for: .milliseconds(300))
                     withAnimation(nil) {
-                        proxy.scrollTo(Self.cellularSectionID, anchor: .bottom)
+                        proxy.scrollTo(Self.lastSectionID, anchor: .bottom)
                     }
                 }
                 #endif
@@ -1543,351 +1553,175 @@ private struct DownloadsSettingsDetail: View {
     }
 
     private var list: some View {
-        List {
+        let redownload = downloads.redownloadEstimate()
+        return List {
             Section {
-                LabeledContent("Available Offline", value: "\(downloadedEntries.count) tracks")
-                if !inProgressEntries.isEmpty {
-                    LabeledContent("In Progress", value: "\(inProgressEntries.count)")
+                Gauge(value: Double(downloads.storageUsed), in: 0...Double(max(DownloadsFormat.deviceCapacityBytes, 1))) {
+                    Text("\(DownloadsFormat.bytes(downloads.storageUsed)) used by downloads")
                 }
-                LabeledContent("Network", value: networkDescription)
-                LabeledContent(
-                    "SoundCloud Plan",
-                    value: credentials.isSignedOut || credentials.isSessionRejected
-                        ? "Sign In Required"
-                        : (subscription.authenticatedAccountID == nil
-                            ? "Checking…"
-                            : "Track availability")
-                )
-                if let deletionDate = downloads.scheduledDeletionDate {
-                    Label {
-                        Text("Downloads are deleted on \(deletionDate.formatted(date: .abbreviated, time: .shortened)) unless the subscription is renewed.")
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(Color.scDestructive)
-                    }
-                }
-            } header: {
-                Text("Status")
-            }
-            .listRowBackground(Color.scBgOverlay)
-
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    LabeledContent("Storage Used",
-                                   value: "\(byteString(downloads.usedBytes)) of \(byteString(store.downloadStorageCapBytes))")
-                    ProgressView(value: storageFraction)
-                        .tint(storageFraction > 0.92 ? Color.scWarning : Color.scAccent)
-                }
-                .padding(.vertical, 2)
-
-                Stepper(value: Binding(get: { Double(store.downloadStorageCapBytes) },
-                                       set: { store.setDownloadStorageCapBytes(Int64($0)) }),
-                        in: Double(Self.storageFloor)...Double(Self.storageCeiling),
-                        step: Double(Self.storageStep)) {
-                    LabeledContent("Storage Limit", value: byteString(store.downloadStorageCapBytes))
+                .gaugeStyle(.accessoryLinearCapacity)
+                NavigationLink {
+                    PhoneDownloadedMusicView()
+                        .settingsDetailChrome("Downloaded Music")
+                } label: {
+                    LabeledContent("Downloaded Music", value: downloads.downloadedSummary)
                 }
             } header: {
                 Text("Storage")
             } footer: {
-                Text("Downloads made ahead of you are removed oldest-first once this limit is reached. Tracks you've kept never are.")
-            }
-            .listRowBackground(Color.scBgOverlay)
-
-            if !inProgressEntries.isEmpty {
-                Section {
-                    ForEach(inProgressEntries, id: \.track.id) { entry in
-                        downloadRow(for: entry)
-                    }
-                } header: {
-                    Text("In Progress")
-                } footer: {
-                    Text(transferFooter)
+                if let deletionDate = downloads.scheduledDeletionDate {
+                    Text("Go+ downloads are removed on \(deletionDate.formatted(date: .abbreviated, time: .omitted)) unless your subscription is renewed.")
                 }
-                .listRowBackground(Color.scBgOverlay)
             }
 
-            if !keptDownloadedEntries.isEmpty {
-                Section {
-                    ForEach(keptDownloadedEntries, id: \.track.id) { entry in
-                        downloadRow(for: entry)
-                    }
-                } header: {
-                    Text("Kept Offline")
-                } footer: {
-                    Text("These stay on this iPhone until you remove them, or remove the collection keeping them downloaded.")
-                }
-                .listRowBackground(Color.scBgOverlay)
-            }
-
-            if !predictiveDownloadedEntries.isEmpty {
-                Section {
-                    ForEach(predictiveDownloadedEntries, id: \.track.id) { entry in
-                        downloadRow(for: entry)
-                    }
-                } header: {
-                    Text("Ready for You")
-                } footer: {
-                    Text("Downloaded ahead from your queue and recent listening. These go automatically when space is needed. Swipe right to keep one.")
-                }
-                .listRowBackground(Color.scBgOverlay)
-            }
-
-            if downloads.entries.isEmpty {
-                Section {
-                    ContentUnavailableView {
-                        Label("No Downloads", systemImage: "arrow.down.circle")
-                    } description: {
-                        Text("Choose Download on a track or keep a playlist offline when a usable source is available.")
-                    }
-                }
-                .listRowBackground(Color.scBgOverlay)
-            }
+            AppleWatchDownloadsSection()
 
             Section {
-                if remoteDownloads.isEmpty {
-                    Text("No download availability has synced from another device yet.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(remoteDownloads.keys.sorted(), id: \.self) { deviceID in
-                        if let records = remoteDownloads[deviceID], let first = records.first {
-                            LabeledContent(first.deviceLabel) {
-                                Button(transferringDeviceIDs.contains(deviceID) ? "Copying…" : "Copy \(records.count)") {
-                                    Task { await copy(records, from: deviceID) }
-                                }
-                                .disabled(transferringDeviceIDs.contains(deviceID))
-                            }
+                Toggle("Download over Cellular", isOn: Binding(
+                    get: { downloads.downloadOverCellular },
+                    set: { downloads.setDownloadOverCellular($0) }
+                ))
+                Toggle("Optimise Storage", isOn: Binding(
+                    get: { downloads.optimiseStorage },
+                    set: { downloads.setOptimiseStorage($0) }
+                ))
+                if downloads.optimiseStorage {
+                    Picker("Minimum Storage", selection: Binding(
+                        get: { downloads.optimiseStorageMinimumBytes },
+                        set: { downloads.setOptimiseStorageMinimumBytes($0) }
+                    )) {
+                        ForEach(OptimiseStoragePolicy.minimumChoices, id: \.self) { bytes in
+                            Text(DownloadsFormat.minimumStorage(bytes)).tag(bytes)
                         }
                     }
                 }
-            } header: {
-                Text("Other Devices")
             } footer: {
-                Text("When the source device is awake on your local network, Copy transfers its existing audio over the authenticated companion link and encrypts it for this iPhone.")
+                Text("When storage is low, downloads you haven't played recently are removed.")
             }
-            .listRowBackground(Color.scBgOverlay)
 
             Section {
-                Picker("Download Quality", selection: store.downloadQualityCeilingBinding) {
+                Picker("Download Quality", selection: Binding(
+                    get: { downloads.quality },
+                    set: { downloads.setQuality($0) }
+                )) {
                     ForEach(QualityCeiling.allCases) { quality in
                         Text(quality.displayName).tag(quality)
                     }
                 }
-                Toggle("Allow Cellular Downloads", isOn: store.cellularDownloadsAllowedBinding)
-            } header: {
-                Text("Download Policy")
+                if redownload.trackCount > 0 {
+                    Button("Re-download at New Quality (≈ \(redownload.sizeLabel))") {
+                        showingRedownloadConfirmation = true
+                    }
+                }
             } footer: {
-                Text("Cellular permission always stays on this iPhone. Quality can sync with your other devices from Playback settings.")
+                Text("Applies to new downloads.")
             }
-            .listRowBackground(Color.scBgOverlay)
-            .id(Self.cellularSectionID)
+
+            SoundingDataSettingsSection()
+
+            Section {
+                LabeledContent("Artwork", value: cache.usage.map { DownloadsFormat.bytes($0.artworkBytes) } ?? "–")
+                Button("Clear Artwork") { cache.clearArtwork() }
+                    .disabled(cache.isClearing || (cache.usage?.artworkBytes ?? 0) == 0)
+            }
+
+            Section {
+                LabeledContent("Cache", value: cache.usage.map { DownloadsFormat.bytes($0.totalBytes) } ?? "–")
+                Button("Clear Cache") { cache.clearCaches() }
+                    .disabled(cache.isClearing || (cache.usage?.totalBytes ?? 0) == 0)
+            }
 
             if !downloads.entries.isEmpty {
                 Section {
                     Button("Remove All Downloads", role: .destructive) {
-                        showingRemoveDownloadsConfirmation = true
+                        showingRemoveAllConfirmation = true
                     }
-                } footer: {
-                    Text("Removes audio only. Your likes, playlists, library cache and music-intelligence results remain.")
                 }
-                .listRowBackground(Color.scBgOverlay)
+                .id(Self.lastSectionID)
             }
         }
         .settingsDetailChrome("Downloads")
-        .task {
-            remoteDownloads = await RemoteDownloadManifestStore.shared.manifestsByDevice(
-                excluding: DownloadManifestDeviceIdentity.deviceId()
-            )
-        }
-        .confirmationDialog("Remove All Downloads", isPresented: $showingRemoveDownloadsConfirmation) {
-            Button("Remove All Downloads", role: .destructive) { removeAllDownloads() }
+        .task { await cache.refresh() }
+        .confirmationDialog("Re-download at New Quality", isPresented: $showingRedownloadConfirmation) {
+            Button("Re-download \(DownloadsFormat.trackCount(redownload.trackCount))") {
+                downloads.redownloadAtCurrentQuality(confirmed: true)
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every downloaded track will be deleted from this iPhone. This can't be undone.")
+            Text("About \(redownload.sizeLabel) will download again at \(downloads.quality.displayName) quality.")
         }
-    }
-
-    private func copy(_ records: [DownloadManifestSyncRecord], from deviceID: String) async {
-        transferringDeviceIDs.insert(deviceID)
-        defer { transferringDeviceIDs.remove(deviceID) }
-        for record in records where !Task.isCancelled {
-            _ = await downloads.downloadFromPeer(
-                trackId: record.trackId,
-                sourceDeviceId: deviceID,
-                provider: companionClient,
-                pinned: record.isPinned
-            )
-        }
-    }
-
-    private var storageFraction: Double {
-        let cap = store.downloadStorageCapBytes
-        guard cap > 0 else { return 0 }
-        return min(1, Double(downloads.usedBytes) / Double(cap))
-    }
-
-    private var sortedDownloadEntries: [DownloadEntry] {
-        downloads.entries.values.sorted { $0.addedAt > $1.addedAt }
-    }
-
-    private var inProgressEntries: [DownloadEntry] {
-        sortedDownloadEntries.filter { !$0.isDownloaded }
-    }
-
-    private var downloadedEntries: [DownloadEntry] {
-        sortedDownloadEntries.filter(\.isDownloaded)
-    }
-
-    private var keptDownloadedEntries: [DownloadEntry] {
-        downloadedEntries.filter(\.isEffectivelyPinned)
-    }
-
-    private var predictiveDownloadedEntries: [DownloadEntry] {
-        downloadedEntries.filter { !$0.isEffectivelyPinned }
-    }
-
-    private var networkDescription: String {
-        if !downloads.hasConnectivity { return "Offline" }
-        if downloads.isOnUnmeteredNetwork { return "Wi-Fi or Ethernet" }
-        return store.cellularDownloadsAllowed ? "Cellular Allowed" : "Waiting for Wi-Fi"
-    }
-
-    private var transferFooter: String {
-        if !downloads.hasConnectivity { return "Downloads are paused while this iPhone is offline." }
-        if !downloads.isOnUnmeteredNetwork, !store.cellularDownloadsAllowed {
-            return "Downloads are waiting for Wi-Fi."
-        }
-        return "Up to three tracks download at once. Pause or retry a track from its row."
-    }
-
-    private func downloadRow(for entry: DownloadEntry) -> some View {
-        DownloadRow(
-            entry: entry,
-            state: downloads.state(for: entry.track.id),
-            onPause: { downloads.pause(trackId: entry.track.id) },
-            onResume: { downloads.resume(trackId: entry.track.id) }
-        )
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                downloads.cancel(trackId: entry.track.id)
-            } label: {
-                Label("Remove", systemImage: "trash")
-            }
-        }
-        .swipeActions(edge: .leading) {
-            Button {
-                if entry.isPinned {
-                    downloads.unpin(trackId: entry.track.id)
-                } else {
-                    downloads.pin(trackId: entry.track.id)
-                }
-            } label: {
-                Label(
-                    entry.isPinned ? "Automatic" : "Keep",
-                    systemImage: entry.isPinned ? "wand.and.stars" : "pin"
-                )
-            }
-        }
-    }
-
-    private static let storageStep: Int64 = 500_000_000
-    private static let storageFloor: Int64 = 500_000_000
-    private static let storageCeiling: Int64 = 20_000_000_000
-
-    private func removeAllDownloads() {
-        for trackId in downloads.entries.keys {
-            downloads.cancel(trackId: trackId)
+        .confirmationDialog("Remove All Downloads", isPresented: $showingRemoveAllConfirmation) {
+            Button("Remove All Downloads", role: .destructive) { downloads.removeAll() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every download is deleted from this \(DeviceClass.current.displayName).")
         }
     }
 }
 
-private struct DownloadRow: View {
-    let entry: DownloadEntry
-    let state: DownloadState
-    let onPause: () -> Void
-    let onResume: () -> Void
+private struct MusicAnalysisSettingsDetail: View {
+    @ObservedObject private var store = SettingsStore.shared
+    @AppStorage(GeneratedInsightsService.visibilityKey) private var showsGeneratedInsights = true
+
+    @State private var storageUsedBytes: Int64?
+    @State private var showingClearConfirmation = false
 
     var body: some View {
-        LabeledContent {
-            trailing
-        } label: {
-            Label {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(entry.track.title).lineLimit(1)
-                    Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(subtitleTint)
-                        .lineLimit(2)
+        List {
+            Section {
+                Toggle("Analyse Music on This Device", isOn: store.analyseMusicOnDeviceBinding)
+            } footer: {
+                Text("Finds tempo, key and genre for music you play or download.")
+            }
+
+            AnalysisLibraryStatusSection()
+
+            if GeneratedInsightsService.shared.isAvailable {
+                Section {
+                    Toggle("Generated Tags and Summaries", isOn: $showsGeneratedInsights)
+                } footer: {
+                    Text("Mood tags and summaries are generated on this \(DeviceClass.current.displayName). Nothing leaves it.")
                 }
-            } icon: {
-                Image(systemName: entry.isEffectivelyPinned ? "pin.fill" : "sparkles")
-                    .foregroundStyle(entry.isEffectivelyPinned ? Color.scAccent : Color.scTextTertiary)
+            }
+
+            Section {
+                LabeledContent("Storage Used", value: storageUsedText)
+            }
+
+            Section {
+                Button("Clear Analysis Data", role: .destructive) {
+                    showingClearConfirmation = true
+                }
+                .disabled(storageUsedBytes == 0)
             }
         }
-        .accessibilityValue(accessibilityValueSuffix)
-    }
-
-    private var subtitle: String {
-        if case .failed(let reason) = state { return reason }
-        return entry.track.user.displayName
-    }
-
-    private var subtitleTint: Color {
-        if case .failed = state { return Color.scDestructive }
-        return Color.scTextSecondary
-    }
-
-    private var accessibilityValueSuffix: String {
-        switch state {
-        case .failed(let reason): return "Failed: \(reason)"
-        case .downloading(let progress): return "\(Int(progress * 100)) percent downloaded"
-        case .paused: return "Paused"
-        case .queued: return "Waiting to download"
-        case .downloaded: return "Downloaded, \(byteString(entry.fileSize))"
-        case .notDownloaded: return ""
+        .settingsDetailChrome("Music Analysis")
+        .task { await refresh() }
+        .confirmationDialog("Clear Analysis Data", isPresented: $showingClearConfirmation) {
+            Button("Clear Analysis Data", role: .destructive) {
+                Task {
+                    await AutomaticAnalysisScheduler.shared.clearAnalysisData()
+                    await refresh()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Tempo, key and genre results on this \(DeviceClass.current.displayName) are removed. Your corrections are kept.")
         }
     }
 
-    @ViewBuilder
-    private var trailing: some View {
-        switch state {
-        case .notDownloaded:
-            EmptyView()
-        case .queued:
-            HStack(spacing: 8) {
-                Text("Waiting…").foregroundStyle(Color.scTextSecondary)
-                Button("Pause", systemImage: "pause.fill", action: onPause)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-            }
-        case .downloading(let progress):
-            HStack(spacing: 8) {
-                Text("\(Int(progress * 100))%").monospacedDigit().foregroundStyle(Color.scAccent)
-                Button("Pause", systemImage: "pause.fill", action: onPause)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-            }
-        case .paused:
-            Button("Resume", systemImage: "arrow.clockwise", action: onResume)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-        case .downloaded:
-            if entry.fileSize > 0 {
-                Text(byteString(entry.fileSize)).foregroundStyle(Color.scTextSecondary)
-            } else {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.scSuccess)
-            }
-        case .failed:
-            Button("Retry", systemImage: "arrow.clockwise.circle.fill", action: onResume)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .tint(Color.scDestructive)
-        }
+    private var storageUsedText: String {
+        guard let storageUsedBytes else { return "–" }
+        return ByteCountFormatter.string(fromByteCount: storageUsedBytes, countStyle: .file)
+    }
+
+    private func refresh() async {
+        storageUsedBytes = await AnalysisDataUsage.storageUsedBytes()
     }
 }
 
 private struct AboutAdvancedSettingsDetail: View {
     @ObservedObject private var store = SettingsStore.shared
-    @ObservedObject private var player = PlayerService.shared
 
     @State private var showingResetConfirmation = false
 
@@ -1904,25 +1738,28 @@ private struct AboutAdvancedSettingsDetail: View {
                     }
                 }
             }
-            .listRowBackground(Color.scBgOverlay)
 
             Section {
-                LabeledContent("Playback Stalls", value: "\(player.observedStalls)")
+                Toggle("Sync Settings with iCloud", isOn: store.syncSettingsWithICloudBinding)
             } header: {
-                Text("Diagnostics")
+                Text("iCloud")
             } footer: {
-                Text("Stalls counted since launch. A rising number usually means the network, not the app.")
+                Text("Settings follow your Apple ID to your other devices. Recent searches and other SoundCloud account settings are cleared from this device when you sign out of SoundCloud.")
             }
-            .listRowBackground(Color.scBgOverlay)
+
+            if NetworkActivityLog.isVisible {
+                Section {
+                    NavigationLink("Network Activity") { NetworkActivityView() }
+                }
+            }
 
             Section {
                 Button("Reset All Settings", role: .destructive) {
                     showingResetConfirmation = true
                 }
             } footer: {
-                Text("Streaming and download quality, cellular policy, DJ defaults and the set-length threshold reset on this iPhone. Anything pinned to this iPhone is unpinned too.")
+                Text("Restores the default playback and download settings on this \(DeviceClass.current.displayName).")
             }
-            .listRowBackground(Color.scBgOverlay)
 
         }
         .settingsDetailChrome("About & Advanced")
@@ -1930,7 +1767,7 @@ private struct AboutAdvancedSettingsDetail: View {
             Button("Reset All Settings", role: .destructive) { resetAllSettings() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Streaming and download quality, cellular policy, DJ defaults and the set-length threshold reset on this iPhone. Synced settings pinned to this iPhone are unpinned too. Other devices are untouched.")
+            Text("Playback and download settings on this \(DeviceClass.current.displayName) return to their defaults.")
         }
     }
 
@@ -1938,8 +1775,8 @@ private struct AboutAdvancedSettingsDetail: View {
         store.setStreamingQualityCeiling(SettingKeys.StreamingQualityCeiling.defaultValue)
         store.setDownloadQualityCeiling(SettingKeys.DownloadQualityCeiling.defaultValue)
         store.setCellularStreamingAllowed(SettingKeys.CellularStreamingAllowed.defaultValue)
+        store.setLiveActivitiesEnabled(SettingKeys.LiveActivitiesEnabled.defaultValue)
         store.setCellularDownloadsAllowed(SettingKeys.CellularDownloadsAllowed.defaultValue)
-        store.setDownloadStorageCapBytes(SettingKeys.DownloadStorageCapBytes.defaultValue)
         store.setDJAutoMixEnabled(SettingKeys.DJAutoMixEnabled.defaultValue)
         store.setDJDefaultProfileId(SettingKeys.DJDefaultProfileId.defaultValue)
         store.setDJTransitionLengthSeconds(SettingKeys.DJTransitionLengthSeconds.defaultValue)
@@ -1952,4 +1789,15 @@ private struct AboutAdvancedSettingsDetail: View {
         store.setForceDeviceLocal(SettingKeys.SetMinimumDurationSeconds.self, false)
     }
 
+}
+
+private struct PhoneDownloadedMusicView: View {
+    @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
+
+    var body: some View {
+        DownloadedMusicView()
+            .environment(\.downloadedTrackPlayer) { track, context in
+                Task { await coordinator.play(track, in: context) }
+            }
+    }
 }

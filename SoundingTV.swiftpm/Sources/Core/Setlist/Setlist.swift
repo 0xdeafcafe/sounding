@@ -1,5 +1,33 @@
 import Foundation
 
+enum SetlistText {
+    /// Track lists frequently arrive with a mixture of tabs, non-breaking
+    /// spaces, zero-width separators, and even the literal strings `\t`/`\n`.
+    /// Keep that transport noise out of every set-list presentation and query.
+    static func normalized(_ value: String) -> String {
+        let decodedEscapes = value
+            .replacingOccurrences(of: #"\\[tnr]"#, with: " ", options: .regularExpression)
+        let visible = decodedEscapes.unicodeScalars.map { scalar -> String in
+            if CharacterSet.whitespacesAndNewlines.contains(scalar)
+                || CharacterSet.controlCharacters.contains(scalar)
+                || scalar.value == 0x200B
+                || scalar.value == 0xFEFF {
+                return " "
+            }
+            return String(scalar)
+        }.joined()
+        return visible
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+    }
+
+    static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let result = normalized(value)
+        return result.isEmpty ? nil : result
+    }
+}
+
 enum SetlistSegmentSource: String, Codable, Sendable {
     case uploaderTracklist
     case shazam
@@ -39,11 +67,12 @@ struct SetlistSegment: Identifiable, Codable, Equatable, Sendable {
     var isDeleted: Bool { deletedAt != nil }
 
     var displayLabel: String {
-        let base = [artist, title].compactMap { value in
-            guard let value, !value.isEmpty else { return nil }
-            return value
-        }.joined(separator: artist == nil ? "" : " – ")
-        guard let version, !version.isEmpty else { return base }
+        let normalizedArtist = SetlistText.normalized(artist)
+        let normalizedTitle = SetlistText.normalized(title)
+        let base = [normalizedArtist, normalizedTitle]
+            .compactMap { $0 }
+            .joined(separator: normalizedArtist == nil ? "" : " – ")
+        guard let version = SetlistText.normalized(version) else { return base }
         return "\(base) (\(version))"
     }
 
@@ -80,15 +109,92 @@ struct GeneratedSetlist: Codable, Equatable, Sendable {
     var completedProbeCount: Int { probes?.count ?? 0 }
     var recognizedProbeCount: Int { probes?.filter { $0.outcome == .matched }.count ?? 0 }
 
+    var activeSegments: [SetlistSegment] {
+        segments.filter { !$0.isDeleted }.sorted { $0.startSeconds < $1.startSeconds }
+    }
+
+    /// The end of an entry is the next trustworthy boundary. The final entry
+    /// runs to the end of the containing mix. This is more honest than trying
+    /// to infer an exact transition length from a twelve-second fingerprint.
+    func endSeconds(for segment: SetlistSegment) -> TimeInterval {
+        let nextStart = activeSegments.first(where: { $0.startSeconds > segment.startSeconds + 0.5 })?.startSeconds
+        return min(max(segment.startSeconds, nextStart ?? duration), max(duration, segment.startSeconds))
+    }
+
+    func durationSeconds(for segment: SetlistSegment) -> TimeInterval {
+        max(0, endSeconds(for: segment) - segment.startSeconds)
+    }
+
     func segment(at position: TimeInterval) -> SetlistSegment? {
-        segments.filter { !$0.isDeleted }
-            .sorted { $0.startSeconds < $1.startSeconds }
-            .last(where: { $0.startSeconds <= position + 2 })
+        guard position >= 0, position <= duration else { return nil }
+        return activeSegments.last(where: { $0.startSeconds <= position })
+    }
+
+    var tracklist: Tracklist { Tracklist(self) }
+}
+
+// MARK: - Tracklist
+
+struct TracklistEntry: Identifiable, Equatable, Sendable {
+    let index: Int
+    let segment: SetlistSegment
+    let startSeconds: TimeInterval
+    let endSeconds: TimeInterval
+
+    var id: String { segment.id }
+    var durationSeconds: TimeInterval { max(0, endSeconds - startSeconds) }
+
+    func contains(_ position: TimeInterval) -> Bool {
+        position >= startSeconds && position < endSeconds
     }
 }
 
-@MainActor
-enum SetlistSyncTarget {
-    /// Installed by the full apps. Extensions keep this nil and remain local.
-    static var requestSync: (() -> Void)?
+struct Tracklist: Equatable, Sendable {
+    let trackId: String
+    let duration: TimeInterval
+    let entries: [TracklistEntry]
+
+    init(_ setlist: GeneratedSetlist) {
+        let active = setlist.activeSegments
+        var entries: [TracklistEntry] = []
+        entries.reserveCapacity(active.count)
+        for (offset, segment) in active.enumerated() {
+            let nextStart = active[(offset + 1)...]
+                .first(where: { $0.startSeconds > segment.startSeconds + 0.5 })?
+                .startSeconds
+            let end = min(max(segment.startSeconds, nextStart ?? setlist.duration), max(setlist.duration, segment.startSeconds))
+            entries.append(TracklistEntry(
+                index: offset,
+                segment: segment,
+                startSeconds: segment.startSeconds,
+                endSeconds: end
+            ))
+        }
+        self.trackId = setlist.trackId
+        self.duration = setlist.duration
+        self.entries = entries
+    }
+
+    var isEmpty: Bool { entries.isEmpty }
+
+    func currentIndex(at position: TimeInterval) -> Int? {
+        guard position >= 0, position <= duration, !entries.isEmpty else { return nil }
+        var low = 0
+        var high = entries.count - 1
+        var found: Int?
+        while low <= high {
+            let mid = (low + high) / 2
+            if entries[mid].startSeconds <= position {
+                found = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return found
+    }
+
+    func currentEntry(at position: TimeInterval) -> TracklistEntry? {
+        currentIndex(at: position).map { entries[$0] }
+    }
 }

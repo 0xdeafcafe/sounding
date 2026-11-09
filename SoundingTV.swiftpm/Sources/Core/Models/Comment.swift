@@ -40,11 +40,12 @@ struct Comment: Identifiable, Codable, Hashable {
     }
 
     private static let placeholderUser: User = {
+        let fallbackURL = URL(string: "https://soundcloud.com") ?? URL(fileURLWithPath: "/")
         let json = Data("""
-        {"id":0,"username":"Unknown","permalink":"unknown","permalink_url":"https://soundcloud.com"}
+        {"id":0,"username":"Unknown","permalink":"unknown","permalink_url":"\(fallbackURL.absoluteString)"}
         """.utf8)
-        // swiftlint:disable:next force_try
-        return try! JSONDecoder().decode(User.self, from: json)
+        return (try? JSONDecoder().decode(User.self, from: json))
+            ?? User(id: "0", username: "Unknown", permalink: "unknown", permalinkURL: fallbackURL)
     }()
 
     func encode(to encoder: Encoder) throws {

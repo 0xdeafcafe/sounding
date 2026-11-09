@@ -1,827 +1,552 @@
 import SwiftUI
 import AppKit
+import Combine
 
-@MainActor
-final class MacSearchModel: ObservableObject {
-    @Published var searchText = "" {
-        didSet { scheduleSearch() }
-    }
-
-    @Published private(set) var tracks: [Track] = []
-    @Published private(set) var artists: [User] = []
-    @Published private(set) var albums: [Playlist] = []
-    @Published private(set) var isLoading = false
-    @Published private(set) var errorMessage: String?
-    @Published private(set) var isShowingCachedResults = false
-    @Published private(set) var recentQueries: [String]
-
-    private(set) var tracksPage: Page<Track>?
-    private(set) var artistsPage: Page<User>?
-    private(set) var playlistsPage: Page<Playlist>?
-
-    private let api = SoundCloudAPI.shared
-    private let cache = LibraryCache.shared
-    private var debounceTask: Task<Void, Never>?
-
-    private var generation = 0
-    private var completedNetworkGeneration: Int?
-    private static let cacheSection = "search.mac.last"
-    private static let recentQueriesKey = "red.forbes.sounding.mac.recentSearches"
-
-    init() {
-        recentQueries = UserDefaults.standard.stringArray(forKey: Self.recentQueriesKey) ?? []
-    }
-
-    private struct CachedSearch: Codable {
-        let query: String
-        let tracks: [Track]
-        let artists: [User]
-        let playlists: [Playlist]
-    }
-
-    var isSearching: Bool {
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var hasResults: Bool {
-        !tracks.isEmpty || !artists.isEmpty || !albums.isEmpty
-    }
-
-    func scheduleSearch() {
-        debounceTask?.cancel()
-        generation &+= 1
-        let issued = generation
-        let query = searchText.trimmingCharacters(in: .whitespaces)
-
-        guard !query.isEmpty else {
-            tracks = []
-            artists = []
-            albums = []
-            tracksPage = nil
-            artistsPage = nil
-            playlistsPage = nil
-            errorMessage = nil
-            isLoading = false
-            isShowingCachedResults = false
-            return
-        }
-
-        // Search is cache-first. Do not leave the prior query in place while
-        // a new query is pending, but restore an exact previous result as soon
-        // as the local cache responds.
-        tracks = []
-        artists = []
-        albums = []
-        tracksPage = nil
-        artistsPage = nil
-        playlistsPage = nil
-        errorMessage = nil
-        isLoading = true
-        isShowingCachedResults = false
-        completedNetworkGeneration = nil
-        Task { [weak self] in
-            await self?.hydrateCache(query: query, generation: issued)
-        }
-
-        debounceTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            guard !Task.isCancelled else { return }
-            await self?.runSearch(query: query, generation: issued)
-        }
-    }
-
-    func retry() { scheduleSearch() }
-
-    private func runSearch(query: String, generation: Int) async {
-        isLoading = true
-        defer {
-            if generation == self.generation { isLoading = false }
-        }
-
-        async let tracksTask = api.searchTracks(query: query)
-        async let artistsTask = api.searchUsers(query: query)
-        async let playlistsTask = api.searchPlaylists(query: query)
-
-        let tracksResult = try? await tracksTask
-        let artistsResult = try? await artistsTask
-        let playlistsResult = try? await playlistsTask
-
-        guard generation == self.generation else { return }
-
-        var anySucceeded = false
-        if let tracksResult {
-            tracks = tracksResult.collection
-            tracksPage = tracksResult
-            anySucceeded = true
-        }
-        if let artistsResult {
-            artists = artistsResult.collection
-            artistsPage = artistsResult
-            anySucceeded = true
-        }
-        if let playlistsResult {
-            playlistsPage = playlistsResult
-            albums = playlistsResult.collection.filter(\.isAlbum)
-            anySucceeded = true
-        }
-
-        errorMessage = anySucceeded ? nil : "Couldn't reach SoundCloud. Check your network connection."
-        if anySucceeded {
-            completedNetworkGeneration = generation
-            isShowingCachedResults = false
-            await persistCache(query: query)
-            remember(query)
-        }
-    }
-
-    private func remember(_ query: String) {
-        recentQueries.removeAll { $0.caseInsensitiveCompare(query) == .orderedSame }
-        recentQueries.insert(query, at: 0)
-        recentQueries = Array(recentQueries.prefix(12))
-        UserDefaults.standard.set(recentQueries, forKey: Self.recentQueriesKey)
-    }
-
-    private func hydrateCache(query: String, generation: Int) async {
-        let rows = await cache.loadSection(Self.cacheSection)
-        guard let payload = rows.first?.payload,
-              let cached = try? JSONDecoder().decode(CachedSearch.self, from: payload),
-              cached.query.caseInsensitiveCompare(query) == .orderedSame,
-              generation == self.generation,
-              completedNetworkGeneration != generation else { return }
-        tracks = cached.tracks
-        artists = cached.artists
-        albums = cached.playlists.filter(\.isAlbum)
-        errorMessage = nil
-        isShowingCachedResults = hasResults
-    }
-
-    private func persistCache(query: String) async {
-        let snapshot = CachedSearch(
-            query: query,
-            tracks: tracks,
-            artists: artists,
-            playlists: playlistsPage?.collection ?? albums
-        )
-        guard let payload = try? JSONEncoder().encode(snapshot) else { return }
-        await cache.replaceSection(Self.cacheSection, rows: [.init(id: query, payload: payload)])
-    }
-
-    static let browseGenres: [MusicGenre] = [
-        .deepHouse, .techno, .trance, .hardstyle,
-        .ukGarage, .drumAndBass, .dubstep, .nuDisco,
-        .hipHop, .rnb, .pop, .ambient
-    ]
-}
-
-@MainActor
-final class SeeAllPagingModel<T: Identifiable & Codable>: ObservableObject {
-    @Published private(set) var items: [T]
-    @Published private(set) var isLoadingMore = false
-
-    private var cursor = PageCursor<T>()
-
-    init(page: Page<T>?) {
-        items = page?.collection ?? []
-        if let page { cursor.advance(to: page) }
-    }
-
-    var canLoadMore: Bool { cursor.canLoadMore }
-
-    func loadMore() {
-        guard !isLoadingMore, canLoadMore, let last = cursor.lastPage else { return }
-        isLoadingMore = true
-        Task {
-            defer { isLoadingMore = false }
-            do {
-                let next = try await SoundCloudAPI.shared.getNextPage(last)
-                cursor.advance(to: next)
-                items.appendUnique(contentsOf: next.collection)
-            } catch {
-            }
-        }
-    }
-}
-
-private enum SearchDestination: Hashable {
-    case artists, albums, songs
-}
-
-private enum MacSearchScope: String, CaseIterable, Identifiable {
-    case soundCloud = "SoundCloud"
-    case library = "Library"
-    var id: Self { self }
-}
+typealias MacSearchModel = UnifiedSearchModel
 
 struct MacSearchView: View {
     @ObservedObject private var model: MacSearchModel
-    @ObservedObject private var libraryModel: MacLibraryModel
-    @FocusState private var searchFieldFocused: Bool
-    @State private var scope: MacSearchScope = .soundCloud
-    @State private var librarySearchText = ""
+    @ObservedObject private var findFocus = MacFindFocus.shared
+    @State private var isSearchPresented = false
+    @StateObject private var libraryInsights = LibrarySearchInsights()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(model: MacSearchModel, libraryModel: MacLibraryModel) {
+    static let prompt = "Artists, Tracks, Sets and More"
+
+    init(model: MacSearchModel) {
         self.model = model
-        self.libraryModel = libraryModel
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                searchHeader
-                content
-            }
-            .navigationDestination(for: SearchDestination.self) { destination in
-                switch destination {
-                case .artists: ArtistsSeeAllView(initialPage: model.artistsPage)
-                case .albums: AlbumsSeeAllView(initialPage: model.playlistsPage)
-                case .songs: SongsSeeAllView(initialPage: model.tracksPage)
-                }
-            }
-            .navigationDestination(for: User.self) { user in
-                MacArtistDetailView(user: user)
-            }
-            .navigationDestination(for: Playlist.self) { playlist in
-                if playlist.isAlbum {
-                    MacAlbumDetailView(album: playlist)
-                } else {
-                    MacPlaylistDetailView(playlist: playlist)
-                }
+        ZStack {
+            if model.isSearching {
+                resultsList
+                    .transition(.opacity)
+            } else {
+                idlePage
+                    .transition(.opacity)
             }
         }
-        .navigationTitle("")
-        .toolbar(removing: .title)
-        .background(
-            Group {
-                Button("") { searchFieldFocused = true }
-                    .keyboardShortcut("f", modifiers: .command)
-                Button("") { searchFieldFocused = true }
-                    .keyboardShortcut("k", modifiers: .command)
+        .animation(reduceMotion ? nil : SearchMotion.state, value: model.isSearching)
+        .navigationDestination(for: User.self) { user in
+            MacArtistDetailView(user: user)
+        }
+        .navigationDestination(for: Playlist.self) { playlist in
+            if playlist.isAlbum {
+                MacAlbumDetailView(album: playlist)
+            } else {
+                MacPlaylistDetailView(playlist: playlist)
             }
-            .opacity(0)
-            .allowsHitTesting(false)
+        }
+        .navigationDestination(for: SearchCategory.self) { category in
+            MacSearchCategoryView(category: category)
+        }
+        .navigationTitle("Search")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                MacIdentifySongToolbarButton()
+            }
+        }
+        .searchable(
+            text: $model.query,
+            isPresented: $isSearchPresented,
+            placement: .toolbar,
+            prompt: Self.prompt
         )
-    }
-
-    private var searchText: Binding<String> {
-        scope == .soundCloud ? $model.searchText : $librarySearchText
-    }
-
-    private var searchHeader: some View {
-        HStack(spacing: 18) {
-            Spacer(minLength: 180)
-
-            HStack(spacing: 8) {
-                MacSearchField(
-                    text: searchText,
-                    placeholder: scope == .soundCloud ? "Search SoundCloud" : "Search Library",
-                    isFocused: $searchFieldFocused
+        .searchSuggestions {
+            if model.isSearching {
+                ForEach(model.suggestions, id: \.self) { suggestion in
+                    Label(suggestion, systemImage: "magnifyingglass").searchCompletion(suggestion)
+                }
+            }
+        }
+        .onSubmit(of: .search) { dismissSearchFocus() }
+        .onChange(of: model.query, initial: true) { _, text in
+            libraryInsights.update(query: text)
+        }
+        .onExitCommand { dismissSearchFocus() }
+        .safeAreaBar(edge: .top) {
+            VStack(spacing: SCContentStyle.mac.spaceTight) {
+                MacGlassTabs(
+                    "Search in",
+                    selection: $model.scope,
+                    options: SearchScope.browsable,
+                    title: \.title
                 )
-                if scope == .soundCloud, model.isLoading {
-                    ProgressView().controlSize(.small)
+                .frame(maxWidth: .infinity)
+                if model.isSearching {
+                    SearchFilterPills(selection: $model.filter, filters: model.availableFilters, horizontalInset: 20)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            .frame(minWidth: 420, idealWidth: 620, maxWidth: 760)
-            .overlay(alignment: .topLeading) {
-                if searchFieldFocused, hasSearchSuggestions {
-                    searchSuggestionsMenu
-                        .padding(.top, 43)
-                }
-            }
-            .zIndex(20)
-
-            searchScopePicker
+            .padding(.top, SCContentStyle.mac.spaceSnug)
+            .padding(.bottom, SCContentStyle.mac.spaceTight)
+            .animation(reduceMotion ? nil : SearchMotion.state, value: model.isSearching)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
-        .padding(.bottom, 14)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .bottom) { Divider().opacity(0.55) }
-        .zIndex(20)
-    }
-
-    private var querySuggestions: [String] {
-        let query = searchText.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return Array(model.recentQueries.prefix(5)) }
-        let candidates = model.recentQueries
-            + model.artists.map(\.displayName)
-            + model.tracks.map(\.title)
-            + model.albums.map(\.title)
-        var seen = Set<String>()
-        return candidates.filter {
-            let key = $0.lowercased()
-            guard seen.insert(key).inserted,
-                  $0.localizedCaseInsensitiveContains(query),
-                  $0.caseInsensitiveCompare(query) != .orderedSame else { return false }
-            return true
-        }.prefix(3).map { $0 }
-    }
-
-    private var hasSearchSuggestions: Bool {
-        !querySuggestions.isEmpty
-            || (scope == .soundCloud && model.isSearching && model.hasResults)
-    }
-
-    private var searchSuggestionsMenu: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(querySuggestions, id: \.self) { suggestion in
-                    Button {
-                        searchText.wrappedValue = suggestion
-                    } label: {
-                        Label(suggestion, systemImage: "magnifyingglass")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 14)
-                            .frame(height: 38)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if scope == .soundCloud, model.isSearching, model.hasResults {
-                    Divider().padding(.horizontal, 14)
-
-                    ForEach(model.artists.prefix(3)) { artist in
-                        Button {
-                            searchFieldFocused = false
-                            MacRootSelection.shared.request(artist: artist)
-                        } label: {
-                            searchResultRow(
-                                title: artist.displayName,
-                                subtitle: "Artist",
-                                artworkURL: artist.avatarURL,
-                                circular: true
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    ForEach(model.tracks.prefix(3)) { track in
-                        Button {
-                            searchFieldFocused = false
-                            Task { await PlayerService.shared.play(track, in: model.tracks) }
-                        } label: {
-                            searchResultRow(
-                                title: track.title,
-                                subtitle: "Track · \(track.user.displayName)",
-                                artworkURL: track.artworkURL,
-                                circular: false
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    ForEach(model.albums.prefix(2)) { album in
-                        NavigationLink(value: album) {
-                            searchResultRow(
-                                title: album.title,
-                                subtitle: "Album · \(album.user.displayName)",
-                                artworkURL: album.artworkURL,
-                                circular: false
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .padding(.vertical, 7)
-        }
-        .scrollIndicators(.hidden)
-        .frame(maxHeight: 520)
-        .frame(maxWidth: .infinity)
+        .onReceive(findFocus.$request.dropFirst()) { _ in isSearchPresented = true }
         .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    LinearGradient(
-                        colors: [.clear, Color.orange.opacity(0.15), Color(red: 0.16, green: 0.05, blue: 0.02).opacity(0.35)],
-                        startPoint: .topTrailing,
-                        endPoint: .bottomLeading
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                }
+            MacSearchFocusDismissalMonitor(isSearchPresented: $isSearchPresented)
+                .frame(width: 0, height: 0)
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.orange.opacity(0.24), lineWidth: 0.8)
+        .onAppear {
+            if !SearchScope.browsable.contains(model.scope) { model.scope = .soundCloud }
+            model.reloadRecents()
         }
-        .shadow(color: .black.opacity(0.38), radius: 22, y: 11)
-    }
-
-    private func searchResultRow(
-        title: String,
-        subtitle: String,
-        artworkURL: URL?,
-        circular: Bool
-    ) -> some View {
-        HStack(spacing: 11) {
-            SearchSuggestionArtwork(url: artworkURL, circular: circular)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 58)
-        .contentShape(Rectangle())
-    }
-
-    private var searchScopePicker: some View {
-        HStack(spacing: 3) {
-            ForEach(MacSearchScope.allCases) { candidate in
-                Button {
-                    scope = candidate
-                    searchFieldFocused = true
-                } label: {
-                    Text(candidate.rawValue)
-                        .font(.system(size: 12, weight: scope == candidate ? .semibold : .medium))
-                        .foregroundStyle(scope == candidate ? Color.white : Color.secondary)
-                        .padding(.horizontal, 13)
-                        .frame(height: 28)
-                        .background(
-                            scope == candidate ? Color.white.opacity(0.12) : .clear,
-                            in: Capsule(style: .continuous)
-                        )
-                }
-                .buttonStyle(.plain)
+        #if DEBUG
+        .onAppear {
+            if VisualFixtures.isEnabled, let query = ProcessInfo.processInfo.environment["SOUNDING_TV_UI_SEARCH"], model.query.isEmpty {
+                model.search(query)
             }
         }
-        .padding(3)
-        .glassEffect(.regular, in: Capsule(style: .continuous))
-        .fixedSize()
+        #endif
     }
 
-    @ViewBuilder
-    private var content: some View {
-        if scope == .library {
-            libraryContent
-        } else if !model.isSearching {
-            browseCategoriesSection
-        } else if model.isLoading, !model.hasResults {
-            searchingState
-        } else if let errorMessage = model.errorMessage, !model.hasResults {
-            SCEmptyState(
-                kind: .error,
-                title: "Couldn't Search SoundCloud",
-                message: errorMessage,
-                actionTitle: "Try Again",
-                action: { model.retry() },
-                style: .mac
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if !model.hasResults {
-            SCEmptyState(
-                icon: "magnifyingglass",
-                title: "No Results",
-                message: "Try a different spelling, or search for an artist instead.",
-                actionTitle: "Clear Search",
-                action: { model.searchText = "" },
-                style: .mac
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            resultsSections
-                .overlay(alignment: .topTrailing) {
-                    if model.isLoading && model.isShowingCachedResults {
-                        cacheRefreshNotice
-                            .padding(16)
-                    }
-                }
-        }
+    private func dismissSearchFocus() {
+        isSearchPresented = false
+        NSApp.keyWindow?.makeFirstResponder(nil)
     }
 
-    @ViewBuilder
-    private var libraryContent: some View {
-        if librarySearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            SCEmptyState(
-                icon: "music.note.list",
-                title: "Search Your Library",
-                message: "Find songs from your likes and saved library.",
-                style: .mac
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if libraryMatches.isEmpty {
-            SCEmptyState(
-                icon: "magnifyingglass",
-                title: "No Library Results",
-                message: "Nothing in your library matched \u{201C}\(librarySearchText)\u{201D}.",
-                actionTitle: "Clear Search",
-                action: { librarySearchText = "" },
-                style: .mac
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    SCSectionHeader(title: "Songs in Your Library", style: .mac)
-                    LazyVGrid(columns: Self.songColumns, alignment: .leading, spacing: 2) {
-                        ForEach(libraryMatches) { track in
-                            SongRow(track: track, context: libraryMatches)
-                        }
-                    }
-                }
-                .padding(20)
-            }
-        }
-    }
+    // MARK: - Idle
 
-    private var libraryMatches: [Track] {
-        let needle = librarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return [] }
-        return libraryModel.tracks.filter {
-            $0.title.localizedCaseInsensitiveContains(needle)
-                || $0.user.displayName.localizedCaseInsensitiveContains(needle)
-                || $0.user.username.localizedCaseInsensitiveContains(needle)
-                || ($0.genre?.localizedCaseInsensitiveContains(needle) ?? false)
-        }
-    }
-
-    private static let browseColumns = Array(
+    private static let categoryColumns = Array(
         repeating: GridItem(.flexible(), spacing: SCContentStyle.mac.spaceBase),
         count: 5
     )
 
-    private var browseCategoriesSection: some View {
+    private var idlePage: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceGutter) {
-                if !model.recentQueries.isEmpty {
-                    SCSectionHeader(title: "Recently Searched", style: .mac)
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 10) {
-                            ForEach(model.recentQueries.prefix(8), id: \.self) { query in
-                                Button {
-                                    model.searchText = query
-                                    searchFieldFocused = true
-                                } label: {
-                                    Label(query, systemImage: "clock.arrow.circlepath")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(.primary)
-                                        .padding(.horizontal, 14)
-                                        .frame(height: 38)
-                                        .glassEffect(
-                                            .regular.tint(.orange.opacity(0.06)),
-                                            in: Capsule(style: .continuous)
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                            }
+            LazyVStack(alignment: .leading, spacing: SCContentStyle.mac.spaceGutter) {
+                if !model.recents.isEmpty {
+                    HStack(alignment: .firstTextBaseline) {
+                        SCSectionHeader(title: "Recently Searched", style: .mac)
+                        Spacer()
+                        Button("Clear") {
+                            withAnimation(reduceMotion ? nil : SearchMotion.state) { model.clearRecents() }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: SCContentStyle.mac.spaceBase)], alignment: .leading, spacing: 4) {
+                        ForEach(model.recents) { entry in
+                            recentCard(entry)
                         }
                     }
-                    .scrollIndicators(.hidden)
                 }
-                SCSectionHeader(title: "Vibes", style: .mac)
-
-                LazyVGrid(columns: Self.browseColumns, spacing: SCContentStyle.mac.spaceBase) {
-                    ForEach(SearchVibe.all) { vibe in
-                        VibeBrowseTile(vibe: vibe) {
-                            model.searchText = vibe.query
+                SCSectionHeader(title: "Browse Categories", style: .mac)
+                LazyVGrid(columns: Self.categoryColumns, spacing: SCContentStyle.mac.spaceBase) {
+                    ForEach(SearchCategory.all) { category in
+                        NavigationLink(value: category) {
+                            SearchCategoryTile(category: category, cornerRadius: SCContentStyle.mac.cornerControl)
                         }
+                        .buttonStyle(.plain)
+                        .macHoverLift()
+                        .help(category.title)
                     }
                 }
             }
             .padding(20)
+            .animation(reduceMotion ? nil : SearchMotion.state, value: model.recents.map(\.id))
         }
+        .defaultScrollAnchor(.top, for: .alignment)
     }
 
-    private var cacheRefreshNotice: some View {
-        HStack(spacing: 6) {
-            ProgressView().controlSize(.small)
-            Text("Refreshing saved results…")
-                .font(.system(size: 12, weight: .medium))
-        }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(.regularMaterial, in: Capsule())
-        .accessibilityLabel("Refreshing saved search results")
-    }
-
-    private var searchingState: some View {
-        VStack(spacing: 10) {
-            ProgressView().controlSize(.small)
-            Text("Searching SoundCloud…")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 140, alignment: .center)
-    }
-
-    private var resultsSections: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceSection) {
-                if !model.artists.isEmpty {
-                    resultsSection(title: "Artists", destination: .artists) {
-                        HStack(alignment: .top, spacing: 20) {
-                            ForEach(model.artists.prefix(8)) { user in
-                                ArtistTile(user: user)
-                            }
-                        }
-                    }
+    @ViewBuilder
+    private func recentCard(_ entry: RecentSearchEntry) -> some View {
+        let card = SearchRecentCard(entry: entry, thumbnailSize: 40)
+            .padding(.horizontal, 6)
+        Group {
+            switch model.recentHits[entry.id] {
+            case .artist(let user)?:
+                Button {
+                    model.remember(.artist(user))
+                    MacRootSelection.shared.request(artist: user)
+                } label: {
+                    card
                 }
-
-                if !model.albums.isEmpty {
-                    resultsSection(title: "Albums", destination: .albums) {
-                        HStack(alignment: .top, spacing: 20) {
-                            ForEach(model.albums.prefix(6)) { playlist in
-                                AlbumTile(playlist: playlist)
-                            }
-                        }
-                    }
+            case .playlist(let playlist)?:
+                NavigationLink(value: playlist) {
+                    card
                 }
-
-                if !model.tracks.isEmpty {
-                    resultsSection(title: "Songs", destination: .songs) {
-                        LazyVGrid(columns: Self.songColumns, alignment: .leading, spacing: 2) {
-                            ForEach(model.tracks.prefix(10)) { track in
-                                SongRow(track: track, context: model.tracks)
-                            }
-                        }
-                    }
+                .simultaneousGesture(TapGesture().onEnded { model.remember(.playlist(playlist)) })
+            case .track(let track)?:
+                Button {
+                    model.remember(.track(track))
+                    Task { await MacPlayback.play(track, in: [track]) }
+                } label: {
+                    card
+                }
+                .disabled(track.streamURL == nil)
+            case nil:
+                Button {
+                    model.search(entry.query)
+                } label: {
+                    card
                 }
             }
-            .padding(20)
         }
-        .prefetchArtwork(resultsArtworkURLs)
+        .buttonStyle(.plain)
+        .macHoverRowHighlight(cornerRadius: 8)
+        .contextMenu {
+            Button("Remove from Recently Searched", systemImage: "minus.circle") {
+                withAnimation(reduceMotion ? nil : SearchMotion.state) { model.removeRecent(entry) }
+            }
+        }
     }
 
-    private var resultsArtworkURLs: [URL] {
-        model.artists.prefix(8).compactMap { $0.largeAvatarURL ?? $0.avatarURL }
-            + model.albums.prefix(6).compactMap(\.displayArtworkURL)
-            + model.tracks.prefix(10).compactMap(\.artworkURL)
+    // MARK: - Results
+
+    private var resultsList: some View {
+        let items = model.visibleItems
+        let queue = items.compactMap(\.hit.track)
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if model.filter == .top {
+                    if showsAskLibrary {
+                        askLibrarySection
+                            .padding(.bottom, SCContentStyle.mac.spaceSection)
+                    }
+                    if showsVibe {
+                        vibeSection
+                            .padding(.bottom, SCContentStyle.mac.spaceSection)
+                    }
+                }
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 {
+                        Divider().padding(.leading, 48 + 12 + 8)
+                    }
+                    MacSearchResultRow(item: item, queue: queue) { model.remember(item.hit) }
+                        .onAppear { model.loadMoreIfNeeded(after: item) }
+                }
+                if model.isPaging {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+            .animation(reduceMotion ? nil : SearchMotion.state, value: items.map(\.id))
+        }
+        .contentMargins(.bottom, 12, for: .scrollContent)
+        .defaultScrollAnchor(.top, for: .alignment)
+        .prefetchArtwork(items.prefix(30).compactMap(\.hit.artworkURL), variant: .thumbnail)
+        .overlay {
+            if items.isEmpty, !showsAskLibrary, !showsVibe {
+                emptyState
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if model.phase == .failed, model.scope.includesSoundCloud {
+            ContentUnavailableView {
+                Label("Couldn’t Search SoundCloud", systemImage: "wifi.exclamationmark")
+            } description: {
+                Text("Check your network connection.")
+            } actions: {
+                Button("Try Again") { model.retry() }
+            }
+            .macFillsPane()
+        } else if model.phase == .searching || (model.scope.includesSoundCloud && (model.isRemoteLoading || model.isPaging)) {
+            ProgressView()
+                .controlSize(.large)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel("Searching")
+        } else if model.scope == .library {
+            ContentUnavailableView {
+                Label("Nothing in Your Library", systemImage: "music.note.list")
+            } description: {
+                Text("Try SoundCloud to search everything.")
+            } actions: {
+                Button("Search SoundCloud") { model.scope = .soundCloud }
+            }
+            .macFillsPane()
+        } else {
+            ContentUnavailableView.search(text: model.trimmedQuery)
+                .macFillsPane()
+        }
+    }
+
+    private var showsAskLibrary: Bool {
+        model.filter == .top && model.scope.includesLibrary && LibrarySearchInsights.canAskLibrary && LibraryQuestionHeuristics.looksLikeQuestion(model.trimmedQuery)
+    }
+
+    private var showsVibe: Bool {
+        model.filter == .top && model.scope.includesLibrary && !libraryInsights.vibeTracks.isEmpty
     }
 
     private static let songColumns = [GridItem(.flexible(), spacing: 24), GridItem(.flexible(), spacing: 24)]
 
     @ViewBuilder
-    private func resultsSection<Content: View>(
-        title: String, destination: SearchDestination, @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            NavigationLink(value: destination) {
-                SCSectionHeader(title: title, showChevron: true, style: .mac)
+    private var askLibrarySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            switch libraryInsights.question {
+            case .idle:
+                Button {
+                    libraryInsights.ask(model.trimmedQuery)
+                } label: {
+                    Label("Ask Your Library", systemImage: "sparkles")
+                }
+                .buttonStyle(.glass)
+            case .asking:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Searching your library…").foregroundStyle(.secondary)
+                }
+            case .noAnswer:
+                Text("Nothing in your library matches.").foregroundStyle(.secondary)
+            case .answered(let text, let tracks):
+                if !text.isEmpty {
+                    Label(text, systemImage: "sparkles").foregroundStyle(.secondary)
+                }
+                LazyVGrid(columns: Self.songColumns, alignment: .leading, spacing: 2) {
+                    ForEach(tracks.prefix(10)) { track in
+                        SongRow(track: track, context: Array(tracks.prefix(10)))
+                    }
+                }
             }
-            .buttonStyle(.plain)
+        }
+    }
 
-            ScrollView(.horizontal) {
-                content()
+    private var vibeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SCSectionHeader(title: "Matching Vibe in Your Likes", style: .mac)
+            LazyVGrid(columns: Self.songColumns, alignment: .leading, spacing: 8) {
+                ForEach(libraryInsights.vibeTracks.prefix(6)) { track in
+                    VStack(alignment: .leading, spacing: 4) {
+                        SongRow(track: track, context: Array(libraryInsights.vibeTracks.prefix(6)))
+                        GeneratedTagChips(tags: GeneratedInsightsService.shared.insights(for: track.id)?.tags ?? [], font: .caption)
+                    }
+                }
             }
-            .scrollIndicators(.hidden)
         }
     }
 }
 
-private struct MacSearchField: View {
-    @Binding var text: String
-    var placeholder = "Search SoundCloud"
-    var isFocused: FocusState<Bool>.Binding
+private struct MacSearchResultRow: View {
+    let item: SearchResultItem
+    let queue: [Track]
+    let onOpen: () -> Void
 
     var body: some View {
-        HStack(spacing: SCContentStyle.mac.spaceTight) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .font(.system(size: 12))
-            TextField(placeholder, text: $text)
-                .textFieldStyle(.plain)
-                .focused(isFocused)
-            if !text.isEmpty {
+        switch item.hit {
+        case .track(let track):
+            HStack(spacing: 8) {
                 Button {
-                    text = ""
+                    onOpen()
+                    Task { await MacPlayback.play(track, in: queue) }
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                    SearchResultRowLabel(item: item, thumbnailSize: 48)
                 }
                 .buttonStyle(.plain)
+                .disabled(track.streamURL == nil)
+                Menu {
+                    MacTrackContextMenu(track: track, context: queue)
+                } label: {
+                    Label("More", systemImage: "ellipsis")
+                        .labelStyle(.iconOnly)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("More")
+                .accessibilityLabel("More for \(track.title)")
             }
+            .padding(.horizontal, 8)
+            .macHoverRowHighlight(cornerRadius: 8)
+            .opacity(track.streamURL == nil ? 0.5 : 1)
+            .help(track.streamURL == nil ? "Not playable on this account" : "Play")
+            .contextMenu { MacTrackContextMenu(track: track, context: queue) }
+        case .artist(let user):
+            Button {
+                onOpen()
+                MacRootSelection.shared.request(artist: user)
+            } label: {
+                navigable
+            }
+            .buttonStyle(.plain)
+            .macHoverRowHighlight(cornerRadius: 8)
+            .contextMenu { MacArtistContextMenu(artist: user) }
+        case .playlist(let playlist):
+            NavigationLink(value: playlist) {
+                navigable
+            }
+            .buttonStyle(.plain)
+            .macHoverRowHighlight(cornerRadius: 8)
+            .simultaneousGesture(TapGesture().onEnded { onOpen() })
+            .contextMenu { MacPlaylistContextMenu(playlist: playlist) }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .glassEffect(
-            .regular.tint(.orange.opacity(isFocused.wrappedValue ? 0.08 : 0.025)),
-            in: Capsule(style: .continuous)
-        )
-        .overlay {
-            Capsule(style: .continuous)
-                .strokeBorder(
-                    Color.orange.opacity(isFocused.wrappedValue ? 0.62 : 0.10),
-                    lineWidth: isFocused.wrappedValue ? 1.5 : 0.7
-                )
+    }
+
+    private var navigable: some View {
+        HStack(spacing: 8) {
+            SearchResultRowLabel(item: item, thumbnailSize: 48)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
         }
+        .padding(.horizontal, 8)
+        .contentShape(Rectangle())
     }
 }
 
-private struct SearchSuggestionArtwork: View {
-    let url: URL?
-    let circular: Bool
-    @State private var image: NSImage?
+private struct MacSearchCategoryView: View {
+    let category: SearchCategory
+
+    @StateObject private var model: SearchCategoryModel
+
+    init(category: SearchCategory) {
+        self.category = category
+        _model = StateObject(wrappedValue: SearchCategoryModel(category: category))
+    }
 
     var body: some View {
-        Group {
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                Rectangle()
-                    .fill(Color.orange.opacity(0.14))
-                    .overlay {
-                        Image(systemName: circular ? "person.fill" : "waveform")
-                            .foregroundStyle(Color.orange.opacity(0.72))
+        content
+            .navigationTitle(category.title)
+            .task { await model.load() }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch model.state {
+        case .loading:
+            ProgressView()
+                .controlSize(.large)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .failed:
+            ContentUnavailableView {
+                Label("Couldn’t Load \(category.title)", systemImage: "wifi.exclamationmark")
+            } description: {
+                Text("Check your network connection.")
+            } actions: {
+                Button("Try Again") { Task { await model.load(force: true) } }
+            }
+            .macFillsPane()
+        case .empty:
+            ContentUnavailableView(
+                "Nothing Here Yet",
+                systemImage: "music.note",
+                description: Text("Nothing is trending in \(category.title) right now.")
+            )
+            .macFillsPane()
+        case .loaded:
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        Button("Play", systemImage: "play.fill") { play(shuffled: false) }
+                            .buttonStyle(.glassProminent)
+                        Button("Shuffle", systemImage: "shuffle") { play(shuffled: true) }
+                            .buttonStyle(.glass)
                     }
+                    .padding(.bottom, 12)
+                    ForEach(model.tracks) { track in
+                        SongRow(track: track, context: model.tracks)
+                    }
+                }
+                .padding(20)
             }
+            .defaultScrollAnchor(.top, for: .alignment)
+            .prefetchArtwork(model.tracks.prefix(20).compactMap(\.artworkURL))
         }
-        .frame(width: 42, height: 42)
-        .clipShape(
-            circular
-                ? AnyShape(Circle())
-                : AnyShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
+    private func play(shuffled: Bool) {
+        let playable = model.tracks.filter { $0.streamURL != nil }
+        let queue = shuffled ? playable.shuffled() : playable
+        guard let first = queue.first else { return }
+        Task { await MacPlayback.play(first, in: queue) }
+    }
+}
+
+private struct MacSearchFocusDismissalMonitor: NSViewRepresentable {
+    @Binding var isSearchPresented: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.update(
+            window: nsView.window,
+            isSearchPresented: $isSearchPresented
         )
-        .task(id: url) {
-            image = nil
-            guard let url else { return }
-            image = await ArtworkCache.shared.image(for: url, variant: .standard)
-        }
-    }
-}
-
-private struct SearchAvatarView: View {
-    let url: URL?
-    var size: CGFloat
-    @State private var image: NSImage?
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
-            } else {
-                Circle()
-                    .fill(.quaternary)
-                    .overlay(
-                        Image(systemName: "person.fill")
-                            .font(.system(size: size * 0.32))
-                            .foregroundStyle(.tertiary)
-                    )
+        if nsView.window == nil {
+            DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
+                coordinator?.update(
+                    window: nsView?.window,
+                    isSearchPresented: $isSearchPresented
+                )
             }
         }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .task(id: url) {
-            image = nil
-            guard let url else { return }
-            image = await ArtworkCache.shared.image(for: url, variant: .standard)
-        }
     }
-}
 
-private struct ArtistTile: View {
-    let user: User
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
 
-    var body: some View {
-        Button {
-            MacRootSelection.shared.request(artist: user)
-        } label: {
-            VStack(spacing: 8) {
-                SearchAvatarView(url: user.avatarURL, size: 96)
-                Text(user.displayName)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+    @MainActor
+    final class Coordinator {
+        private weak var window: NSWindow?
+        private var isSearchPresented: Binding<Bool>?
+        private var eventMonitor: Any?
+
+        func update(window: NSWindow?, isSearchPresented: Binding<Bool>) {
+            self.isSearchPresented = isSearchPresented
+            guard self.window !== window else { return }
+            stop()
+            self.window = window
+            guard window != nil else { return }
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+                guard let self,
+                      let window = self.window,
+                      event.window != nil,
+                      self.isSearchPresented?.wrappedValue == true else { return event }
+
+                if event.window === window,
+                   Self.isInsideSearchField(event, in: window) {
+                    return event
+                }
+
+                DispatchQueue.main.async { [weak self, weak window] in
+                    self?.isSearchPresented?.wrappedValue = false
+                    window?.makeFirstResponder(nil)
+                }
+                return event
             }
-            .frame(width: 104)
         }
-        .buttonStyle(.plain)
-        .macHoverLift()
-        .contextMenu { MacArtistContextMenu(artist: user) }
-        .help("View \(user.displayName)")
-    }
-}
 
-private struct AlbumTile: View {
-    let playlist: Playlist
-
-    var body: some View {
-        NavigationLink(value: playlist) {
-            MacPlaylistCard(playlist: playlist)
-                .frame(width: 150, alignment: .leading)
+        func stop() {
+            if let eventMonitor {
+                NSEvent.removeMonitor(eventMonitor)
+                self.eventMonitor = nil
+            }
+            window = nil
         }
-        .buttonStyle(.plain)
-        .macHoverLift()
-        .contextMenu { MacPlaylistContextMenu(playlist: playlist) }
-        .help("View “\(playlist.title)”")
+
+        private static func isInsideSearchField(_ event: NSEvent, in window: NSWindow) -> Bool {
+            guard let root = window.contentView?.superview else { return false }
+            let point = root.convert(event.locationInWindow, from: nil)
+            var hitView = root.hitTest(point)
+            while let view = hitView {
+                if view is NSSearchField { return true }
+                hitView = view.superview
+            }
+            return false
+        }
     }
 }
 
 private struct SongRow: View {
     let track: Track
     let context: [Track]
+    var caption: String? = nil
 
     private var isPlayable: Bool { track.streamURL != nil }
 
@@ -834,27 +559,41 @@ private struct SongRow: View {
     }
 
     var body: some View {
-        SCTrackRow(
-            title: track.title,
-            subtitle: track.user.displayName,
-            artworkImage: displayedArtwork.map { Image(nsImage: $0) },
-            isAvailable: isPlayable,
-            crownUser: track.user,
-            crownContext: track.title,
-            style: .mac
-        ) {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 20)
-                .help("Right-click for more options")
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
+        Button {
             guard isPlayable else { return }
-            Task { await PlayerService.shared.play(track, in: context) }
+            Task { await MacPlayback.play(track, in: context) }
+        } label: {
+            SCTrackRow(
+                title: track.title,
+                subtitle: caption ?? track.user.displayName,
+                artworkImage: displayedArtwork.map { Image(nsImage: $0) },
+                artIdentity: track.id,
+                isAvailable: isPlayable,
+                crownUser: track.user,
+                crownContext: track.title,
+                style: .mac
+            ) {
+                Menu {
+                    MacTrackContextMenu(track: track, context: context)
+                } label: {
+                    Label("More", systemImage: "ellipsis")
+                        .labelStyle(.iconOnly)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("More")
+                .accessibilityLabel("More")
+            }
+            .contentShape(Rectangle())
         }
-        .contextMenu { MacTrackContextMenu(track: track) }
+        .buttonStyle(.plain)
+        .disabled(!isPlayable)
+        .macHoverRowHighlight()
+        .help(isPlayable ? "Play" : "Not playable on this account")
+        .macTrackAccessibility(track: track, context: context)
+        .trackDragSource(track)
+        .contextMenu { MacTrackContextMenu(track: track, context: context) }
         .task(id: track.artworkURL) {
             guard let url = track.artworkURL else {
                 artwork = nil
@@ -869,137 +608,3 @@ private struct SongRow: View {
     }
 }
 
-private struct ArtistsSeeAllView: View {
-    @StateObject private var paging: SeeAllPagingModel<User>
-
-    init(initialPage: Page<User>?) {
-        _paging = StateObject(wrappedValue: SeeAllPagingModel(page: initialPage))
-    }
-
-    private let columns = [GridItem(.adaptive(minimum: 100, maximum: 130), spacing: 20)]
-
-    private static let artworkLookahead = 12
-
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 24) {
-                ForEach(Array(paging.items.enumerated()), id: \.element.id) { index, user in
-                    ArtistTile(user: user)
-                        .onAppear {
-                            guard paging.items.isNearEnd(user, lead: 8) else { return }
-                            paging.loadMore()
-                        }
-                        .onAppear {
-                            let items = paging.items
-                            let lookahead = items[index..<min(index + Self.artworkLookahead, items.count)]
-                            ArtworkCache.shared.prefetch(lookahead.compactMap { $0.largeAvatarURL ?? $0.avatarURL })
-                        }
-                }
-            }
-            .padding(20)
-
-            if paging.isLoadingMore {
-                ProgressView().padding(.bottom, 20)
-            }
-        }
-        .navigationTitle("Artists")
-    }
-}
-
-private struct AlbumsSeeAllView: View {
-    @StateObject private var paging: SeeAllPagingModel<Playlist>
-
-    init(initialPage: Page<Playlist>?) {
-        _paging = StateObject(wrappedValue: SeeAllPagingModel(page: initialPage))
-    }
-
-    private let columns = [GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 20)]
-
-    private var albums: [Playlist] { paging.items.filter(\.isAlbum) }
-
-    private static let artworkLookahead = 12
-
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
-                ForEach(Array(albums.enumerated()), id: \.element.id) { index, playlist in
-                    AlbumTile(playlist: playlist)
-                        .onAppear {
-                            guard albums.isNearEnd(playlist, lead: 6) else { return }
-                            paging.loadMore()
-                        }
-                        .onAppear {
-                            let items = albums
-                            let lookahead = items[index..<min(index + Self.artworkLookahead, items.count)]
-                            ArtworkCache.shared.prefetch(lookahead.compactMap(\.artworkURL))
-                        }
-                }
-            }
-            .padding(20)
-
-            if paging.isLoadingMore {
-                ProgressView().padding(.bottom, 20)
-            }
-        }
-        .navigationTitle("Albums")
-    }
-}
-
-private struct SongsSeeAllView: View {
-    @StateObject private var paging: SeeAllPagingModel<Track>
-
-    init(initialPage: Page<Track>?) {
-        _paging = StateObject(wrappedValue: SeeAllPagingModel(page: initialPage))
-    }
-
-    private let columns = [GridItem(.flexible(), spacing: 24), GridItem(.flexible(), spacing: 24)]
-
-    private static let artworkLookahead = 10
-
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 2) {
-                ForEach(Array(paging.items.enumerated()), id: \.element.id) { index, track in
-                    SongRow(track: track, context: paging.items)
-                        .onAppear {
-                            guard paging.items.isNearEnd(track, lead: 10) else { return }
-                            paging.loadMore()
-                        }
-                        .onAppear {
-                            let items = paging.items
-                            let lookahead = items[index..<min(index + Self.artworkLookahead, items.count)]
-                            ArtworkCache.shared.prefetch(lookahead.compactMap(\.artworkURL))
-                        }
-                }
-            }
-            .padding(20)
-
-            if paging.isLoadingMore {
-                ProgressView().padding(.bottom, 20)
-            }
-        }
-        .navigationTitle("Songs")
-    }
-}
-
-private struct VibeBrowseTile: View {
-    let vibe: SearchVibe
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            SearchVibeArtwork(vibe: vibe, cornerRadius: SCContentStyle.mac.cornerControl)
-            .aspectRatio(1.7, contentMode: .fit)
-            .overlay(
-                RoundedRectangle(cornerRadius: SCContentStyle.mac.cornerControl, style: .continuous)
-                    .strokeBorder(Color.white.opacity(isHovering ? 0.25 : 0), lineWidth: 2)
-            )
-        }
-        .buttonStyle(.plain)
-        .macHoverLift()
-        .onHover { isHovering = $0 }
-        .animation(SCContentMotion.focus, value: isHovering)
-    }
-}

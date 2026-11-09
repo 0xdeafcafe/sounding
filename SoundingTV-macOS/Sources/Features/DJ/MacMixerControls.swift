@@ -61,14 +61,16 @@ struct MacEngineFader: View {
     let value: @MainActor @Sendable () -> Double
     let setValue: @MainActor @Sendable (Double) -> Void
     let publisher: AnyPublisher<Double, Never>
-    var tint: Color = .accentColor
+    var tint: Color = .scAccent
+    var accessibilityLabel: String = "Fader"
 
     @State private var current: Double?
 
     var body: some View {
         MacHorizontalFader(
             value: Binding(get: { current ?? value() }, set: setValue),
-            tint: tint
+            tint: tint,
+            accessibilityLabel: accessibilityLabel
         )
         .onReceive(publisher) { current = $0 }
     }
@@ -76,14 +78,15 @@ struct MacEngineFader: View {
 
 struct MacKnob: View {
     let label: String
-    @Binding var value: Double   // 0...1
+    @Binding var value: Double
     var bipolar = true
-    var tint: Color = .accentColor
+    var tint: Color = .scAccent
     var resetValue: Double?
     var diameter: CGFloat = 46
     var valueLabel: String?
 
     @State private var dragOrigin: Double?
+    @Environment(\.colorSchemeContrast) private var contrast
 
     private let sweepDegrees: Double = 135
 
@@ -91,7 +94,7 @@ struct MacKnob: View {
         VStack(spacing: 3) {
             ZStack {
                 Circle().fill(Color.white.opacity(0.07))
-                Circle().strokeBorder(Color.white.opacity(0.22), lineWidth: 1)
+                Circle().strokeBorder(Color.white.opacity(contrast == .increased ? 0.5 : 0.22), lineWidth: 1)
 
                 arc(from: fillStartDegrees, to: angleDegrees)
                     .stroke(tint, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
@@ -111,13 +114,36 @@ struct MacKnob: View {
             .help("\(label): drag vertically · hold Option for fine adjustment · double-click to reset")
 
             Text(label.uppercased())
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.5))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(contrast.macInk(0.5, increased: 0.85))
             if let valueLabel {
                 Text(valueLabel)
-                    .font(.system(size: 9, weight: .regular, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.32))
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(contrast.macInk(0.45, increased: 0.85))
             }
+        }
+        .focusable()
+        .onKeyPress(.upArrow) {
+            value = (value + 0.05).clampedToUnit
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            value = (value - 0.05).clampedToUnit
+            return .handled
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(valueLabel ?? "\(Int(value.clampedToUnit * 100)) percent")
+        .accessibilityHint("Use up and down arrows to adjust")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: value = (value + 0.05).clampedToUnit
+            case .decrement: value = (value - 0.05).clampedToUnit
+            @unknown default: break
+            }
+        }
+        .accessibilityAction(named: "Reset") {
+            if let resetValue { value = resetValue }
         }
     }
 
@@ -150,12 +176,15 @@ struct MacKnob: View {
 }
 
 struct MacHorizontalFader: View {
-    @Binding var value: Double   // 0...1
-    var tint: Color = .accentColor
+    @Binding var value: Double
+    var tint: Color = .scAccent
     var trackHeight: CGFloat = 6
     var knobDiameter: CGFloat = 20
+    var accessibilityLabel: String = "Fader"
+    var accessibilityValueText: String?
 
     @State private var fineOrigin: (value: Double, x: CGFloat)?
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         GeometryReader { geo in
@@ -164,13 +193,13 @@ struct MacHorizontalFader: View {
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.white.opacity(0.14))
+                    .fill(Color.primary.opacity(contrast == .increased ? 0.3 : 0.14))
                     .frame(height: trackHeight)
                     .frame(maxWidth: .infinity)
 
                 Circle()
                     .fill(tint)
-                    .overlay(Circle().strokeBorder(.white.opacity(0.6), lineWidth: 1))
+                    .overlay(Circle().strokeBorder(Color.primary.opacity(contrast == .increased ? 1 : 0.6), lineWidth: 1))
                     .frame(width: knobDiameter, height: knobDiameter)
                     .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
                     .offset(x: knobX)
@@ -195,28 +224,26 @@ struct MacHorizontalFader: View {
             )
         }
         .frame(height: max(trackHeight, knobDiameter))
-    }
-}
-
-enum MacDeckUnits {
-    static func eqDecibels(fromKnob knob: Double) -> Double {
-        knob <= 0.5 ? -60 + (knob / 0.5) * 60 : (knob - 0.5) / 0.5 * 12
-    }
-
-    static func eqKnob(fromDecibels decibels: Double) -> Double {
-        decibels <= 0 ? (decibels + 60) / 60 * 0.5 : 0.5 + (decibels / 12) * 0.5
-    }
-
-    static func filterHertz(fromKnob knob: Double) -> Double {
-        let lo = log(MixEngine.filterCutoffRange.lowerBound)
-        let hi = log(MixEngine.filterCutoffRange.upperBound)
-        return exp(lo + knob.clampedToUnit * (hi - lo))
-    }
-
-    static func filterKnob(fromHertz hertz: Double) -> Double {
-        let lo = log(MixEngine.filterCutoffRange.lowerBound)
-        let hi = log(MixEngine.filterCutoffRange.upperBound)
-        return ((log(max(hertz, 1)) - lo) / (hi - lo)).clampedToUnit
+        .focusable()
+        .onKeyPress(.upArrow) {
+            value = (value + 0.05).clampedToUnit
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            value = (value - 0.05).clampedToUnit
+            return .handled
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(accessibilityValueText ?? "\(Int(value.clampedToUnit * 100)) percent")
+        .accessibilityHint("Use up and down arrows to adjust")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: value = (value + 0.05).clampedToUnit
+            case .decrement: value = (value - 0.05).clampedToUnit
+            @unknown default: break
+            }
+        }
     }
 }
 
@@ -229,53 +256,29 @@ struct MacJogWheel: View {
     var diameter: CGFloat = 84
     var secondsPerRevolution: Double = 10.8
 
-    private var angleDegrees: Double {
-        guard secondsPerRevolution > 0 else { return 0 }
-        let wrapped = positionSeconds.truncatingRemainder(dividingBy: secondsPerRevolution)
-        return (wrapped / secondsPerRevolution) * 360
-    }
-
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(RadialGradient(colors: [Color(white: 0.15), Color(white: 0.04)], center: .center, startRadius: 0, endRadius: diameter / 2))
-
-            ForEach(1..<4, id: \.self) { ring in
-                Circle()
-                    .strokeBorder(.white.opacity(0.05), lineWidth: 1)
-                    .padding(diameter * 0.09 * CGFloat(ring))
-            }
-
-            Circle()
-                .strokeBorder(tint.opacity(isPlaying ? 0.85 : 0.28), lineWidth: 2)
-
-            Rectangle()
-                .fill(tint.opacity(isPlaying ? 1 : 0.4))
-                .frame(width: 2.5, height: diameter * 0.40)
-                .offset(y: -diameter * 0.20)
-                .rotationEffect(.degrees(angleDegrees))
-
+        VinylPlatterView(
+            size: diameter,
+            position: positionSeconds,
+            isPlaying: isPlaying,
+            tint: tint,
+            revolutionSeconds: secondsPerRevolution,
+            labelFraction: 0.48
+        ) {
             SCArtwork(image: artwork, identity: identity, style: .mac, cornerRadius: diameter * 0.26)
-                .frame(width: diameter * 0.52, height: diameter * 0.52)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(.white.opacity(0.16), lineWidth: 0.75))
-                .rotationEffect(.degrees(angleDegrees))
-
-            Circle()
-                .fill(.white.opacity(0.92))
-                .frame(width: 5, height: 5)
         }
-        .frame(width: diameter, height: diameter)
     }
 }
 
 struct MacConsoleButton: View {
     var title: String? = nil
     var systemImage: String? = nil
+    var accessibilityLabel: String? = nil
     var isActive = false
     var tint: Color = .white
     var isEnabled = true
     let action: () -> Void
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         Button(action: action) {
@@ -286,16 +289,18 @@ struct MacConsoleButton: View {
                     Text(title ?? "")
                 }
             }
-            .font(.system(size: 11, weight: .bold, design: .monospaced))
-            .foregroundStyle(isActive ? Color.black : Color.white.opacity(0.82))
+            .font(Font.subheadline.monospaced().weight(.bold))
+            .foregroundStyle(isActive ? Color.black : Color.white.opacity(contrast == .increased ? 1 : 0.82))
             .frame(minWidth: 28, minHeight: 22)
             .padding(.horizontal, 7)
             .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(isActive ? tint : Color.white.opacity(0.08)))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(isActive ? tint : Color.white.opacity(0.18), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(isActive ? tint : Color.white.opacity(contrast == .increased ? 0.5 : 0.18), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .opacity(isEnabled ? 1 : 0.35)
         .disabled(!isEnabled)
+        .accessibilityLabel(accessibilityLabel ?? title ?? "")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 }
 
@@ -308,23 +313,28 @@ struct MacInlineShortcutHint: View {
         self.detail = detail
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+
     var body: some View {
         HStack(spacing: 3) {
             Text(keys)
-                .font(.system(size: 7.5, weight: .bold, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.78))
+                .font(.caption2.monospaced().weight(.bold))
+                .foregroundStyle(contrast.macInk(0.78, increased: 1))
                 .padding(.horizontal, 4)
                 .padding(.vertical, 2)
                 .background(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(Color.white.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).strokeBorder(Color.white.opacity(0.14), lineWidth: 0.75))
+                .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).strokeBorder(Color.white.opacity(contrast == .increased ? 0.5 : 0.14), lineWidth: 0.75))
             if let detail {
                 Text(detail)
-                    .font(.system(size: 7.5, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.32))
+                    .font(.caption2.monospaced().weight(.medium))
+                    .foregroundStyle(contrast.macInk(0.5, increased: 0.85))
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
+        .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(detail.map { "\(keys): \($0)" } ?? keys)
     }
 }
 
@@ -332,6 +342,7 @@ struct MacLevelMeter: View {
     let level: Float
     let peak: Float
     var tint: Color = .green
+    var reduceMotion = false
 
     var body: some View {
         GeometryReader { geo in
@@ -339,7 +350,7 @@ struct MacLevelMeter: View {
                 Rectangle().fill(Color.white.opacity(0.10))
                 Rectangle()
                     .fill(LinearGradient(colors: [tint, tint.opacity(0.6)], startPoint: .bottom, endPoint: .top))
-                    .frame(height: geo.size.height * CGFloat(min(1, max(0, level))))
+                    .frame(height: geo.size.height * CGFloat(min(1, max(0, reduceMotion ? peak : level))))
                 Rectangle()
                     .fill(.white.opacity(0.8))
                     .frame(height: 1.5)
@@ -347,5 +358,6 @@ struct MacLevelMeter: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+        .accessibilityHidden(true)
     }
 }

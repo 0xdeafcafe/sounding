@@ -5,10 +5,6 @@ struct AnalysisEngineIdentity: Codable, Hashable, Sendable {
     let name: String
     let version: Int
 
-    static func fftAudioAnalyzer(version: Int = 1) -> AnalysisEngineIdentity {
-        .init(name: "sounding.fftAudioAnalyzer", version: version)
-    }
-
     static func musicUnderstanding(version: Int = 1) -> AnalysisEngineIdentity {
         .init(name: "apple.musicUnderstanding", version: version)
     }
@@ -24,6 +20,21 @@ struct AnalysisEngineIdentity: Codable, Hashable, Sendable {
     static func userCorrection(version: Int = 1) -> AnalysisEngineIdentity {
         .init(name: "sounding.userCorrection", version: version)
     }
+
+    static func beatTracker(version: Int = 1) -> AnalysisEngineIdentity {
+        .init(name: "sounding.beatTracker", version: version)
+    }
+
+    static let retiredEngineNames: Set<String> = ["sounding.fftAudioAnalyzer"]
+}
+
+extension Notification.Name {
+    static let analysisDataDidChange = Notification.Name("red.forbes.sounding.analysisDataDidChange")
+}
+
+enum AnalysisDataChange {
+    static let trackIdsKey = "trackIds"
+    static let everythingKey = "everything"
 }
 
 struct UserAnalysisCorrectionPayload: Codable, Sendable {
@@ -197,7 +208,7 @@ struct CandidateRecallQuery: Sendable {
 actor AnalysisCache {
     static let defaultMaxBytes: Int64 = 250_000_000
 
-    static let shared = AnalysisCache(directory: AnalysisCache.defaultDirectory())
+    static let shared = AnalysisCache(directory: AnalysisCache.defaultDirectory(), publishesChanges: true, mirror: AnalysisDataMirror.shared)
 
     private(set) var usedBytes: Int64 = 0
     private(set) var maxBytes: Int64
@@ -205,6 +216,12 @@ actor AnalysisCache {
     private var inFlight: [String: Task<(Data, AnalysisFeatures), Error>] = [:]
 
     private nonisolated(unsafe) let db: OpaquePointer?
+    private let publishesChanges: Bool
+    private let mirror: AnalysisDataMirror?
+    private var reconciling = false
+    private var reconcileAgain = false
+    private var changeObservers: [NSObjectProtocol] = []
+    private var reconcileGate: SoundingDataThrottle?
 
     private static let jsonEncoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -222,13 +239,13 @@ actor AnalysisCache {
     }()
 
     static func defaultDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return base.appendingPathComponent("AnalysisCache", isDirectory: true)
+        AppDataDirectory.folder("AnalysisCache")
     }
 
-    init(directory: URL, maxBytes: Int64 = AnalysisCache.defaultMaxBytes) {
+    init(directory: URL, maxBytes: Int64 = AnalysisCache.defaultMaxBytes, publishesChanges: Bool = false, mirror: AnalysisDataMirror? = nil) {
         self.maxBytes = max(0, maxBytes)
+        self.publishesChanges = publishesChanges
+        self.mirror = mirror
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let fileURL = directory.appendingPathComponent("analysis.sqlite3")
@@ -246,27 +263,30 @@ actor AnalysisCache {
 
         Self.createSchema(db)
         Self.migrateSchemaIfNeeded(db)
+        Self.createFileLedger(db)
         usedBytes = Self.queryUsedBytes(db)
+        if mirror != nil {
+            Task(priority: .utility) { [weak self] in
+                try? await Task.sleep(for: .seconds(15))
+                await self?.startWatchingDataFolder()
+            }
+        }
     }
 
     deinit {
         if let db { sqlite3_close(db) }
     }
 
-    func setMaxBytes(_ value: Int64) {
-        maxBytes = max(0, value)
-        runMaintenance()
-    }
-
     func value<Payload: Codable & Sendable>(
         for key: AnalysisCacheKey,
         as type: Payload.Type,
+        refresh: Bool = false,
         compute: @escaping @Sendable () async throws -> Payload,
         features: @escaping @Sendable (Payload) -> AnalysisFeatures
     ) async throws -> Payload {
         let cacheKey = key.stableKey
 
-        if let data = readAndTouch(cacheKey) {
+        if !refresh, let data = readAndTouch(cacheKey) {
             if let decoded = try? Self.jsonDecoder.decode(Payload.self, from: data) {
                 return decoded
             }
@@ -279,9 +299,11 @@ actor AnalysisCache {
             return try Self.jsonDecoder.decode(Payload.self, from: data)
         }
 
+        let packs = mirror != nil
         let task = Task<(Data, AnalysisFeatures), Error> {
             let payload = try await compute()
-            let data = try Self.jsonEncoder.encode(payload)
+            let encoded = try Self.jsonEncoder.encode(payload)
+            let data = packs ? (PackedJSON.canonical(encoded) ?? encoded) : encoded
             return (data, features(payload))
         }
         inFlight[cacheKey] = task
@@ -294,6 +316,7 @@ actor AnalysisCache {
             producerId: AnalysisSyncIdentity.producerId(defaults: .standard)
         )
         runMaintenance()
+        noteChanged([key.trackId])
         return try Self.jsonDecoder.decode(Payload.self, from: data)
     }
 
@@ -310,12 +333,36 @@ actor AnalysisCache {
         _ = trackId.withCString { sqlite3_bind_text(stmt, 1, $0, -1, Self.sqliteTransient) }
         sqlite3_step(stmt)
         usedBytes = Self.queryUsedBytes(db)
+        mirror?.removeTrack(trackId)
+        noteChanged([trackId])
     }
 
-    func removeAll() {
+    func removeAll(keepingUserCorrections: Bool = false) {
         guard let db else { return }
-        sqlite3_exec(db, "DELETE FROM analysis;", nil, nil, nil)
-        usedBytes = 0
+        if keepingUserCorrections {
+            var stmt: OpaquePointer?
+            if sqlite3_prepare_v2(db, "DELETE FROM analysis WHERE engine_name != ?;", -1, &stmt, nil) == SQLITE_OK {
+                _ = AnalysisEngineIdentity.userCorrection().name.withCString {
+                    sqlite3_bind_text(stmt, 1, $0, -1, Self.sqliteTransient)
+                }
+                sqlite3_step(stmt)
+            }
+            sqlite3_finalize(stmt)
+            usedBytes = Self.queryUsedBytes(db)
+        } else {
+            sqlite3_exec(db, "DELETE FROM analysis;", nil, nil, nil)
+            usedBytes = 0
+        }
+        sqlite3_exec(db, "DELETE FROM data_file;", nil, nil, nil)
+        mirror?.removeAll(keepingUserCorrections: keepingUserCorrections)
+        noteChanged(nil)
+    }
+
+    private func noteChanged(_ trackIds: Set<String>?) {
+        guard publishesChanges else { return }
+        let userInfo: [String: Any] = trackIds.map { [AnalysisDataChange.trackIdsKey: Array($0)] }
+            ?? [AnalysisDataChange.everythingKey: true]
+        NotificationCenter.default.post(name: .analysisDataDidChange, object: nil, userInfo: userInfo)
     }
 
     func storeUserCorrection(
@@ -325,19 +372,10 @@ actor AnalysisCache {
         genre: String?,
         updatedAt: Date = Date()
     ) {
-        let transcoding = track.transcodings.max { $0.playbackRank < $1.playbackRank }
-        guard let keyIdentity = AnalysisCacheKey(
-            track: track,
-            transcoding: transcoding,
-            engine: .userCorrection(),
-            schemaVersion: 1
-        ) else { return }
+        guard let keyIdentity = Self.userCorrectionKey(for: track) else { return }
 
-        let normalizedGenre = genre?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard bpm != nil || key != nil || normalizedGenre?.isEmpty == false else {
-            deleteRows([keyIdentity.stableKey])
-            return
-        }
+        let trimmedGenre = genre?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedGenre = trimmedGenre?.isEmpty == false ? trimmedGenre : nil
 
         let payload = UserAnalysisCorrectionPayload(
             bpm: bpm,
@@ -355,6 +393,17 @@ actor AnalysisCache {
             producerId: AnalysisSyncIdentity.producerId(defaults: .standard)
         )
         runMaintenance()
+        noteChanged([track.id])
+    }
+
+    static func userCorrectionKey(for track: Track) -> AnalysisCacheKey? {
+        let transcoding = track.transcodings.max { $0.playbackRank < $1.playbackRank } ?? track.mixSource
+        return AnalysisCacheKey(track: track, transcoding: transcoding, engine: .userCorrection(), schemaVersion: 1)
+    }
+
+    func userCorrection(for track: Track) -> UserAnalysisCorrectionPayload? {
+        guard let key = Self.userCorrectionKey(for: track) else { return nil }
+        return peek(UserAnalysisCorrectionPayload.self, for: key)
     }
 
     func runMaintenance() {
@@ -363,6 +412,7 @@ actor AnalysisCache {
         let victims = DownloadBudgetPolicy.victims(entries: candidates, maxBytes: maxBytes)
         guard !victims.isEmpty else { return }
         deleteRows(victims)
+        noteChanged(nil)
         Log.analysis.info("Evicted \(victims.count, privacy: .public) analysis row(s) to stay under the \(self.maxBytes, privacy: .public)-byte budget")
     }
 
@@ -688,6 +738,14 @@ actor AnalysisCache {
         for column in recallColumns where !existing.contains(column.name) {
             sqlite3_exec(db, "ALTER TABLE analysis ADD COLUMN \(column.name) \(column.ddl);", nil, nil, nil)
         }
+        for engine in AnalysisEngineIdentity.retiredEngineNames {
+            var stmt: OpaquePointer?
+            if sqlite3_prepare_v2(db, "DELETE FROM analysis WHERE engine_name = ?;", -1, &stmt, nil) == SQLITE_OK {
+                _ = engine.withCString { sqlite3_bind_text(stmt, 1, $0, -1, sqliteTransient) }
+                sqlite3_step(stmt)
+            }
+            sqlite3_finalize(stmt)
+        }
     }
 
     private static func tableInfoColumnNames(_ db: OpaquePointer?, table: String) -> [String] {
@@ -737,7 +795,7 @@ actor AnalysisCache {
     private func queryEvictionCandidates() -> [DownloadBudgetPolicy.Entry] {
         guard let db else { return [] }
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT cache_key, byte_size, last_accessed_at FROM analysis;", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, "SELECT cache_key, byte_size, last_accessed_at, engine_name FROM analysis;", -1, &stmt, nil) == SQLITE_OK else { return [] }
         defer { sqlite3_finalize(stmt) }
 
         var entries: [DownloadBudgetPolicy.Entry] = []
@@ -746,7 +804,9 @@ actor AnalysisCache {
             let id = String(cString: keyPtr)
             let bytes = sqlite3_column_int64(stmt, 1)
             let lastAccessed = sqlite3_column_double(stmt, 2)
-            entries.append(.init(id: id, bytes: bytes, lastPlayedAt: Date(timeIntervalSince1970: lastAccessed), isPinned: false))
+            let engine = sqlite3_column_text(stmt, 3).map { String(cString: $0) }
+            let isCorrection = engine == AnalysisEngineIdentity.userCorrection().name
+            entries.append(.init(id: id, bytes: bytes, lastPlayedAt: Date(timeIntervalSince1970: lastAccessed), isPinned: isCorrection))
         }
         return entries
     }
@@ -762,9 +822,20 @@ actor AnalysisCache {
 
     private func insertRow(
         key: AnalysisCacheKey, cacheKey: String, data: Data, features: AnalysisFeatures,
-        producedAtMillis: Int64, producerId: String
+        producedAtMillis: Int64, producerId: String, mirrors: Bool = true, recounts: Bool = true
     ) {
         guard let db else { return }
+        if mirrors, let mirror {
+            mirror.enqueue(AnalysisDataRecord(
+                cacheKey: cacheKey, trackId: key.trackId, engineName: key.engine.name,
+                engineVersion: key.engine.version, schemaVersion: key.schemaVersion,
+                durationMillis: key.fingerprint.durationMillis, preset: key.fingerprint.preset,
+                bitrate: key.fingerprint.bitrate, codec: key.fingerprint.codec, payload: data,
+                bpm: features.bpm, keyWheelPosition: features.key?.wheelPosition,
+                keyMode: features.key?.mode.rawValue, genre: features.genre,
+                producedAtMillis: producedAtMillis, producerId: producerId
+            ))
+        }
         let sql = """
         INSERT INTO analysis (
             cache_key, track_id, engine_name, engine_version, schema_version,
@@ -825,7 +896,7 @@ actor AnalysisCache {
         _ = producerId.withCString { sqlite3_bind_text(stmt, 19, $0, -1, Self.sqliteTransient) }
 
         sqlite3_step(stmt)
-        usedBytes = Self.queryUsedBytes(db)
+        if recounts { usedBytes = Self.queryUsedBytes(db) }
     }
 
     private func deleteRows(_ cacheKeys: [String]) {
@@ -863,6 +934,30 @@ extension AnalysisCache: AnalysisSyncStore {
             guard let record = Self.decodeSyncRow(stmt, fallbackProducerId: localProducerId) else { continue }
             let lastAccessed = Int64(sqlite3_column_double(stmt, 12) * 1000)
             out.append(AnalysisSyncExportCandidate(record: record, lastAccessedAtMillis: lastAccessed))
+        }
+        return out
+    }
+
+    func syncRecords(forTrackIds trackIds: [String]) -> [AnalysisSyncRecord] {
+        guard let db, !trackIds.isEmpty else { return [] }
+        let placeholders = trackIds.map { _ in "?" }.joined(separator: ",")
+        let sql = """
+        SELECT cache_key, track_id, engine_name, engine_version, schema_version,
+               duration_millis, preset, bitrate, codec, payload, byte_size,
+               created_at, last_accessed_at, produced_at_millis, producer_id,
+               bpm, key_wheel_position, key_mode, genre
+        FROM analysis WHERE track_id IN (\(placeholders));
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        for (index, trackId) in trackIds.enumerated() {
+            _ = trackId.withCString { sqlite3_bind_text(stmt, Int32(index + 1), $0, -1, Self.sqliteTransient) }
+        }
+        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .standard)
+        var out: [AnalysisSyncRecord] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let record = Self.decodeSyncRow(stmt, fallbackProducerId: localProducerId) { out.append(record) }
         }
         return out
     }
@@ -927,6 +1022,7 @@ extension AnalysisCache: AnalysisSyncStore {
     @discardableResult
     func adopt(_ records: [AnalysisSyncRecord]) async -> Int {
         var adopted = 0
+        var adoptedTrackIds = Set<String>()
         for record in records {
             guard let raw = AnalysisPayloadCodec.decode(record.payload, encoding: record.payloadEncoding) else { continue }
             let fingerprint = AnalyzedAudioFingerprint(
@@ -948,8 +1044,12 @@ extension AnalysisCache: AnalysisSyncStore {
                 producedAtMillis: record.producedAtMillis, producerId: record.producerId
             )
             adopted += 1
+            adoptedTrackIds.insert(record.trackId)
         }
-        if adopted > 0 { runMaintenance() }
+        if adopted > 0 {
+            runMaintenance()
+            noteChanged(adoptedTrackIds)
+        }
         return adopted
     }
 
@@ -1002,5 +1102,229 @@ extension AnalysisCache: AnalysisSyncStore {
             producedAtMillis: producedAt,
             producerId: producerId
         )
+    }
+}
+
+// MARK: - Sounding Data folder
+
+extension AnalysisCache {
+    fileprivate static func createFileLedger(_ db: OpaquePointer?) {
+        guard let db else { return }
+        sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS data_file (path TEXT PRIMARY KEY NOT NULL, size INTEGER NOT NULL, modified REAL NOT NULL);", nil, nil, nil)
+    }
+
+    func startWatchingDataFolder() async {
+        guard mirror != nil, changeObservers.isEmpty else { return }
+        let gate = SoundingDataThrottle(delay: 3, minimumInterval: Self.reconcileInterval) { [weak self] in
+            guard let self else { return }
+            Task(priority: .utility) { await self.reconcileDataFolder() }
+        }
+        reconcileGate = gate
+        changeObservers = [
+            NotificationCenter.default.addObserver(forName: .soundingDataDidChangeOnDisk, object: nil, queue: nil) { note in
+                let area = note.userInfo?[SoundingDataLocation.areaKey] as? String
+                guard area == nil || area == SoundingDataArea.analysis.rawValue else { return }
+                gate.trigger()
+            },
+            NotificationCenter.default.addObserver(forName: .soundingDataLocationDidChange, object: nil, queue: nil) { _ in
+                gate.trigger(after: 1)
+            },
+            NotificationCenter.default.addObserver(forName: Self.foregroundNotification, object: nil, queue: nil) { _ in
+                gate.trigger(after: 5)
+            },
+        ]
+        await reconcileDataFolder()
+    }
+
+    static let reconcileInterval: TimeInterval = 30
+    static let reconcilePassBudget: Duration = .seconds(3)
+
+    private static var foregroundNotification: Notification.Name {
+        #if os(macOS)
+        return Notification.Name("NSApplicationDidBecomeActiveNotification")
+        #else
+        return Notification.Name("UIApplicationWillEnterForegroundNotification")
+        #endif
+    }
+
+    func reconcileDataFolder() async {
+        guard let mirror else { return }
+        if reconciling {
+            reconcileAgain = true
+            return
+        }
+        reconciling = true
+        reconcileAgain = false
+        await Task.detached(priority: .utility) { mirror.flush() }.value
+        await exportToDataFolderIfNeeded(mirror)
+        let finished = await importFromDataFolder(mirror)
+        reconciling = false
+        if !finished {
+            reconcileGate?.trigger(after: 10)
+        } else if reconcileAgain {
+            reconcileAgain = false
+            reconcileGate?.trigger()
+        }
+    }
+
+    private func exportToDataFolderIfNeeded(_ mirror: AnalysisDataMirror) async {
+        let root = mirror.root()
+        let flag = "red.forbes.sounding.analysis.exported." + SoundingDataFiles.hashName(root.standardizedFileURL.path, length: 16)
+        guard !UserDefaults.standard.bool(forKey: flag) else { return }
+        var lastRowId: Int64 = 0
+        var written = 0
+        while true {
+            let batch = exportBatch(after: lastRowId, limit: 200)
+            guard let last = batch.last else { break }
+            lastRowId = last.rowId
+            let records = batch.map(\.record)
+            written += await Task.detached(priority: .utility) { mirror.writeNow(records) }.value
+        }
+        UserDefaults.standard.set(true, forKey: flag)
+        Log.analysis.info("Wrote \(written, privacy: .public) analysis file(s) into Sounding Data")
+    }
+
+    private func exportBatch(after rowId: Int64, limit: Int) -> [(rowId: Int64, record: AnalysisDataRecord)] {
+        guard let db else { return [] }
+        let sql = """
+        SELECT rowid, cache_key, track_id, engine_name, engine_version, schema_version,
+               duration_millis, preset, bitrate, codec, payload, created_at, produced_at_millis, producer_id,
+               bpm, key_wheel_position, key_mode, genre
+        FROM analysis WHERE rowid > ? ORDER BY rowid LIMIT ?;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, rowId)
+        sqlite3_bind_int64(stmt, 2, Int64(limit))
+        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .standard)
+        var out: [(rowId: Int64, record: AnalysisDataRecord)] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let row = sqlite3_column_int64(stmt, 0)
+            guard let cacheKey = sqlite3_column_text(stmt, 1).map({ String(cString: $0) }),
+                  let trackId = sqlite3_column_text(stmt, 2).map({ String(cString: $0) }),
+                  let engineName = sqlite3_column_text(stmt, 3).map({ String(cString: $0) }),
+                  let preset = sqlite3_column_text(stmt, 7).map({ String(cString: $0) }),
+                  let codec = sqlite3_column_text(stmt, 9).map({ String(cString: $0) }) else { continue }
+            let payload = Self.blobData(stmt, column: 10)
+            guard !payload.isEmpty else { continue }
+            let createdAt = sqlite3_column_double(stmt, 11)
+            let producedAt = sqlite3_column_type(stmt, 12) == SQLITE_NULL ? Int64(createdAt * 1000) : sqlite3_column_int64(stmt, 12)
+            let record = AnalysisDataRecord(
+                cacheKey: cacheKey,
+                trackId: trackId,
+                engineName: engineName,
+                engineVersion: Int(sqlite3_column_int64(stmt, 4)),
+                schemaVersion: Int(sqlite3_column_int64(stmt, 5)),
+                durationMillis: Int(sqlite3_column_int64(stmt, 6)),
+                preset: preset,
+                bitrate: Int(sqlite3_column_int64(stmt, 8)),
+                codec: codec,
+                payload: payload,
+                bpm: sqlite3_column_type(stmt, 14) == SQLITE_NULL ? nil : sqlite3_column_double(stmt, 14),
+                keyWheelPosition: sqlite3_column_type(stmt, 15) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(stmt, 15)),
+                keyMode: sqlite3_column_type(stmt, 16) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(stmt, 16)),
+                genre: sqlite3_column_text(stmt, 17).map { String(cString: $0) },
+                producedAtMillis: producedAt,
+                producerId: sqlite3_column_text(stmt, 13).map { String(cString: $0) } ?? localProducerId
+            )
+            out.append((rowId: row, record: record))
+        }
+        return out
+    }
+
+    private func importFromDataFolder(_ mirror: AnalysisDataMirror) async -> Bool {
+        let root = mirror.root()
+        let entries = await Task.detached(priority: .utility) {
+            SoundingDataFiles.resolveConflicts(
+                in: SoundingDataFiles.files(in: root, extension: AnalysisDataFiles.fileExtension),
+                merge: { AnalysisDataFiles.merge(current: $0, other: $1) }
+            )
+        }.value
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: Self.reconcilePassBudget)
+        var finished = true
+        let ledger = loadFileLedger()
+        var seen: [(path: String, size: Int, modified: Double)] = []
+        var changed = Set<String>()
+        var reads = 0
+        for entry in entries where entry.isDownloaded {
+            let path = entry.url.standardizedFileURL.path
+            let modified = entry.modified.timeIntervalSince1970
+            if let known = ledger[path], known.size == entry.size, known.modified == modified { continue }
+            if clock.now >= deadline {
+                finished = false
+                break
+            }
+            reads += 1
+            if case .data(let data) = SoundingDataFiles.read(entry.url, knownDownloaded: true),
+               let record = try? AnalysisDataFiles.decode(data),
+               shouldAdopt(record) {
+                insertRow(
+                    key: record.key, cacheKey: record.cacheKey, data: record.payload, features: record.features,
+                    producedAtMillis: record.producedAtMillis, producerId: record.producerId,
+                    mirrors: false, recounts: false
+                )
+                changed.insert(record.trackId)
+            }
+            seen.append((path: path, size: entry.size, modified: modified))
+            if reads % 50 == 0 {
+                saveFileLedger(seen)
+                seen.removeAll()
+                await Task.yield()
+            }
+        }
+        saveFileLedger(seen)
+        guard !changed.isEmpty else { return finished }
+        usedBytes = Self.queryUsedBytes(db)
+        runMaintenance()
+        noteChanged(changed)
+        Log.analysis.info("Read \(changed.count, privacy: .public) track(s) of analysis from Sounding Data")
+        return finished
+    }
+
+    private func shouldAdopt(_ record: AnalysisDataRecord) -> Bool {
+        guard record.key.stableKey == record.cacheKey,
+              !AnalysisEngineIdentity.retiredEngineNames.contains(record.engineName),
+              let db else { return false }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT created_at, produced_at_millis, producer_id FROM analysis WHERE cache_key = ?;", -1, &stmt, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(stmt) }
+        _ = record.cacheKey.withCString { sqlite3_bind_text(stmt, 1, $0, -1, Self.sqliteTransient) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return true }
+        let createdAt = sqlite3_column_double(stmt, 0)
+        let producedAt = sqlite3_column_type(stmt, 1) == SQLITE_NULL ? Int64(createdAt * 1000) : sqlite3_column_int64(stmt, 1)
+        let producer = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
+        return (record.producedAtMillis, record.producerId) > (producedAt, producer)
+    }
+
+    private func loadFileLedger() -> [String: (size: Int, modified: Double)] {
+        guard let db else { return [:] }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT path, size, modified FROM data_file;", -1, &stmt, nil) == SQLITE_OK else { return [:] }
+        defer { sqlite3_finalize(stmt) }
+        var out: [String: (size: Int, modified: Double)] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let path = sqlite3_column_text(stmt, 0).map({ String(cString: $0) }) else { continue }
+            out[path] = (size: Int(sqlite3_column_int64(stmt, 1)), modified: sqlite3_column_double(stmt, 2))
+        }
+        return out
+    }
+
+    private func saveFileLedger(_ rows: [(path: String, size: Int, modified: Double)]) {
+        guard let db, !rows.isEmpty else { return }
+        sqlite3_exec(db, "BEGIN;", nil, nil, nil)
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO data_file (path, size, modified) VALUES (?, ?, ?);", -1, &stmt, nil) == SQLITE_OK {
+            for row in rows {
+                sqlite3_reset(stmt)
+                _ = row.path.withCString { sqlite3_bind_text(stmt, 1, $0, -1, Self.sqliteTransient) }
+                sqlite3_bind_int64(stmt, 2, Int64(row.size))
+                sqlite3_bind_double(stmt, 3, row.modified)
+                sqlite3_step(stmt)
+            }
+        }
+        sqlite3_finalize(stmt)
+        sqlite3_exec(db, "COMMIT;", nil, nil, nil)
     }
 }

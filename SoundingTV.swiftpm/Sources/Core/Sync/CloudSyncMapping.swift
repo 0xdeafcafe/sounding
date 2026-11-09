@@ -18,6 +18,7 @@ enum CloudSyncMapping {
         record["isDeleted"] = (cue.isDeleted ? 1 : 0) as CKRecordValue
         record["promotedFromName"] = cue.promotedFromName as CKRecordValue?
         record["promotedFromVersion"] = cue.promotedFromVersion.map { Int64($0) } as CKRecordValue?
+        record["origin"] = cue.origin?.rawValue as CKRecordValue?
         record["createdAtMillis"] = cue.createdAtMillis as CKRecordValue
         record["updatedAtMillis"] = cue.updatedAtMillis as CKRecordValue
         record["writerId"] = cue.writerId as CKRecordValue
@@ -54,7 +55,8 @@ enum CloudSyncMapping {
             updatedAtMillis: updatedAtMillis,
             isDeleted: isDeletedRaw != 0,
             promotedFrom: promotedFrom,
-            writerId: writerId
+            writerId: writerId,
+            origin: (record["origin"] as? String).flatMap(CueOrigin.init(rawValue:)) ?? .user
         )
         return CueSyncRecord(cuePoint)
     }
@@ -203,7 +205,7 @@ enum CloudSyncMapping {
     static func record(for settings: SettingsSyncRecord) -> CKRecord {
         let record = CKRecord(
             recordType: CloudSyncRecordType.settingsEntry,
-            recordID: CKRecord.ID(recordName: settings.deviceId, zoneID: CloudSyncZone.companion)
+            recordID: CKRecord.ID(recordName: settings.recordName, zoneID: CloudSyncZone.companion)
         )
         record["payload"] = settings.payload as CKRecordValue
         record["writerId"] = settings.writerId as CKRecordValue
@@ -216,11 +218,13 @@ enum CloudSyncMapping {
               let payload = record["payload"] as? Data,
               let writerId = record["writerId"] as? String,
               let updatedAtMillis = record["updatedAtMillis"] as? Int64 else { return nil }
+        let name = SettingsSyncRecord.parse(recordName: record.recordID.recordName)
         return SettingsSyncRecord(
-            deviceId: record.recordID.recordName,
+            deviceId: name.deviceId,
             payload: payload,
             writerId: writerId,
-            updatedAtMillis: updatedAtMillis
+            updatedAtMillis: updatedAtMillis,
+            accountTag: name.accountTag
         )
     }
 
@@ -260,49 +264,6 @@ enum CloudSyncMapping {
         )
     }
 
-    static func record(for claim: WorkshopClaim) -> CKRecord {
-        let record = CKRecord(
-            recordType: CloudSyncRecordType.workshopClaim,
-            recordID: CKRecord.ID(recordName: claim.jobId, zoneID: CloudSyncZone.companion)
-        )
-        record["job"] = claim.job.rawValue as CKRecordValue
-        record["subjectId"] = claim.subjectId as CKRecordValue
-        record["deviceId"] = claim.deviceId as CKRecordValue
-        record["deviceClass"] = claim.deviceClass.rawValue as CKRecordValue
-        record["score"] = Int64(claim.score) as CKRecordValue
-        record["claimedAtMillis"] = claim.claimedAtMillis as CKRecordValue
-        record["leaseExpiresAtMillis"] = claim.leaseExpiresAtMillis as CKRecordValue
-        record["state"] = claim.state.rawValue as CKRecordValue
-        return record
-    }
-
-    static func workshopClaimRecord(from record: CKRecord) -> WorkshopClaim? {
-        guard record.recordType == CloudSyncRecordType.workshopClaim,
-              let jobRaw = record["job"] as? String,
-              let job = WorkshopJob(rawValue: jobRaw),
-              let subjectId = record["subjectId"] as? String,
-              let deviceId = record["deviceId"] as? String,
-              let deviceClassRaw = record["deviceClass"] as? String,
-              let deviceClass = DeviceClass(rawValue: deviceClassRaw),
-              let score = record["score"] as? Int64,
-              let claimedAtMillis = record["claimedAtMillis"] as? Int64,
-              let leaseExpiresAtMillis = record["leaseExpiresAtMillis"] as? Int64,
-              let stateRaw = record["state"] as? String,
-              let state = WorkshopClaimState(rawValue: stateRaw)
-        else { return nil }
-        return WorkshopClaim(
-            jobId: record.recordID.recordName,
-            job: job,
-            subjectId: subjectId,
-            deviceId: deviceId,
-            deviceClass: deviceClass,
-            score: Int(score),
-            claimedAtMillis: claimedAtMillis,
-            leaseExpiresAtMillis: leaseExpiresAtMillis,
-            state: state
-        )
-    }
-
     static let sessionRecordID = CKRecord.ID(recordName: "session", zoneID: CloudSyncZone.session)
 
     static func record(
@@ -315,30 +276,75 @@ enum CloudSyncMapping {
             recordType: CloudSyncRecordType.session,
             recordID: sessionRecordID
         )
-        precondition(record.recordID == sessionRecordID)
-        precondition(record.recordType == CloudSyncRecordType.session)
+        assert(record.recordID == sessionRecordID)
+        assert(record.recordType == CloudSyncRecordType.session)
         record.encryptedValues[encryptedOAuthTokenKey] = session.oauthToken as CKRecordValue
         record.encryptedValues[encryptedRefreshTokenKey] = session.refreshToken as CKRecordValue?
         record.encryptedValues[encryptedClientIdKey] = session.clientId as CKRecordValue?
         record["expiresAtMillis"] = session.expiresAtMillis as CKRecordValue?
-        record["updatedAtMillis"] = session.updatedAtMillis as CKRecordValue
-        record["writerId"] = session.writerId as CKRecordValue
+        record["updatedAtMillis"] = (session.issuedAtMillis ?? session.updatedAtMillis) as CKRecordValue
+        record["writerId"] = sessionWriterField(writerId: session.writerId, issued: session.issuedAtMillis != nil, generation: session.generation) as CKRecordValue
         return record
+    }
+
+    private static let issuanceMarker = "#issued.g"
+
+    static func sessionWriterField(writerId: String, issued: Bool, generation: Int64?) -> String {
+        guard issued else { return writerId }
+        return writerId + issuanceMarker + String(generation ?? 0)
+    }
+
+    static func parseSessionWriterField(_ field: String) -> (writerId: String, issued: Bool, generation: Int64?) {
+        guard let range = field.range(of: issuanceMarker) else { return (field, false, nil) }
+        return (String(field[..<range.lowerBound]), true, Int64(field[range.upperBound...]))
     }
 
     static func session(from record: CKRecord) -> SyncedSoundCloudSession? {
         guard record.recordType == CloudSyncRecordType.session,
               let oauthToken = record.encryptedValues[encryptedOAuthTokenKey] as? String,
               let updatedAtMillis = record["updatedAtMillis"] as? Int64,
-              let writerId = record["writerId"] as? String
+              let writerField = record["writerId"] as? String
         else { return nil }
+        let writer = parseSessionWriterField(writerField)
+        let writerId = writer.writerId
         return SyncedSoundCloudSession(
             oauthToken: oauthToken,
             refreshToken: record.encryptedValues[encryptedRefreshTokenKey] as? String,
             clientId: record.encryptedValues[encryptedClientIdKey] as? String,
             expiresAtMillis: record["expiresAtMillis"] as? Int64,
             updatedAtMillis: updatedAtMillis,
-            writerId: writerId
+            writerId: writerId,
+            issuedAtMillis: writer.issued ? updatedAtMillis : nil,
+            generation: writer.generation
         )
+    }
+}
+
+extension CloudSyncMapping {
+    static let libraryPayloadLimit = 600_000
+
+    static func record(for chunk: LibraryChunk) -> CKRecord? {
+        guard let payload = chunk.encoded(), payload.count <= libraryPayloadLimit else { return nil }
+        let record = CKRecord(
+            recordType: CloudSyncRecordType.libraryChunk,
+            recordID: CKRecord.ID(recordName: chunk.recordName, zoneID: CloudSyncZone.library)
+        )
+        record["account"] = chunk.account as CKRecordValue
+        record["collection"] = chunk.collection as CKRecordValue
+        record["bucket"] = Int64(chunk.bucket) as CKRecordValue
+        record["bucketCount"] = Int64(chunk.bucketCount) as CKRecordValue
+        record["payload"] = payload as CKRecordValue
+        record["updatedAtMillis"] = chunk.updatedAtMillis as CKRecordValue
+        record["writerId"] = chunk.writerId as CKRecordValue
+        return record
+    }
+
+    static func libraryChunk(from record: CKRecord) -> LibraryChunk? {
+        guard record.recordType == CloudSyncRecordType.libraryChunk,
+              let account = record["account"] as? String,
+              let payload = record["payload"] as? Data,
+              let chunk = LibraryChunk.decode(payload),
+              chunk.account == account else { return nil }
+        return chunk
     }
 }

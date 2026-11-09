@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sounding · Now Playing · Mac</title>
+<link rel="stylesheet" href="shared/np.css">
+<link rel="stylesheet" href="mac.css">
+</head>
+<body>
+<div class="stage">
+  <div class="device-wrap">
+    <div class="device mac" id="device">
+      <div class="win np-root" id="win" data-state="window">
+        <div class="win-main" id="main">
+          <aside class="sidebar">
+            <div class="lights"><i></i><i></i><i></i></div>
+            <div class="sb-search"><span data-ic="search"></span>Search</div>
+            <nav>
+              <a><span data-ic="home"></span>Home</a>
+              <div class="sb-h">Library</div>
+              <a><span data-ic="playlist"></span>Recently Added</a>
+              <a><span data-ic="person"></span>Artists</a>
+              <a class="on"><span data-ic="heart"></span>Likes</a>
+              <a><span data-ic="download"></span>Downloaded</a>
+              <a><span data-ic="setlist"></span>Setlists</a>
+              <div class="sb-h">Playlists</div>
+              <a><span data-ic="playlist"></span>Late Night Mixes</a>
+              <a><span data-ic="playlist"></span>Sunday Slow</a>
+              <a><span data-ic="playlist"></span>Long Runs</a>
+            </nav>
+          </aside>
+          <section class="content" id="content">
+            <header class="toolbar">
+              <div class="tb-title">Likes<span>10 tracks · 1 hr 53 min</span></div>
+              <div class="tb-tools">
+                <button class="tb-btn" id="inspBtn" aria-label="Show Inspector"><span data-ic="sidebar"></span></button>
+              </div>
+            </header>
+            <div class="table" id="table">
+              <div class="th"><span></span><span>Title</span><span>Artist</span><span class="r">Time</span><span class="r">BPM</span><span>Key</span><span>Genre</span></div>
+              <div class="tbody" id="tbody"></div>
+            </div>
+            <aside class="inspector glass" id="inspector"><div class="insp-panes" id="inspPanes"></div></aside>
+            <footer class="bar glass" id="bar">
+              <button class="bar-np" id="barNP" aria-label="Open Now Playing">
+                <img class="bar-art" id="barArt" alt="">
+                <span class="bar-text"><b id="barTitle"></b><span id="barArtist"></span></span>
+              </button>
+              <div class="bar-center">
+                <div class="bar-tp" id="barTp"></div>
+                <div class="bar-wave"><span class="bt" id="bEl"></span><div id="barWave"></div><span class="bt r" id="bRem"></span></div>
+              </div>
+              <div class="bar-right">
+                <button class="ib" id="barLike" aria-label="Like"></button>
+                <button class="ib" data-pane="comments" aria-label="Comments"><span data-ic="comments"></span></button>
+                <button class="ib" data-pane="upnext" aria-label="Up Next"><span data-ic="upnext"></span></button>
+                <button class="ib" id="playOn" aria-label="Play On"><span id="playOnIc"></span></button>
+                <div class="bar-vol" id="barVol"></div>
+                <button class="ib" id="expandBtn" aria-label="Full Window"><span data-ic="expand"></span></button>
+              </div>
+            </footer>
+          </section>
+        </div>
+
+        <section class="take" id="take" aria-label="Now Playing">
+          <div class="np-bg" id="npBg"></div>
+          <div class="lights on-take"><i></i><i></i><i></i></div>
+          <button class="take-close ib" id="takeClose" aria-label="Exit Full Window"><span data-ic="collapse"></span></button>
+          <div class="tcol">
+            <div class="t-art-wrap" id="artPause"><div id="artBreathe"><div class="t-art" id="tArt"></div></div><div class="art-route glass" id="artRoute"></div></div>
+            <div class="t-row">
+              <div class="titles" id="titles"><div class="t-title" id="tTitle"></div><div class="t-artist" id="tArtist"></div></div>
+              <div class="acts"><button class="circ glass" id="likeBtn" aria-label="Like"></button><button class="circ glass" id="moreBtn" aria-label="More"><span data-ic="more"></span></button></div>
+            </div>
+            <button class="t-seg" id="tSeg"><span data-ic="setlist"></span><span id="tSegL"></span></button>
+            <div id="wave"></div>
+            <div class="times"><span id="tEl"></span><span id="tRem"></span></div>
+            <div class="t-tp" id="transport"></div>
+            <div class="t-bottom"><div class="t-vol" id="volume"></div><button class="route-pill glass" id="routeBtn"><span id="routeIc"></span><span id="routeL"></span></button></div>
+          </div>
+          <div class="tpanel glass" id="panes"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="shared/data.js"></script>
+<script src="shared/core.js"></script>
+<script src="shared/components.js"></script>
+<script src="mac.js"></script>
+</body>
+</html>

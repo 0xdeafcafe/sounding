@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>SoundingCloud</string>
+	<string>Sounding</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,13 +13,11 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>SoundingCloud</string>
+	<string>Sounding</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -31,17 +29,38 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<false/>
+	<key>NSApplicationServices</key>
+	<dict>
+		<key>Browses</key>
+		<array>
+			<dict>
+				<key>NSApplicationServiceIdentifier</key>
+				<string>SoundingSignIn</string>
+				<key>NSApplicationServicePlatformSupport</key>
+				<array>
+					<string>iOS</string>
+					<string>iPadOS</string>
+				</array>
+				<key>NSApplicationServiceUsageDescription</key>
+				<string>Sign in to Sounding on this Apple TV with your iPhone or iPad.</string>
+			</dict>
+		</array>
+	</dict>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_soundingtv._tcp</string>
-		<string>_polyphony._tcp</string>
+		<string>_sonos._tcp</string>
 	</array>
+	<key>NSHomeKitUsageDescription</key>
+	<string>Sounding sets the lights you choose to follow the music: colours from the artwork, brightness from the energy.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>SoundingCloud uses the local network so your iPhone, Mac and Watch can control this Apple TV, and so nearby devices can play the same music in sync.</string>
+	<string>Sounding uses the local network so your iPhone, Mac and Watch can control this Apple TV, and to play on Sonos speakers.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>red.forbes.sounding.pairing</string>
@@ -51,5 +70,7 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>NSSupportsGroupActivities</key>
+	<true/>
 </dict>
 </plist>

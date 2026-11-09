@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import os
 #if canImport(AVFAudio)
 import AVFAudio
@@ -12,6 +13,10 @@ enum AudioOutputKind: String, Codable, Sendable, Hashable {
     case hdmi
     case usb
     case unknown
+}
+
+struct AudioOutputRouteChange: Sendable, Equatable {
+    let shouldPausePlayback: Bool
 }
 
 @MainActor
@@ -29,10 +34,6 @@ protocol AudioSessionCoordinating: AnyObject {
     func refreshRoute()
 }
 
-extension Notification.Name {
-    static let audioOutputRouteDidChange = Notification.Name("red.forbes.sounding.audioOutputRouteDidChange")
-}
-
 extension AudioSessionCoordinating {
     var isAirPlayRoute: Bool { outputKind == .airPlay }
 
@@ -41,6 +42,8 @@ extension AudioSessionCoordinating {
 
 @MainActor
 enum PlatformAudioSession {
+    private static let routeChangeSubject = PassthroughSubject<AudioOutputRouteChange, Never>()
+
     static var coordinator: (any AudioSessionCoordinating)? = {
         #if os(iOS) || os(tvOS) || os(watchOS)
         return AVAudioSessionCoordinator()
@@ -59,9 +62,16 @@ enum PlatformAudioSession {
     static var supportsMultichannel: Bool { coordinator?.supportsMultichannel ?? false }
     static var isAirPlayRoute: Bool { coordinator?.isAirPlayRoute ?? false }
     static var supportsSeparateCueBus: Bool { coordinator?.supportsSeparateCueBus ?? false }
+    static var routeChanges: AnyPublisher<AudioOutputRouteChange, Never> {
+        routeChangeSubject.eraseToAnyPublisher()
+    }
 
     static func refreshRoute() {
         coordinator?.refreshRoute()
+    }
+
+    static func noteRouteChange(shouldPausePlayback: Bool = false) {
+        routeChangeSubject.send(AudioOutputRouteChange(shouldPausePlayback: shouldPausePlayback))
     }
 }
 
@@ -81,11 +91,13 @@ final class AVAudioSessionCoordinator: AudioSessionCoordinating {
             forName: AVAudioSession.routeChangeNotification,
             object: nil,
             queue: .main
-        ) { original in
+        ) { notification in
+            let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            let shouldPause = reasonValue.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:)) == .oldDeviceUnavailable
             MainActor.assumeIsolated {
                 PlatformAudioSession.coordinator?.refreshRoute()
+                PlatformAudioSession.noteRouteChange(shouldPausePlayback: shouldPause)
             }
-            NotificationCenter.default.post(name: .audioOutputRouteDidChange, object: original)
         }
     }
 

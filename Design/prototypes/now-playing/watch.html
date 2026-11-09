@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sounding · Now Playing · Apple Watch</title>
+<link rel="stylesheet" href="shared/np.css">
+<link rel="stylesheet" href="watch.css">
+</head>
+<body>
+<div class="stage">
+  <div class="device-wrap">
+    <div class="device watch" id="device">
+      <i class="band top"></i><i class="band bottom"></i>
+      <div class="case">
+        <i class="action-btn"></i>
+        <div class="crown-guard"></div>
+        <div class="crown" id="crown"><i class="ridges" id="ridges"></i></div>
+        <i class="side-btn"></i>
+        <div class="wscreen np-root force-dark" id="screen" data-page="np">
+          <div class="np-bg" id="npBg"></div>
+          <div class="w-top"><span class="w-src" id="src"></span><span class="w-time">10:09</span></div>
+
+          <section class="page p-np" data-p="np">
+            <div class="w-meta" id="titles">
+              <div class="w-title" id="tTitle"></div>
+              <div class="w-artist" id="tArtist"></div>
+            </div>
+            <div class="w-tp">
+              <button class="w-sk" id="prev" aria-label="Previous"><span data-ic="prev"></span></button>
+              <button class="w-play" id="play" aria-label="Play">
+                <svg class="ring" viewBox="0 0 72 72"><circle class="ring-bg" cx="36" cy="36" r="33"/><circle class="ring-fg" id="ring" cx="36" cy="36" r="33"/></svg>
+              </button>
+              <button class="w-sk" id="next" aria-label="Next"><span data-ic="next"></span></button>
+            </div>
+            <div class="w-bottom">
+              <button class="w-sm" id="routeBtn" aria-label="Output"><span id="routeIc"></span></button>
+              <button class="w-sm" id="volBtn" aria-label="Volume"><span data-ic="volHigh"></span></button>
+              <button class="w-sm" id="moreBtn" aria-label="More"><span data-ic="more"></span></button>
+            </div>
+            <div class="w-vol" id="vol"><i id="volFill"></i></div>
+          </section>
+
+          <section class="page p-list" data-p="upnext">
+            <div class="w-head"><button class="w-back" data-back>‹</button><b>Up Next</b></div>
+            <div class="w-scroll" id="upList"></div>
+          </section>
+          <section class="page p-list" data-p="setlist">
+            <div class="w-head"><button class="w-back" data-back>‹</button><b>Tracklist</b></div>
+            <div class="w-scroll" id="slList"></div>
+          </section>
+          <section class="page p-list" data-p="output">
+            <div class="w-head"><button class="w-back" data-back>‹</button><b>Output</b></div>
+            <div class="w-scroll" id="outList"></div>
+          </section>
+          <section class="page p-list" data-p="more">
+            <div class="w-head"><button class="w-back" data-back>‹</button><b>More</b></div>
+            <div class="w-scroll" id="moreList"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="shared/data.js"></script>
+<script src="shared/core.js"></script>
+<script src="shared/components.js"></script>
+<script src="watch.js"></script>
+</body>
+</html>

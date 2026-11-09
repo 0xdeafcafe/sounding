@@ -20,7 +20,6 @@ LAYERS = [
   { layer: 2, name: 'Apps/tvOS', path: ROOT.join('SoundingTV.swiftpm/Sources/Apps/tvOS'), owner: 'SoundingTV' },
   { layer: 2, name: 'SoundingTV-iOS', path: ROOT.join('SoundingTV-iOS/Sources'), owner: 'SoundingTV iOS' },
   { layer: 2, name: 'SoundingTV-macOS', path: ROOT.join('SoundingTV-macOS/Sources'), owner: 'SoundingTV macOS' },
-  { layer: 2, name: 'SoundingTV-Widget', path: ROOT.join('SoundingTV-Widget/Sources'), owner: 'SoundingTV-Widget' },
   { layer: 2, name: 'SoundingTV-Share', path: ROOT.join('SoundingTV-Share/Sources'), owner: 'SoundingTV-Share' },
   { layer: 2, name: 'SoundingTV-TopShelf', path: ROOT.join('SoundingTV-TopShelf/Sources'), owner: 'SoundingTV-TopShelf' },
   { layer: 2, name: 'SoundingTV-UITests', path: ROOT.join('SoundingTV-UITests/Sources'), owner: 'SoundingTV-UITests' }
@@ -304,6 +303,83 @@ allowlisted_cycles = CYCLE_ALLOWLIST.map(&:sort)
 new_cycles = found_cycles.reject { |cycle| allowlisted_cycles.include?(cycle) }
 stale_allowlist_entries = allowlisted_cycles.reject { |cycle| found_cycles.include?(cycle) }
 
+# A ScrollView eagerly instantiates a direct VStack/HStack child. Potentially
+# unbounded surfaces must use SwiftUI's lazy containers so large libraries,
+# queues, feeds, and search results stay virtualized on every platform.
+virtualization_roots = [
+  ROOT.join('SoundingTV.swiftpm/Sources'),
+  ROOT.join('SoundingTV-iOS/Sources'),
+  ROOT.join('SoundingTV-macOS/Sources'),
+  ROOT.join('SoundingTV-watchOS/Sources')
+]
+violations4 = []
+violations5 = []
+virtualization_roots.flat_map { |root| swift_files(root) }.uniq.sort.each do |file|
+  source = strip_noise(file.read)
+  source.to_enum(:scan, /ScrollView(?:\s*\([^)]*\))?\s*\{\s*(VStack|HStack)\b/m).each do
+    match = Regexp.last_match
+    line = source[0...match.begin(1)].count("\n") + 1
+    violations4 << "#{file.relative_path_from(ROOT)}:#{line}  eager #{match[1]} directly inside ScrollView"
+  end
+
+  relative = file.relative_path_from(ROOT).to_s
+  unless relative.start_with?('SoundingTV.swiftpm/Sources/Core/', 'SoundingTV.swiftpm/Sources/Auth/')
+    source.to_enum(:scan, /\bwhile\s*(?:\([^)]*)?[^\n{]*nextHref\b/).each do
+      match = Regexp.last_match
+      line = source[0...match.begin(0)].count("\n") + 1
+      violations5 << "#{relative}:#{line}  UI-owned loop eagerly walks pagination"
+    end
+
+    source.to_enum(:scan, /\bloadSection\(\s*[^,)\n]+\s*\)/).each do
+      match = Regexp.last_match
+      line = source[0...match.begin(0)].count("\n") + 1
+      violations5 << "#{relative}:#{line}  cache materialization has no explicit limit"
+    end
+
+    source.to_enum(:scan, /\bfunc\s+loadRemainingForSearch\b/).each do
+      match = Regexp.last_match
+      line = source[0...match.begin(0)].count("\n") + 1
+      violations5 << "#{relative}:#{line}  local search must not eagerly hydrate every remaining page"
+    end
+  end
+end
+
+
+# Typed observable state replaces stringly domain broadcasts. Framework and
+# platform lifecycle notifications remain valid at adapter boundaries.
+forbidden_domain_broadcasts = %w[
+  likesIndexDidChange
+  trackLikeChanged
+  soundCloudAuthenticationChanged
+  soundCloudTrafficSafetyChanged
+  sessionExpired
+  pairedTVDidChange
+  companionClientAuthHandoffRequest
+  audioOutputRouteDidChange
+  presentSoundCloudMessages
+]
+violations6 = []
+violations7 = []
+file_lines.each do |file, lines|
+  lines.each_with_index do |line, index|
+    forbidden_domain_broadcasts.each do |name|
+      next unless line.include?(name)
+
+      violations6 << "#{file.relative_path_from(ROOT)}:#{index + 1}  domain broadcast #{name} must be observable typed state"
+    end
+  end
+
+  relative = file.relative_path_from(ROOT).to_s
+  source = strip_noise(file.read)
+  if source.match?(/\bNWPathMonitor\b/) && !relative.end_with?('Core/Support/AppRuntime.swift')
+    violations7 << "#{relative}  reachability must be owned by RuntimeNetworkIntegration"
+  end
+  if source.match?(/\b(?:AVPlayer|AVQueuePlayer|AVAudioPlayer|AVAudioEngine|AVAudioPlayerNode)\b/) &&
+     !relative.end_with?('Core/Playback/PlayerService.swift', 'Core/DJ/MixEngine.swift')
+    violations7 << "#{relative}  audio rendering must be owned by PlayerService/MixEngine"
+  end
+end
+
 total_symbols = symbol_layer_nums.size
 all_swift_files = LAYERS.sum { |l| swift_files(l[:path]).size }
 
@@ -333,9 +409,36 @@ unless stale_allowlist_entries.empty?
   stale_allowlist_entries.each { |cycle| puts "  #{cycle.join(', ')}" }
 end
 
+unless violations4.empty?
+  puts 'Check 4: non-virtualized scroll containers'
+  violations4.each { |v| puts "  #{v}" }
+  puts
+end
+
+unless violations5.empty?
+  puts 'Check 5: eager data materialization'
+  violations5.each { |v| puts "  #{v}" }
+  puts
+end
+
+unless violations6.empty?
+  puts 'Check 6: stringly domain broadcasts'
+  violations6.each { |v| puts "  #{v}" }
+  puts
+end
+
+unless violations7.empty?
+  puts 'Check 7: duplicate runtime integration ownership'
+  violations7.each { |v| puts "  #{v}" }
+  puts
+end
+
 abort "check-layering: #{violations1.size} layer violation(s), #{violations2.size} membership violation(s), " \
-      "#{new_cycles.size} new dependency cycle(s)" \
-  unless violations1.empty? && violations2.empty? && new_cycles.empty?
+      "#{new_cycles.size} new dependency cycle(s), #{violations4.size} UI virtualization violation(s), " \
+      "#{violations5.size} data virtualization violation(s), #{violations6.size} domain broadcast violation(s), " \
+      "#{violations7.size} integration ownership violation(s)" \
+  unless violations1.empty? && violations2.empty? && new_cycles.empty? && violations4.empty? &&
+         violations5.empty? && violations6.empty? && violations7.empty?
 
 unless QUIET
   puts "check-layering: clean (#{all_swift_files} source files, #{total_symbols} top-level symbols, " \

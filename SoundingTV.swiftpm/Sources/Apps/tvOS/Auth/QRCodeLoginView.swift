@@ -1,5 +1,10 @@
 import SwiftUI
+import UIKit
+import Combine
 import Foundation
+import DeviceDiscoveryUI
+import Network
+import QuartzCore
 
 struct QRCodeLoginView: View {
     enum Purpose {
@@ -9,18 +14,31 @@ struct QRCodeLoginView: View {
 
     var onClose: (() -> Void)?
     var purpose: Purpose = .signIn
+    var useWithoutSoundCloud: (() -> Void)?
 
     @EnvironmentObject var authService: AuthenticationService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var bonjourServer = LinkServer()
+    @StateObject private var nearbyPhone = NearbyPhonePresence()
+    @ObservedObject private var companionServer = CompanionServer.shared
+    @State private var chimePlayer = ChimePlayer()
     @State private var timeRemaining: Int = Int(BonjourConstants.sessionTimeout)
     @State private var timerTask: Task<Void, Never>?
     @State private var completionTask: Task<Void, Never>?
+    @State private var plateCentre: CGPoint?
+    @State private var chimeSchedule: ChimeSchedule?
+    @State private var storyEvents = PassthroughSubject<SignInEvent, Never>()
+    @State private var stage: SignInStage?
+    @State private var stageReset: Task<Void, Never>?
+    @State private var requestPublisher: SignInRequestPublisher?
+    @State private var inviter = DevicePickerInviter()
     @FocusState private var focus: Focus?
+    @Environment(\.devicePickerSupports) private var devicePickerSupports
 
     private enum Focus: Hashable {
-        case close, action
+        case close, action, sound, picker, withoutSoundCloud
     }
 
     private var state: LinkServer.State {
@@ -50,62 +68,89 @@ struct QRCodeLoginView: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            VStack(spacing: 0) {
-                header
+            if isConnecting {
+                ContentUnavailableView {
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(Color.scAccent)
+                } description: {
+                    Text(connectingTitle)
+                        .font(.tvBody)
+                        .foregroundStyle(SignInInk.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .remoteFocusTarget()
+                .accessibilityIdentifier("login.connecting")
+            } else {
+                VStack(spacing: 0) {
+                    Spacer(minLength: Space.roomy)
 
-                Spacer().frame(height: Space.section)
+                    header
 
-                if state == .completed {
-                    SuccessBeat(focused: $focus, tag: Focus.action, reduceMotion: reduceMotion) {
-                        advance()
-                    }
-                    .accessibilityIdentifier("login.success.continue")
-                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                } else {
-                    HStack(alignment: .center, spacing: Space.section + Space.snug) {
-                        CodePlate(
+                    Spacer().frame(height: Space.roomy)
+
+                    if state == .completed {
+                        SuccessBeat(focused: $focus, tag: Focus.action, reduceMotion: reduceMotion) {
+                            advance()
+                        }
+                        .accessibilityIdentifier("login.success.continue")
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    } else if isFaultScreen, case .failed(let fault) = state {
+                        FaultGuidance(fault: fault)
+                            .frame(maxWidth: 900)
+                    } else if let code = bonjourServer.numericComparisonCode {
+                        NumericComparisonGuidance(code: code)
+                            .frame(maxWidth: 900)
+                    } else {
+                        ChimePulse(schedule: chimeSchedule) {
+                            CodePlate(
+                                state: state,
+                                credentials: bonjourServer.credentials,
+                                reduceMotion: reduceMotion,
+                                onPlateMoved: { plateCentre = $0 }
+                            )
+                        }
+
+                        Spacer().frame(height: Space.base)
+
+                        LinkStatusLine(
                             state: state,
-                            credentials: bonjourServer.credentials,
-                            fractionRemaining: fractionRemaining,
-                            reduceMotion: reduceMotion
+                            stage: stage,
+                            waiting: hint,
+                            nearbyName: nearbyPhone.name
                         )
+                        .frame(maxWidth: 1100)
 
-                        GuidancePanel(state: state, numericComparisonCode: bonjourServer.numericComparisonCode)
-                            .frame(width: 720, alignment: .leading)
+                        Text(countdown ?? " ")
+                            .font(.tvCaption)
+                            .foregroundStyle(SignInInk.secondary)
+                            .monospacedDigit()
+                            .padding(.top, Space.tight)
+                            .accessibilityHidden(countdown == nil)
                     }
 
-                    Spacer().frame(height: Space.roomy)
+                    if state != .completed {
+                        Spacer().frame(height: Space.base)
+                        controls
 
-                    LinkStatusPill(state: state, timeRemaining: timeRemaining)
-
-                    Spacer().frame(height: Space.roomy)
-
-                    RecoveryButton(
-                        title: showRetry ? "Try Again" : "Get a New Code",
-                        isPrimary: showRetry,
-                        focused: $focus,
-                        tag: Focus.action,
-                        reduceMotion: reduceMotion
-                    ) { startSession() }
-                    .accessibilityIdentifier("login.recovery")
-                }
-
-                Spacer().frame(height: Space.section)
-
-                if state != .completed {
-                    HStack(spacing: Space.tight + 2) {
-                        Image(systemName: "lock.fill")
-                        Text("Signed and sent directly over your Wi-Fi")
+                        if let useWithoutSoundCloud {
+                            Spacer().frame(height: Space.snug)
+                            Button("Use Without SoundCloud", action: useWithoutSoundCloud)
+                                .buttonStyle(SignInChromeButtonStyle(reduceMotion: reduceMotion, isQuiet: true))
+                                .focusEffectDisabled()
+                                .focused($focus, equals: .withoutSoundCloud)
+                                .accessibilityIdentifier("login.withoutSoundCloud")
+                        }
                     }
-                    .font(.tvCaption)
-                    .foregroundStyle(Color.scTextTertiary)
+
+                    Spacer(minLength: Space.roomy)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, Space.page)
+                .scMotion(Motion.settle, reduceMotion: reduceMotion, value: state)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, Space.page)
-            .scMotion(Motion.settle, reduceMotion: reduceMotion, value: state)
 
-            if let onClose {
+            if useWithoutSoundCloud == nil, let onClose {
                 CloseButton(
                     focused: $focus,
                     tag: Focus.close,
@@ -117,74 +162,287 @@ struct QRCodeLoginView: View {
                 .padding(.top, Space.section)
             }
         }
-        .background(LinkBackdrop(state: state).ignoresSafeArea())
-        .preferredColorScheme(.dark)
+        .background(
+            LinkBackdrop(
+                state: state,
+                mode: backdropMode,
+                plate: plateFrame,
+                showsPlate: showsPlate
+            )
+                .ignoresSafeArea()
+        )
         .onExitCommand { onClose?() }
-        .defaultFocus($focus, .action)
-        .onAppear { startSession() }
-        .onDisappear { stopSession() }
+        .alert(
+            approvalTitle,
+            isPresented: Binding(get: { bonjourServer.linkApproval != nil }, set: { _ in }),
+            presenting: bonjourServer.linkApproval
+        ) { _ in
+            Button("Allow") { bonjourServer.approveLink() }
+            Button("Don't Allow", role: .cancel) { bonjourServer.declineLink() }
+        } message: { approval in
+            Text("Only allow it if \(approval.deviceName) shows this code.\n\n\(Self.grouped(approval.code))")
+                .monospacedDigit()
+                .multilineTextAlignment(.center)
+        }
+        .defaultFocus($focus, defaultFocus)
+        .onAppear {
+            SameAccountLinkAdvertiser.shared.hold()
+            prepareSignInRequest()
+            bonjourServer.onChimeRequested = { [chimePlayer] in chimePlayer.playChime() }
+            nearbyPhone.start()
+            startSession()
+        }
+        .onDisappear {
+            SameAccountLinkAdvertiser.shared.release()
+            bonjourServer.onChimeRequested = nil
+            nearbyPhone.stop()
+            stopSession()
+            requestPublisher?.withdraw()
+            inviter.cancel()
+        }
         .onChange(of: state) { _, newState in
             if newState == .timeout, LinkServer.debugStateOverride == nil {
                 startSession()
             }
+            if newState == .advertising { requestPublisher?.publish() }
+            if newState == .completed { requestPublisher?.withdraw() }
+            updateChime()
+        }
+        .onReceive(backdropEvents) { observe($0) }
+        .onChange(of: bonjourServer.chimeCode) { _, _ in updateChime() }
+        .onChange(of: scenePhase) { _, _ in updateChime() }
+        .onChange(of: authService.isAuthenticated) { _, authenticated in
+            if authenticated, companionServer.authHandoffDeviceName != nil { advance() }
         }
         .onChange(of: showRetry) { _, retryAvailable in
             if retryAvailable { focus = .action }
         }
         .onChange(of: state == .completed) { _, completed in
-            if completed { focus = .action }
+            if completed {
+                focus = .action
+                chimePlayer.playSuccess()
+            }
         }
         .userActivity(HandoffActivityType.link, isActive: isPairingHandoffActive) { activity in
             configurePairingActivity(activity)
         }
+        #if DEBUG
+        .task {
+            guard let story = SignInStory.current else { return }
+            await story.run(send: { storyEvents.send($0) }, chime: { chimePlayer.playChime() })
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var controls: some View {
+        HStack(spacing: Space.base) {
+            if showRetry {
+                RecoveryButton(
+                    title: "Try Again",
+                    focused: $focus,
+                    tag: Focus.action,
+                    reduceMotion: reduceMotion
+                ) { startSession() }
+                .accessibilityIdentifier("login.recovery")
+            }
+
+            if bonjourServer.chimeCode != nil, !isFaultScreen {
+                Button { chimePlayer.playChime() } label: {
+                    Label("Play Sound", systemImage: "speaker.wave.2.fill")
+                }
+                .buttonStyle(SignInChromeButtonStyle(reduceMotion: reduceMotion))
+                .focusEffectDisabled()
+                .focused($focus, equals: .sound)
+                .accessibilityIdentifier("login.playSound")
+            }
+
+            if showsDevicePicker {
+                Group {
+                    if devicePickerIsSupported {
+                        DevicePicker(
+                            DevicePickerInviter.descriptor,
+                            onSelect: { invite($0) },
+                            label: { Label("Sign in with iPhone", systemImage: "iphone") },
+                            fallback: { EmptyView() },
+                            parameters: { DevicePickerInviter.parameters }
+                        )
+                    } else {
+                        Button {} label: { Label("Sign in with iPhone", systemImage: "iphone") }
+                    }
+                }
+                .buttonStyle(SignInChromeButtonStyle(reduceMotion: reduceMotion))
+                .focusEffectDisabled()
+                .focused($focus, equals: .picker)
+                .accessibilityIdentifier("login.devicePicker")
+            }
+        }
+    }
+
+    private var defaultFocus: Focus {
+        if showRetry || state == .completed { return .action }
+        if bonjourServer.chimeCode != nil { return .sound }
+        return useWithoutSoundCloud != nil ? .withoutSoundCloud : .close
+    }
+
+    private var hint: String {
+        switch state {
+        case .connected, .receivingToken:
+            return "Finish on your iPhone."
+        default:
+            return purpose == .companion
+                ? "Scan with Sounding on your iPhone, or confirm the code on your Mac."
+                : "Scan with your iPhone camera, or open Sounding on your iPhone nearby."
+        }
+    }
+
+    private var showsPlate: Bool {
+        !isConnecting && state != .completed && !isFaultScreen && bonjourServer.numericComparisonCode == nil
+    }
+
+    private var isConnecting: Bool {
+        if companionServer.authHandoffDeviceName != nil { return true }
+        guard !state.isTerminal else { return false }
+        if bonjourServer.linkApproval != nil { return false }
+        return state == .connected || state == .receivingToken
+            || bonjourServer.isLinkInProgress || stage == .pickerConnecting
+    }
+
+    private var connectingTitle: String {
+        let name = companionServer.authHandoffDeviceName
+            ?? bonjourServer.connectingDeviceName
+            ?? nearbyPhone.name
+        return name.map { "Connecting to \($0)…" } ?? "Connecting…"
+    }
+
+    private var countdown: String? {
+        guard state == .advertising, timeRemaining <= 60, timeRemaining > 0 else { return nil }
+        return "New code in \(timeRemaining)s"
+    }
+
+    private var plateFrame: CGRect? {
+        plateCentre.map { centre in
+            CGRect(
+                x: centre.x - CodePlate.side / 2,
+                y: centre.y - CodePlate.side / 2,
+                width: CodePlate.side,
+                height: CodePlate.side
+            )
+        }
+    }
+
+    private var backdropMode: SignInBackdropMode {
+        if isConnecting { return .connecting }
+        switch state {
+        case .connected, .receivingToken:
+            return .connecting
+        case .completed:
+            return .resolved
+        case .failed(let fault) where !fault.codeIsStillLive:
+            return .unavailable
+        default:
+            return .listening
+        }
+    }
+
+    private func observe(_ event: SignInEvent) {
+        let next: SignInStage?
+        switch event {
+        case .scanned:         next = .phoneConnected
+        case .offerReceived:   next = .phoneFound
+        case .exchangeStarted: next = .signingIn
+        case .failed:          next = .couldntSignIn
+        case .signedIn:        next = .signedIn
+        case .notificationSent: next = .notified
+        case .phoneConnecting: next = .pickerConnecting
+        case .codeRotated, .offerClosed: next = nil
+        case .chime(let schedule):
+            chimeSchedule = schedule
+            return
+        case .carrier, .confirmed: return
+        }
+        stageReset?.cancel()
+        stageReset = nil
+        stage = next
+        guard next == .couldntSignIn || next == .phoneFound || next == .notified || next == .pickerConnecting else { return }
+        stageReset = Task {
+            try? await Task.sleep(for: .seconds(next == .couldntSignIn ? 8 : 20))
+            if !Task.isCancelled { stage = nil }
+        }
+    }
+
+    private var showsDevicePicker: Bool {
+        guard !isFaultScreen, bonjourServer.credentials != nil || Self.forcesDevicePicker else { return false }
+        return Self.forcesDevicePicker || devicePickerIsSupported
+    }
+
+    private var devicePickerIsSupported: Bool {
+        devicePickerSupports(DevicePickerInviter.descriptor, parameters: { DevicePickerInviter.parameters })
+    }
+
+    private static var forcesDevicePicker: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["SOUNDING_TV_DEVICE_PICKER"] == "1"
+        #else
+        false
+        #endif
+    }
+
+    private func prepareSignInRequest() {
+        guard purpose == .signIn, !authService.isAuthenticated, requestPublisher == nil else { return }
+        let publisher = SignInRequestPublisher()
+        publisher.onSent = { [storyEvents] in storyEvents.send(.notificationSent) }
+        requestPublisher = publisher
+        bonjourServer.rendezvous = publisher.rendezvous
+    }
+
+    private func invite(_ endpoint: NWEndpoint) {
+        guard let credentials = bonjourServer.credentials, !credentials.isExpired else { return }
+        storyEvents.send(.phoneConnecting)
+        inviter.send(to: endpoint, credentials: credentials) { outcome in
+            if outcome == .failed { storyEvents.send(.failed) }
+        }
+    }
+
+    private var backdropEvents: AnyPublisher<SignInEvent, Never> {
+        bonjourServer.events
+            .merge(with: chimePlayer.events, storyEvents)
+            .eraseToAnyPublisher()
     }
 
     private var header: some View {
-        VStack(spacing: Space.snug) {
-            Text(title)
-                .font(.tvLargeTitle)
-                .tracking(-0.8)
-                .foregroundStyle(Color.scTextPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+        SoundingWelcomeTitle(
+            title: title,
+            message: subtitle,
+            titleFont: .tvLargeTitle,
+            messageFont: .tvBody,
+            messageStyle: AnyShapeStyle(SignInInk.secondary),
+            spacing: Space.snug
+        )
+        .foregroundStyle(SignInInk.primary)
+        .frame(maxWidth: 1100)
+    }
 
-            Text(subtitle)
-                .font(.tvBody)
-                .foregroundStyle(Color.scTextSecondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 900)
-        }
+    private var isFaultScreen: Bool {
+        if case .failed(let fault) = state { return !fault.codeIsStillLive }
+        return false
     }
 
     private var title: String {
+        if isFaultScreen { return "Can't Add a Device" }
         if purpose == .companion {
-            return state == .completed ? "Companion Connected" : "Pair a Companion"
+            return state == .completed ? "Device Added" : "Add a Device"
         }
-        switch state {
-        case .completed:
-            return "You're signed in"
-        case .failed(let fault) where !fault.codeIsStillLive:
-            return "Can't start link"
-        default:
-            return "Sign in with iPhone"
-        }
+        return state == .completed ? "You're signed in" : SoundingWelcome.headline
     }
 
     private var subtitle: String {
+        if isFaultScreen { return "" }
         if purpose == .companion {
-            if state == .completed { return "Your iPhone can now control this Apple TV." }
-            return "Scan with SoundingCloud on iPhone, then compare the six-digit code on both screens."
+            if state == .completed { return "It can now play music on this Apple TV and control it." }
+            return "Link an iPhone, iPad or Mac to this Apple TV."
         }
-        switch state {
-        case .completed:
-            return "Enjoy your music."
-        case .connected, .receivingToken:
-            return "Hold tight. Finishing up on your iPhone."
-        case .failed(let fault) where !fault.codeIsStillLive:
-            return "Nothing is listening for your iPhone yet, so there's no code to scan."
-        default:
-            return "Two ways in. Take whichever your iPhone offers first."
-        }
+        return state == .completed ? "Enjoy your music." : SoundingWelcome.tagline
     }
 
     private var isPairingHandoffActive: Bool {
@@ -201,7 +459,7 @@ struct QRCodeLoginView: View {
 
     private func configurePairingActivity(_ activity: NSUserActivity) {
         guard let credentials = bonjourServer.credentials else { return }
-        activity.title = "Sign in to SoundingCloud"
+        activity.title = "Sign in to Sounding"
         activity.isEligibleForHandoff = true
         activity.isEligibleForSearch = false
         activity.isEligibleForPublicIndexing = false
@@ -212,11 +470,6 @@ struct QRCodeLoginView: View {
     private var showRetry: Bool {
         if case .failed = state { return true }
         return state == .timeout
-    }
-
-    private var fractionRemaining: Double {
-        guard BonjourConstants.sessionTimeout > 0 else { return 0 }
-        return min(1, max(0, Double(timeRemaining) / BonjourConstants.sessionTimeout))
     }
 
     private func startSession() {
@@ -233,8 +486,26 @@ struct QRCodeLoginView: View {
                 onClose?()
             }
         }
+        advertiseSignedInAccount()
         bonjourServer.start()
         startTimer()
+    }
+
+    private func advertiseSignedInAccount() {
+        guard authService.isAuthenticated,
+              let accountId = SameAccountLinkAdvertiser.currentAccountId, !accountId.isEmpty,
+              let salt = LinkAccountHint.makeSalt() else {
+            bonjourServer.accountHint = nil
+            bonjourServer.ownerAccountId = nil
+            return
+        }
+        bonjourServer.accountHint = LinkAccountHint.advert(
+            accountId: accountId,
+            linkedDeviceIds: CompanionServer.shared.devices.compactMap(\.deviceId),
+            salt: salt
+        )
+        bonjourServer.ownerAccountId = accountId
+        LinkOwnerKeyCloud.shared.refreshIfNeeded()
     }
 
     private func stopSession() {
@@ -242,7 +513,35 @@ struct QRCodeLoginView: View {
         timerTask = nil
         completionTask?.cancel()
         completionTask = nil
+        chimePlayer.stop()
         bonjourServer.stop()
+    }
+
+    private var approvalTitle: String {
+        "Allow “\(bonjourServer.linkApproval?.deviceName ?? "A nearby device")” to link to this Apple TV?"
+    }
+
+    private static func grouped(_ code: String) -> String {
+        let digits = code.filter(\.isNumber)
+        guard digits.count == 6 else { return code }
+        let split = digits.index(digits.startIndex, offsetBy: 3)
+        return "\(digits[..<split]) - \(digits[split...])"
+    }
+
+    private var chimeCanPlay: Bool {
+        scenePhase == .active && state != .completed && !isConnecting && !isFaultScreen && Self.debugForcedState == nil && Self.storyAllowsChime
+    }
+
+    private static var storyAllowsChime: Bool {
+        #if DEBUG
+        SignInStory.current?.wantsCarrier ?? true
+        #else
+        true
+        #endif
+    }
+
+    private func updateChime() {
+        chimePlayer.prepare(bonjourServer.chimeCode, canPlay: chimeCanPlay)
     }
 
     private func advance() {
@@ -262,118 +561,35 @@ struct QRCodeLoginView: View {
     }
 }
 
-private struct GuidancePanel: View {
-    let state: LinkServer.State
-    let numericComparisonCode: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.roomy) {
-            switch state {
-            case .failed(let fault) where !fault.codeIsStillLive:
-                FaultGuidance(fault: fault)
-
-            case .completed:
-                EmptyView()
-
-            default:
-                if let numericComparisonCode {
-                    // Numeric confirmation is the active security decision.
-                    // The server changes to `.receivingToken` while the phone
-                    // is still showing its code, so it must not be hidden by
-                    // the generic transfer guidance below.
-                    NumericComparisonGuidance(code: numericComparisonCode)
-                } else if case .connected = state {
-                    Route(
-                        icon: "iphone.gen3.radiowaves.left.and.right",
-                        title: "Finish on the other device",
-                        detail: "Complete the secure sign-in there. This device is waiting."
-                    )
-                } else if case .receivingToken = state {
-                    Route(
-                        icon: "iphone.gen3.radiowaves.left.and.right",
-                        title: "Finish on the other device",
-                        detail: "Complete the secure sign-in there. This device is waiting."
-                    )
-                } else {
-                    Route(
-                        icon: "camera.viewfinder",
-                        title: "Scan the code",
-                        detail: "Open Camera on your iPhone and hold it up to the code. Tap the link that appears."
-                    )
-
-                    OrDivider()
-
-                    Route(
-                        icon: "square.on.square",
-                        title: "Or skip the camera",
-                        detail: "Already have SoundingCloud on your iPhone? Open the App Switcher and tap the SoundingCloud banner along the bottom."
-                    )
-
-                    if case .failed(let fault) = state, let detail = faultLine(fault) {
-                        Text(detail)
-                            .font(.tvCaption)
-                            .foregroundStyle(Color.scTextTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        }
-    }
-
-    private func faultLine(_ fault: LinkServer.Fault) -> String? {
-        switch fault {
-        case .connectionLost:
-            return "An iPhone reached this Apple TV and then dropped off. The code is still good, try it again."
-        case .rejected(let detail):
-            return "The last attempt was refused (\(detail)). The code is still good, try it again."
-        case .validationUnavailable:
-            return "This Apple TV couldn't reach SoundCloud to check the sign-in. Check its internet connection. The code is still good."
-        case .cannotListen, .localNetworkDenied, .cannotGenerateSession:
-            return nil
-        }
-    }
-}
-
 private struct NumericComparisonGuidance: View {
     let code: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.base) {
+        VStack(spacing: Space.base) {
             Label("A nearby device wants to pair", systemImage: "link")
                 .font(.tvHeadline)
-                .foregroundStyle(Color.scTextPrimary)
+                .foregroundStyle(SignInInk.primary)
 
             Text("Confirm this matches the code on the other device:")
                 .font(.tvBody)
-                .foregroundStyle(Color.scTextSecondary)
+                .foregroundStyle(SignInInk.secondary)
 
-            HStack(spacing: Space.snug) {
-                ForEach(Array(codeGroups.enumerated()), id: \.offset) { _, group in
-                    Text(group)
-                        .font(.system(size: 64, weight: .bold, design: .rounded))
-                        .tracking(7)
-                        .monospacedDigit()
-                        .foregroundStyle(Color.scTextPrimary)
-                        .frame(width: 220)
-                        .padding(.vertical, Space.snug)
-                        .background(
-                            RoundedRectangle(cornerRadius: Corner.card, style: .continuous)
-                                .fill(Color.scBgRaised)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: Corner.card, style: .continuous)
-                                .stroke(Color.scAccent.opacity(0.42), lineWidth: 2)
-                        }
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Pairing code \(codeGroups.joined(separator: ", "))")
+            Text(codeGroups.joined(separator: " - "))
+                .font(.tvLargeTitle)
+                .monospacedDigit()
+                .foregroundStyle(SignInInk.primary)
+                .frame(minWidth: CodePlate.side)
+                .padding(.vertical, Space.base)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Pairing code \(codeGroups.joined(separator: ", "))")
 
             Text("If it doesn't match, someone else on this Wi-Fi network may be trying to sign in.")
                 .font(.tvCaption)
-                .foregroundStyle(Color.scTextTertiary)
+                .foregroundStyle(SignInInk.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
     }
 
     private var codeGroups: [String] {
@@ -389,34 +605,23 @@ private struct FaultGuidance: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.base) {
-            Label(headline, systemImage: "exclamationmark.triangle.fill")
+            Label(headline, systemImage: "exclamationmark.triangle")
                 .font(.tvHeadline)
-                .foregroundStyle(Color.scDestructive)
+                .foregroundStyle(SignInInk.primary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Text(instruction)
                 .font(.tvBody)
-                .foregroundStyle(Color.scTextSecondary)
+                .foregroundStyle(SignInInk.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            if let detail = fault.detail {
-                VStack(alignment: .leading, spacing: Space.hair) {
-                    Text("Technical details")
-                        .font(.tvCaptionEmph)
-                    Text(detail)
-                        .font(.tvCaption.monospaced())
-                }
-                .foregroundStyle(Color.scTextTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 
     private var headline: String {
         switch fault {
-        case .cannotListen:          return "This Apple TV isn't visible"
+        case .cannotListen:          return "This Apple TV can't be found on your network"
         case .localNetworkDenied:    return "Local Network access is off"
-        case .cannotGenerateSession: return "Couldn't create a secure session"
+        case .cannotGenerateSession: return "Couldn't create a code"
         case .connectionLost:        return "Your iPhone dropped off"
         case .rejected:              return "That sign-in was refused"
         case .validationUnavailable: return "SoundCloud couldn't be reached"
@@ -426,132 +631,108 @@ private struct FaultGuidance: View {
     private var instruction: String {
         switch fault {
         case .cannotListen:
-            return "SoundingCloud couldn't announce this Apple TV on your Wi-Fi network, so your iPhone has nothing to find. Open Settings › Apps › SoundingCloud here, turn Local Network on, then press Try Again."
+            return "Check that this Apple TV is on Wi-Fi, then try again."
         case .localNetworkDenied:
-            return "Open Settings › Apps › SoundingCloud on this Apple TV, turn Local Network on, then return here and press Try Again."
+            return "Turn on Local Network for Sounding in Settings › Apps, then try again."
         case .cannotGenerateSession:
-            return "This Apple TV couldn't generate a link key, so there's no code. Press Try Again. If it keeps happening, restart SoundingCloud."
+            return "Try again. If it keeps happening, restart Sounding."
         case .connectionLost:
-            return "The connection closed before sign-in finished. Press Try Again for a fresh code."
+            return "The connection closed before it finished. Try again for a fresh code."
         case .rejected:
-            return "Press Try Again for a fresh code, then sign in on your iPhone once more."
+            return "Try again for a fresh code, then sign in on your iPhone once more."
         case .validationUnavailable:
-            return "Check this Apple TV's internet connection, then press Try Again."
+            return "Check this Apple TV's internet connection, then try again."
         }
     }
 }
 
-private struct Route: View {
-    let icon: String
-    let title: String
-    let detail: String
-    var tint: Color = .scAccent
-
-    var body: some View {
-        HStack(alignment: .top, spacing: Space.base) {
-            Image(systemName: icon)
-                .font(.system(size: 40, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 52, alignment: .center)
-
-            VStack(alignment: .leading, spacing: Space.tight) {
-                Text(title)
-                    .font(.tvSubheadline)
-                    .foregroundStyle(Color.scTextPrimary)
-                Text(detail)
-                    .font(.tvBody)
-                    .foregroundStyle(Color.scTextSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
-
-private struct OrDivider: View {
-    var body: some View {
-        HStack(spacing: Space.snug) {
-            line
-            Text("or")
-                .font(.tvCaptionEmph)
-                .foregroundStyle(Color.scTextTertiary)
-            line
-        }
-    }
-
-    private var line: some View {
-        Rectangle()
-            .fill(Color.scSeparator)
-            .frame(height: 1)
-    }
+private enum SignInInk {
+    static let primary = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.965, green: 0.94, blue: 0.905, alpha: 1)
+            : UIColor(red: 0.16, green: 0.11, blue: 0.09, alpha: 1)
+    })
+    static let secondary = primary.opacity(0.7)
+    static let tertiary = primary.opacity(0.52)
+    static let quietFill = primary.opacity(0.07)
+    static let stroke = primary.opacity(0.12)
+    static let focusFill = primary
+    static let focusLabel = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.06, green: 0.05, blue: 0.045, alpha: 1)
+            : UIColor(red: 0.985, green: 0.962, blue: 0.930, alpha: 1)
+    })
 }
 
 private struct LinkBackdrop: View {
     let state: LinkServer.State
+    let mode: SignInBackdropMode
+    let plate: CGRect?
+    let showsPlate: Bool
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var drift: CGFloat = 0
-
-    private var energy: Double {
-        switch state {
-        case .idle, .advertising:         return 0.72
-        case .connected, .receivingToken: return 1.0
-        case .completed:                  return 1.0
-        case .timeout:                    return 0.45
-        case .failed(let fault):          return fault.codeIsStillLive ? 0.6 : 0.32
-        }
-    }
-
-    private var bloom: Color {
-        switch state {
-        case .completed:
-            return .scSuccess
-        case .failed(let fault) where !fault.codeIsStillLive:
-            return .scDestructive
-        default:
-            return .scAccent
-        }
-    }
-
-    private var bloomCentre: CGFloat { 0.32 }
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let palette = SoundingArtPalette.resolve(colorScheme)
         ZStack {
-            Color(red: 0.027, green: 0.027, blue: 0.043)
+            palette.ground
 
-            RadialGradient(
-                colors: [bloom.opacity(0.26 * energy), .clear],
-                center: UnitPoint(x: bloomCentre, y: 0.50 + drift * 0.015),
-                startRadius: 0,
-                endRadius: 1050
-            )
-
-            RadialGradient(
-                colors: [bloom.opacity(0.13 * energy), .clear],
-                center: UnitPoint(x: bloomCentre, y: 0.50),
-                startRadius: 0,
-                endRadius: 520
-            )
-
-            RadialGradient(
-                colors: [Color(red: 0.24, green: 0.16, blue: 0.52).opacity(0.40), .clear],
-                center: UnitPoint(x: 1.02, y: 1.04 - drift * 0.02),
-                startRadius: 0,
-                endRadius: 950
-            )
-
-            RadialGradient(
-                colors: [.clear, .black.opacity(0.55)],
-                center: .center,
-                startRadius: 520,
-                endRadius: 1320
-            )
-        }
-        .animation(Motion.ambient, value: energy)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 11).repeatForever(autoreverses: true)) {
-                drift = 1
+            if state == .completed {
+                RadialGradient(
+                    colors: [Color.scSuccess.opacity(0.16), .clear],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: 700
+                )
             }
+
+            SignInLineArt(mode: mode, plate: plate, showsPlate: showsPlate, palette: palette)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ChimePulse<Content: View>: View {
+    let schedule: ChimeSchedule?
+    @ViewBuilder let content: () -> Content
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var glow = 0.0
+    @State private var spread = 1.0
+
+    var body: some View {
+        content()
+        .background {
+            RoundedRectangle(cornerRadius: Corner.hero, style: .continuous)
+                .stroke(Color.scAccent, lineWidth: 2)
+                .shadow(color: Color.scAccent.opacity(0.6), radius: 22)
+                .scaleEffect(reduceMotion ? 1 : spread)
+                .opacity(glow)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .task(id: schedule?.start) {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                glow = 0
+                spread = 1
+            }
+            guard let schedule, scenePhase == .active,
+                  CACurrentMediaTime() < schedule.start + schedule.duration else { return }
+            try? await Task.sleep(for: .seconds(max(0, schedule.start - CACurrentMediaTime())))
+            guard !Task.isCancelled, scenePhase == .active else { return }
+            withAnimation(.easeInOut(duration: 0.25)) { glow = 0.45 }
+            if !reduceMotion {
+                withAnimation(.spring(duration: 0.45, bounce: 0)) { spread = 1.13 }
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 1.1)) { glow = 0 }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { glow = 0 }
         }
     }
 }
@@ -559,10 +740,12 @@ private struct LinkBackdrop: View {
 private struct CodePlate: View {
     let state: LinkServer.State
     let credentials: SessionCredentials?
-    let fractionRemaining: Double
     let reduceMotion: Bool
+    var onPlateMoved: (CGPoint) -> Void = { _ in }
 
-    private let plate: CGFloat = 360
+    static let side: CGFloat = 360
+
+    private let plate: CGFloat = Self.side
     private let radius: CGFloat = Corner.hero
 
     @State private var matrix: QRMatrix?
@@ -575,47 +758,34 @@ private struct CodePlate: View {
         }
     }
 
-    private var showsBrightField: Bool {
-        codeIsRedeemable
-    }
-
-    private var glow: Color {
-        switch state {
-        case .failed(let fault) where !fault.codeIsStillLive: return .scDestructive
-        default:                                          return .scAccent
-        }
-    }
-
     var body: some View {
-        VStack(spacing: Space.base) {
-            ZStack {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(glow.opacity(0.30))
-                    .frame(width: plate, height: plate)
-                    .blur(radius: 58)
-                    .scaleEffect(1.16)
-
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(showsBrightField ? AnyShapeStyle(.white) : AnyShapeStyle(Color.scBgRaised))
-                    .frame(width: plate, height: plate)
-                    .shadow(color: .black.opacity(showsBrightField ? 0.6 : 0.3), radius: 48, y: 18)
-                    .overlay { plateContents }
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(codeIsRedeemable ? AnyShapeStyle(.white) : AnyShapeStyle(SignInInk.quietFill))
+            .frame(width: plate, height: plate)
+            .shadow(color: .black.opacity(codeIsRedeemable ? 0.2 : 0), radius: 36, y: 14)
+            .overlay { plateContents }
+            .onGeometryChange(for: CGPoint.self) { proxy in
+                let frame = proxy.frame(in: .global)
+                return CGPoint(x: frame.midX.rounded(), y: frame.midY.rounded())
+            } action: { onPlateMoved($0) }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(plateAccessibilityLabel)
+            .scMotion(Motion.settle, reduceMotion: reduceMotion, value: state)
+            .task(id: credentials?.sessionId) {
+                matrix = credentials.flatMap { QRCodeGenerator.matrix(for: $0) }
             }
-            .frame(width: plate + 56, height: plate + 56)
+    }
 
-            expiryBar
+    private var plateAccessibilityLabel: String {
+        if !codeIsRedeemable {
+            return state == .timeout ? "Getting a new code" : "No code"
         }
-        .scMotion(Motion.settle, reduceMotion: reduceMotion, value: state)
-        .task(id: credentials?.sessionId) {
-            matrix = credentials.flatMap { QRCodeGenerator.matrix(for: $0) }
-        }
+        return matrix == nil ? "Preparing a sign-in code" : "Sign-in QR code. Scan it with your iPhone camera."
     }
 
     @ViewBuilder
     private var plateContents: some View {
-        if !codeIsRedeemable {
-            deadPlate
-        } else if let matrix {
+        if codeIsRedeemable, let matrix {
             QRCodeView(matrix: matrix)
                 .frame(width: plate * 0.88, height: plate * 0.88)
                 .transition(.opacity)
@@ -623,116 +793,113 @@ private struct CodePlate: View {
             ProgressView()
                 .progressViewStyle(.circular)
                 .scaleEffect(1.5)
-                .tint(.black.opacity(0.4))
+                .tint(SignInInk.tertiary)
         }
     }
-
-    private var deadPlate: some View {
-        VStack(spacing: Space.snug) {
-            Image(systemName: state == .timeout ? "clock.badge.exclamationmark" : "qrcode")
-                .font(.system(size: 96, weight: .regular))
-                .foregroundStyle(Color.scTextTertiary)
-            Text(state == .timeout ? "Code expired" : "No code")
-                .font(.tvSubheadline)
-                .foregroundStyle(Color.scTextSecondary)
-        }
-    }
-
-    @ViewBuilder
-    private var expiryBar: some View {
-        if state == .advertising {
-            VStack(spacing: Space.hair) {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.10))
-                        Capsule()
-                            .fill(Color.scAccent.opacity(0.8))
-                            .frame(width: geo.size.width * fractionRemaining)
-                    }
-                }
-                .frame(width: plate * 0.55, height: 6)
-                .animation(reduceMotion ? nil : .linear(duration: 1), value: fractionRemaining)
-
-                Text("Session timer")
-                    .font(.tvCaption)
-                    .foregroundStyle(Color.scTextTertiary)
-            }
-            .frame(height: Self.expiryRowHeight)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Code expires in \(Int(fractionRemaining * BonjourConstants.sessionTimeout)) seconds")
-        } else {
-            Color.clear.frame(height: Self.expiryRowHeight)
-        }
-    }
-
-    private static let expiryRowHeight: CGFloat = 6 + Space.hair + 34
 }
 
-private struct LinkStatusPill: View {
+private enum SignInStage: Equatable {
+    case phoneConnected, phoneFound, signingIn, signedIn, couldntSignIn, notified, pickerConnecting
+}
+
+private struct LinkStatusLine: View {
     let state: LinkServer.State
-    let timeRemaining: Int
+    var stage: SignInStage?
+    let waiting: String
+    var nearbyName: String?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
+
+    private enum Phase {
+        case preparing, waiting, working, done, failed
+    }
+
+    private var staged: SignInStage? {
+        switch state {
+        case .idle, .advertising: return stage
+        default: return nil
+        }
+    }
+
+    private var phase: Phase {
+        if let staged {
+            switch staged {
+            case .phoneConnected, .phoneFound, .signingIn, .pickerConnecting: return .working
+            case .notified: return .waiting
+            case .signedIn: return .done
+            case .couldntSignIn: return .failed
+            }
+        }
+        switch state {
+        case .idle: return .preparing
+        case .advertising: return .waiting
+        case .connected, .receivingToken: return .working
+        case .completed: return .done
+        case .failed, .timeout: return .failed
+        }
+    }
 
     var body: some View {
-        HStack(spacing: Space.snug) {
+        HStack(spacing: Space.tight) {
             indicator
 
             Text(title)
-                .font(.tvCalloutEmph)
+                .font(.tvBody)
                 .foregroundStyle(tint)
-
-            if let trailing {
-                Text(trailing)
-                    .font(.tvCallout)
-                    .foregroundStyle(Color.scTextSecondary)
-                    .monospacedDigit()
-            }
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, Space.base + 2)
-        .padding(.vertical, Space.snug)
-        .liquidGlass(in: Capsule(), tint: .black.opacity(0.28))
-        .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
-        .animation(Motion.settle, value: title)
+        .frame(minHeight: 44)
+        .scMotion(Motion.settle, reduceMotion: reduceMotion, value: title)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
     }
 
     @ViewBuilder
     private var indicator: some View {
-        switch state {
-        case .connected, .receivingToken:
+        switch phase {
+        case .working:
             ProgressView()
                 .progressViewStyle(.circular)
-                .tint(.white)
-                .scaleEffect(0.8)
-        case .completed:
+                .tint(SignInInk.secondary)
+                .scaleEffect(0.7)
+        case .done:
             Image(systemName: "checkmark.circle.fill")
                 .font(.tvCalloutEmph)
                 .foregroundStyle(Color.scSuccess)
-        case .failed, .timeout:
+        case .failed:
             Image(systemName: "exclamationmark.circle.fill")
                 .font(.tvCalloutEmph)
                 .foregroundStyle(Color.scDestructive)
-        case .idle, .advertising:
-            Circle()
-                .fill(Color.scAccent)
-                .frame(width: 14, height: 14)
-                .shadow(color: Color.scAccent.opacity(0.9), radius: pulse ? 12 : 3)
-                .scaleEffect(pulse ? 1.15 : 0.85)
-                .onAppear {
-                    guard !reduceMotion else { return }
-                    withAnimation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true)) {
-                        pulse = true
-                    }
-                }
+        case .preparing, .waiting:
+            if isNearby {
+                Image(systemName: DeviceClass.phone.symbolName)
+                    .font(.tvCalloutEmph)
+                    .foregroundStyle(SignInInk.secondary)
+            }
         }
     }
 
+    private var isNearby: Bool {
+        staged == nil && state == .advertising && nearbyName != nil
+    }
+
     private var title: String {
+        if let staged {
+            switch staged {
+            case .phoneConnected: return "iPhone connected"
+            case .phoneFound: return "iPhone found"
+            case .signingIn: return "Connecting…"
+            case .signedIn: return "Signed in"
+            case .couldntSignIn: return "Couldn\u{2019}t sign in"
+            case .notified: return "Notification sent to your iPhone"
+            case .pickerConnecting: return "iPhone connecting…"
+            }
+        }
         switch state {
         case .idle:           return "Getting ready…"
-        case .advertising:    return "Waiting for your iPhone"
-        case .connected:      return "iPhone connected"
+        case .advertising:    return nearbyName.map { "\($0) is nearby: open Sounding on it to sign in." } ?? waiting
+        case .connected:      return "iPhone connected. Finish on your iPhone."
         case .receivingToken: return "Signing you in…"
         case .completed:      return "Signed in"
         case .timeout:        return "Code expired, getting a new one"
@@ -741,24 +908,19 @@ private struct LinkStatusPill: View {
         }
     }
 
-    private var trailing: String? {
-        guard state == .advertising, timeRemaining <= 60, timeRemaining > 0 else { return nil }
-        return "\(timeRemaining)s"
-    }
-
     private var tint: Color {
-        switch state {
-        case .completed:        return Color.scSuccess
-        case .failed, .timeout: return Color.scDestructive
-        case .idle:             return Color.scTextSecondary
-        default:                return Color.scTextPrimary
+        switch phase {
+        case .done:      return Color.scSuccess
+        case .failed:    return Color.scDestructive
+        case .preparing: return SignInInk.tertiary
+        default:         return SignInInk.secondary
         }
     }
 }
 
 private struct RecoveryButton<Tag: Hashable>: View {
     let title: String
-    let isPrimary: Bool
+    var icon = "arrow.clockwise"
     var focused: FocusState<Tag?>.Binding
     let tag: Tag
     let reduceMotion: Bool
@@ -768,37 +930,27 @@ private struct RecoveryButton<Tag: Hashable>: View {
 
     var body: some View {
         HStack(spacing: Space.snug) {
-            Image(systemName: "arrow.clockwise")
+            Image(systemName: icon)
                 .font(.system(size: Control.circleIcon, weight: .bold))
             Text(title)
                 .font(.tvCalloutEmph)
         }
-        .foregroundStyle(
-            isFocused ? Color.scChromeFocusOn
-                      : (isPrimary ? Color.scAccentOn : Color.scTextPrimary)
-        )
+        .foregroundStyle(isFocused ? SignInInk.focusLabel : SignInInk.primary)
         .padding(.horizontal, Space.base + 2)
         .padding(.vertical, Space.snug)
-        .background {
-            if isFocused {
-                Capsule().fill(Color.scChromeFocus)
-            } else if isPrimary {
-                Capsule().fill(Color.scAccent)
-            }
-        }
-        .liquidGlass(in: Capsule())
-        .overlay(
-            Capsule().stroke(
-                (isPrimary || isFocused) ? Color.clear : Color.white.opacity(0.16),
-                lineWidth: 1
-            )
-        )
+        .background { SignInChromeFill(isFocused: isFocused) }
         .contentShape(Capsule())
+        .scaleEffect(isFocused ? 1.06 : 1)
+        .shadow(color: .black.opacity(isFocused ? 0.22 : 0), radius: 18, y: 10)
         .focusable()
         .focused(focused, equals: tag)
         .focusEffectDisabled()
         .scMotion(Motion.focus, reduceMotion: reduceMotion, value: isFocused)
         .onTapGesture(perform: action)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default, action)
     }
 }
 
@@ -836,6 +988,7 @@ private struct SuccessBeat<Tag: Hashable>: View {
                     .opacity(arrived ? 1 : 0)
             }
             .frame(width: 148, height: 148)
+            .accessibilityHidden(true)
             .onAppear {
                 withAnimation(reduceMotion ? nil : Motion.settle) {
                     arrived = true
@@ -853,28 +1006,22 @@ private struct SuccessBeat<Tag: Hashable>: View {
                     .font(.system(size: Control.circleIcon, weight: .bold))
                     .offset(x: nudge ? 4 : 0)
             }
-            .foregroundStyle(isFocused ? Color.scChromeFocusOn : Color.scTextPrimary)
+            .foregroundStyle(isFocused ? SignInInk.focusLabel : SignInInk.primary)
             .padding(.horizontal, Space.base + 2)
             .padding(.vertical, Space.snug)
-            .background {
-                if isFocused { Capsule().fill(Color.scChromeFocus) }
-            }
-            .liquidGlass(in: Capsule(), tint: Color.scAccent.opacity(0.22))
-            .overlay(
-                Capsule().stroke(
-                    LinearGradient(
-                        colors: [.white.opacity(isFocused ? 0 : 0.55), .white.opacity(isFocused ? 0 : 0.08)],
-                        startPoint: .top, endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
-            )
+            .background { SignInChromeFill(isFocused: isFocused) }
             .contentShape(Capsule())
+            .scaleEffect(isFocused ? 1.06 : 1)
+            .shadow(color: .black.opacity(isFocused ? 0.22 : 0), radius: 18, y: 10)
             .focusable()
             .focused(focused, equals: tag)
             .focusEffectDisabled()
             .scMotion(Motion.focus, reduceMotion: reduceMotion, value: isFocused)
             .onTapGesture(perform: action)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Continue")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default, action)
             .onAppear {
                 guard !reduceMotion else { return }
                 withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
@@ -896,23 +1043,75 @@ private struct CloseButton<Tag: Hashable>: View {
     var body: some View {
         Image(systemName: "xmark")
             .font(.system(size: Control.circleIcon, weight: .semibold))
-            .foregroundStyle(isFocused ? Color.scChromeFocusOn : Color.scTextPrimary.opacity(0.75))
+            .foregroundStyle(isFocused ? SignInInk.focusLabel : SignInInk.primary.opacity(0.75))
             .frame(width: Control.circle, height: Control.circle)
             .background {
-                if isFocused { Circle().fill(Color.scChromeFocus) }
+                if isFocused {
+                    Circle().fill(SignInInk.focusFill)
+                } else {
+                    Color.clear.glassEffect(.regular, in: Circle())
+                }
             }
-            .liquidGlass(in: Circle())
-            .overlay(Circle().stroke(Color.white.opacity(isFocused ? 0 : 0.16), lineWidth: 1))
             .contentShape(Circle())
+            .scaleEffect(isFocused ? 1.1 : 1)
+            .shadow(color: .black.opacity(isFocused ? 0.22 : 0), radius: 14, y: 8)
             .focusable()
             .focused(focused, equals: tag)
             .focusEffectDisabled()
             .scMotion(Motion.focus, reduceMotion: reduceMotion, value: isFocused)
             .onTapGesture(perform: action)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Close")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default, action)
     }
 }
 
 #Preview {
     QRCodeLoginView()
         .environmentObject(AuthenticationService.shared)
+}
+
+private struct SignInChromeButtonStyle: ButtonStyle {
+    let reduceMotion: Bool
+    var isQuiet = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        SignInChromeButtonBody(configuration: configuration, reduceMotion: reduceMotion, isQuiet: isQuiet)
+    }
+}
+
+private struct SignInChromeButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let reduceMotion: Bool
+    let isQuiet: Bool
+
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        configuration.label
+            .labelStyle(.titleAndIcon)
+            .font(.tvCalloutEmph)
+            .foregroundStyle(isFocused ? SignInInk.focusLabel : (isQuiet ? SignInInk.secondary : SignInInk.primary))
+            .padding(.horizontal, Space.base + 2)
+            .padding(.vertical, Space.snug)
+            .background { SignInChromeFill(isFocused: isFocused, isQuiet: isQuiet) }
+            .contentShape(Capsule())
+            .scaleEffect(configuration.isPressed ? 0.97 : (isFocused ? 1.06 : 1))
+            .shadow(color: .black.opacity(isFocused ? 0.22 : 0), radius: 18, y: 10)
+            .scMotion(Motion.focus, reduceMotion: reduceMotion, value: isFocused)
+    }
+}
+
+private struct SignInChromeFill: View {
+    let isFocused: Bool
+    var isQuiet = false
+
+    var body: some View {
+        if isFocused {
+            Capsule().fill(SignInInk.focusFill)
+        } else if !isQuiet {
+            Color.clear.glassEffect(.regular, in: Capsule())
+        }
+    }
 }

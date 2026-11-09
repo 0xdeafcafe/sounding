@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "98386ED6A469569D840BC0AA"
-               BuildableName = "SoundingTV watchOS.app"
+               BuildableName = "Sounding.app"
                BlueprintName = "SoundingTV watchOS"
                ReferencedContainer = "container:SoundingTV.xcodeproj">
             </BuildableReference>
@@ -33,7 +33,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "98386ED6A469569D840BC0AA"
-            BuildableName = "SoundingTV watchOS.app"
+            BuildableName = "Sounding.app"
             BlueprintName = "SoundingTV watchOS"
             ReferencedContainer = "container:SoundingTV.xcodeproj">
          </BuildableReference>
@@ -58,7 +58,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "98386ED6A469569D840BC0AA"
-            BuildableName = "SoundingTV watchOS.app"
+            BuildableName = "Sounding.app"
             BlueprintName = "SoundingTV watchOS"
             ReferencedContainer = "container:SoundingTV.xcodeproj">
          </BuildableReference>
@@ -77,7 +77,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "98386ED6A469569D840BC0AA"
-            BuildableName = "SoundingTV watchOS.app"
+            BuildableName = "Sounding.app"
             BlueprintName = "SoundingTV watchOS"
             ReferencedContainer = "container:SoundingTV.xcodeproj">
          </BuildableReference>

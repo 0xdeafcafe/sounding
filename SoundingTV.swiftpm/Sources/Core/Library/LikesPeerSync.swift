@@ -1,29 +1,14 @@
 import Foundation
 
-struct LikesPeerRecord: Codable, Sendable, Equatable {
-    let id: String
-    let payload: Data
-    let likedAtMillis: Int64
-    let title: String
-    let artist: String
-}
-
-struct LikesPeerBody: Codable, Sendable, Equatable {
-    let accountId: String
-    let snapshotId: String
-    let records: [LikesPeerRecord]
-    let isComplete: Bool
-
-    func encoded() -> Data? { try? JSONEncoder().encode(self) }
-    static func decode(_ data: Data) -> LikesPeerBody? {
-        try? JSONDecoder().decode(LikesPeerBody.self, from: data)
-    }
-}
-
 actor LikesPeerImportCoordinator {
-    static let shared = LikesPeerImportCoordinator()
+    static let shared = LikesPeerImportCoordinator(cache: .shared)
 
+    private let cache: LibraryCache
     private var generations: [String: Int64] = [:]
+
+    init(cache: LibraryCache) {
+        self.cache = cache
+    }
 
     @discardableResult
     func adopt(_ body: LikesPeerBody, expectedAccountId: String) async -> Int {
@@ -32,7 +17,7 @@ actor LikesPeerImportCoordinator {
         if let existing = generations[body.snapshotId] {
             generation = existing
         } else {
-            let current = Int64(await LibraryCache.shared.syncValue(forKey: "likes.generation") ?? "0") ?? 0
+            let current = Int64(await cache.syncValue(forKey: "likes.generation") ?? "0") ?? 0
             generation = max(current + 1, Int64(Date().timeIntervalSince1970 * 1_000))
             generations[body.snapshotId] = generation
         }
@@ -46,16 +31,15 @@ actor LikesPeerImportCoordinator {
                 artist: $0.artist
             )
         }
-        await LibraryCache.shared.upsertLikes(rows, generation: generation)
+        await cache.upsertLikes(rows, generation: generation)
         if body.isComplete {
-            _ = await LibraryCache.shared.pruneLikes(olderThanGeneration: generation)
-            await LibraryCache.shared.setSyncValue(String(generation), forKey: "likes.generation")
-            await LibraryCache.shared.setSyncValue(
+            _ = await cache.pruneLikes(olderThanGeneration: generation)
+            await cache.setSyncValue(String(generation), forKey: "likes.generation")
+            await cache.setSyncValue(
                 String(Date().timeIntervalSince1970), forKey: "likes.completedAt"
             )
             generations[body.snapshotId] = nil
         }
-        await LikesSyncEngine.shared.didAdoptPeerLikes()
         return rows.count
     }
 }

@@ -4,9 +4,13 @@ import Accelerate
 
 enum AudioAnalyzer {
     static let analysisSampleRate: Double = 22_050
-    static let maxAnalysisSeconds: TimeInterval = 60
+    static let maxAnalysisSeconds: TimeInterval = 240
     static let bpmFrameSize = 1024
-    static let bpmHopSize = 512
+    static let bpmHopSize = 256
+    static let minBPM: Double = 55
+    static let maxBPM: Double = 200
+    static let foldedMinBPM: Double = 78
+    static let foldedMaxBPM: Double = 180
     static let keyFrameSize = 4096
     static let keyHopSize = 2048
 
@@ -113,24 +117,26 @@ enum AudioAnalyzer {
         var prevMag = [Float](repeating: 0, count: halfSize)
         var flux = [Float](repeating: 0, count: frameCount)
         var frame = [Float](repeating: 0, count: frameSize)
+        var diff = [Float](repeating: 0, count: halfSize)
 
         for f in 0..<frameCount {
             let start = f * hopSize
             samples.withUnsafeBufferPointer { src in
                 window.withUnsafeBufferPointer { win in
                     frame.withUnsafeMutableBufferPointer { dst in
+                        guard let srcBase = src.baseAddress,
+                              let winBase = win.baseAddress,
+                              let dstBase = dst.baseAddress else { return }
                         vDSP_vmul(
-                            src.baseAddress!.advanced(by: start), 1,
-                            win.baseAddress!, 1,
-                            dst.baseAddress!, 1,
+                            srcBase.advanced(by: start), 1,
+                            winBase, 1,
+                            dstBase, 1,
                             vDSP_Length(frameSize)
                         )
                     }
                 }
             }
             let mag = magnitudeSpectrum(of: frame, log2n: log2n, setup: setup)
-
-            var diff = [Float](repeating: 0, count: halfSize)
             vDSP_vsub(prevMag, 1, mag, 1, &diff, 1, vDSP_Length(halfSize))
             var zero: Float = 0
             vDSP_vthr(diff, 1, &zero, &diff, 1, vDSP_Length(halfSize))
@@ -150,33 +156,66 @@ enum AudioAnalyzer {
         vDSP_vsadd(smoothed, 1, &negMean, &smoothed, 1, vDSP_Length(smoothed.count))
 
         let frameRate = sampleRate / Double(hopSize)
-        let minLag = max(1, Int((60.0 * frameRate / 180.0).rounded()))
-        let maxLag = min(smoothed.count - 1, Int((60.0 * frameRate / 60.0).rounded()))
-        guard maxLag > minLag else { return nil }
-
-        var bestLag = 0
-        var bestVal: Float = -.infinity
-        smoothed.withUnsafeBufferPointer { buf in
-            for lag in minLag...maxLag {
-                let n = smoothed.count - lag
-                if n <= 0 { continue }
-                var dot: Float = 0
-                vDSP_dotpr(
-                    buf.baseAddress!, 1,
-                    buf.baseAddress!.advanced(by: lag), 1,
-                    &dot, vDSP_Length(n)
-                )
-                if dot > bestVal {
-                    bestVal = dot
-                    bestLag = lag
-                }
+        let count = smoothed.count
+        func autocorrelation(_ lag: Int) -> Double {
+            guard lag > 0, lag < count else { return 0 }
+            var dot: Float = 0
+            smoothed.withUnsafeBufferPointer { buffer in
+                guard let base = buffer.baseAddress else { return }
+                vDSP_dotpr(base, 1, base.advanced(by: lag), 1, &dot, vDSP_Length(count - lag))
             }
+            return Double(dot) / Double(count - lag)
         }
 
-        guard bestLag > 0 else { return nil }
-        return 60.0 * frameRate / Double(bestLag)
-    }
+        let minLag = max(2, Int((60.0 * frameRate / maxBPM).rounded(.down)))
+        let maxLag = min(count / 4, Int((60.0 * frameRate / minBPM).rounded(.up)))
+        guard maxLag > minLag + 2 else { return nil }
 
+        var acf = [Double](repeating: 0, count: maxLag * 4 + 3)
+        for lag in 1..<min(acf.count, count) { acf[lag] = autocorrelation(lag) }
+
+        var bestLag = 0
+        var bestScore = -Double.infinity
+        for lag in minLag...maxLag {
+            var score = acf[lag]
+            if 2 * lag < acf.count { score += 0.5 * acf[2 * lag] }
+            if 4 * lag < acf.count { score += 0.25 * acf[4 * lag] }
+            if score > bestScore {
+                bestScore = score
+                bestLag = lag
+            }
+        }
+        guard bestLag > 0 else { return nil }
+
+        var period = Double(bestLag)
+        var multiple = 1
+        while multiple <= 32 {
+            let center = Int((period * Double(multiple)).rounded())
+            guard center + 2 < count / 2 else { break }
+            var peakLag = center
+            var peakValue = autocorrelation(center)
+            for lag in (center - 2)...(center + 2) where lag > 1 {
+                let value = autocorrelation(lag)
+                if value > peakValue {
+                    peakValue = value
+                    peakLag = lag
+                }
+            }
+            let left = autocorrelation(peakLag - 1)
+            let right = autocorrelation(peakLag + 1)
+            let curvature = left - 2 * peakValue + right
+            let offset = curvature < 0 ? 0.5 * (left - right) / curvature : 0
+            guard abs(offset) <= 1 else { break }
+            period = (Double(peakLag) + offset) / Double(multiple)
+            multiple *= 2
+        }
+
+        guard period > 0 else { return nil }
+        var bpm = 60.0 * frameRate / period
+        while bpm < foldedMinBPM { bpm *= 2 }
+        while bpm >= foldedMaxBPM { bpm /= 2 }
+        return (bpm * 100).rounded() / 100
+    }
     private static func computeKey(samples: [Float], sampleRate: Double) -> String? {
         let frameSize = keyFrameSize
         let hopSize = keyHopSize
@@ -197,9 +236,8 @@ enum AudioAnalyzer {
         for k in 1..<halfSize {
             let freq = Double(k) * binStep
             if freq < 80 || freq > 5000 { continue }
-            let pitch = 12.0 * log2(freq / 440.0) + 69.0  // MIDI pitch
-            let pc = (Int(pitch.rounded()) % 12 + 12) % 12
-            binToClass[k] = (pc + 3) % 12
+            let pitch = 12.0 * log2(freq / 440.0) + 69.0
+            binToClass[k] = (Int(pitch.rounded()) % 12 + 12) % 12
         }
 
         var chroma = [Float](repeating: 0, count: 12)
@@ -210,10 +248,13 @@ enum AudioAnalyzer {
             samples.withUnsafeBufferPointer { src in
                 window.withUnsafeBufferPointer { win in
                     frame.withUnsafeMutableBufferPointer { dst in
+                        guard let srcBase = src.baseAddress,
+                              let winBase = win.baseAddress,
+                              let dstBase = dst.baseAddress else { return }
                         vDSP_vmul(
-                            src.baseAddress!.advanced(by: start), 1,
-                            win.baseAddress!, 1,
-                            dst.baseAddress!, 1,
+                            srcBase.advanced(by: start), 1,
+                            winBase, 1,
+                            dstBase, 1,
                             vDSP_Length(frameSize)
                         )
                     }
@@ -268,15 +309,14 @@ enum AudioAnalyzer {
 
         let windows = samples.count / windowSize
         var rmsByWindow = [Float](repeating: 0, count: windows)
-        samples.withUnsafeBufferPointer { buf in
-            for w in 0..<windows {
-                var rms: Float = 0
-                vDSP_rmsqv(
-                    buf.baseAddress!.advanced(by: w * windowSize), 1,
-                    &rms, vDSP_Length(windowSize)
-                )
-                rmsByWindow[w] = rms
-            }
+        guard let base = samples.withUnsafeBufferPointer({ $0.baseAddress }) else { return 0 }
+        for w in 0..<windows {
+            var rms: Float = 0
+            vDSP_rmsqv(
+                base.advanced(by: w * windowSize), 1,
+                &rms, vDSP_Length(windowSize)
+            )
+            rmsByWindow[w] = rms
         }
 
         var avg: Float = 0
@@ -298,16 +338,17 @@ enum AudioAnalyzer {
         var imagp = [Float](repeating: 0, count: halfSize)
         var mag = [Float](repeating: 0, count: halfSize)
 
-        frame.withUnsafeBufferPointer { frameBuf in
-            frameBuf.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: halfSize) { cmplxPtr in
-                realp.withUnsafeMutableBufferPointer { rBuf in
-                    imagp.withUnsafeMutableBufferPointer { iBuf in
-                        var split = DSPSplitComplex(realp: rBuf.baseAddress!, imagp: iBuf.baseAddress!)
-                        vDSP_ctoz(cmplxPtr, 2, &split, 1, vDSP_Length(halfSize))
-                        vDSP_fft_zrip(setup, &split, 1, log2n, FFTDirection(FFT_FORWARD))
-                        mag.withUnsafeMutableBufferPointer { magBuf in
-                            vDSP_zvabs(&split, 1, magBuf.baseAddress!, 1, vDSP_Length(halfSize))
-                        }
+        guard let frameBase = frame.withUnsafeBufferPointer({ $0.baseAddress }) else { return mag }
+        frameBase.withMemoryRebound(to: DSPComplex.self, capacity: halfSize) { cmplxPtr in
+            realp.withUnsafeMutableBufferPointer { rBuf in
+                imagp.withUnsafeMutableBufferPointer { iBuf in
+                    guard let rBase = rBuf.baseAddress, let iBase = iBuf.baseAddress else { return }
+                    var split = DSPSplitComplex(realp: rBase, imagp: iBase)
+                    vDSP_ctoz(cmplxPtr, 2, &split, 1, vDSP_Length(halfSize))
+                    vDSP_fft_zrip(setup, &split, 1, log2n, FFTDirection(FFT_FORWARD))
+                    mag.withUnsafeMutableBufferPointer { magBuf in
+                        guard let magBase = magBuf.baseAddress else { return }
+                        vDSP_zvabs(&split, 1, magBase, 1, vDSP_Length(halfSize))
                     }
                 }
             }

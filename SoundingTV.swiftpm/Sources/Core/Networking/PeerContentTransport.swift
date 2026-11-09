@@ -21,11 +21,200 @@ enum PeerContentStatus: String, Codable, Equatable {
     case ioError
 }
 
+struct PeerContentAccountCredential: Sendable {
+    let accountId: String
+    fileprivate let proofKey: Data
+
+    static func derive(accountId: String, accessToken: String) -> Self? {
+        guard !accountId.isEmpty, !accessToken.isEmpty else { return nil }
+        let key = HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: SymmetricKey(data: Data(accessToken.utf8)),
+            salt: Data(accountId.utf8),
+            info: Data("SoundingTV-Peer-Account-Proof-v1".utf8),
+            outputByteCount: 32
+        )
+        return Self(accountId: accountId, proofKey: key.withUnsafeBytes { Data($0) })
+    }
+
+    static let grantPrefix = "grant:"
+
+    var isGrant: Bool { accountId.hasPrefix(Self.grantPrefix) }
+
+    static func grant(id: String, key: Data) -> Self? {
+        guard !id.isEmpty, key.count >= 16 else { return nil }
+        let derived = HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: SymmetricKey(data: key),
+            salt: Data(id.utf8),
+            info: Data("SoundingTV-Peer-Grant-Proof-v1".utf8),
+            outputByteCount: 32
+        )
+        return Self(accountId: grantPrefix + id, proofKey: derived.withUnsafeBytes { Data($0) })
+    }
+
+    static func grantId(fromAccountId accountId: String) -> String? {
+        guard accountId.hasPrefix(grantPrefix) else { return nil }
+        let id = String(accountId.dropFirst(grantPrefix.count))
+        return id.isEmpty ? nil : id
+    }
+
+    @MainActor
+    static func current() -> Self? {
+        guard let source = SoundCloudAPI.credentials,
+              let accountId = source.currentUser?.id,
+              let accessToken = source.accessToken else { return nil }
+        return derive(accountId: accountId, accessToken: accessToken)
+    }
+}
+
+struct PeerContentAccountProof: Codable, Equatable {
+    static let maximumClockSkew: TimeInterval = 5 * 60
+
+    let accountId: String
+    let issuedAtMillis: Int64
+    let authenticationCode: String
+
+    static func make(
+        requestId: String,
+        trackId: String,
+        offset: Int64,
+        length: Int64,
+        credential: PeerContentAccountCredential,
+        now: Date = Date()
+    ) -> Self {
+        let issuedAtMillis = Int64((now.timeIntervalSince1970 * 1_000).rounded())
+        let payload = requestPayload(
+            requestId: requestId,
+            accountId: credential.accountId,
+            trackId: trackId,
+            offset: offset,
+            length: length,
+            issuedAtMillis: issuedAtMillis
+        )
+        return Self(
+            accountId: credential.accountId,
+            issuedAtMillis: issuedAtMillis,
+            authenticationCode: authenticate(payload, credential: credential)
+        )
+    }
+
+    func isValid(
+        requestId: String,
+        trackId: String,
+        offset: Int64,
+        length: Int64,
+        credential: PeerContentAccountCredential,
+        now: Date = Date()
+    ) -> Bool {
+        guard accountId == credential.accountId,
+              abs(Date(timeIntervalSince1970: Double(issuedAtMillis) / 1_000).timeIntervalSince(now))
+                <= Self.maximumClockSkew else { return false }
+        let payload = Self.requestPayload(
+            requestId: requestId,
+            accountId: accountId,
+            trackId: trackId,
+            offset: offset,
+            length: length,
+            issuedAtMillis: issuedAtMillis
+        )
+        return Self.verify(authenticationCode, payload: payload, credential: credential)
+    }
+
+    static func responseCode(
+        requestId: String,
+        status: PeerContentStatus,
+        offset: Int64,
+        length: Int64,
+        totalLength: Int64,
+        body: Data,
+        credential: PeerContentAccountCredential
+    ) -> String {
+        authenticate(
+            responsePayload(
+                requestId: requestId,
+                status: status,
+                offset: offset,
+                length: length,
+                totalLength: totalLength,
+                body: body
+            ),
+            credential: credential
+        )
+    }
+
+    static func verifyResponse(
+        _ authenticationCode: String,
+        requestId: String,
+        status: PeerContentStatus,
+        offset: Int64,
+        length: Int64,
+        totalLength: Int64,
+        body: Data,
+        credential: PeerContentAccountCredential
+    ) -> Bool {
+        verify(
+            authenticationCode,
+            payload: responsePayload(
+                requestId: requestId,
+                status: status,
+                offset: offset,
+                length: length,
+                totalLength: totalLength,
+                body: body
+            ),
+            credential: credential
+        )
+    }
+
+    private static func requestPayload(
+        requestId: String,
+        accountId: String,
+        trackId: String,
+        offset: Int64,
+        length: Int64,
+        issuedAtMillis: Int64
+    ) -> Data {
+        Data("request-v1\n\(requestId)\n\(accountId)\n\(trackId)\n\(offset)\n\(length)\n\(issuedAtMillis)".utf8)
+    }
+
+    private static func responsePayload(
+        requestId: String,
+        status: PeerContentStatus,
+        offset: Int64,
+        length: Int64,
+        totalLength: Int64,
+        body: Data
+    ) -> Data {
+        let digest = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
+        return Data("response-v1\n\(requestId)\n\(status.rawValue)\n\(offset)\n\(length)\n\(totalLength)\n\(digest)".utf8)
+    }
+
+    private static func authenticate(_ payload: Data, credential: PeerContentAccountCredential) -> String {
+        Data(HMAC<SHA256>.authenticationCode(
+            for: payload,
+            using: SymmetricKey(data: credential.proofKey)
+        )).base64EncodedString()
+    }
+
+    private static func verify(
+        _ authenticationCode: String,
+        payload: Data,
+        credential: PeerContentAccountCredential
+    ) -> Bool {
+        guard let code = Data(base64Encoded: authenticationCode) else { return false }
+        return HMAC<SHA256>.isValidAuthenticationCode(
+            code,
+            authenticating: payload,
+            using: SymmetricKey(data: credential.proofKey)
+        )
+    }
+}
+
 struct PeerContentRequestFrame: Codable, Equatable {
     let requestId: String
     let trackId: String
     let offset: Int64
     let length: Int64
+    let accountProof: PeerContentAccountProof
 }
 
 struct PeerContentResponseFrame: Codable, Equatable {
@@ -34,9 +223,10 @@ struct PeerContentResponseFrame: Codable, Equatable {
     let offset: Int64
     let length: Int64
     let totalLength: Int64
+    let accountAuthenticationCode: String
 }
 
-enum PeerContentError: Error, Equatable, Sendable {
+enum PeerContentError: Error, LocalizedError, Equatable, Sendable {
     case notFound
     case notEntitled
     case ioError
@@ -44,6 +234,18 @@ enum PeerContentError: Error, Equatable, Sendable {
     case connectTimedOut
     case notConnected
     case transportFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notFound: return "The paired device does not have this track."
+        case .notEntitled: return "The paired device could not prove it is using the same SoundCloud account."
+        case .ioError: return "The paired device could not read this track."
+        case .malformedResponse: return "The paired device returned an invalid content response."
+        case .connectTimedOut: return "The paired device did not respond in time."
+        case .notConnected: return "The paired device is not connected."
+        case .transportFailed(let reason): return "The paired-device transfer failed: \(reason)"
+        }
+    }
 }
 
 enum PeerContentFraming {
@@ -111,21 +313,36 @@ struct PeerContentFrameReader<Header: Decodable> {
     }
 }
 
+protocol PeerContentByteSource: AnyObject, Sendable {
+    var length: Int64 { get }
+    func read(offset: Int64, length: Int) throws -> Data
+}
+
 @MainActor
 final class PeerContentServer {
-    typealias FileResolver = (String) async -> URL?
-
-    nonisolated static func defaultResolver(trackId: String) async -> URL? {
-        await DownloadManager.shared.localFileURL(forTrackId: trackId)
-    }
+    typealias FileResolver = (String) async -> (any PeerContentByteSource)?
+    typealias AccountCredentialProvider = () -> PeerContentAccountCredential?
+    typealias GrantCredentialProvider = (String) -> PeerContentAccountCredential?
 
     private nonisolated(unsafe) var listener: NWListener?
     private var connections: [ObjectIdentifier: PeerContentServerConnection] = [:]
     private let resolveFile: FileResolver
+    private let accountCredential: AccountCredentialProvider
+    private var grantCredential: GrantCredentialProvider = { _ in nil }
+    private var resolveGrantedFile: FileResolver = { _ in nil }
     private(set) var advertisedServiceName: String?
 
-    init(resolveFile: @escaping FileResolver = PeerContentServer.defaultResolver) {
+    init(
+        resolveFile: @escaping FileResolver,
+        accountCredential: @escaping AccountCredentialProvider = { PeerContentAccountCredential.current() }
+    ) {
         self.resolveFile = resolveFile
+        self.accountCredential = accountCredential
+    }
+
+    func serveGrants(credential: @escaping GrantCredentialProvider, resolve: @escaping FileResolver) {
+        grantCredential = credential
+        resolveGrantedFile = resolve
     }
 
     deinit {
@@ -171,6 +388,9 @@ final class PeerContentServer {
         let handler = PeerContentServerConnection(
             connection: connection,
             resolveFile: resolveFile,
+            accountCredential: accountCredential,
+            grantCredential: grantCredential,
+            resolveGrantedFile: resolveGrantedFile,
             onFinished: { [weak self] in
                 Task { @MainActor in self?.connections[id] = nil }
             }
@@ -201,13 +421,29 @@ final class PeerContentServer {
 private final class PeerContentServerConnection {
     private let connection: NWConnection
     private let resolveFile: PeerContentServer.FileResolver
+    private let accountCredential: PeerContentServer.AccountCredentialProvider
+    private let grantCredential: PeerContentServer.GrantCredentialProvider
+    private let resolveGrantedFile: PeerContentServer.FileResolver
     private let onFinished: () -> Void
     private var reader = PeerContentFrameReader<PeerContentRequestFrame>()
     private var finished = false
+    private var acceptedRequestIds = Set<String>()
+    private var acceptedRequestOrder = [String]()
+    private static let maxResponseLength: Int64 = 2 << 20
 
-    init(connection: NWConnection, resolveFile: @escaping PeerContentServer.FileResolver, onFinished: @escaping () -> Void) {
+    init(
+        connection: NWConnection,
+        resolveFile: @escaping PeerContentServer.FileResolver,
+        accountCredential: @escaping PeerContentServer.AccountCredentialProvider,
+        grantCredential: @escaping PeerContentServer.GrantCredentialProvider,
+        resolveGrantedFile: @escaping PeerContentServer.FileResolver,
+        onFinished: @escaping () -> Void
+    ) {
         self.connection = connection
+        self.grantCredential = grantCredential
+        self.resolveGrantedFile = resolveGrantedFile
         self.resolveFile = resolveFile
+        self.accountCredential = accountCredential
         self.onFinished = onFinished
     }
 
@@ -276,43 +512,81 @@ private final class PeerContentServerConnection {
     }
 
     private func handle(_ request: PeerContentRequestFrame) async {
-        guard let fileURL = await resolveFile(request.trackId) else {
-            respond(requestId: request.requestId, status: .notFound, offset: request.offset, body: nil, totalLength: 0)
+        let claimsGrant = request.accountProof.accountId.hasPrefix(PeerContentAccountCredential.grantPrefix)
+        let grantId = PeerContentAccountCredential.grantId(fromAccountId: request.accountProof.accountId)
+        let credential = claimsGrant ? grantId.flatMap(grantCredential) : accountCredential()
+        let resolve = claimsGrant ? resolveGrantedFile : resolveFile
+        guard let credential,
+              request.accountProof.isValid(
+                requestId: request.requestId,
+                trackId: request.trackId,
+                offset: request.offset,
+                length: request.length,
+                credential: credential
+              ),
+              acceptOnce(request.requestId) else {
+            respond(
+                requestId: request.requestId, status: .notEntitled,
+                offset: request.offset, body: nil, totalLength: 0,
+                credential: credential
+            )
             return
         }
 
-        guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
-            respond(requestId: request.requestId, status: .ioError, offset: request.offset, body: nil, totalLength: 0)
+        guard let source = await resolve(request.trackId) else {
+            respond(requestId: request.requestId, status: .notFound, offset: request.offset, body: nil, totalLength: 0, credential: credential)
             return
         }
-        defer { try? handle.close() }
 
-        guard let totalLength = try? handle.seekToEnd() else {
-            respond(requestId: request.requestId, status: .ioError, offset: request.offset, body: nil, totalLength: 0)
-            return
-        }
-        let total = Int64(totalLength)
+        let total = source.length
         let offset = max(0, request.offset)
         guard offset < total else {
-            respond(requestId: request.requestId, status: .ok, offset: offset, body: Data(), totalLength: total)
+            respond(requestId: request.requestId, status: .ok, offset: offset, body: Data(), totalLength: total, credential: credential)
             return
         }
 
         let remaining = total - offset
-        let wanted = request.length < 0 ? remaining : min(remaining, request.length)
+        let wanted = min(Self.maxResponseLength, request.length < 0 ? remaining : min(remaining, request.length))
         do {
-            try handle.seek(toOffset: UInt64(offset))
-            let body = try handle.read(upToCount: Int(wanted)) ?? Data()
-            respond(requestId: request.requestId, status: .ok, offset: offset, body: body, totalLength: total)
+            let body = try await Task.detached(priority: .userInitiated) {
+                try source.read(offset: offset, length: Int(wanted))
+            }.value
+            respond(requestId: request.requestId, status: .ok, offset: offset, body: body, totalLength: total, credential: credential)
         } catch {
-            respond(requestId: request.requestId, status: .ioError, offset: offset, body: nil, totalLength: total)
+            respond(requestId: request.requestId, status: .ioError, offset: offset, body: nil, totalLength: total, credential: credential)
         }
     }
 
-    private func respond(requestId: String, status: PeerContentStatus, offset: Int64, body: Data?, totalLength: Int64) {
+    private func acceptOnce(_ requestId: String) -> Bool {
+        guard acceptedRequestIds.insert(requestId).inserted else { return false }
+        acceptedRequestOrder.append(requestId)
+        if acceptedRequestOrder.count > 2_048 {
+            acceptedRequestIds.remove(acceptedRequestOrder.removeFirst())
+        }
+        return true
+    }
+
+    private func respond(
+        requestId: String,
+        status: PeerContentStatus,
+        offset: Int64,
+        body: Data?,
+        totalLength: Int64,
+        credential: PeerContentAccountCredential?
+    ) {
+        let responseBody = body ?? Data()
+        let length = Int64(responseBody.count)
+        let accountCode = credential.map {
+            PeerContentAccountProof.responseCode(
+                requestId: requestId, status: status, offset: offset,
+                length: length, totalLength: totalLength, body: responseBody,
+                credential: $0
+            )
+        } ?? ""
         let header = PeerContentResponseFrame(
             requestId: requestId, status: status, offset: offset,
-            length: Int64(body?.count ?? 0), totalLength: totalLength
+            length: length, totalLength: totalLength,
+            accountAuthenticationCode: accountCode
         )
         guard let headerData = try? JSONEncoder().encode(header) else { return }
         var out = PeerContentFraming.frame(headerData)
@@ -328,13 +602,18 @@ final class PeerContentClient: @unchecked Sendable {
     }
 
     private let queue: DispatchQueue
+    private let accountCredential: PeerContentAccountCredential
     private var connection: NWConnection?
     private var reader = PeerContentFrameReader<PeerContentResponseFrame>()
     private var pending: [String: PendingRequest] = [:]
     private var connectTimeoutWorkItem: DispatchWorkItem?
     private var connectCompletion: (@Sendable (Result<Void, PeerContentError>) -> Void)?
 
-    init(queue: DispatchQueue = DispatchQueue(label: "red.forbes.sounding.peercontent.client")) {
+    init(
+        accountCredential: PeerContentAccountCredential,
+        queue: DispatchQueue = DispatchQueue(label: "red.forbes.sounding.peercontent.client")
+    ) {
+        self.accountCredential = accountCredential
         self.queue = queue
     }
 
@@ -430,7 +709,17 @@ final class PeerContentClient: @unchecked Sendable {
                 return
             }
             let requestId = UUID().uuidString
-            let request = PeerContentRequestFrame(requestId: requestId, trackId: trackId, offset: offset, length: length)
+            let proof = PeerContentAccountProof.make(
+                requestId: requestId,
+                trackId: trackId,
+                offset: offset,
+                length: length,
+                credential: accountCredential
+            )
+            let request = PeerContentRequestFrame(
+                requestId: requestId, trackId: trackId, offset: offset,
+                length: length, accountProof: proof
+            )
             guard let payload = try? JSONEncoder().encode(request) else {
                 completion(.failure(.malformedResponse))
                 return
@@ -485,6 +774,19 @@ final class PeerContentClient: @unchecked Sendable {
             guard let (header, body) = next else { return }
             guard let request = pending.removeValue(forKey: header.requestId) else { continue }
             request.timeoutWorkItem?.cancel()
+            guard PeerContentAccountProof.verifyResponse(
+                header.accountAuthenticationCode,
+                requestId: header.requestId,
+                status: header.status,
+                offset: header.offset,
+                length: header.length,
+                totalLength: header.totalLength,
+                body: body,
+                credential: accountCredential
+            ) else {
+                request.completion(.failure(.notEntitled))
+                continue
+            }
             switch header.status {
             case .ok: request.completion(.success((body, header.totalLength)))
             case .notFound: request.completion(.failure(.notFound))
@@ -518,75 +820,6 @@ extension PeerContentClient {
             fetchRange(trackId: trackId, offset: offset, length: length, timeout: timeout) { result in
                 continuation.resume(with: result)
             }
-        }
-    }
-}
-
-private actor PeerContentFileSink {
-    let url: URL
-    private let handle: FileHandle
-
-    init(url: URL) throws {
-        self.url = url
-        FileManager.default.createFile(atPath: url.path, contents: nil)
-        handle = try FileHandle(forWritingTo: url)
-    }
-
-    func append(_ data: Data) throws {
-        try handle.write(contentsOf: data)
-    }
-
-    func finish() throws {
-        try handle.synchronize()
-        try handle.close()
-    }
-
-    func discard() {
-        try? handle.close()
-        try? FileManager.default.removeItem(at: url)
-    }
-}
-
-enum PeerContentTransfer {
-    static let chunkSize: Int64 = 1 << 20
-
-    static func stage(
-        trackId: String,
-        endpoint: NWEndpoint,
-        sessionId: String,
-        secret: Data,
-        progress: @escaping @Sendable (Double) async -> Void = { _ in }
-    ) async throws -> URL {
-        let client = PeerContentClient()
-        try await client.connect(to: endpoint, sessionId: sessionId, secret: secret)
-        defer { client.disconnect() }
-
-        let probe = try await client.fetchRange(trackId: trackId, offset: 0, length: 0, timeout: 10)
-        guard probe.totalLength > 0 else { throw PeerContentError.notFound }
-
-        let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("PeerDownload-\(UUID().uuidString)")
-        let sink = try PeerContentFileSink(url: destination)
-        do {
-            var offset: Int64 = 0
-            while offset < probe.totalLength {
-                try Task.checkCancellation()
-                let wanted = min(chunkSize, probe.totalLength - offset)
-                let response = try await client.fetchRange(
-                    trackId: trackId, offset: offset, length: wanted, timeout: 30
-                )
-                guard !response.data.isEmpty, response.totalLength == probe.totalLength else {
-                    throw PeerContentError.malformedResponse
-                }
-                try await sink.append(response.data)
-                offset += Int64(response.data.count)
-                await progress(min(1, Double(offset) / Double(probe.totalLength)))
-            }
-            try await sink.finish()
-            return destination
-        } catch {
-            await sink.discard()
-            throw error
         }
     }
 }

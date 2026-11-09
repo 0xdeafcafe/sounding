@@ -215,7 +215,7 @@ enum GenreDistanceModel {
             let effective = max(0, rawPercent - forgiven)
 
             let cost = clamp01(stretchCost(effective) + candidate.surcharge)
-            if best == nil || cost < best!.cost {
+            if best == nil || cost < best?.cost ?? .infinity {
                 best = TempoRelation(
                     fold: candidate.fold,
                     foldedBPM: candidate.bpm,

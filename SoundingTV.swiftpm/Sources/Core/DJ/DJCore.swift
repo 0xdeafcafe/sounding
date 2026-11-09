@@ -2,6 +2,8 @@ import Foundation
 
 enum DJPlanner {
 
+    static let minimumEntryRunwaySeconds: TimeInterval = 30
+
     static func rank(
         outgoing: TrackFeatures,
         candidates: [TrackFeatures],
@@ -10,12 +12,13 @@ enum DJPlanner {
         scoring: ScoringRegistry,
         capabilities: ExecutorCapabilities,
         history: SetHistory,
-        rng: inout SeededGenerator
+        rng: inout SeededGenerator,
+        userTransitionSeconds: Double? = nil
     ) -> [ScoredPlan] {
         plan(
             outgoing: outgoing, candidates: candidates, profile: profile,
             templates: templates, scoring: scoring, capabilities: capabilities,
-            history: history, rng: &rng
+            history: history, rng: &rng, userTransitionSeconds: userTransitionSeconds
         ).ranked
     }
 
@@ -27,7 +30,8 @@ enum DJPlanner {
         scoring: ScoringRegistry,
         capabilities: ExecutorCapabilities,
         history: SetHistory,
-        rng: inout SeededGenerator
+        rng: inout SeededGenerator,
+        userTransitionSeconds: Double? = nil
     ) -> PlanningResult {
         var ranked: [ScoredPlan] = []
         var rejections: [PlanRejection] = []
@@ -57,6 +61,8 @@ enum DJPlanner {
         }
 
         let terms = scoring.ordered
+        let effectiveUserTransitionSeconds = profile.honoursUserTransitionLength ? userTransitionSeconds : nil
+        let transitionCap = effectiveUserTransitionSeconds.map { max($0 * 1.5, $0 + 4) }
 
         for candidate in candidates.prefix(max(1, profile.lookaheadCandidates)) {
             guard candidate.trackId != outgoing.trackId else {
@@ -107,7 +113,8 @@ enum DJPlanner {
                         reason: "\(template.displayName) found no workable exit/entry pair"
                     ))
                 }
-                for proposal in proposals {
+                for rawProposal in proposals {
+                    let proposal = transitionCap.map(rawProposal.clampingOverlap(toAtMost:)) ?? rawProposal
                     let needed = proposal.stageCapabilities
                     guard capabilities.isSuperset(of: needed) else {
                         rejections.append(PlanRejection(
@@ -116,11 +123,50 @@ enum DJPlanner {
                         ))
                         continue
                     }
-                    let scored = score(
+                    let entryRunway = candidate.duration - proposal.entry.seconds
+                    let neededRunway = proposal.overlapSeconds + Self.minimumEntryRunwaySeconds
+                    guard entryRunway >= neededRunway else {
+                        rejections.append(PlanRejection(
+                            incomingTrackId: candidate.trackId, templateId: template.id,
+                            reason: "\(template.displayName): entering \(candidate.displayName) at \(Int(proposal.entry.seconds))s leaves only \(Int(entryRunway))s, needs \(Int(neededRunway))s of runway"
+                        ))
+                        continue
+                    }
+                    var scored = score(
                         plan: proposal, outgoing: outgoing, incoming: candidate,
                         profile: profile, terms: terms, history: history,
                         templateName: template.displayName
                     )
+                    if let reason = DJMoveRails.veto(proposal, outgoing: outgoing, incoming: candidate, profile: profile, history: history)
+                        ?? DJPlanValidator.reason(DJPlanShape(proposal), outgoing: outgoing, incoming: candidate, profile: profile) {
+                        scored = vetoed(scored, reason: reason, profile: profile)
+                    } else if scored.score > 0 {
+                        let adjustment = DJMoveRails.adjustment(proposal, outgoing: outgoing, incoming: candidate, profile: profile, history: history)
+                        let learned = history.learned.adjustment(for: proposal, barSeconds: outgoing.beatGrid?.barDuration)
+                        let style = history.style.adjustment(
+                            move: AutoMixMove.of(templateId: proposal.templateId, move: proposal.move),
+                            blendBars: AutoMixTransitionFeatures.blendBucket(proposal.overlapSeconds / max(0.1, outgoing.beatGrid?.barDuration ?? 2)),
+                            keySteps: DJMoveSupport.keySteps(outgoing, at: proposal.exit.seconds, candidate, at: proposal.entry.seconds)
+                        )
+                        let personal = AutoMixStyle.personalAdjustment(learned: learned, style: style)
+                        let energy = DJIntro.energyAdjustment(outgoing: outgoing, exit: proposal.exit.seconds, incoming: candidate, entry: proposal.entry.seconds)
+                        let net = history.transitionNet?.adjustment(for: proposal, outgoing: outgoing, incoming: candidate) ?? 0
+                        let sets = history.setPriors?.adjustment(for: proposal, barSeconds: outgoing.beatGrid?.barDuration) ?? 0
+                        let length = lengthAdjustment(proposal, outgoing: outgoing, incoming: candidate, profile: profile)
+                        let lookAhead = DJLookAhead.penalty(proposal, outgoing: outgoing, incoming: candidate)
+                        let delta = adjustment.delta + personal + energy + net + sets + length - lookAhead
+                        if delta != 0 {
+                            scored = ScoredPlan(plan: scored.plan, score: min(1, max(0, scored.score + delta)), rationale: scored.rationale)
+                        }
+                    }
+                    if let effectiveUserTransitionSeconds, scored.score > 0 {
+                        let distance = abs(proposal.overlapSeconds - effectiveUserTransitionSeconds)
+                            / max(4, effectiveUserTransitionSeconds)
+                        let bias = min(0.06, distance * 0.03)
+                        if bias > 0 {
+                            scored = ScoredPlan(plan: scored.plan, score: max(0, scored.score - bias), rationale: scored.rationale)
+                        }
+                    }
                     ranked.append(scored)
                 }
             }
@@ -134,6 +180,17 @@ enum DJPlanner {
             return $0.plan.entry.seconds < $1.plan.entry.seconds
         }
         return PlanningResult(ranked: ranked, rejections: rejections)
+    }
+
+    static let lengthWeight = 0.03
+
+    static func lengthAdjustment(_ plan: DJTransitionPlan, outgoing: TrackFeatures, incoming: TrackFeatures?, profile: DJProfile) -> Double {
+        guard let bar = outgoing.beatGrid?.barDuration, bar > 0, plan.templateId != DJTemplates.cutOnTheOne,
+              plan.move.map({ $0.hasOverlap }) ?? true else { return 0 }
+        let bars = plan.overlapSeconds / bar
+        guard bars >= 2 else { return 0 }
+        let distance = abs(log2(bars / Double(max(1, profile.referenceBars(outgoing: outgoing, incoming: incoming)))))
+        return lengthWeight * max(0, 1 - distance)
     }
 
     static func score(
@@ -202,7 +259,10 @@ enum DJPlanner {
             headline = "No mix — \(vetoed)"
         } else {
             let where_ = "\(templateName) into \(incoming.displayName) at \(DJFormat.time(plan.exit.seconds))"
-            if let staged = plan.stageSummary {
+            if let move = plan.move {
+                headline = move.headline(into: incoming.displayName, durationSeconds: move.kind == .jump ? plan.entry.seconds - plan.exit.seconds : nil)
+                    + " at \(DJFormat.time(plan.exit.seconds))"
+            } else if let staged = plan.stageSummary {
                 headline = "\(where_) — \(staged)"
             } else if plan.overlapSeconds < 1 {
                 headline = where_
@@ -222,6 +282,21 @@ enum DJPlanner {
             fires: score >= profile.minimumScoreToFire
         )
         return ScoredPlan(plan: plan, score: score, rationale: rationale)
+    }
+
+    static func vetoed(_ scored: ScoredPlan, reason: String, profile: DJProfile) -> ScoredPlan {
+        let r = scored.rationale
+        let rationale = PlanRationale(
+            templateName: r.templateName,
+            headline: "No mix — \(reason)",
+            contributions: r.contributions,
+            concerns: r.concerns,
+            provenanceCaveats: r.provenanceCaveats + [reason],
+            score: 0,
+            evidenceCoverage: r.evidenceCoverage,
+            fires: false
+        )
+        return ScoredPlan(plan: scored.plan, score: 0, rationale: rationale)
     }
 
     private static func percent(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }

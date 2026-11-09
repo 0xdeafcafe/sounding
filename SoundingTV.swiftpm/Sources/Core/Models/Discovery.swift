@@ -1,10 +1,105 @@
 import Foundation
 
+enum DiscoveryEntry: Identifiable, Equatable, Codable {
+    case playlist(Playlist)
+    case station(SystemPlaylist)
+    case user(User)
+
+    var id: String {
+        switch self {
+        case .playlist(let playlist): return playlist.id
+        case .station(let station): return station.id
+        case .user(let user): return "user:\(user.id)"
+        }
+    }
+
+    var artIdentity: String {
+        switch self {
+        case .user(let user): return user.id
+        default: return id
+        }
+    }
+
+    var cardTitle: String {
+        switch self {
+        case .playlist(let playlist): return playlist.title
+        case .station(let station): return station.shortTitle?.nilIfEmpty ?? station.title
+        case .user(let user): return user.displayName
+        }
+    }
+
+    var cardSubtitle: String? {
+        switch self {
+        case .playlist(let playlist): return playlist.user.displayName
+        case .station(let station): return station.shortDescription?.nilIfEmpty ?? station.description
+        case .user(let user): return "\(user.formattedFollowers) followers"
+        }
+    }
+
+    var artworkURL: URL? {
+        switch self {
+        case .playlist(let playlist): return playlist.largeDisplayArtworkURL
+        case .station(let station): return station.artworkURL
+        case .user(let user): return user.largeAvatarURL ?? user.avatarURL
+        }
+    }
+
+    var crownUser: User? {
+        switch self {
+        case .playlist(let playlist): return playlist.user
+        case .user(let user): return user
+        case .station: return nil
+        }
+    }
+}
+
+struct DiscoveryShelf: Identifiable, Equatable, Codable {
+    enum Content: Equatable, Codable {
+        case tracks([Track])
+        case playlists([Playlist])
+        case stations([SystemPlaylist])
+        case users([User])
+        case mixed([DiscoveryEntry])
+    }
+
+    enum Kind: Equatable, Codable {
+        case editorial
+        case chartCollections
+        case trending
+        case related
+        case station
+        case recent
+    }
+
+    let id: String
+    let title: String
+    let subtitle: String?
+    let kind: Kind
+    let content: Content
+
+    var count: Int {
+        switch content {
+        case .tracks(let tracks): return tracks.count
+        case .playlists(let playlists): return playlists.count
+        case .stations(let stations): return stations.count
+        case .users(let users): return users.count
+        case .mixed(let entries): return entries.count
+        }
+    }
+
+    var isEmpty: Bool { count == 0 }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
 enum APIError: Error, LocalizedError {
     case invalidURL
     case networkError(Error)
     case decodingError(Error)
     case unauthorized
+    case forbidden
     case notFound
     case serverError(Int)
     case rateLimited(resetAt: Date?)
@@ -17,6 +112,7 @@ enum APIError: Error, LocalizedError {
         case .networkError(let error): return "Network error: \(error.localizedDescription)"
         case .decodingError(let error): return "Failed to parse response: \(error.localizedDescription)"
         case .unauthorized: return "Please sign in to continue"
+        case .forbidden: return "SoundCloud did not allow this request"
         case .notFound: return "Content not found"
         case .serverError(let code): return "Server error: \(code)"
         case .rateLimited(let resetAt):
@@ -127,6 +223,12 @@ struct PlayHistoryItem: Identifiable, Codable {
 
     var id: String { trackID }
 
+    init(playedAt: Date, track: Track) {
+        self.playedAt = playedAt
+        self.trackID = track.id
+        self.track = track
+    }
+
     enum CodingKeys: String, CodingKey {
         case track
         case playedAt = "played_at"
@@ -160,6 +262,110 @@ struct PlayHistoryItem: Identifiable, Codable {
             try c.encode(trackID, forKey: .trackID)
         }
         try c.encode(track, forKey: .track)
+    }
+}
+
+struct SoundCloudTrackReferences: Decodable {
+    let ids: [String]
+
+    private struct Reference: Decodable {
+        let id: String?
+
+        enum CodingKeys: String, CodingKey { case id, urn }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            if let numeric = try? c.decode(Int64.self, forKey: .id) {
+                id = String(numeric)
+            } else if let urn = try? c.decode(String.self, forKey: .urn), let last = urn.split(separator: ":").last, Int64(last) != nil {
+                id = String(last)
+            } else {
+                id = (try? c.decode(String.self, forKey: .id)).flatMap { Int64($0) != nil ? $0 : nil }
+            }
+        }
+    }
+
+    private enum PageKeys: String, CodingKey { case collection }
+
+    init(from decoder: Decoder) throws {
+        let references: [Reference]
+        if let list = try? decoder.singleValueContainer().decode([Reference].self) {
+            references = list
+        } else {
+            references = try decoder.container(keyedBy: PageKeys.self).decode([Reference].self, forKey: .collection)
+        }
+        var seen = Set<String>()
+        ids = references.compactMap(\.id).filter { seen.insert($0).inserted }
+    }
+}
+
+struct PlayHistoryContext: Identifiable, Codable {
+    let playedAt: Date
+    let entry: DiscoveryEntry
+
+    var id: String { entry.id }
+
+    init(playedAt: Date, entry: DiscoveryEntry) {
+        self.playedAt = playedAt
+        self.entry = entry
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case kind, user, station, playlist
+        case playedAt = "played_at"
+        case systemPlaylist = "system_playlist"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let millis = try? c.decode(Int64.self, forKey: .playedAt) {
+            playedAt = Date(timeIntervalSince1970: TimeInterval(millis) / 1000)
+        } else {
+            playedAt = try c.decode(Date.self, forKey: .playedAt)
+        }
+        let kind = (try? c.decodeIfPresent(String.self, forKey: .kind))?.lowercased() ?? ""
+        let playlist = try? c.decodeIfPresent(Playlist.self, forKey: .playlist)
+        let station = (try? c.decodeIfPresent(SystemPlaylist.self, forKey: .systemPlaylist))
+            ?? (try? c.decodeIfPresent(SystemPlaylist.self, forKey: .station))
+        let user = try? c.decodeIfPresent(User.self, forKey: .user)
+        let wantsStation = kind.contains("station") || kind.contains("system")
+        let wantsUser = kind == "user" || kind == "profile"
+        if wantsStation, let station {
+            entry = .station(station)
+        } else if wantsUser, let user {
+            entry = .user(user)
+        } else if let playlist {
+            entry = .playlist(playlist)
+        } else if let station {
+            entry = .station(station)
+        } else if let user {
+            entry = .user(user)
+        } else {
+            throw Self.missing(c, kind)
+        }
+    }
+
+    private static func missing(_ c: KeyedDecodingContainer<CodingKeys>, _ kind: String) -> DecodingError {
+        DecodingError.dataCorrupted(DecodingError.Context(
+            codingPath: c.codingPath,
+            debugDescription: "PlayHistoryContext: no playable object for kind \"\(kind)\""
+        ))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(Int64((playedAt.timeIntervalSince1970 * 1000).rounded()), forKey: .playedAt)
+        switch entry {
+        case .playlist(let playlist):
+            try c.encode("playlist", forKey: .kind)
+            try c.encode(playlist, forKey: .playlist)
+        case .station(let station):
+            try c.encode("system_playlist", forKey: .kind)
+            try c.encode(station, forKey: .systemPlaylist)
+        case .user(let user):
+            try c.encode("user", forKey: .kind)
+            try c.encode(user, forKey: .user)
+        }
     }
 }
 

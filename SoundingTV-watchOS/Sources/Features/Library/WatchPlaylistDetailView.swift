@@ -3,6 +3,7 @@ import SwiftUI
 struct WatchPlaylistDetailView: View {
     @EnvironmentObject private var link: WatchLinkClient
     @StateObject private var viewModel: PlaylistDetailViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(playlist: Playlist) {
         _viewModel = StateObject(wrappedValue: PlaylistDetailViewModel(playlist: playlist))
@@ -17,29 +18,26 @@ struct WatchPlaylistDetailView: View {
             }
             .listRowBackground(Color.clear)
 
-            if viewModel.tracks.isEmpty, viewModel.isLoading {
-                WatchLoadingRow()
-            } else if viewModel.tracks.isEmpty {
-                if let errorMessage = viewModel.errorMessage {
-                    WatchEmptyState(systemImage: "wifi.slash", title: "Couldn't Load", message: errorMessage)
-                } else {
-                    WatchEmptyState(systemImage: "music.note.list", title: "No Tracks")
+            if viewModel.tracks.isEmpty {
+                Section {
+                    if viewModel.isLoading {
+                        WatchLoadingState()
+                    } else if let errorMessage = viewModel.errorMessage {
+                        WatchErrorState(message: errorMessage) { Task { await viewModel.load() } }
+                    } else {
+                        ContentUnavailableView("No Tracks", systemImage: "music.note.list")
+                    }
                 }
+                .listRowBackground(Color.clear)
             } else {
                 Section {
                     ForEach(viewModel.tracks) { track in
                         trackRow(track)
-                            .task {
-                                if viewModel.tracks.isNearEnd(track, lead: 8) {
-                                    await viewModel.loadMore()
-                                }
+                            .onAppear {
+                                viewModel.pager.loadMoreIfNeeded(after: track, lead: 8)
                             }
                     }
-                    if viewModel.isLoadingMore {
-                        WatchLoadingRow()
-                    }
-                } header: {
-                    WatchSectionHeader(title: "Tracks")
+                    PagedFooter(pager: viewModel.pager)
                 }
             }
         }
@@ -53,46 +51,27 @@ struct WatchPlaylistDetailView: View {
     }
 
     private var header: some View {
-        VStack(spacing: WatchStyle.style.spaceSnug) {
+        VStack(spacing: 8) {
             WatchArtwork(
                 url: playlist.largeArtworkURL ?? playlist.artworkURL,
-                size: 96,
-                corner: WatchStyle.style.cornerHero
+                size: 72,
+                corner: 10,
+                identity: playlist.id
             )
 
-            VStack(spacing: 1) {
-                Text(playlist.title)
-                    .font(WatchStyle.style.fontHeadline)
-                    .foregroundStyle(WatchStyle.style.textPrimary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                Text("\(playlist.user.displayName) · \(playlist.totalTrackCount) track\(playlist.totalTrackCount == 1 ? "" : "s")")
-                    .font(WatchStyle.style.fontCaption)
-                    .foregroundStyle(WatchStyle.style.textSecondary)
-                    .lineLimit(1)
-            }
+            Text("\(playlist.user.displayName) · \(playlist.totalTrackCount) tracks")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2)
 
-            HStack(spacing: WatchStyle.style.spaceTight) {
-                Button {
-                    link.play(collectionId: playlist.id)
-                } label: {
-                    Label("Play", systemImage: "play.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(WatchStyle.style.accent)
-
-                Button {
-                    link.play(collectionId: playlist.id, shuffled: true)
-                } label: {
-                    Label("Shuffle", systemImage: "shuffle")
-                }
-                .buttonStyle(.bordered)
-                .tint(WatchStyle.style.accentMuted)
+            WatchPlayShuffleButtons(subject: "this playlist") {
+                link.play(collectionId: playlist.id)
+            } shuffle: {
+                link.play(collectionId: playlist.id, shuffled: true)
             }
-            .font(WatchStyle.style.fontCaptionEmphasis)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, WatchStyle.style.spaceTight)
     }
 
     private func trackRow(_ track: Track) -> some View {
@@ -102,17 +81,12 @@ struct WatchPlaylistDetailView: View {
             WatchTrackRow(
                 title: track.title,
                 subtitle: track.user.displayName,
+                artIdentity: track.id,
                 artworkURL: track.artworkURL,
+                duration: track.duration,
                 isPlaying: link.nowPlaying.trackId == track.id
             )
         }
-        .swipeActions(edge: .trailing) {
-            Button {
-                link.enqueue(trackId: track.id, action: .playNext)
-            } label: {
-                Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
-            }
-            .tint(WatchStyle.style.accent)
-        }
+        .watchQueueActions(trackId: track.id)
     }
 }

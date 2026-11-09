@@ -20,7 +20,7 @@ enum CredentialLeakSelfTest {
         init(token: String?) { accessToken = token }
         func waitForCurrentUser() async -> User? { nil }
         func refreshAccessToken() async -> Bool { false }
-        func handleUnauthorized() async {}
+        func handleUnauthorized() async -> SoundCloudUnauthorizedDisposition { .credentialRejected }
     }
 
     static func run() -> Report {

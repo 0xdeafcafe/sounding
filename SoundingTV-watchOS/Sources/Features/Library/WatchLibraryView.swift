@@ -3,235 +3,272 @@ import SwiftUI
 struct WatchLibraryView: View {
     var body: some View {
         List {
+            WatchOnThisWatchLibrarySection()
+
             Section {
                 NavigationLink {
-                    WatchLibraryPlaylistsView(kind: .playlists)
+                    WatchLibraryPlaylistsView()
                 } label: {
-                    WatchDestinationRow(title: "Playlists", systemImage: "music.note.list")
+                    Label("Playlists", systemImage: "music.note.list")
                 }
                 NavigationLink {
                     WatchLibraryArtistsView()
                 } label: {
-                    WatchDestinationRow(title: "Artists", systemImage: "person.2.fill")
+                    Label("Artists", systemImage: "music.microphone")
                 }
                 NavigationLink {
                     WatchLibrarySongsView()
                 } label: {
-                    WatchDestinationRow(title: "Songs", systemImage: "music.note")
+                    Label("Tracks", systemImage: "music.note")
                 }
                 NavigationLink {
                     WatchDownloadsView()
                 } label: {
-                    WatchDestinationRow(title: "Downloaded", systemImage: "arrow.down.circle.fill")
+                    Label("Downloads", systemImage: "arrow.down.circle")
                 }
             }
         }
         .navigationTitle("Library")
-        .containerBackground(WatchStyle.style.accent.gradient.opacity(0.28), for: .navigation)
+        .watchNavigationTint()
     }
 }
 
-private enum WatchLibraryCollectionKind {
-    case playlists
+@MainActor
+private final class WatchPlaylistsSource {
+    private var likedNext: URL?
 
-    var title: String {
-        switch self {
-        case .playlists: return "Playlists"
+    var source: PagedSource<Playlist> {
+        PagedSource(
+            first: { [self] in try await first() },
+            next: { [self] cursor in try await next(cursor) }
+        )
+    }
+
+    private func first() async throws -> PagedChunk<Playlist> {
+        var owned: [Playlist] = []
+        var ownedNext: URL?
+        if let user = try? await SoundCloudAPI.shared.getCurrentUser() {
+            let page = try await SoundCloudAPI.shared.getUserPlaylists(userId: user.id, limit: 50)
+            owned = page.collection
+            ownedNext = page.nextHref
+        }
+        let liked = try await SoundCloudAPI.shared.getLikedPlaylists(limit: 50)
+        likedNext = liked.nextHref
+        return chunk(owned + liked.collection, ownedNext: ownedNext)
+    }
+
+    private func next(_ cursor: PagedCursor) async throws -> PagedChunk<Playlist> {
+        switch cursor {
+        case .url(let url):
+            let page = try await SoundCloudAPI.shared.getPage(Playlist.self, from: url)
+            return chunk(page.collection, ownedNext: page.nextHref)
+        case .offset:
+            guard let url = likedNext else { return PagedChunk(items: []) }
+            let page = try await SoundCloudAPI.shared.getPage(Like<Playlist>.self, from: url).map(\.item)
+            likedNext = page.nextHref
+            return chunk(page.collection, ownedNext: nil)
+        case .start:
+            return try await first()
         }
     }
 
-    var emptySystemImage: String {
-        switch self {
-        case .playlists: return "music.note.list"
-        }
+    private func chunk(_ items: [Playlist], ownedNext: URL?) -> PagedChunk<Playlist> {
+        let next: PagedCursor? = ownedNext.map { .url($0) } ?? (likedNext == nil ? nil : .offset(1))
+        return PagedChunk(items: items.filter { !$0.isAlbum }, next: next)
     }
 }
 
-private struct WatchLibraryPlaylistsView: View {
-    let kind: WatchLibraryCollectionKind
-
-    @State private var playlists: [Playlist] = []
-    @State private var isLoading = false
+struct WatchLibraryPlaylistsView: View {
+    @StateObject private var pager: Paginator<Playlist>
     @State private var didLoad = false
-    @State private var loadFailed = false
+
+    init() {
+        _pager = StateObject(wrappedValue: Paginator(soundCloudSource: WatchPlaylistsSource().source))
+    }
 
     var body: some View {
         List {
-            if isLoading, playlists.isEmpty {
-                WatchLoadingRow()
-            } else if playlists.isEmpty {
-                WatchEmptyState(
-                    systemImage: loadFailed ? "wifi.slash" : kind.emptySystemImage,
-                    title: loadFailed ? "Couldn't Load" : "No \(kind.title)",
-                    message: loadFailed ? "Check your connection and try again." : nil
-                )
-            } else {
-                ForEach(playlists) { playlist in
-                    NavigationLink {
-                        WatchPlaylistDetailView(playlist: playlist)
-                    } label: {
-                        WatchTrackRow(
-                            title: playlist.title,
-                            subtitle: playlist.user.displayName,
-                            artworkURL: playlist.artworkURL
-                        )
-                    }
+            ForEach(pager.items) { playlist in
+                NavigationLink {
+                    WatchPlaylistDetailView(playlist: playlist)
+                } label: {
+                    WatchTrackRow(
+                        title: playlist.title,
+                        subtitle: playlist.user.displayName,
+                        artIdentity: playlist.id,
+                        artworkURL: playlist.artworkURL
+                    )
+                }
+                .onAppear { pager.loadMoreIfNeeded(after: playlist, lead: 6) }
+            }
+            if !pager.items.isEmpty {
+                PagedFooter(pager: pager)
+            }
+        }
+        .overlay {
+            if pager.items.isEmpty {
+                if pager.firstError != nil {
+                    WatchErrorState { Task { await pager.reload() } }
+                } else if pager.hasLoadedFirst {
+                    ContentUnavailableView("No Playlists", systemImage: "music.note.list")
+                } else {
+                    WatchLoadingState()
                 }
             }
         }
-        .navigationTitle(kind.title)
-        .containerBackground(WatchStyle.style.accent.gradient.opacity(0.28), for: .navigation)
+        .navigationTitle("Playlists")
         .task {
             guard !didLoad else { return }
             didLoad = true
-            await load()
+            #if DEBUG
+            if VisualFixtures.isEnabled {
+                pager.prime(items: VisualFixtures.playlists, cursor: nil)
+                return
+            }
+            #endif
+            await pager.reload()
         }
         .refreshable {
-            await load()
-        }
-    }
-
-    private func load() async {
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            var owned: [Playlist] = []
-            if let user = try? await SoundCloudAPI.shared.getCurrentUser() {
-                owned = try await SoundCloudAPI.shared.getUserPlaylists(userId: user.id, limit: 50).collection
-            }
-            let liked = try await SoundCloudAPI.shared.getLikedPlaylists(limit: 50).collection
-            playlists = (owned + liked)
-                .deduplicatedByID()
-                .filter { !$0.isAlbum }
-            loadFailed = false
-        } catch {
-            loadFailed = playlists.isEmpty
+            await pager.reload()
         }
     }
 }
 
-extension WatchLibraryCollectionKind: Equatable {}
-
-private struct WatchLibraryArtistsView: View {
-    @State private var artists: [User] = []
-    @State private var isLoading = false
+struct WatchLibraryArtistsView: View {
+    @StateObject private var pager = Paginator<User>(soundCloudSource: PagedSource(
+        first: {
+            let user = try await SoundCloudAPI.shared.getCurrentUser()
+            let page = try await SoundCloudAPI.shared.getUserFollowings(userId: user.id, limit: 50)
+            return PagedChunk(items: page.collection, next: page.nextHref.map { .url($0) })
+        },
+        next: { cursor in
+            guard case .url(let url) = cursor else { return PagedChunk(items: []) }
+            let page = try await SoundCloudAPI.shared.getPage(User.self, from: url)
+            return PagedChunk(items: page.collection, next: page.nextHref.map { .url($0) })
+        }
+    ))
     @State private var didLoad = false
-    @State private var loadFailed = false
 
     var body: some View {
         List {
-            if isLoading, artists.isEmpty {
-                WatchLoadingRow()
-            } else if artists.isEmpty {
-                WatchEmptyState(
-                    systemImage: loadFailed ? "wifi.slash" : "person.2",
-                    title: loadFailed ? "Couldn't Load" : "No Artists",
-                    message: loadFailed
-                        ? "Check your connection and try again."
-                        : "Artists you follow land here."
-                )
-            } else {
-                ForEach(artists) { user in
-                    NavigationLink {
-                        WatchArtistDetailView(user: user)
-                    } label: {
-                        WatchTrackRow(
-                            title: user.displayName,
-                            subtitle: "\(user.formattedFollowers) followers",
-                            artworkURL: user.largeAvatarURL ?? user.avatarURL
-                        )
-                    }
+            ForEach(pager.items) { user in
+                NavigationLink {
+                    WatchArtistDetailView(user: user)
+                } label: {
+                    WatchTrackRow(
+                        title: user.displayName,
+                        subtitle: "\(user.formattedFollowers) followers",
+                        artIdentity: user.id,
+                        artworkURL: user.largeAvatarURL ?? user.avatarURL,
+                        isCircular: true
+                    )
+                }
+                .onAppear { pager.loadMoreIfNeeded(after: user, lead: 6) }
+            }
+            if !pager.items.isEmpty {
+                PagedFooter(pager: pager)
+            }
+        }
+        .overlay {
+            if pager.items.isEmpty {
+                if pager.firstError != nil {
+                    WatchErrorState { Task { await pager.reload() } }
+                } else if pager.hasLoadedFirst {
+                    ContentUnavailableView(
+                        "No Artists",
+                        systemImage: "music.microphone",
+                        description: Text("Artists you follow appear here.")
+                    )
+                } else {
+                    WatchLoadingState()
                 }
             }
         }
         .navigationTitle("Artists")
-        .containerBackground(WatchStyle.style.accent.gradient.opacity(0.28), for: .navigation)
         .task {
             guard !didLoad else { return }
             didLoad = true
-            await load()
+            #if DEBUG
+            if VisualFixtures.isEnabled {
+                pager.prime(items: VisualFixtures.artists, cursor: nil)
+                return
+            }
+            #endif
+            await pager.reload()
         }
         .refreshable {
-            await load()
-        }
-    }
-
-    private func load() async {
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            let user = try await SoundCloudAPI.shared.getCurrentUser()
-            artists = try await SoundCloudAPI.shared.getUserFollowings(userId: user.id, limit: 100).collection
-            loadFailed = false
-        } catch {
-            loadFailed = artists.isEmpty
+            await pager.reload()
         }
     }
 }
 
-private struct WatchLibrarySongsView: View {
+struct WatchLibrarySongsView: View {
     @EnvironmentObject private var link: WatchLinkClient
 
-    @State private var tracks: [Track] = []
-    @State private var isLoading = false
+    @StateObject private var pager = Paginator<Track>(soundCloudSource: PagedSource(
+        first: {
+            let page = try await SoundCloudAPI.shared.getLikedTracks(limit: 50)
+            return PagedChunk(items: page.collection.map(\.item), next: page.nextHref.map { .url($0) })
+        },
+        next: { cursor in
+            guard case .url(let url) = cursor else { return PagedChunk(items: []) }
+            let page = try await SoundCloudAPI.shared.getPage(Like<Track>.self, from: url)
+            return PagedChunk(items: page.collection.map(\.item), next: page.nextHref.map { .url($0) })
+        }
+    ))
     @State private var didLoad = false
-    @State private var loadFailed = false
 
     var body: some View {
         List {
-            if isLoading, tracks.isEmpty {
-                WatchLoadingRow()
-            } else if tracks.isEmpty {
-                WatchEmptyState(
-                    systemImage: loadFailed ? "wifi.slash" : "heart",
-                    title: loadFailed ? "Couldn't Load" : "No Liked Songs",
-                    message: loadFailed
-                        ? "Check your connection and try again."
-                        : "Tracks you like on SoundCloud land here."
-                )
-            } else {
-                ForEach(tracks) { track in
-                    Button {
-                        link.play(trackId: track.id)
-                    } label: {
-                        WatchTrackRow(
-                            title: track.title,
-                            subtitle: track.user.displayName,
-                            artworkURL: track.artworkURL,
-                            isPlaying: link.nowPlaying.trackId == track.id
-                        )
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button {
-                            link.enqueue(trackId: track.id, action: .playNext)
-                        } label: {
-                            Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
-                        }
-                        .tint(WatchStyle.style.accent)
-                    }
+            ForEach(pager.items) { track in
+                Button {
+                    link.play(trackId: track.id)
+                } label: {
+                    WatchTrackRow(
+                        title: track.title,
+                        subtitle: track.user.displayName,
+                        artIdentity: track.id,
+                        artworkURL: track.artworkURL,
+                        duration: track.duration,
+                        isPlaying: link.nowPlaying.trackId == track.id
+                    )
+                }
+                .watchQueueActions(trackId: track.id)
+                .onAppear { pager.loadMoreIfNeeded(after: track, lead: 6) }
+            }
+            if !pager.items.isEmpty {
+                PagedFooter(pager: pager)
+            }
+        }
+        .overlay {
+            if pager.items.isEmpty {
+                if pager.firstError != nil {
+                    WatchErrorState { Task { await pager.reload() } }
+                } else if pager.hasLoadedFirst {
+                    ContentUnavailableView(
+                        "No Tracks",
+                        systemImage: "heart",
+                        description: Text("Tracks you like appear here.")
+                    )
+                } else {
+                    WatchLoadingState()
                 }
             }
         }
-        .navigationTitle("Songs")
-        .containerBackground(WatchStyle.style.accent.gradient.opacity(0.28), for: .navigation)
+        .navigationTitle("Tracks")
         .task {
             guard !didLoad else { return }
             didLoad = true
-            await load()
+            #if DEBUG
+            if VisualFixtures.isEnabled {
+                pager.prime(items: VisualFixtures.tracks, cursor: nil)
+                return
+            }
+            #endif
+            await pager.reload()
         }
         .refreshable {
-            await load()
-        }
-    }
-
-    private func load() async {
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            tracks = try await SoundCloudAPI.shared.getLikedTracks(limit: 100).collection.map(\.item)
-            loadFailed = false
-        } catch {
-            loadFailed = tracks.isEmpty
+            await pager.reload()
         }
     }
 }

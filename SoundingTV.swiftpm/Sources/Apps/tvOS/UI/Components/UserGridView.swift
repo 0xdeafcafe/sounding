@@ -1,14 +1,21 @@
 import SwiftUI
 
-private func userGridColumns(_ count: Int) -> [GridItem] {
-    Array(repeating: .init(.flexible(), spacing: Space.gutter), count: max(1, count))
+enum TVGridMetrics {
+    static let columns = 5
+    static let rowSpacing: CGFloat = Space.section
+
+    static func gridItems(_ count: Int = columns) -> [GridItem] {
+        Array(
+            repeating: GridItem(.fixed(SCBrowseMetrics.tileEdge), spacing: SCBrowseMetrics.gutter, alignment: .top),
+            count: max(1, min(count, columns))
+        )
+    }
 }
 
 struct UserGridView: View {
     let users: [User]
-    var columns: Int = 4
-    var onNearEnd: (() -> Void)?
-    var isLoadingMore = false
+    var columns: Int = TVGridMetrics.columns
+    var paging: TVPaging?
     var emptyIcon = "person.2"
     var emptyTitle = "No artists"
 
@@ -16,68 +23,78 @@ struct UserGridView: View {
 
     var body: some View {
         if users.isEmpty {
-            StatusPanel(kind: .empty, icon: emptyIcon, title: emptyTitle, minHeight: 320)
+            StatusPanel(kind: .empty, icon: emptyIcon, title: emptyTitle, minHeight: 520)
+            if let paging {
+                TVPagedFooter(paging: paging)
+            }
         } else {
-            VStack(spacing: Space.base) {
-                LazyVGrid(columns: userGridColumns(columns), spacing: Space.gutter) {
+            LazyVStack(alignment: .leading, spacing: Space.base) {
+                LazyVGrid(columns: TVGridMetrics.gridItems(columns), alignment: .leading, spacing: TVGridMetrics.rowSpacing) {
                     ForEach(Array(users.enumerated()), id: \.element.id) { index, user in
-                        NavigationLink {
-                            ArtistDetailView(user: user)
-                        } label: {
+                        TVUserLink(user: user) {
                             UserCard(user: user)
                         }
                         .onAppear {
-                            guard let onNearEnd, users.isNearEnd(user, lead: 12) else { return }
-                            onNearEnd()
+                            guard users.isNearEnd(user, lead: 12) else { return }
+                            paging?.loadMore()
                         }
                         .onAppear {
                             let lookahead = users[index..<min(index + Self.artworkLookahead, users.count)]
-                            ArtworkCache.shared.prefetch(lookahead.compactMap(\.avatarURL))
+                            ArtworkCache.shared.prefetch(lookahead.compactMap { $0.largeAvatarURL ?? $0.avatarURL })
                         }
                     }
                 }
-                .buttonStyle(SCCardButtonStyle(cornerRadius: Corner.hero))
+                .buttonStyle(SCArtistCardButtonStyle())
                 .focusEffectDisabled()
 
-                if isLoadingMore {
-                    LoadingMoreRow()
-                        .frame(maxWidth: .infinity)
+                if let paging {
+                    TVPagedFooter(paging: paging)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
 
-private struct UserCard: View {
+struct UserCard: View {
     let user: User
+    var caption: String?
 
     var body: some View {
-        VStack(alignment: .center, spacing: Space.tight) {
-            ArtworkImage(url: user.avatarURL) {
-                Circle().fill(Color.scBgRaised)
-                    .overlay {
-                        Image(systemName: "person.fill")
-                            .font(.system(size: 56, weight: .light))
-                            .foregroundStyle(Color.scTextTertiary)
-                    }
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .clipShape(Circle())
-            .kyleCrowned(user: user, context: user.displayName)
+        SCArtworkResolver(url: user.largeAvatarURL ?? user.avatarURL) { image in
+            SCArtistCard(
+                name: user.displayName,
+                subtitle: caption ?? (user.followersCount > 0 ? "\(user.formattedFollowers) followers" : nil),
+                avatarImage: image,
+                identity: user.id,
+                diameter: SCBrowseMetrics.tileEdge,
+                crownUser: user,
+                crownContext: user.displayName,
+                style: SCBrowseMetrics.tile
+            )
+        }
+    }
+}
 
-            VStack(alignment: .center, spacing: 0) {
-                Text(user.displayName)
-                    .font(.tvBodyEmph)
-                    .foregroundStyle(Color.scTextPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity)
-                Text("\(user.formattedFollowers) followers")
-                    .font(.tvCaption)
-                    .foregroundStyle(Color.scTextSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity)
+struct TVUserLink<Label: View>: View {
+    let user: User
+    @ViewBuilder let label: () -> Label
+
+    @EnvironmentObject private var authService: AuthenticationService
+    @EnvironmentObject private var navigationState: NavigationState
+
+    var body: some View {
+        if user.id == authService.currentUser?.id {
+            Button {
+                navigationState.showProfile()
+            } label: {
+                label()
+            }
+        } else {
+            NavigationLink {
+                ArtistDetailView(user: user)
+            } label: {
+                label()
             }
         }
     }

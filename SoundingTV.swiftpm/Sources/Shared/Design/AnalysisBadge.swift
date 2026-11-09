@@ -36,38 +36,49 @@ struct SCAnalysisBadge: View {
     var style: SCContentStyle = .tv
 
     var body: some View {
-        HStack(spacing: style.spaceHair) {
-            Image(systemName: kind.systemImage)
-                .font(.system(size: iconPointSize, weight: .semibold))
-                .symbolRenderingMode(.monochrome)
-
-            Text(label)
-                .font(style.fontCaptionEmphasis)
+        HStack(spacing: 4) {
+            Label(label, systemImage: kind.systemImage)
+                .labelStyle(.titleAndIcon)
+                .font(labelFont)
+                .italic(provenance == .inferred)
                 .lineLimit(1)
 
             if provenance == .stated {
                 Image(systemName: "pencil")
-                    .font(.system(size: iconPointSize * 0.85, weight: .semibold))
-                    .symbolRenderingMode(.monochrome)
+                    .font(.caption2.weight(.semibold))
                     .accessibilityHidden(true)
             }
         }
-        .foregroundStyle(foreground)
-        .padding(.horizontal, style.spaceSnug)
-        .padding(.vertical, style.spaceHair * 1.5)
-        .background {
-            Capsule(style: .continuous)
-                .fill(fill)
-        }
-        .overlay {
-            if provenance == .inferred {
-                Capsule(style: .continuous)
-                    .strokeBorder(style: StrokeStyle(lineWidth: style.iconStrokeWidth * 0.5, dash: [3, 3]))
-                    .foregroundStyle(style.textTertiary)
-            }
-        }
+        .foregroundStyle(provenance == .measured || provenance == .stated ? Color.primary : Color.secondary)
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, verticalPadding)
+        .background(.fill.tertiary, in: Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var labelFont: Font {
+        #if os(tvOS)
+        .caption2.weight(.semibold)
+        #else
+        .caption.weight(.semibold)
+        #endif
+    }
+
+    private var horizontalPadding: CGFloat {
+        #if os(tvOS)
+        12
+        #else
+        8
+        #endif
+    }
+
+    private var verticalPadding: CGFloat {
+        #if os(tvOS)
+        4
+        #else
+        3
+        #endif
     }
 
     private var label: String {
@@ -95,79 +106,6 @@ struct SCAnalysisBadge: View {
     private var presentedValue: String {
         guard let value else { return "—" }
         return kind == .genre ? GenrePresentation.displayName(for: value) : value
-    }
-
-    private var kindName: String {
-        switch kind {
-        case .bpm: return "Tempo"
-        case .key: return "Key"
-        case .genre: return "Genre"
-        }
-    }
-
-    private var iconPointSize: CGFloat {
-        max(10, style.iconStrokeWidth * 4)
-    }
-
-    private var fill: Color {
-        switch provenance {
-        case .measured, .stated: return style.accent.opacity(0.22)
-        case .inferred:          return style.bgOverlay
-        case .unavailable:       return style.bgRaised
-        }
-    }
-
-    private var foreground: Color {
-        switch provenance {
-        case .measured, .stated: return style.accent
-        case .inferred:          return style.textSecondary
-        case .unavailable:       return style.textTertiary
-        }
-    }
-}
-
-struct SCAnalysisText: View {
-    let kind: SCAnalysisKind
-    let value: String?
-    let provenance: SCAnalysisProvenance
-
-    var body: some View {
-        Text(displayValue)
-            .foregroundStyle(foreground)
-            .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var isEmpty: Bool {
-        provenance == .unavailable || (value?.isEmpty ?? true)
-    }
-
-    private var displayValue: String {
-        guard !isEmpty, let value else { return "—" }
-        return kind == .genre ? GenrePresentation.displayName(for: value) : value
-    }
-
-    private static let tertiary = Color.primary.opacity(0.38)
-
-    private var foreground: Color {
-        if isEmpty { return Self.tertiary }
-        switch provenance {
-        case .measured, .stated: return .primary
-        case .inferred: return .secondary
-        case .unavailable: return Self.tertiary
-        }
-    }
-
-    private var accessibilityLabel: String {
-        switch provenance {
-        case .unavailable:
-            return kind.unavailableLabel
-        case .measured:
-            return "\(kindName): \(displayValue), measured"
-        case .stated:
-            return "\(kindName): \(displayValue), entered by you"
-        case .inferred:
-            return "\(kindName): \(displayValue), estimated"
-        }
     }
 
     private var kindName: String {

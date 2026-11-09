@@ -77,77 +77,16 @@ enum SCAmbient {
         return alpha
     }
 
-    enum HorizontalHalf { case left, right }
-
-    static func renderedBackdropMean(
-        artwork: UIImage,
-        panelSize: CGSize,
-        zoomScale: CGFloat,
-        blurRadius: CGFloat,
-        saturation: Double,
-        sampling half: HorizontalHalf
-    ) -> RGB? {
-        guard panelSize.width > 0, panelSize.height > 0,
-              artwork.size.width > 0, artwork.size.height > 0 else { return nil }
-
-        let k = min(1, 240 / panelSize.width)
-        let workingSize = CGSize(width: panelSize.width * k, height: panelSize.height * k)
-        guard workingSize.width >= 2, workingSize.height >= 2 else { return nil }
-
-        let aspectFillScale = max(
-            workingSize.width / artwork.size.width,
-            workingSize.height / artwork.size.height
-        )
-        let combinedScale = aspectFillScale * zoomScale
-        let drawnSize = CGSize(
-            width: artwork.size.width * combinedScale,
-            height: artwork.size.height * combinedScale
-        )
-        let drawRect = CGRect(
-            x: (workingSize.width - drawnSize.width) / 2,
-            y: (workingSize.height - drawnSize.height) / 2,
-            width: drawnSize.width,
-            height: drawnSize.height
-        )
-
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        let composed = UIGraphicsImageRenderer(size: workingSize, format: format).image { ctx in
-            ctx.cgContext.interpolationQuality = .high
-            UIColor.black.setFill()
-            ctx.fill(CGRect(origin: .zero, size: workingSize))
-            artwork.draw(in: drawRect)
+    static func legibilityScrim(over backdrop: RGB, textOpacity: Double = 0.6, minimumContrast: Double = 4.5) -> Double {
+        let black = RGB(r: 0, g: 0, b: 0)
+        let white = RGB(r: 1, g: 1, b: 1)
+        var alpha: Double = 0
+        while alpha < 0.9 {
+            let out = composite(black, alpha: alpha, over: backdrop)
+            if contrastRatio(composite(white, alpha: textOpacity, over: out), out) >= minimumContrast { return alpha }
+            alpha += 0.02
         }
-        guard let composedCG = composed.cgImage else { return nil }
-
-        let ci = CIImage(cgImage: composedCG)
-        let blurred = ci.clampedToExtent()
-            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: blurRadius * k])
-            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: saturation])
-            .cropped(to: ci.extent)
-
-        let sampleRect = CGRect(
-            x: half == .right ? ci.extent.midX : ci.extent.minX,
-            y: ci.extent.minY,
-            width: ci.extent.width / 2,
-            height: ci.extent.height
-        )
-        guard let filter = CIFilter(name: "CIAreaAverage", parameters: [
-            kCIInputImageKey: blurred,
-            kCIInputExtentKey: CIVector(cgRect: sampleRect)
-        ]), let output = filter.outputImage else { return nil }
-
-        var bitmap = [UInt8](repeating: 0, count: 4)
-        CIContext(options: [.workingColorSpace: NSNull()]).render(
-            output,
-            toBitmap: &bitmap,
-            rowBytes: 4,
-            bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
-            format: .RGBA8,
-            colorSpace: CGColorSpaceCreateDeviceRGB()
-        )
-        return RGB(r: Double(bitmap[0]) / 255, g: Double(bitmap[1]) / 255, b: Double(bitmap[2]) / 255)
+        return alpha
     }
 
     static func relativeLuminance(_ c: RGB) -> Double {

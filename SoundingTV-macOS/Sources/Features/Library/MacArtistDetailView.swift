@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 enum ArtistDetailPane: String, CaseIterable {
     case overview  = "Overview"
@@ -26,11 +27,11 @@ struct MacArtistDetailView: View {
     @EnvironmentObject private var credentials: SoundCloudCredentialSource
     let user: User
     var showsToolbarSearch = true
-    var onBack: (() -> Void)?
 
     @StateObject private var viewModel: ArtistDetailViewModel
-    @StateObject private var followingModel: MacArtistFollowingModel
-    @StateObject private var followersModel: MacArtistFollowersModel
+    @StateObject private var similar: ArtistSimilarModel
+    @State private var followingModel: ArtistConnectionsModel
+    @State private var followersModel: ArtistConnectionsModel
     @ObservedObject private var localActivity = MacLocalProfileActivity.shared
     @State private var pane: ArtistDetailPane = .overview
     @State private var searchText = ""
@@ -39,35 +40,47 @@ struct MacArtistDetailView: View {
     @State private var isUpdatingFollow = false
     @State private var isConfirmingUnfollow = false
     @State private var isActivitySummaryExpanded = false
+    @State private var profileCoverURL: URL?
+    @State private var avatarURL: URL?
+    @State private var heroGone = false
+    @State private var heroArtGone = false
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.colorScheme) private var colorScheme
 
     init(
         user: User,
         initialPane: ArtistDetailPane = .overview,
-        showsToolbarSearch: Bool = true,
-        onBack: (() -> Void)? = nil
+        showsToolbarSearch: Bool = true
     ) {
         self.user = user
         self.showsToolbarSearch = showsToolbarSearch
-        self.onBack = onBack
+        #if DEBUG
+        let debugPane = ProcessInfo.processInfo.environment["SOUNDING_TV_MAC_ARTIST_PANE"].flatMap { ArtistDetailPane(rawValue: $0.capitalized) }
+        _pane = State(initialValue: debugPane ?? initialPane)
+        #else
         _pane = State(initialValue: initialPane)
+        #endif
         _viewModel = StateObject(wrappedValue: ArtistDetailViewModel(user: user))
-        _followingModel = StateObject(wrappedValue: MacArtistFollowingModel(userId: user.id))
-        _followersModel = StateObject(wrappedValue: MacArtistFollowersModel(userId: user.id))
+        _similar = StateObject(wrappedValue: ArtistSimilarModel(user: user))
+        _followingModel = State(initialValue: ArtistConnectionsModel(userID: user.id, kind: .following))
+        _followersModel = State(initialValue: ArtistConnectionsModel(userID: user.id, kind: .followers))
+        _profileCoverURL = State(initialValue: user.profileCoverURL)
+        _avatarURL = State(initialValue: user.largeAvatarURL ?? user.avatarURL)
     }
 
     var body: some View {
         content
-            .navigationTitle("@\(user.username)")
+            .navigationTitle(user.displayName)
+            .toolbar(removing: .title)
             .toolbar {
-                if let onBack {
-                    ToolbarItem(id: "artist-inline-back", placement: .navigation) {
-                        Button(action: onBack) { Image(systemName: "chevron.left") }
-                            .help("Back to All Artists")
-                            .accessibilityLabel("Back to All Artists")
-                    }
+                if heroGone {
+                    MacScrolledPageTitle(title: user.displayName)
                 }
             }
+            .onChange(of: heroGone) { _, gone in MacPageTitleVisibility.shared.isShowingPushedTitle = gone }
+            .onDisappear { MacPageTitleVisibility.shared.isShowingPushedTitle = false }
             .task { await viewModel.loadOverviewIfNeeded() }
+            .task(id: user.id) { await loadProfileCover() }
             .task(id: credentials.currentUser?.id) { await loadFollowState() }
             .onChange(of: pane) { _, newPane in
                 searchText = ""
@@ -90,23 +103,36 @@ struct MacArtistDetailView: View {
 
     @ViewBuilder
     private var content: some View {
-        let detail = ScrollView {
+        let detail = MacViewportScrollView(extendsUnderToolbar: true, hidesContentUnderToolbar: heroArtGone) {
             VStack(alignment: .leading, spacing: 0) {
                 hero
+                    .onGeometryChange(for: Bool.self) { proxy in
+                        let frame = proxy.frame(in: .global)
+                        return frame.height > 0 && frame.maxY <= 0
+                    } action: { heroArtGone = $0 }
+
+                headerDetails
                     .padding(.horizontal, SCContentStyle.mac.spaceGutter)
-                    .padding(.top, SCContentStyle.mac.spaceGutter)
+                    .padding(.top, SCContentStyle.mac.spaceBase)
                     .padding(.bottom, SCContentStyle.mac.spaceRoomy)
 
                 sectionPicker
                     .padding(.horizontal, SCContentStyle.mac.spaceGutter)
                     .padding(.bottom, SCContentStyle.mac.spaceBase)
+                    .macFadesUnderToolbar()
 
                 sectionContent
                     .padding(.horizontal, SCContentStyle.mac.spaceGutter)
                     .padding(.bottom, 32)
             }
+            .collectionPageScheme()
         }
+        .defaultScrollAnchor(.top, for: .alignment)
+        .scrollEdgeEffectHidden(!heroArtGone, for: .top)
+        .collectionPersonBackdrop(heroContent, blursBanner: false)
         .background(Color.primary.opacity(0.001))
+        .collectionPersonPage(heroContent)
+        .collectionAccent(from: heroContent.accentURL)
         if showsToolbarSearch {
             detail.searchable(
                 text: $searchText,
@@ -116,23 +142,6 @@ struct MacArtistDetailView: View {
         } else {
             detail
         }
-    }
-
-    private var headerSubtitle: String {
-        "\(user.formattedFollowers) followers \u{00B7} \(trackCountText) tracks"
-    }
-
-    private var trackCountText: String {
-        formatCount(max(user.trackCount, viewModel.tracks.count))
-    }
-
-    private func formatCount(_ count: Int) -> String {
-        if count >= 1_000_000 {
-            return String(format: "%.1fM", Double(count) / 1_000_000)
-        } else if count >= 1_000 {
-            return String(format: "%.1fK", Double(count) / 1_000)
-        }
-        return "\(count)"
     }
 
     private func load() async {
@@ -149,94 +158,77 @@ struct MacArtistDetailView: View {
         }
     }
 
+    private var heroHeight: CGFloat { user.trackCount > 0 ? 330 : 270 }
+
+    private var heroContent: PersonHeroContent {
+        PersonHeroContent(
+            user: user,
+            bannerURL: profileCoverURL,
+            avatarURL: avatarURL,
+            badge: "\(user.formattedFollowers) \(user.followersCount == 1 ? "Follower" : "Followers")"
+        )
+    }
+
     private var hero: some View {
-        ZStack(alignment: .bottom) {
-            ArtistHeroArtwork(
-                url: heroArtworkURL,
-                fallbackURL: user.largeAvatarURL ?? user.avatarURL
-            )
-            .frame(height: user.trackCount > 0 ? 300 : 240)
+        ZStack(alignment: .bottomLeading) {
+            Color.clear
 
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.30), .black.opacity(0.94)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            HStack(alignment: .bottom, spacing: PersonHeroMetrics.mac.spacing) {
+                PersonHeroTitle(content: heroContent, metrics: .mac)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .macFadesUnderToolbar()
+                    .macReportsScrolledAway($heroGone)
 
-            VStack(spacing: 7) {
-                ArtworkThumbnail(
-                    url: user.largeAvatarURL ?? user.avatarURL,
-                    identity: user.displayName,
-                    size: 82,
-                    cornerRadius: 41,
-                    crownUser: user,
-                    crownContext: user.displayName
-                )
-                .overlay { Circle().strokeBorder(.white.opacity(0.30), lineWidth: 1) }
-                .shadow(color: .black.opacity(0.48), radius: 14, y: 7)
-
-                Text(user.displayName)
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-
-                Text("@\(user.username) · \(headerSubtitle)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.72))
-                    .lineLimit(1)
-
-                if let description = user.description, !description.isEmpty {
-                    Text(description)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.72))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 560)
+                if user.trackCount > 0 || !viewModel.tracks.isEmpty {
+                    PersonHeroPlayButton(name: user.displayName, diameter: 44, isEnabled: !playableTracks.isEmpty, action: playArtist)
+                        .macFadesUnderToolbar()
                 }
-
-                artistActions.padding(.top, 4)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 20)
+            .padding(.horizontal, SCContentStyle.mac.spaceGutter + 8)
+            .padding(.bottom, SCContentStyle.mac.spaceRoomy)
         }
+        .environment(\.colorScheme, .dark)
         .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(.white.opacity(0.10), lineWidth: 0.8)
-        }
-        .shadow(color: .black.opacity(0.25), radius: 18, y: 9)
+        .frame(height: heroHeight)
+        .collectionScrollBackdropHero()
+        .accessibilityElement(children: .contain)
     }
 
-    private var heroArtworkURL: URL? {
-        viewModel.tracks.first(where: { $0.artworkURL != nil })?.artworkURL
-            ?? viewModel.playlists.first(where: { $0.artworkURL != nil })?.artworkURL
-            ?? user.largeAvatarURL
-            ?? user.avatarURL
+    private var headerDetails: some View {
+        VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceSnug) {
+            Text("@\(user.username)")
+                .font(.subheadline)
+                .foregroundStyle(MacSecondaryStyle())
+                .lineLimit(1)
+                .macFadesUnderToolbar()
+
+            artistActions
+                .padding(.top, 2)
+                .macFadesUnderToolbar()
+        }
     }
 
-    private var artistLinks: [ArtistExternalLink] {
-        var urls: [URL] = []
-        if let website = user.website { urls.append(website) }
-
-        if let description = user.description,
-           let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
-            let range = NSRange(description.startIndex..<description.endIndex, in: description)
-            urls.append(contentsOf: detector.matches(in: description, range: range).compactMap(\.url))
-        }
-
-        var seen = Set<String>()
-        return urls.compactMap { url in
-            guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
-            let key = url.absoluteString.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            guard url != user.permalinkURL, seen.insert(key).inserted else { return nil }
-            return ArtistExternalLink(url: url, preferredTitle: url == user.website ? user.websiteTitle : nil)
-        }
+    private func loadProfileCover() async {
+        if user.profileCoverURL != nil, avatarURL != nil { return }
+        guard let refreshed = try? await SoundCloudAPI.shared.getUser(id: user.id),
+              !Task.isCancelled else { return }
+        profileCoverURL = refreshed.profileCoverURL ?? profileCoverURL
+        avatarURL = refreshed.largeAvatarURL ?? refreshed.avatarURL ?? avatarURL
     }
 
     private var artistActions: some View {
-        HStack(spacing: SCContentStyle.mac.spaceTight) {
+        HStack(spacing: SCContentStyle.mac.spaceSnug) {
+            if user.trackCount > 0 || !viewModel.tracks.isEmpty {
+                Button(action: shuffleArtist) {
+                    Label("Shuffle", systemImage: "shuffle")
+                        .frame(minWidth: 72)
+                }
+                .buttonStyle(.bordered)
+                .disabled(playableTracks.isEmpty)
+                .help("Shuffle \(user.displayName)")
+                .accessibilityLabel("Shuffle \(user.displayName)")
+            }
+
             if credentials.currentUser?.id != user.id,
                !credentials.isSignedOut {
                 Button {
@@ -247,64 +239,23 @@ struct MacArtistDetailView: View {
                     }
                 } label: {
                     Label(
-                        isFollowing == true ? "Unfollow" : "Follow",
-                        systemImage: isFollowing == true ? "person.badge.minus" : "plus"
+                        isFollowing == true ? "Following" : "Follow",
+                        systemImage: isFollowing == true ? "checkmark" : "plus"
                     )
-                    .font(.system(size: 12, weight: .semibold))
-                    .padding(.horizontal, 13)
-                    .frame(height: 32)
                 }
-                .buttonStyle(.plain)
-                .glassEffect(
-                    .regular.tint(
-                        isFollowing == true
-                            ? Color.primary.opacity(0.045)
-                            : SCContentStyle.mac.accent.opacity(0.22)
-                    ),
-                    in: Capsule(style: .continuous)
-                )
+                .buttonStyle(.bordered)
                 .disabled(isFollowing == nil || isUpdatingFollow)
-            }
+                .accessibilityLabel(isFollowing == true ? "Unfollow \(user.displayName)" : "Follow \(user.displayName)")
+                .accessibilityValue(isFollowing == true ? "Following" : "Not following")
 
-            if user.trackCount > 0 || !viewModel.tracks.isEmpty {
-                Button(action: playArtist) {
-                    Label("Play", systemImage: "play.fill")
-                        .labelStyle(.titleAndIcon)
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, 16)
-                        .frame(height: 32)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(
-                    .regular.tint(SCContentStyle.mac.accent.opacity(0.28)),
-                    in: Capsule(style: .continuous)
-                )
-                .disabled(playableTracks.isEmpty)
-                .accessibilityLabel("Play \(user.displayName)")
-
-                Button(action: shuffleArtist) {
-                    Image(systemName: "shuffle")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular, in: Circle())
-                .disabled(playableTracks.isEmpty)
-                .help("Shuffle \(user.displayName)")
-                .accessibilityLabel("Shuffle \(user.displayName)")
+                ScoutToggleButton(user: user, isFollowed: isFollowing)
+                    .buttonStyle(.bordered)
             }
 
             Menu {
-                if !artistLinks.isEmpty {
-                    Menu("Artist Links", systemImage: "link") {
-                        ForEach(artistLinks) { link in
-                            Link(destination: link.url) {
-                                Label(link.title, systemImage: link.symbol)
-                            }
-                        }
-                    }
-                    Divider()
-                }
+                StartStationMenuButton(artist: user)
+
+                Divider()
 
                 Button {
                     NSWorkspace.shared.open(user.permalinkURL)
@@ -325,20 +276,20 @@ struct MacArtistDetailView: View {
                     Label("Copy SoundCloud Link", systemImage: "link")
                 }
 
-                ShareLink(item: user.permalinkURL, subject: Text(user.displayName)) {
+                ShareLink(item: user.permalinkURL, subject: Text(user.displayName), preview: SharePreview(user.displayName)) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 28, height: 28)
+                Label("More", systemImage: "ellipsis")
+                    .labelStyle(.iconOnly)
             }
-            .buttonStyle(.plain)
-            .glassEffect(.regular, in: Circle())
+            .menuStyle(.button)
+            .buttonStyle(.bordered)
             .menuIndicator(.hidden)
             .help("More")
             .accessibilityLabel("More actions for \(user.displayName)")
         }
+        .controlSize(.large)
     }
 
     private var playableTracks: [Track] {
@@ -347,7 +298,7 @@ struct MacArtistDetailView: View {
 
     private func playArtist() {
         guard let first = playableTracks.first else { return }
-        Task { await PlayerService.shared.play(first, in: viewModel.tracks) }
+        Task { await MacPlayback.play(first, in: viewModel.tracks, source: PlaybackQueueSource(artist: user)) }
     }
 
     private func loadFollowState() async {
@@ -375,34 +326,71 @@ struct MacArtistDetailView: View {
     }
 
     private func shuffleArtist() {
-        guard let first = playableTracks.randomElement() else { return }
-        PlayerService.shared.isShuffleEnabled = true
-        Task { await PlayerService.shared.play(first, in: viewModel.tracks) }
+        guard !playableTracks.isEmpty else { return }
+        Task { await MacPlayback.shuffle(viewModel.tracks, source: PlaybackQueueSource(artist: user)) }
     }
 
     private var sectionPicker: some View {
-        HStack(spacing: 4) {
-            ForEach(ArtistDetailPane.allCases, id: \.self) { candidate in
-                Button {
-                    pane = candidate
-                } label: {
-                    Text(candidate.rawValue)
-                        .font(.system(size: 12, weight: pane == candidate ? .semibold : .medium))
-                        .foregroundStyle(pane == candidate ? Color.scAccentOn : Color.secondary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 30)
-                        .background(
-                            pane == candidate ? SCContentStyle.mac.accent.opacity(0.72) : .clear,
-                            in: Capsule(style: .continuous)
-                        )
-                        .contentShape(Capsule(style: .continuous))
+        ViewThatFits(in: .horizontal) {
+            sectionTabs(visible: ArtistDetailPane.allCases.count)
+            sectionTabs(visible: 5)
+            sectionTabs(visible: 3)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func sectionTabs(visible count: Int) -> some View {
+        let overflow = Array(ArtistDetailPane.allCases.dropFirst(count))
+        return GlassEffectContainer(spacing: SCContentStyle.mac.spaceTight) {
+            HStack(spacing: SCContentStyle.mac.spaceTight) {
+                ForEach(Array(ArtistDetailPane.allCases.prefix(count)), id: \.self) { candidate in
+                    sectionTab(candidate)
                 }
-                .buttonStyle(.plain)
+                if !overflow.isEmpty {
+                    sectionOverflowMenu(overflow)
+                }
             }
         }
-        .padding(4)
-        .frame(maxWidth: 860)
-        .glassEffect(.regular, in: Capsule(style: .continuous))
+        .controlSize(.large)
+        .buttonBorderShape(.capsule)
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Sections")
+    }
+
+    @ViewBuilder
+    private func sectionTab(_ candidate: ArtistDetailPane) -> some View {
+        let button = Button(candidate.rawValue) {
+            withAnimation(.snappy) { pane = candidate }
+        }
+        .accessibilityAddTraits(pane == candidate ? .isSelected : [])
+        if pane == candidate {
+            button.buttonStyle(.glassProminent)
+        } else {
+            button.buttonStyle(.glass)
+        }
+    }
+
+    @ViewBuilder
+    private func sectionOverflowMenu(_ overflow: [ArtistDetailPane]) -> some View {
+        let menu = Menu {
+            Picker("Section", selection: $pane) {
+                ForEach(overflow, id: \.self) { candidate in
+                    Text(candidate.rawValue).tag(candidate)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Text(overflow.contains(pane) ? pane.rawValue : "More")
+        }
+        .menuStyle(.button)
+        .accessibilityLabel("More Sections")
+        if overflow.contains(pane) {
+            menu.buttonStyle(.glassProminent)
+        } else {
+            menu.buttonStyle(.glass)
+        }
     }
 
     private var trimmedSearch: String {
@@ -419,17 +407,18 @@ struct MacArtistDetailView: View {
         case .tracks:
             sectionBody(isEmpty: viewModel.tracks.isEmpty, icon: "music.note", message: "\(user.displayName) hasn\u{2019}t uploaded any tracks.") {
                 VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceSection) {
-                    trackTable(filteredTracks, onNearEnd: { Task { await viewModel.loadMore(section: .tracks) } })
+                    trackTable(filteredTracks)
+                    pagedFooter(viewModel.tracksPager)
 
                     if !filteredAlbums.isEmpty {
                         collectionSection(title: "Albums", subtitle: nil) {
-                            playlistGrid(
-                                filteredAlbums,
-                                onNearEnd: {
-                                    guard filteredSets.isEmpty else { return }
-                                    Task { await viewModel.loadMore(section: .playlists) }
-                                }
-                            )
+                            playlistGrid(filteredAlbums, onNearEnd: viewModel.playlistsPager.requestMore)
+                            pagedFooter(viewModel.playlistsPager)
+                        }
+                    }
+                    if !filteredSingles.isEmpty {
+                        collectionSection(title: "Singles & EPs", subtitle: nil) {
+                            playlistGrid(filteredSingles, onNearEnd: viewModel.playlistsPager.requestMore)
                         }
                     }
                 }
@@ -439,14 +428,15 @@ struct MacArtistDetailView: View {
                 VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceSection) {
                     if !publicPlaylists.isEmpty {
                         collectionSection(title: "Public", subtitle: "Visible to everyone") {
-                            playlistGrid(publicPlaylists, onNearEnd: loadMorePlaylists)
+                            playlistGrid(publicPlaylists, onNearEnd: viewModel.playlistsPager.requestMore)
                         }
                     }
                     if !privatePlaylists.isEmpty {
                         collectionSection(title: "Private", subtitle: "Visible only to the owner and people with access") {
-                            playlistGrid(privatePlaylists, onNearEnd: loadMorePlaylists)
+                            playlistGrid(privatePlaylists, onNearEnd: viewModel.playlistsPager.requestMore)
                         }
                     }
+                    pagedFooter(viewModel.playlistsPager)
                 }
             }
         case .reposts:
@@ -458,25 +448,23 @@ struct MacArtistDetailView: View {
                 VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceRoomy) {
                     if !filteredRepostedPlaylists.isEmpty {
                         collectionSection(title: "Reposted Playlists", subtitle: nil) {
-                            playlistGrid(
-                                filteredRepostedPlaylists,
-                                onNearEnd: {
-                                    guard filteredRepostedTracks.isEmpty else { return }
-                                    Task { await viewModel.loadMore(section: .reposts) }
-                                }
-                            )
+                            playlistGrid(filteredRepostedPlaylists, onNearEnd: viewModel.repostsPager.requestMore)
                         }
                     }
                     if !filteredRepostedTracks.isEmpty {
-                        collectionSection(title: "Reposted Songs", subtitle: nil) {
-                            trackTable(filteredRepostedTracks, onNearEnd: { Task { await viewModel.loadMore(section: .reposts) } })
+                        collectionSection(title: "Reposted Tracks", subtitle: nil) {
+                            trackTable(filteredRepostedTracks)
                         }
                     }
+                    pagedFooter(viewModel.repostsPager)
                 }
             }
         case .likes:
             sectionBody(isEmpty: viewModel.likedTracks.isEmpty, icon: "heart", message: "\(user.displayName) hasn\u{2019}t liked any tracks publicly.") {
-                trackTable(filteredLikedTracks, onNearEnd: { Task { await viewModel.loadMore(section: .likes) } })
+                VStack(spacing: 0) {
+                    trackTable(filteredLikedTracks)
+                    pagedFooter(viewModel.likesPager)
+                }
             }
         case .following:
             followingBody
@@ -485,182 +473,336 @@ struct MacArtistDetailView: View {
         }
     }
 
-    private func loadMorePlaylists() {
-        Task { await viewModel.loadMore(section: .playlists) }
+    @ViewBuilder
+    private func pagedFooter<Item: Identifiable>(_ pager: Paginator<Item>) -> some View {
+        if trimmedSearch.isEmpty {
+            MacPagedFooter(pager: pager)
+        }
     }
+
+    private func requestMoreActivity() {
+        viewModel.tracksPager.requestMore()
+        viewModel.repostsPager.requestMore()
+        viewModel.likesPager.requestMore()
+    }
+
+    private var activityFooter: some View {
+        let isLoading = viewModel.tracksPager.isLoadingMore || viewModel.repostsPager.isLoadingMore || viewModel.likesPager.isLoadingMore
+        let failed = viewModel.tracksPager.didFailLoadingMore || viewModel.repostsPager.didFailLoadingMore || viewModel.likesPager.didFailLoadingMore
+        let paused = viewModel.tracksPager.isPaused || viewModel.repostsPager.isPaused || viewModel.likesPager.isPaused
+        return LazyVStack(spacing: 0) {
+            PagedFooter(
+                isLoading: isLoading,
+                failed: failed,
+                isPaused: paused,
+                retry: {
+                    Task {
+                        async let tracks: Void = viewModel.tracksPager.retry()
+                        async let reposts: Void = viewModel.repostsPager.retry()
+                        async let likes: Void = viewModel.likesPager.retry()
+                        _ = await (tracks, reposts, likes)
+                    }
+                },
+                reachedEnd: requestMoreActivity
+            )
+        }
+    }
+
+    private enum LatestRelease {
+        case collection(Playlist)
+        case single(Track)
+
+        var date: Date {
+            switch self {
+            case .collection(let playlist): return playlist.createdAt
+            case .single(let track): return track.createdAt
+            }
+        }
+    }
+
+    private var latestRelease: LatestRelease? {
+        if let album = (filteredAlbums + filteredSingles).max(by: { $0.createdAt < $1.createdAt }) { return .collection(album) }
+        if let track = filteredTracks.max(by: { $0.createdAt < $1.createdAt }) { return .single(track) }
+        return nil
+    }
+
+    private var topTracks: [Track] { filterTracks(viewModel.topTracks) }
 
     @ViewBuilder
     private var overviewBody: some View {
-        if viewModel.isLoading(.tracks), viewModel.tracks.isEmpty {
-            HStack { Spacer(); ProgressView(); Spacer() }.padding(.vertical, 50)
+        if viewModel.isLoading(.tracks), viewModel.tracks.isEmpty, viewModel.playlists.isEmpty {
+            LoadingPlaceholder(.trackList(.mac), count: 6, insets: false)
+        } else if let error = viewModel.errorMessage(.tracks), viewModel.tracks.isEmpty, viewModel.playlists.isEmpty {
+            ContentUnavailableView {
+                Label("Couldn’t Load", systemImage: "wifi.exclamationmark")
+            } description: {
+                Text(error)
+            } actions: {
+                Button("Try Again") { Task { await viewModel.reload(section: .tracks) } }
+            }
+            .macFillsPane()
         } else if viewModel.tracks.isEmpty && viewModel.playlists.isEmpty {
-            SCEmptyState(
-                icon: "person.crop.circle",
-                title: user.displayName,
-                message: "This profile has no public music yet.",
-                style: .mac
+            ContentUnavailableView(
+                "No Music Yet",
+                systemImage: "music.note",
+                description: Text("\(user.displayName) hasn’t shared any public music.")
             )
-            .padding(.vertical, 40)
+            .macFillsPane()
         } else {
             VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceSection) {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: SCContentStyle.mac.spaceRoomy) {
-                        latestReleaseSection.frame(width: 260)
-                        recentTracksSection.frame(maxWidth: .infinity)
+                        if let latestRelease {
+                            latestReleaseSection(latestRelease).frame(width: 220, alignment: .leading)
+                        }
+                        topTracksSection.frame(maxWidth: .infinity, alignment: .leading)
                     }
                     VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceSection) {
-                        latestReleaseSection
-                        recentTracksSection
+                        if let latestRelease {
+                            latestReleaseSection(latestRelease)
+                        }
+                        topTracksSection
                     }
                 }
 
-                if !filteredAlbums.isEmpty {
-                    collectionSection(title: "Albums", subtitle: nil) {
-                        playlistGrid(Array(filteredAlbums.prefix(8)))
-                    }
-                } else if !filteredSets.isEmpty {
-                    collectionSection(title: "Featured sets", subtitle: nil) {
-                        playlistGrid(Array(filteredSets.prefix(8)))
-                    }
-                }
+                playlistShelf("Albums", playlists: filteredAlbums)
+                playlistShelf("Singles & EPs", playlists: filteredSingles)
+                playlistShelf("Playlists", playlists: filteredSets)
 
-                DisclosureGroup("Activity summary", isExpanded: $isActivitySummaryExpanded) {
-                    HStack(spacing: 8) {
-                        activityMetric("Uploads", count: viewModel.tracks.count, icon: "arrow.up.circle")
-                        activityMetric("Reposts", count: viewModel.repostItems.count, icon: "arrow.2.squarepath")
-                        activityMetric("Likes", count: viewModel.likeItems.count, icon: "heart")
+                DisclosureGroup("Activity Summary", isExpanded: $isActivitySummaryExpanded) {
+                    HStack(spacing: 16) {
+                        activityMetric(viewModel.tracksPager.countText(singular: "upload", plural: "uploads"), icon: "arrow.up.circle")
+                        activityMetric(viewModel.repostsPager.countText(singular: "repost", plural: "reposts"), icon: "arrow.2.squarepath")
+                        activityMetric(viewModel.likesPager.countText(singular: "like", plural: "likes"), icon: "heart")
                         Spacer(minLength: 0)
                     }
                     .padding(.top, 8)
                 }
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .font(.subheadline)
+                .foregroundStyle(MacSecondaryStyle())
                 .onChange(of: isActivitySummaryExpanded) { _, expanded in
                     guard expanded else { return }
                     Task { await viewModel.loadActivityIfNeeded() }
                 }
+
+                PersonAboutSection(user: user, style: .mac, inset: SCContentStyle.mac.spaceGutter) { kind in
+                    pane = kind == .following ? .following : .followers
+                }
+                .padding(.horizontal, -SCContentStyle.mac.spaceGutter)
+                .onAppear { Task { await similar.loadIfNeeded() } }
+
+                similarShelf
             }
         }
     }
 
     @ViewBuilder
-    private var latestReleaseSection: some View {
-        if let latest = filteredTracks.first {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Latest release")
-                    .font(.system(size: 18, weight: .bold))
-
-                Button {
-                    Task { await PlayerService.shared.play(latest, in: viewModel.tracks) }
-                } label: {
-                    VStack(alignment: .leading, spacing: 9) {
-                        ArtworkThumbnail(
-                            url: latest.artworkURL,
-                            identity: latest.title,
-                            size: 220,
-                            cornerRadius: 14,
-                            crownUser: latest.user,
-                            crownContext: latest.title
-                        )
-                        .overlay(alignment: .bottomTrailing) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 38, height: 38)
-                                .glassEffect(.regular.tint(.orange.opacity(0.35)), in: Circle())
-                                .padding(10)
-                        }
-
-                        Text(latest.title)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        HStack(spacing: 5) {
-                            Text(latest.createdAt, style: .date)
-                            if let genre = latest.genre, !genre.isEmpty {
-                                Text("·")
-                                Text(genre)
-                            }
-                        }
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private var similarShelf: some View {
+        if !similar.artists.isEmpty {
+            CollectionShelf(
+                title: "Similar Artists",
+                items: similar.artists,
+                style: .mac,
+                tileWidth: 140,
+                spacing: SCContentStyle.mac.spaceBase,
+                inset: SCContentStyle.mac.spaceGutter
+            ) { artist in
+                NavigationLink(value: artist) {
+                    PersonShelfTile(user: artist, diameter: 140, style: .mac)
                 }
                 .buttonStyle(.plain)
-                .macTrackContextMenu(track: latest)
+                .accessibilityLabel("\(artist.displayName), artist")
+            }
+            .padding(.horizontal, -SCContentStyle.mac.spaceGutter)
+            .macFadesUnderToolbar()
+        }
+    }
+
+    private func playlistShelf(_ title: String, playlists: [Playlist]) -> some View {
+        CollectionShelf(
+            title: title,
+            items: playlists,
+            style: .mac,
+            tileWidth: 168,
+            spacing: SCContentStyle.mac.spaceBase,
+            inset: SCContentStyle.mac.spaceGutter,
+            headerAction: { pane = .playlists }
+        ) { playlist in
+            NavigationLink(value: playlist) {
+                ArtworkShelfCard(playlist: playlist, style: .mac)
+            }
+            .buttonStyle(.plain)
+            .macCardHover(artworkURL: playlist.displayArtworkURL, prewarm: { CollectionPlayback.prewarm(playlist: playlist) }, play: { Task { await MacPlayback.play(playlist: playlist) } }) {
+                MacPlaylistContextMenu(
+                    playlist: playlist,
+                    canChangePrivacy: credentials.currentUser?.id == playlist.user.id,
+                    isUpdatingPrivacy: updatingPlaylistIDs.contains(playlist.id),
+                    onTogglePrivacy: { togglePlaylistPrivacy(playlist) }
+                )
+            }
+            .accessibilityLabel("\(playlist.title), \(playlist.isAlbum ? "album" : "playlist")")
+        }
+        .padding(.horizontal, -SCContentStyle.mac.spaceGutter)
+        .macFadesUnderToolbar()
+    }
+
+    private func latestReleaseSection(_ release: LatestRelease) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SCSectionHeader(title: "Latest Release", style: .mac).macFadesUnderToolbar()
+
+            switch release {
+            case .collection(let playlist):
+                NavigationLink(value: playlist) {
+                    releaseCard(
+                        url: playlist.largeDisplayArtworkURL,
+                        identity: playlist.id,
+                        date: release.date,
+                        title: playlist.title,
+                        detail: "\(playlist.totalTrackCount) \(playlist.totalTrackCount == 1 ? "track" : "tracks")",
+                        crownUser: playlist.user
+                    )
+                }
+                .buttonStyle(.plain)
+                .contextMenu { MacPlaylistContextMenu(playlist: playlist) }
+                .accessibilityLabel("Latest release, \(playlist.title)")
+            case .single(let track):
+                Button {
+                    Task { await MacPlayback.play(track, in: viewModel.tracks, source: PlaybackQueueSource(artist: user)) }
+                } label: {
+                    releaseCard(
+                        url: track.largeArtworkURL ?? track.artworkURL,
+                        identity: track.id,
+                        date: release.date,
+                        title: track.title,
+                        detail: singleDetail(track),
+                        crownUser: track.user,
+                        showsPlay: true
+                    )
+                }
+                .buttonStyle(.plain)
+                .macTrackAccessibility(track: track, context: viewModel.tracks)
+                .accessibilityHint("Latest release")
+                .macTrackContextMenu(track: track)
             }
         }
     }
 
-    private var recentTracksSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Recent tracks")
-                .font(.system(size: 18, weight: .bold))
-            MacCollectionTrackTable(
-                tracks: Array(filteredTracks.prefix(6)),
-                onPlay: { track in
-                    Task { await PlayerService.shared.play(track, in: viewModel.tracks) }
-                }
+    private func singleDetail(_ track: Track) -> String {
+        guard let genre = track.genre, !genre.isEmpty else { return "Single" }
+        return "Single · \(genre)"
+    }
+
+    private func releaseCard(
+        url: URL?,
+        identity: String,
+        date: Date,
+        title: String,
+        detail: String,
+        crownUser: User?,
+        showsPlay: Bool = false
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ArtworkThumbnail(
+                url: url,
+                identity: identity,
+                size: 220,
+                cornerRadius: 14,
+                crownUser: crownUser,
+                crownContext: title
             )
-            .frame(minHeight: CGFloat(min(filteredTracks.count, 6)) * 50 + 31)
+            .overlay(alignment: .bottomTrailing) {
+                if showsPlay {
+                    Image(systemName: "play.fill")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 38, height: 38)
+                        .macAdaptiveGlass(in: Circle())
+                        .padding(10)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(date.formatted(.dateTime.day().month(.abbreviated).year()))
+                    .font(.caption)
+                    .foregroundStyle(MacSecondaryStyle())
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(MacSecondaryStyle())
+                    .lineLimit(1)
+            }
+            .macFadesUnderToolbar()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var topTracksSection: some View {
+        if !topTracks.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                SCSectionHeader(title: "Top Tracks", showChevron: true, action: { pane = .tracks }, style: .mac)
+                    .help("See All Tracks")
+                    .accessibilityHint("Shows every track, with sorting")
+                    .macFadesUnderToolbar()
+                MacTrackRows(
+                    tracks: Array(topTracks.prefix(6)),
+                    onPlay: { track in
+                        Task { await MacPlayback.play(track, in: topTracks, source: PlaybackQueueSource(artist: user)) }
+                    }
+                )
+            }
         }
     }
 
     @ViewBuilder
     private var activityBody: some View {
         if viewModel.isLoading(.tracks) || viewModel.isLoading(.reposts) || viewModel.isLoading(.likes), activityItems.isEmpty {
-            HStack { Spacer(); ProgressView(); Spacer() }.padding(.vertical, 50)
+            LoadingPlaceholder(.trackList(.mac), count: 8, insets: false)
         } else if activityItems.isEmpty {
-            SCEmptyState(
-                icon: "clock.arrow.circlepath",
-                title: "No Activity Yet",
-                message: "Uploads, reposts and likes from \(user.displayName) will appear here.",
-                style: .mac
+            ContentUnavailableView(
+                "No Activity Yet",
+                systemImage: "clock.arrow.circlepath",
+                description: Text("Uploads, reposts and likes from \(user.displayName) will appear here.")
             )
-            .padding(.vertical, 40)
+            .macFillsPane()
         } else {
             VStack(alignment: .leading, spacing: 18) {
-                HStack(spacing: 8) {
-                    activityMetric("Uploads", count: viewModel.tracks.count, icon: "arrow.up.circle")
-                    activityMetric("Reposts", count: viewModel.repostItems.count, icon: "arrow.2.squarepath")
-                    activityMetric("Likes", count: viewModel.likeItems.count, icon: "heart")
+                HStack(spacing: 16) {
+                    activityMetric(viewModel.tracksPager.countText(singular: "upload", plural: "uploads"), icon: "arrow.up.circle")
+                    activityMetric(viewModel.repostsPager.countText(singular: "repost", plural: "reposts"), icon: "arrow.2.squarepath")
+                    activityMetric(viewModel.likesPager.countText(singular: "like", plural: "likes"), icon: "heart")
                     Spacer(minLength: 0)
                 }
 
                 ForEach(activityGroups) { group in
                     VStack(alignment: .leading, spacing: 7) {
                         Text(group.title)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        LazyVStack(spacing: 4) {
+                            .font(.headline)
+                        LazyVStack(spacing: 0) {
                             ForEach(group.items) { item in
                                 profileActivityRow(item)
                                     .onAppear {
                                         guard activityItems.isNearEnd(item, lead: 10) else { return }
-                                        Task {
-                                            async let tracks: Void = viewModel.loadMore(section: .tracks)
-                                            async let reposts: Void = viewModel.loadMore(section: .reposts)
-                                            async let likes: Void = viewModel.loadMore(section: .likes)
-                                            _ = await (tracks, reposts, likes)
-                                        }
+                                        requestMoreActivity()
                                     }
                             }
                         }
                     }
                 }
+
+                activityFooter
             }
         }
     }
 
-    private func activityMetric(_ title: String, count: Int, icon: String) -> some View {
-        Label("\(count) \(title.lowercased())", systemImage: icon)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .frame(height: 28)
-            .glassEffect(.regular.tint(.orange.opacity(0.035)), in: Capsule())
+    private func activityMetric(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.subheadline)
+            .foregroundStyle(MacSecondaryStyle())
     }
 
     private var activityGroups: [ActivityDateGroup] {
@@ -687,39 +829,45 @@ struct MacArtistDetailView: View {
             ArtworkThumbnail(
                 url: item.artworkURL,
                 identity: item.title,
-                size: 42,
-                cornerRadius: item.isPlaylist ? 7 : 6
+                size: 40,
+                cornerRadius: item.person != nil ? 20 : 5
             )
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.action)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
                 Text(item.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.body)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
+                Text(item.action)
+                    .font(.subheadline)
+                    .foregroundStyle(MacSecondaryStyle())
             }
             Spacer(minLength: 8)
             Text(item.date, style: .relative)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+                .font(.subheadline)
+                .foregroundStyle(MacSecondaryStyle())
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .macHoverRowHighlight()
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 62) }
 
         if let track = item.track {
             Button {
-                Task { await PlayerService.shared.play(track, in: activityItems.compactMap(\.track)) }
+                Task { await MacPlayback.play(track, in: activityItems.compactMap(\.track)) }
             } label: { row }
             .buttonStyle(.plain)
+            .macTrackAccessibility(track: track, context: activityItems.compactMap(\.track))
+            .accessibilityHint("\(item.action), \(item.date.formatted(.relative(presentation: .named)))")
             .macTrackContextMenu(track: track)
         } else if let playlist = item.playlist {
             NavigationLink(value: playlist) { row }
                 .buttonStyle(.plain)
+                .accessibilityLabel("\(item.title), \(item.action), \(item.date.formatted(.relative(presentation: .named)))")
         } else if let person = item.person {
             NavigationLink(value: person) { row }
                 .buttonStyle(.plain)
+                .accessibilityLabel("\(item.title), \(item.action), \(item.date.formatted(.relative(presentation: .named)))")
                 .contextMenu { MacArtistContextMenu(artist: person) }
         }
     }
@@ -731,12 +879,11 @@ struct MacArtistDetailView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceSnug) {
             HStack(alignment: .firstTextBaseline) {
-                Text(title)
-                    .font(.system(size: 18, weight: .bold))
+                SCSectionHeader(title: title, style: .mac).macFadesUnderToolbar()
                 if let subtitle {
                     Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                        .foregroundStyle(MacSecondaryStyle())
                 }
                 Spacer(minLength: 0)
             }
@@ -747,82 +894,50 @@ struct MacArtistDetailView: View {
     @ViewBuilder
     private var followingBody: some View {
         if followingModel.isLoading, followingModel.users.isEmpty {
-            HStack { Spacer(); ProgressView(); Spacer() }.padding(.vertical, 50)
+            LoadingPlaceholder(.grid(minimumTile: 140, circular: true), insets: false)
         } else if let error = followingModel.errorMessage, followingModel.users.isEmpty {
-            SCEmptyState(
-                kind: .error,
-                title: "Couldn\u{2019}t Load",
-                message: error,
-                actionTitle: "Try Again",
-                action: { Task { await followingModel.loadIfNeeded(force: true) } },
-                style: .mac
-            )
-            .padding(.vertical, 40)
+            ContentUnavailableView {
+                Label("Couldn’t Load", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error)
+            } actions: {
+                Button("Try Again") { Task { await followingModel.loadIfNeeded(force: true) } }
+            }
+            .macFillsPane()
         } else if followingModel.users.isEmpty {
-            SCEmptyState(
-                icon: "person.2",
-                title: ArtistDetailPane.following.rawValue,
-                message: "\(user.displayName) isn\u{2019}t following anyone.",
-                style: .mac
+            ContentUnavailableView(
+                "Not Following Anyone",
+                systemImage: "person.2",
+                description: Text("\(user.displayName) isn’t following anyone yet.")
             )
-            .padding(.vertical, 40)
+            .macFillsPane()
         } else {
-            peopleGrid(filteredFollowing, onNearEnd: followingModel.loadMore)
+            MacPeopleGrid(people: filteredFollowing, pager: followingModel.pager, pagesOnScroll: trimmedSearch.isEmpty)
         }
     }
 
     @ViewBuilder
     private var followersBody: some View {
         if followersModel.isLoading, followersModel.users.isEmpty {
-            HStack { Spacer(); ProgressView(); Spacer() }.padding(.vertical, 50)
+            LoadingPlaceholder(.grid(minimumTile: 140, circular: true), insets: false)
         } else if let error = followersModel.errorMessage, followersModel.users.isEmpty {
-            SCEmptyState(
-                kind: .error,
-                title: "Couldn\u{2019}t Load",
-                message: error,
-                actionTitle: "Try Again",
-                action: { Task { await followersModel.loadIfNeeded(force: true) } },
-                style: .mac
-            )
-            .padding(.vertical, 40)
-        } else if followersModel.users.isEmpty {
-            SCEmptyState(
-                icon: "person.2",
-                title: ArtistDetailPane.followers.rawValue,
-                message: "Nobody follows \(user.displayName) yet.",
-                style: .mac
-            )
-            .padding(.vertical, 40)
-        } else {
-            peopleGrid(filteredFollowers, onNearEnd: followersModel.loadMore)
-        }
-    }
-
-    private func peopleGrid(_ people: [User], onNearEnd: @escaping () -> Void) -> some View {
-        let columns = [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 20)]
-        return LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
-            ForEach(people) { person in
-                NavigationLink(value: person) {
-                    SCArtworkResolver(url: person.largeAvatarURL ?? person.avatarURL) { image in
-                        SCArtistCard(
-                            name: person.displayName,
-                            avatarImage: image,
-                            identity: person.displayName,
-                            crownUser: person,
-                            crownContext: person.displayName,
-                            style: .mac
-                        )
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .macHoverLift()
-                .contextMenu { MacArtistContextMenu(artist: person) }
-                .onAppear {
-                    guard trimmedSearch.isEmpty, people.isNearEnd(person, lead: 10) else { return }
-                    onNearEnd()
-                }
+            ContentUnavailableView {
+                Label("Couldn’t Load", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error)
+            } actions: {
+                Button("Try Again") { Task { await followersModel.loadIfNeeded(force: true) } }
             }
+            .macFillsPane()
+        } else if followersModel.users.isEmpty {
+            ContentUnavailableView(
+                "No Followers",
+                systemImage: "person.2",
+                description: Text("Nobody follows \(user.displayName) yet.")
+            )
+            .macFillsPane()
+        } else {
+            MacPeopleGrid(people: filteredFollowers, pager: followersModel.pager, pagesOnScroll: trimmedSearch.isEmpty)
         }
     }
 
@@ -834,41 +949,34 @@ struct MacArtistDetailView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         if viewModel.isLoading(viewModel.selectedSection), isEmpty {
-            HStack { Spacer(); ProgressView(); Spacer() }.padding(.vertical, 50)
+            LoadingPlaceholder(viewModel.selectedSection == .playlists ? .grid(minimumTile: 150) : .trackList(.mac), insets: false)
         } else if let error = viewModel.errorMessage(viewModel.selectedSection), isEmpty {
-            SCEmptyState(
-                kind: .error,
-                title: "Couldn\u{2019}t Load",
-                message: error,
-                actionTitle: "Try Again",
-                action: { Task { await viewModel.reload(section: viewModel.selectedSection) } },
-                style: .mac
-            )
-            .padding(.vertical, 40)
+            ContentUnavailableView {
+                Label("Couldn’t Load", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error)
+            } actions: {
+                Button("Try Again") { Task { await viewModel.reload(section: viewModel.selectedSection) } }
+            }
+            .macFillsPane()
         } else if isEmpty {
-            SCEmptyState(
-                icon: icon,
-                title: viewModel.selectedSection.rawValue,
-                message: message,
-                style: .mac
+            ContentUnavailableView(
+                "No \(viewModel.selectedSection.rawValue)",
+                systemImage: icon,
+                description: Text(message)
             )
-            .padding(.vertical, 40)
+            .macFillsPane()
         } else {
             content()
         }
     }
 
-    private func trackTable(_ tracks: [Track], onNearEnd: @escaping () -> Void) -> some View {
-        VStack(spacing: 0) {
+    private func trackTable(_ tracks: [Track]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             MacCollectionTrackTable(
                 tracks: tracks,
-                onPlay: { track in Task { await PlayerService.shared.play(track, in: tracks) } }
+                onPlay: { track in Task { await MacPlayback.play(track, in: tracks) } }
             )
-            .frame(minHeight: CGFloat(tracks.count) * 50 + 31)
-
-            if trimmedSearch.isEmpty {
-                Color.clear.frame(height: 1).onAppear(perform: onNearEnd)
-            }
         }
     }
 
@@ -890,7 +998,7 @@ struct MacArtistDetailView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .contextMenu {
+                .macCardHover(artworkURL: playlist.displayArtworkURL, prewarm: { CollectionPlayback.prewarm(playlist: playlist) }, play: { Task { await MacPlayback.play(playlist: playlist) } }) {
                     MacPlaylistContextMenu(
                         playlist: playlist,
                         canChangePrivacy: credentials.currentUser?.id == playlist.user.id,
@@ -898,8 +1006,9 @@ struct MacArtistDetailView: View {
                         onTogglePrivacy: { togglePlaylistPrivacy(playlist) }
                     )
                 }
+                .accessibilityLabel("\(playlist.title), \(playlist.isAlbum ? "album" : "playlist")\(playlist.sharing == "private" ? ", private" : "")")
                 .onAppear {
-                    guard let onNearEnd, trimmedSearch.isEmpty, playlists.isNearEnd(playlist, lead: 8) else { return }
+                    guard let onNearEnd, trimmedSearch.isEmpty, playlists.isNearEnd(playlist, lead: 12) else { return }
                     onNearEnd()
                 }
             }
@@ -910,14 +1019,11 @@ struct MacArtistDetailView: View {
     private func playlistPrivacyBadge(_ playlist: Playlist) -> some View {
         if playlist.sharing == "private" {
             Label("Private", systemImage: "lock.fill")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 7)
                 .frame(height: 20)
-                .glassEffect(
-                    .regular.tint(Color.black.opacity(0.34)),
-                    in: Capsule(style: .continuous)
-                )
+                .macAdaptiveGlass(in: Capsule(style: .continuous), tint: Color.black.opacity(0.34))
         }
     }
 
@@ -939,23 +1045,14 @@ struct MacArtistDetailView: View {
     private var filteredPlaylists: [Playlist] { filterPlaylists(viewModel.playlists) }
     private var publicPlaylists: [Playlist] { filteredPlaylists.filter { $0.sharing != "private" } }
     private var privatePlaylists: [Playlist] { filteredPlaylists.filter { $0.sharing == "private" } }
-    private var filteredAlbums: [Playlist] { filteredPlaylists.filter(\.isAlbum) }
-    private var filteredSets: [Playlist] { filteredPlaylists.filter { !$0.isAlbum } }
+    private var filteredAlbums: [Playlist] { filteredPlaylists.filter { $0.isAlbum && !ArtistReleaseKind.isSingleOrEP($0) } }
+    private var filteredSingles: [Playlist] { filteredPlaylists.filter(ArtistReleaseKind.isSingleOrEP) }
+    private var filteredSets: [Playlist] { filteredPlaylists.filter { !$0.isAlbum && !ArtistReleaseKind.isSingleOrEP($0) } }
     private var filteredRepostedPlaylists: [Playlist] { filterPlaylists(viewModel.repostedPlaylists) }
 
-    private var filteredFollowing: [User] {
-        guard !trimmedSearch.isEmpty else { return followingModel.users }
-        return followingModel.users.filter {
-            $0.displayName.localizedCaseInsensitiveContains(trimmedSearch) || $0.username.localizedCaseInsensitiveContains(trimmedSearch)
-        }
-    }
+    private var filteredFollowing: [User] { followingModel.filtered(trimmedSearch) }
 
-    private var filteredFollowers: [User] {
-        guard !trimmedSearch.isEmpty else { return followersModel.users }
-        return followersModel.users.filter {
-            $0.displayName.localizedCaseInsensitiveContains(trimmedSearch) || $0.username.localizedCaseInsensitiveContains(trimmedSearch)
-        }
-    }
+    private var filteredFollowers: [User] { followersModel.filtered(trimmedSearch) }
 
     private func filterTracks(_ tracks: [Track]) -> [Track] {
         guard !trimmedSearch.isEmpty else { return tracks }
@@ -979,73 +1076,6 @@ struct MacArtistDetailView: View {
         let items = (uploads + reposts + likes + local).sorted { $0.date > $1.date }
         guard !trimmedSearch.isEmpty else { return items }
         return items.filter { $0.title.localizedCaseInsensitiveContains(trimmedSearch) }
-    }
-}
-
-private struct ArtistExternalLink: Identifiable {
-    let url: URL
-    let preferredTitle: String?
-
-    var id: String { url.absoluteString }
-
-    var title: String {
-        if let preferredTitle, !preferredTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return preferredTitle
-        }
-        let host = url.host?.lowercased() ?? ""
-        if host.contains("instagram.com") { return "Instagram" }
-        if host.contains("twitter.com") || host == "x.com" || host.hasSuffix(".x.com") { return "X / Twitter" }
-        if host.contains("facebook.com") { return "Facebook" }
-        if host.contains("tiktok.com") { return "TikTok" }
-        if host.contains("youtube.com") || host.contains("youtu.be") { return "YouTube" }
-        if host.contains("bandcamp.com") { return "Bandcamp" }
-        return url.host?.replacingOccurrences(of: "www.", with: "") ?? "Website"
-    }
-
-    var symbol: String {
-        let host = url.host?.lowercased() ?? ""
-        return host.contains("youtube") || host.contains("youtu.be") ? "play.rectangle" : "globe"
-    }
-}
-
-private struct ArtistHeroArtwork: View {
-    let url: URL?
-    let fallbackURL: URL?
-    @State private var image: NSImage?
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                LinearGradient(
-                    colors: [Color.orange.opacity(0.34), Color.black, Color(red: 0.10, green: 0.04, blue: 0.02)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
-                if let image {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: proxy.size.width, height: proxy.size.height)
-                        .clipped()
-                        .overlay {
-                            Color.orange.opacity(0.055).blendMode(.plusLighter)
-                        }
-                } else {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 100, weight: .ultraLight))
-                        .foregroundStyle(.white.opacity(0.10))
-                }
-            }
-        }
-        .task(id: url) {
-            image = nil
-            if let url, let resolved = await ArtworkCache.shared.image(for: url, variant: .standard) {
-                image = resolved
-            } else if let fallbackURL {
-                image = await ArtworkCache.shared.image(for: fallbackURL, variant: .standard)
-            }
-        }
     }
 }
 
@@ -1118,9 +1148,21 @@ private final class MacLocalProfileActivity: ObservableObject {
     @Published private(set) var events: [Event]
     private static let defaultsKey = "red.forbes.sounding.mac.profileActivity"
 
+    private var forgetObserver: NSObjectProtocol?
+
     private init() {
         events = UserDefaults.standard.data(forKey: Self.defaultsKey)
             .flatMap { try? JSONDecoder().decode([Event].self, from: $0) } ?? []
+        forgetObserver = NotificationCenter.default.addObserver(
+            forName: AccountDataVault.didForgetAccountData,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.events = []
+                UserDefaults.standard.removeObject(forKey: MacLocalProfileActivity.defaultsKey)
+            }
+        }
     }
 
     func record(user: User, followed: Bool) {
@@ -1132,32 +1174,13 @@ private final class MacLocalProfileActivity: ObservableObject {
     }
 }
 
-/// The artist hero needs secondary transport actions to read as quiet tools,
-/// not as competing rectangular calls-to-action.  This intentionally keeps a
-/// full 28-point hit target while using the compact circular affordance that
-/// macOS Music uses around its Play control.
-private struct ArtistSecondaryActionStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(isEnabled ? Color.primary : Color.secondary)
-            .background(
-                Circle()
-                    .fill(Color.primary.opacity(configuration.isPressed ? 0.14 : 0.075))
-            )
-            .contentShape(Circle())
-            .opacity(isEnabled ? 1 : 0.42)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
 struct MacArtistsPane: View {
     @EnvironmentObject private var credentials: SoundCloudCredentialSource
     @ObservedObject private var model: MacArtistsPaneModel
+    @ObservedObject private var findFocus = MacFindFocus.shared
     @State private var searchText = ""
     @State private var selectedArtistID: String? = Self.allArtistsID
-    @FocusState private var filterFieldFocused: Bool
+    @State private var isSearchPresented = false
 
     private static let allArtistsID = "__all_artists__"
 
@@ -1167,7 +1190,9 @@ struct MacArtistsPane: View {
 
     var body: some View {
         Group {
-            if credentials.isSignedOut {
+            if credentials.isSessionRejected {
+                MacAccountRecoveryEmptyState(sectionName: "Artists")
+            } else if credentials.isSignedOut {
                 MacSignedOutEmptyState(
                     icon: "person.crop.circle.badge.questionmark",
                     title: "Artists Need an Account",
@@ -1176,51 +1201,45 @@ struct MacArtistsPane: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.isLoading && model.artists.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                MacLoadingView()
             } else if let error = model.errorMessage, model.artists.isEmpty {
-                SCEmptyState(
-                    kind: .error,
-                    title: "Couldn\u{2019}t Load Artists",
-                    message: error,
-                    actionTitle: "Try Again",
-                    action: {
+                ContentUnavailableView {
+                    Label("Couldn’t Load Artists", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Try Again") {
                         let credentials = credentials
                         Task { await model.load(credentials: credentials, force: true) }
-                    },
-                    style: .mac
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .macFillsPane()
             } else if artistAccounts.isEmpty, !model.isLoading {
-                SCEmptyState(
-                    icon: "music.microphone",
-                    title: "No Artists Yet",
-                    message: "Follow artists on SoundCloud and they\u{2019}ll appear here.",
-                    actionTitle: "Find Artists",
-                    action: { MacRootSelection.shared.request(.search) },
-                    style: .mac
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ContentUnavailableView {
+                    Label("No Artists Yet", systemImage: "music.microphone")
+                } description: {
+                    Text("Follow artists on SoundCloud and they’ll appear here.")
+                } actions: {
+                    Button("Find Artists") { MacRootSelection.shared.request(.search) }
+                }
+                .macFillsPane()
             } else {
                 artistSplitView
             }
         }
         .navigationTitle("Artists")
+        .searchable(
+            text: $searchText,
+            isPresented: $isSearchPresented,
+            placement: .toolbar,
+            prompt: "Filter Artists"
+        )
         .navigationSubtitle(
-            selectedArtistID == Self.allArtistsID
-                ? "You follow \(artistAccounts.count) artists"
+            selectedArtistID == Self.allArtistsID && !artistAccounts.isEmpty
+                ? "\(artistAccounts.count) artist\(artistAccounts.count == 1 ? "" : "s")"
                 : ""
         )
-        .background {
-            Group {
-                Button("") { filterFieldFocused = true }
-                    .keyboardShortcut("f", modifiers: .command)
-                Button("") { filterFieldFocused = true }
-                    .keyboardShortcut("k", modifiers: .command)
-            }
-            .opacity(0)
-            .allowsHitTesting(false)
-        }
+        .onReceive(findFocus.$request.dropFirst()) { _ in isSearchPresented = true }
         .task {
             await model.load(credentials: credentials)
             selectFirstArtistIfNeeded()
@@ -1233,12 +1252,19 @@ struct MacArtistsPane: View {
                 await model.load(credentials: credentials, force: true)
             }
         }
+        .onChange(of: credentials.isAuthenticated) { _, isAuthenticated in
+            guard isAuthenticated else { return }
+            let credentials = credentials
+            Task { await model.load(credentials: credentials, force: true) }
+        }
     }
 
     private var artistSplitView: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             artistSourceList
                 .frame(width: 280)
+
+            Divider()
 
             Group {
                 if selectedArtistID == Self.allArtistsID {
@@ -1246,19 +1272,19 @@ struct MacArtistsPane: View {
                 } else if let selectedArtist {
                     MacArtistDetailView(
                         user: selectedArtist,
-                        showsToolbarSearch: false,
-                        onBack: { selectedArtistID = Self.allArtistsID }
+                        showsToolbarSearch: false
                     )
-                        .id(selectedArtist.id)
+                    .id(selectedArtist.id)
                 } else {
                     ContentUnavailableView(
                         "Choose an Artist",
                         systemImage: "music.microphone",
                         description: Text("Select an artist to see their music and activity.")
                     )
+                    .macFillsPane()
                 }
             }
-            .frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.primary.opacity(0.001))
         }
     }
@@ -1270,166 +1296,50 @@ struct MacArtistsPane: View {
     }
 
     private var artistSourceListContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                TextField("Filter Artists", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .focused($filterFieldFocused)
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 11)
-            .frame(height: 34)
-            .glassEffect(
-                .regular.tint(.orange.opacity(filterFieldFocused ? 0.07 : 0.02)),
-                in: Capsule(style: .continuous)
-            )
-            .overlay {
-                Capsule(style: .continuous)
-                    .strokeBorder(Color.orange.opacity(filterFieldFocused ? 0.45 : 0.08), lineWidth: 0.8)
-            }
-            .padding(.horizontal, SCContentStyle.mac.spaceBase)
-            .padding(.top, SCContentStyle.mac.spaceBase)
-            .padding(.bottom, SCContentStyle.mac.spaceTight)
+        List {
+            MacSidebarLabel("All Artists", systemImage: "music.microphone")
+                .macSelectableRow(Self.allArtistsID, selection: $selectedArtistID)
 
             if filteredArtists.isEmpty {
-                SCEmptyState(
-                    icon: "magnifyingglass",
-                    title: "No Matching Artists",
-                    message: "Try a different name.",
-                    style: .mac
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(SCContentStyle.mac.spaceBase)
+                ContentUnavailableView.search(text: searchText)
+                    .macFillsPane()
+                    .listRowSeparator(.hidden)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 3) {
-                        allArtistsRow
-
-                        ForEach(filteredArtists) { artist in
-                            Button {
-                                selectedArtistID = artist.id
-                            } label: {
-                                ArtistSourceRow(
-                                    artist: artist,
-                                    isSelected: selectedArtistID == artist.id
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contextMenu { MacArtistContextMenu(artist: artist) }
+                ForEach(filteredArtists) { artist in
+                    ArtistSourceRow(artist: artist)
+                        .macSelectableRow(artist.id, selection: $selectedArtistID)
+                        .contextMenu { MacArtistContextMenu(artist: artist) }
                         .onAppear {
-                            guard searchText.isEmpty, filteredArtists.isNearEnd(artist, lead: 12) else { return }
-                            model.loadMore()
+                            guard searchText.isEmpty else { return }
+                            model.pager.loadMoreIfNeeded(after: artist, lead: 14)
                         }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, SCContentStyle.mac.spaceBase)
-                    .padding(.vertical, SCContentStyle.mac.spaceTight)
                 }
-                .background(Color.clear)
             }
 
-            if model.isLoading, !model.artists.isEmpty {
-                HStack(spacing: 7) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading more artists…")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, SCContentStyle.mac.spaceBase)
-                .padding(.vertical, SCContentStyle.mac.spaceTight)
+            if searchText.isEmpty {
+                MacPagedFooter(pager: model.pager, isInLazyContainer: true)
+                    .listRowSeparator(.hidden)
             }
         }
-    }
-
-    private var allArtistsRow: some View {
-        Button {
-            selectedArtistID = Self.allArtistsID
-        } label: {
-            HStack(spacing: SCContentStyle.mac.spaceSnug) {
-                Image(systemName: "music.microphone")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        SCContentStyle.mac.accent.opacity(0.18),
-                        in: Circle()
-                    )
-
-                Text("All Artists")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, 2)
-            .padding(.horizontal, SCContentStyle.mac.spaceSnug)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                selectedArtistID == Self.allArtistsID
-                    ? SCContentStyle.mac.accent.opacity(0.24)
-                    : Color.white.opacity(0),
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .macListKeyboardSelection(
+            ids: [Self.allArtistsID] + filteredArtists.map(\.id),
+            selection: $selectedArtistID
+        )
     }
 
     private var allArtistsGrid: some View {
-        ScrollView {
+        MacViewportScrollView {
             if filteredArtists.isEmpty {
-                SCEmptyState(
-                    icon: "person.2",
-                    title: "No Artists",
-                    message: "Follow artists on SoundCloud and they’ll appear here.",
-                    style: .mac
-                )
-                .padding(.vertical, 40)
+                ContentUnavailableView.search(text: searchText)
+                    .macFillsPane()
             } else {
-                peopleGrid(filteredArtists, onNearEnd: model.loadMore)
+                MacPeopleGrid(people: filteredArtists, pager: model.pager, pagesOnScroll: searchText.isEmpty)
                     .padding(SCContentStyle.mac.spaceGutter)
             }
         }
-    }
-
-    private func peopleGrid(_ people: [User], onNearEnd: @escaping () -> Void) -> some View {
-        let columns = [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 20)]
-        return LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
-            ForEach(people) { person in
-                NavigationLink(value: person) {
-                    SCArtworkResolver(url: person.largeAvatarURL ?? person.avatarURL) { image in
-                        SCArtistCard(
-                            name: person.displayName,
-                            avatarImage: image,
-                            identity: person.displayName,
-                            crownUser: person,
-                            crownContext: person.displayName,
-                            style: .mac
-                        )
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .macHoverLift()
-                .contextMenu { MacArtistContextMenu(artist: person) }
-                .onAppear {
-                    guard searchText.isEmpty, people.isNearEnd(person, lead: 10) else { return }
-                    onNearEnd()
-                }
-            }
-        }
+        .defaultScrollAnchor(.top, for: .alignment)
     }
 
     private var filteredArtists: [User] {
@@ -1448,7 +1358,7 @@ struct MacArtistsPane: View {
     }
 
     private var artistAccounts: [User] {
-        model.artists.filter { $0.trackCount > 0 }
+        model.artists.filter(\.isArtist)
     }
 
     private var selectedArtist: User? {
@@ -1472,198 +1382,78 @@ struct MacArtistsPane: View {
 
 private struct ArtistSourceRow: View {
     let artist: User
-    let isSelected: Bool
-    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: SCContentStyle.mac.spaceSnug) {
             ArtworkThumbnail(
                 url: artist.avatarURL,
-                identity: artist.displayName,
-                size: 36,
-                cornerRadius: 18,
+                identity: artist.id,
+                size: 32,
+                cornerRadius: 16,
                 crownUser: artist,
                 crownContext: artist.displayName
             )
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(artist.displayName)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text("\(artist.formattedFollowers) followers")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.68))
+                    .font(.caption)
+                    .foregroundStyle(MacSecondaryStyle())
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 2)
-        .padding(.horizontal, SCContentStyle.mac.spaceSnug)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            isSelected
-                ? SCContentStyle.mac.accent.opacity(0.24)
-                : Color.white.opacity(isHovered ? 0.055 : 0),
-            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-        )
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .accessibilityElement(children: .combine)
     }
 }
 
 @MainActor
 final class MacArtistsPaneModel: ObservableObject {
-    @Published private(set) var artists: [User] = []
-    @Published private(set) var isLoading = false
+    @Published private(set) var isHydrating = false
     @Published private(set) var errorMessage: String?
 
-    private var page: Page<User>?
+    let pager: Paginator<User>
+
     private var hasLoaded = false
-    private let cache = LibraryCache.shared
+    private var observations = Set<AnyCancellable>()
+
+    init() {
+        pager = Paginator(source: LibraryDB.userSource(.followings), maxUnattendedPages: 1_000)
+        pager.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &observations)
+        LibrarySyncEngine.shared.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &observations)
+        LibrarySyncEngine.shared.$revision
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                guard let self, self.hasLoaded else { return }
+                Task { await self.pager.reload() }
+            }
+            .store(in: &observations)
+    }
+
+    var artists: [User] { pager.items }
+
+    var isLoading: Bool {
+        if isHydrating || pager.isLoadingFirst { return true }
+        return pager.items.isEmpty && LibrarySyncEngine.shared.isAwaitingFirstSync(.followings)
+    }
 
     func load(credentials: SoundCloudCredentialSource, force: Bool = false) async {
         if hasLoaded, !force { return }
         guard !credentials.isSignedOut else { return }
-        isLoading = true
+        isHydrating = true
         errorMessage = nil
-        defer { isLoading = false }
-        let cachedRows = await cache.loadSection("Artists")
-        let decoder = LikesSyncEngine.makeDecoder()
-        let cached = cachedRows.compactMap { try? decoder.decode(User.self, from: $0.payload) }
-        if !cached.isEmpty { artists = cached }
-        guard let user = await credentials.waitForCurrentUser() else { return }
-        do {
-            let first = try await SoundCloudAPI.shared.getUserFollowings(userId: user.id, limit: 100)
-            page = first
-            // The server's first page is fresh, while the cache can contain
-            // older pages discovered by the background metadata walk.
-            artists = (first.collection + artists).deduplicatedByID()
-            hasLoaded = true
-        } catch {
-            errorMessage = error.localizedDescription
+        defer { isHydrating = false }
+        if force {
+            LibrarySyncEngine.shared.requestRefresh([.followings])
+        } else {
+            LibrarySyncEngine.shared.kick()
         }
-    }
-
-    func loadMore() {
-        guard let page, page.nextHref != nil, !isLoading else { return }
-        isLoading = true
-        Task { @MainActor in
-            defer { isLoading = false }
-            do {
-                let next = try await SoundCloudAPI.shared.getNextPage(page)
-                self.page = next
-                let known = Set(artists.map(\.id))
-                artists += next.collection.filter { !known.contains($0.id) }
-            } catch {
-            }
-        }
-    }
-}
-
-@MainActor
-final class MacArtistFollowingModel: ObservableObject {
-    private static let cacheLifetime: TimeInterval = 15 * 60
-    private static var cache: [String: (savedAt: Date, users: [User])] = [:]
-    @Published private(set) var users: [User] = []
-    @Published private(set) var isLoading = false
-    @Published private(set) var errorMessage: String?
-
-    private let userId: String
-    private var page: Page<User>?
-    private var hasLoaded = false
-
-    init(userId: String) {
-        self.userId = userId
-        if let cached = Self.cache[userId], Date().timeIntervalSince(cached.savedAt) < Self.cacheLifetime {
-            users = cached.users
-            hasLoaded = true
-        }
-    }
-
-    func loadIfNeeded(force: Bool = false) async {
-        if hasLoaded, !force { return }
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-        do {
-            let first = try await SoundCloudAPI.shared.getUserFollowings(userId: userId, limit: 100)
-            page = first
-            users = first.collection
-            hasLoaded = true
-            Self.cache[userId] = (Date(), users)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func loadMore() {
-        guard let page, page.nextHref != nil, !isLoading else { return }
-        isLoading = true
-        Task { @MainActor in
-            defer { isLoading = false }
-            do {
-                let next = try await SoundCloudAPI.shared.getNextPage(page)
-                self.page = next
-                users.appendUnique(contentsOf: next.collection)
-                Self.cache[userId] = (Date(), users)
-            } catch {
-            }
-        }
-    }
-}
-
-@MainActor
-final class MacArtistFollowersModel: ObservableObject {
-    private static let cacheLifetime: TimeInterval = 15 * 60
-    private static var cache: [String: (savedAt: Date, users: [User])] = [:]
-    @Published private(set) var users: [User] = []
-    @Published private(set) var isLoading = false
-    @Published private(set) var errorMessage: String?
-
-    private let userId: String
-    private var page: Page<User>?
-    private var hasLoaded = false
-
-    init(userId: String) {
-        self.userId = userId
-        if let cached = Self.cache[userId], Date().timeIntervalSince(cached.savedAt) < Self.cacheLifetime {
-            users = cached.users
-            hasLoaded = true
-        }
-    }
-
-    func loadIfNeeded(force: Bool = false) async {
-        if hasLoaded, !force { return }
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-        do {
-            let first = try await SoundCloudAPI.shared.getUserFollowers(userId: userId, limit: 100)
-            page = first
-            users = first.collection
-            hasLoaded = true
-            Self.cache[userId] = (Date(), users)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func loadMore() {
-        guard let page, page.nextHref != nil, !isLoading else { return }
-        isLoading = true
-        Task { @MainActor in
-            defer { isLoading = false }
-            do {
-                let next = try await SoundCloudAPI.shared.getNextPage(page)
-                self.page = next
-                users.appendUnique(contentsOf: next.collection)
-                Self.cache[userId] = (Date(), users)
-            } catch {
-            }
-        }
+        await pager.reload()
+        hasLoaded = true
     }
 }

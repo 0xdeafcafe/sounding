@@ -1,4 +1,5 @@
 import Foundation
+import XCTest
 @testable import SoundingTV
 
 #if DEBUG
@@ -194,16 +195,21 @@ enum AnalysisLookupSelfTest {
         let (cache, dir) = scratchCache()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let fixture = track(id: "913")
-        let foreign = AnalyzedAudioFingerprint(durationMillis: 200_000, preset: "opus_64k", bitrate: 64, codec: "opus")
-        await seed(cache, track: fixture, generation: MusicUnderstandingProducer().generation,
-                   features: AnalysisFeatures(bpm: 120), fingerprintOverride: foreign)
+        let sameAudio = track(id: "913")
+        let otherEncoding = AnalyzedAudioFingerprint(durationMillis: 200_000, preset: "mp3_1_0", bitrate: 128, codec: "mp3")
+        await seed(cache, track: sameAudio, generation: MusicUnderstandingProducer().generation,
+                   features: AnalysisFeatures(bpm: 120), fingerprintOverride: otherEncoding)
 
-        let summary = await AnalysisLookup.summaries(for: [fixture], cache: cache)[fixture.id]
-        if summary == nil {
-            report.lines.append("analysis measured from a different transcoding reads as unknown, never as borrowed data")
+        let reupload = track(id: "918")
+        let otherCut = AnalyzedAudioFingerprint(durationMillis: 260_000, preset: "aac_256k", bitrate: 256, codec: "aac")
+        await seed(cache, track: reupload, generation: MusicUnderstandingProducer().generation,
+                   features: AnalysisFeatures(bpm: 120), fingerprintOverride: otherCut)
+
+        let found = await AnalysisLookup.summaries(for: [sameAudio, reupload], cache: cache)
+        if found[sameAudio.id]?.bpm == 120, found[reupload.id] == nil {
+            report.lines.append("a measurement from another encoding of the same audio is used, one from a different cut is not")
         } else {
-            report.failures.append("foreign fingerprint borrowed: \(String(describing: summary))")
+            report.failures.append("fingerprint matching: sameAudio=\(String(describing: found[sameAudio.id])), reupload=\(String(describing: found[reupload.id]))")
         }
     }
 
@@ -233,6 +239,109 @@ enum AnalysisLookupSelfTest {
         } else {
             report.failures.append("tempo provenance: both=\(String(describing: merged[both.id]?.bpmProvenance)), tagOnly=\(String(describing: merged[tagOnly.id]?.bpmProvenance))")
         }
+    }
+}
+
+final class AnalysisSummaryTests: XCTestCase {
+    private let fingerprint = AnalyzedAudioFingerprint(durationMillis: 200_000, preset: "aac_256k", bitrate: 256, codec: "aac")
+
+    private func row(
+        _ engine: AnalysisEngineIdentity,
+        schema: Int = 1,
+        fingerprint: AnalyzedAudioFingerprint? = nil,
+        bpm: Double? = nil,
+        key: CamelotKey? = nil,
+        genre: String? = nil,
+        producedAt: Date = Date(timeIntervalSince1970: 1_000)
+    ) -> AnalysisRecallRow {
+        let print = fingerprint ?? self.fingerprint
+        return AnalysisRecallRow(
+            cacheKey: "\(engine.name)#\(schema)#\(print.preset)#\(producedAt.timeIntervalSince1970)",
+            trackId: "t",
+            generation: AnalysisGeneration(engine: engine, schemaVersion: schema),
+            fingerprint: print,
+            bpm: bpm, key: key, genre: genre,
+            byteSize: 10,
+            producedAt: producedAt,
+            lastAccessedAt: producedAt,
+            producerId: nil
+        )
+    }
+
+    func testSelfTestBattery() async {
+        var report = AnalysisLookupSelfTest.Report()
+        await AnalysisLookupSelfTest.run(into: &report)
+        XCTAssertTrue(report.failures.isEmpty, report.failures.joined(separator: "\n"))
+    }
+
+    func testCorrectedBeatsMeasuredBeatsEstimated() {
+        let measured = MusicUnderstandingProducer().generation
+        let estimated = GenreTaxonomyProducer().generation
+        let rows = [
+            row(estimated.engine, schema: estimated.schemaVersion, bpm: 140, genre: "techno"),
+            row(measured.engine, schema: measured.schemaVersion, bpm: 128, key: CamelotKey(wheelPosition: 8, mode: .minor)),
+            row(.userCorrection(), bpm: 126),
+        ]
+        let summary = AnalysisSummaryStore.summarise(rows, expectedDurationMillis: 200_000, preferred: fingerprint)
+        XCTAssertEqual(summary?.bpm, 126)
+        XCTAssertEqual(summary?.bpmAuthority, .corrected)
+        XCTAssertEqual(summary?.key?.label, "8A")
+        XCTAssertEqual(summary?.keyAuthority, .measured)
+        XCTAssertEqual(summary?.genre, "techno")
+        XCTAssertEqual(summary?.genreAuthority, .estimated)
+        XCTAssertEqual(summary?.bpmIsMeasured, true)
+        XCTAssertEqual(summary?.genreIsMeasured, false)
+    }
+
+    func testCorrectionOutranksANewerMeasurement() {
+        let measured = MusicUnderstandingProducer().generation
+        let rows = [
+            row(.userCorrection(), bpm: 87, producedAt: Date(timeIntervalSince1970: 10)),
+            row(measured.engine, schema: measured.schemaVersion, bpm: 174, producedAt: Date(timeIntervalSince1970: 99_999)),
+        ]
+        XCTAssertEqual(AnalysisSummaryStore.summarise(rows, expectedDurationMillis: nil)?.bpm, 87)
+    }
+
+    func testRetiredAndUnknownEnginesAreIgnored() {
+        let rows = [
+            row(AnalysisEngineIdentity(name: "sounding.fftAudioAnalyzer", version: 1), bpm: 120),
+            row(AnalysisEngineIdentity(name: "someone.else", version: 1), bpm: 121),
+        ]
+        XCTAssertNil(AnalysisSummaryStore.summarise(rows, expectedDurationMillis: nil))
+        XCTAssertNil(AnalysisSummaryStore.authority(of: AnalysisEngineIdentity(name: "sounding.fftAudioAnalyzer", version: 1)))
+        XCTAssertFalse(AnalysisSyncEngineScope.default.allows(engineName: "sounding.fftAudioAnalyzer"))
+    }
+
+    func testPreferredEncodingWinsAndOtherCutsAreRejected() {
+        let measured = MusicUnderstandingProducer().generation
+        let otherEncoding = AnalyzedAudioFingerprint(durationMillis: 200_400, preset: "mp3_1_0", bitrate: 128, codec: "mp3")
+        let otherCut = AnalyzedAudioFingerprint(durationMillis: 230_000, preset: "aac_256k", bitrate: 256, codec: "aac")
+        let rows = [
+            row(measured.engine, schema: measured.schemaVersion, fingerprint: otherEncoding, bpm: 125, producedAt: Date(timeIntervalSince1970: 5_000)),
+            row(measured.engine, schema: measured.schemaVersion, bpm: 124),
+            row(measured.engine, schema: measured.schemaVersion, fingerprint: otherCut, bpm: 99, key: CamelotKey(wheelPosition: 1, mode: .major)),
+        ]
+        let summary = AnalysisSummaryStore.summarise(rows, expectedDurationMillis: 200_000, preferred: fingerprint)
+        XCTAssertEqual(summary?.bpm, 124)
+        XCTAssertNil(summary?.key)
+
+        let onlyOtherEncoding = AnalysisSummaryStore.summarise(Array(rows.prefix(1)), expectedDurationMillis: 200_000, preferred: fingerprint)
+        XCTAssertEqual(onlyOtherEncoding?.bpm, 125)
+    }
+
+    func testNewerSchemaWinsWithinTheSameAuthority() {
+        let live = MusicUnderstandingProducer().generation
+        let rows = [
+            row(live.engine, schema: live.schemaVersion - 1, bpm: 122, producedAt: Date(timeIntervalSince1970: 9_000)),
+            row(live.engine, schema: live.schemaVersion, bpm: 123),
+        ]
+        XCTAssertEqual(AnalysisSummaryStore.summarise(rows, expectedDurationMillis: 200_000)?.bpm, 123)
+    }
+
+    func testProvenanceMapping() {
+        XCTAssertEqual(TrackAnalysisSummary.provenance(.corrected), .stated)
+        XCTAssertEqual(TrackAnalysisSummary.provenance(.measured), .measured)
+        XCTAssertEqual(TrackAnalysisSummary.provenance(.estimated), .inferred)
     }
 }
 #endif

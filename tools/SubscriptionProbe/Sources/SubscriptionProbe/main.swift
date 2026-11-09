@@ -127,7 +127,7 @@ case "resolve":
     runResolve(path: arguments[1])
 case "help", "--help", "-h":
     emit("""
-    SubscriptionProbe — exercise SoundingCloud's subscription tier logic.
+    SubscriptionProbe — exercise Sounding's subscription tier logic.
 
       selftest            Run SubscriptionSelfTest (default).
       resolve <file|->    Resolve a captured /me JSON body to a tier.

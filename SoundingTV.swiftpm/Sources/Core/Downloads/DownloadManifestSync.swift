@@ -49,29 +49,6 @@ protocol DownloadManifestExportSource: Sendable {
     func currentManifest(limit: Int) async -> [DownloadManifestSyncRecord]
 }
 
-@MainActor
-struct LocalDownloadManifestSource: DownloadManifestExportSource {
-    let deviceId: String
-    let deviceLabel: String
-
-    func currentManifest(limit: Int) async -> [DownloadManifestSyncRecord] {
-        let entries = DownloadManager.shared.entries
-        let sorted = entries.values.sorted { $0.addedAt > $1.addedAt }
-        return sorted.prefix(max(0, limit)).map { entry in
-            let addedAtMillis = Int64(entry.addedAt.timeIntervalSince1970 * 1000)
-            return DownloadManifestSyncRecord(
-                trackId: entry.track.id,
-                deviceId: deviceId,
-                deviceLabel: deviceLabel,
-                isPinned: entry.isEffectivelyPinned,
-                addedAtMillis: addedAtMillis,
-                updatedAtMillis: addedAtMillis,
-                isDeleted: false
-            )
-        }
-    }
-}
-
 protocol DownloadManifestImportStore: Sendable {
     @discardableResult
     func adopt(_ records: [DownloadManifestSyncRecord]) async -> Int
@@ -84,9 +61,7 @@ actor RemoteDownloadManifestStore: DownloadManifestImportStore {
     private let fileURL: URL
 
     static func defaultFileURL() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return base.appendingPathComponent("RemoteDownloadManifest.json")
+        AppDataDirectory.file("RemoteDownloadManifest.json")
     }
 
     init(fileURL: URL) {

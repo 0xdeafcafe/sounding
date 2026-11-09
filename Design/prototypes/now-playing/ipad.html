@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sounding · Now Playing · iPad</title>
+<link rel="stylesheet" href="shared/np.css">
+<link rel="stylesheet" href="ipad.css">
+</head>
+<body>
+<div class="stage">
+  <div class="device-wrap">
+    <div class="device tablet" id="device">
+      <div class="tab-body">
+        <div class="screen np-root" id="screen" data-state="np">
+          <div class="shell" id="shell">
+            <aside class="side">
+              <div class="side-top"><span data-ic="sidebar"></span></div>
+              <div class="side-search"><span data-ic="search"></span>Search</div>
+              <nav class="side-nav">
+                <a class="on"><span data-ic="home"></span>Home</a>
+                <div class="side-h">Library</div>
+                <a><span data-ic="playlist"></span>Playlists</a>
+                <a><span data-ic="person"></span>Artists</a>
+                <a><span data-ic="heart"></span>Likes</a>
+                <a><span data-ic="download"></span>Downloaded</a>
+                <a><span data-ic="setlist"></span>Setlists</a>
+                <div class="side-h">Playlists</div>
+                <a><span data-ic="playlist"></span>Late Night Mixes</a>
+                <a><span data-ic="playlist"></span>Sunday Slow</a>
+                <a><span data-ic="playlist"></span>Long Runs</a>
+              </nav>
+            </aside>
+            <main class="home">
+              <h1>Home</h1>
+              <h2>Recently Played</h2>
+              <div class="shelf" id="shelf1"></div>
+              <h2>From Late Night Mixes</h2>
+              <div class="shelf" id="shelf2"></div>
+            </main>
+            <div class="mini glass" id="mini">
+              <img class="mini-art" id="miniArt" alt="">
+              <div class="mini-text"><div class="mini-title" id="miniTitle"></div><div class="mini-sub" id="miniSub"></div></div>
+              <button class="mini-btn" id="miniPlay" aria-label="Play"></button>
+              <button class="mini-btn" id="miniNext" aria-label="Next"></button>
+            </div>
+            <div class="shell-dim"></div>
+          </div>
+
+          <section class="np" id="np" aria-label="Now Playing">
+            <div class="np-bg" id="npBg"></div>
+            <button class="np-grab" id="grab" aria-label="Close Now Playing"><i></i></button>
+            <div class="col">
+              <div class="art-wrap" id="artPause">
+                <div id="artBreathe"><div class="art" id="art"></div></div>
+                <div class="art-route glass" id="artRoute"></div>
+              </div>
+              <div class="title-row">
+                <div class="titles" id="titles">
+                  <div class="t-title" id="tTitle"></div>
+                  <div class="t-artist" id="tArtist"></div>
+                </div>
+                <div class="acts">
+                  <button class="circ glass" id="likeBtn" aria-label="Like"></button>
+                  <button class="circ glass" id="moreBtn" aria-label="More"><span data-ic="more"></span></button>
+                </div>
+              </div>
+              <button class="t-seg" id="tSeg"><span data-ic="setlist"></span><span id="tSegL"></span></button>
+              <div class="dock">
+                <div id="wave"></div>
+                <div class="times"><span id="tEl"></span><span id="tRem"></span></div>
+              </div>
+              <div class="tp-row" id="transport"></div>
+              <div class="vol" id="volume"></div>
+              <div class="bottom">
+                <button class="route-pill glass" id="routeBtn"><span id="routeIc"></span><span id="routeL"></span></button>
+              </div>
+            </div>
+            <div class="side-panel glass" id="panes"></div>
+          </section>
+          <div class="status"><span>9:41&nbsp;&nbsp;Fri 6 Nov</span><span class="st-r"></span></div>
+          <div class="home-ind"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="shared/data.js"></script>
+<script src="shared/core.js"></script>
+<script src="shared/components.js"></script>
+<script src="ipad.js"></script>
+</body>
+</html>

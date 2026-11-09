@@ -1,0 +1,18 @@
+    RECORD TYPE AccountSignIn (
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        accountTag      STRING,
+        announcer       STRING,
+        collapse        STRING,
+        createdAt       TIMESTAMP,
+        deviceKind      STRING,
+        deviceName      STRING,
+        subject         STRING,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );

@@ -6,16 +6,5 @@
 	<array>
 		<string>group.red.forbes.sounding</string>
 	</array>
-	<key>keychain-access-groups</key>
-	<array>
-		<!-- Only the group shared with the SoundingTV iOS app — see
-		     PairedTVStore's `sharedAccessGroup` comment. Deliberately does not
-		     also list the app's own implicit default group
-		     ($(AppIdentifierPrefix)red.forbes.sounding): the widget has no
-		     business reading the app's other keychain items
-		     (PhoneSessionStore's SoundCloud session), only the paired-TV
-		     pairing this group exists for. -->
-		<string>$(AppIdentifierPrefix)red.forbes.sounding.shared</string>
-	</array>
 </dict>
 </plist>

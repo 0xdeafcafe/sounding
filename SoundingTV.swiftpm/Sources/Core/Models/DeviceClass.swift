@@ -4,6 +4,10 @@ import Foundation
 import UIKit
 #endif
 
+#if os(macOS)
+import IOKit.ps
+#endif
+
 enum DeviceClass: String, Codable, Sendable, Hashable, CaseIterable {
     case tv
     case phone
@@ -30,20 +34,31 @@ enum DeviceClass: String, Codable, Sendable, Hashable, CaseIterable {
         case .watch: return "applewatch"
         }
     }
+}
 
-    var canPresentSignIn: Bool {
-        switch self {
-        case .phone, .pad: return true
-        case .tv, .mac, .watch: return false
-        }
-    }
+// MARK: - Mac power
 
-    var hasBattery: Bool {
-        switch self {
-        case .phone, .pad, .watch: return true
-        case .tv: return false
-        case .mac: return true
+struct MacPowerSource: Equatable, Sendable {
+    let fraction: Double?
+    let isPluggedIn: Bool
+
+    static func current() -> MacPowerSource? {
+        #if os(macOS)
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
+        for source in sources {
+            guard let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
+                  description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType else { continue }
+            let capacity = description[kIOPSCurrentCapacityKey] as? Int
+            let maximum = description[kIOPSMaxCapacityKey] as? Int
+            let fraction = capacity.flatMap { current in maximum.flatMap { $0 > 0 ? Double(current) / Double($0) : nil } }
+            let state = description[kIOPSPowerSourceStateKey] as? String
+            return MacPowerSource(fraction: fraction, isPluggedIn: state == kIOPSACPowerValue)
         }
+        return nil
+        #else
+        return nil
+        #endif
     }
 }
 
@@ -95,12 +110,6 @@ struct DeviceConditions: Codable, Sendable, Equatable {
         isOnWiFi: true,
         isLowPowerMode: false
     )
-
-    var isBatteryConstrained: Bool {
-        guard !isPluggedIn else { return false }
-        guard let batteryFraction else { return false }
-        return batteryFraction < 0.3
-    }
 }
 
 // MARK: - Workshop capability
@@ -124,46 +133,5 @@ extension DeviceClass {
         default:
             return true
         }
-    }
-
-    fileprivate var baseAffinity: Int {
-        switch self {
-        case .tv: return 120
-        case .mac: return 70
-        case .pad: return 50
-        case .phone: return 40
-        case .watch: return 0
-        }
-    }
-}
-
-enum WorkshopCapability {
-    static func score(
-        deviceClass: DeviceClass,
-        conditions: DeviceConditions,
-        job: WorkshopJob
-    ) -> Int? {
-        guard deviceClass.supports(job) else { return nil }
-
-        var score = deviceClass.baseAffinity
-
-        if job == .deepAnalysis, deviceClass == .mac {
-            score += 40
-        }
-
-        if conditions.isPluggedIn, deviceClass.hasBattery {
-            score += 40
-        }
-        if conditions.isBatteryConstrained {
-            score -= 60
-        }
-        if conditions.isLowPowerMode {
-            score -= 25
-        }
-        if !conditions.isOnWiFi, job == .download || job == .artworkPrewarm {
-            score -= 50
-        }
-
-        return max(score, 0)
     }
 }

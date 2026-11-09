@@ -1,45 +1,31 @@
 import Foundation
 
-enum PlaybackOutput: Equatable, Hashable, Sendable {
-    case thisDevice
-    case companion(DeviceClass)
+struct OutputDevice: Identifiable, Hashable, Sendable {
+    static let localID = "this-device"
 
-    var isCompanion: Bool {
-        switch self {
-        case .thisDevice: return false
-        case .companion: return true
-        }
+    let id: String
+    let name: String
+    let deviceClass: DeviceClass
+
+    var isLocal: Bool { id == Self.localID }
+
+    var symbolName: String { deviceClass.symbolName }
+
+    var deviceClassIfRemote: DeviceClass? { isLocal ? nil : deviceClass }
+
+    var linkSessionId: String? {
+        id.hasPrefix(Self.linkedPrefix) ? String(id.dropFirst(Self.linkedPrefix.count)) : nil
     }
 
-    var companionClass: DeviceClass? {
-        switch self {
-        case .thisDevice: return nil
-        case .companion(let deviceClass): return deviceClass
-        }
+    private static let linkedPrefix = "linked."
+
+    static var thisDevice: OutputDevice {
+        OutputDevice(id: localID, name: "This \(DeviceClass.current.displayName)", deviceClass: .current)
     }
 
-    var displayName: String {
-        switch self {
-        case .thisDevice: return "This \(DeviceClass.current.displayName)"
-        case .companion(let deviceClass): return deviceClass.displayName
-        }
+    static func linked(sessionId: String, name: String, deviceClass: DeviceClass) -> OutputDevice {
+        OutputDevice(id: linkedPrefix + sessionId, name: name, deviceClass: deviceClass)
     }
 
-    var symbolName: String {
-        switch self {
-        case .thisDevice: return DeviceClass.current.symbolName
-        case .companion(let deviceClass): return deviceClass.symbolName
-        }
-    }
-
-    static let deviceClassesWithCompanionServerToday: [DeviceClass] = [.tv]
-}
-
-@MainActor
-protocol CompanionOutputTarget: AnyObject {
-    var isReachable: Bool { get }
-
-    func sendPlayback(track: Track, queue: [Track], index: Int, position: TimeInterval, isPlaying: Bool)
-
-    func pausePlayback()
+    static let deviceClassesThatAcceptOutput: [DeviceClass] = [.tv]
 }

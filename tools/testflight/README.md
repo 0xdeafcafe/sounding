@@ -109,6 +109,13 @@ That creates signed archives, exports each platform package, and runs
 
 Builds appear in App Store Connect 5–30 minutes after upload.
 
+Every archive is built with `SOUNDING_EXPORT_METHOD=app-store-connect`, which the
+macOS target's Personal Build Guard rejects if `SOUNDING_PERSONAL` is set. The
+archive and the exported package are then scanned by
+`tools/personal/check-no-personal-marker.sh`; any personal-build marker aborts the
+upload. The personal Mac build is `tools/personal/build-personal.sh` and never goes
+through this script.
+
 ## 5. One-time: TestFlight setup
 
 In App Store Connect → your app → **TestFlight**:

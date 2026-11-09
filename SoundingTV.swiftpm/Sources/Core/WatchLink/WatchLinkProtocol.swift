@@ -8,7 +8,10 @@ enum WatchLinkKey {
     static let downloads = "downloads"
     static let authState = "authState"
     static let settings = "settings"
-    static let polyphony = "polyphony"
+    static let queue = "queue"
+    static let continueOffer = "continueOffer"
+    static let offlineManifest = "offlineManifest"
+    static let offlineInventory = "offlineInventory"
 }
 
 enum WatchLinkKind: String, Codable, Sendable {
@@ -22,7 +25,13 @@ enum WatchLinkKind: String, Codable, Sendable {
     case queue
     case dj
     case output
-    case polyphony
+    case jump
+    case volume
+    case continueFrom
+    case continueDismiss
+    case offlineFile
+    case offlineRemove
+    case playReport
 }
 
 enum WatchTransportAction: String, Codable, Sendable {
@@ -39,43 +48,13 @@ enum WatchDJAction: String, Codable, Sendable {
     case autoEnable
     case autoDisable
     case mixNow
+    case extend
+    case heartRate
 }
 
 enum WatchQueueAction: String, Codable, Sendable {
     case addToEnd
     case playNext
-}
-
-enum WatchPolyphonyAction: String, Codable, Sendable {
-    case lead
-    case leave
-}
-
-enum WatchPolyphonyMode: String, Codable, Equatable, Sendable {
-    case idle
-    case startingLeader
-    case leading
-    case connecting
-    case speaker
-    case failed
-}
-
-struct WatchPolyphonyState: Codable, Equatable, Sendable {
-    var mode: WatchPolyphonyMode
-    var leaderName: String?
-    var joinCode: String?
-    var speakerCount: Int
-    var message: String?
-    var updatedAtMillis: Int64
-
-    static let idle = WatchPolyphonyState(
-        mode: .idle,
-        leaderName: nil,
-        joinCode: nil,
-        speakerCount: 0,
-        message: nil,
-        updatedAtMillis: 0
-    )
 }
 
 struct WatchCommand: Codable, Sendable {
@@ -84,11 +63,16 @@ struct WatchCommand: Codable, Sendable {
     var dj: WatchDJAction?
     var queue: WatchQueueAction?
     var output: DeviceClass?
-    var polyphony: WatchPolyphonyAction?
     var seekSeconds: TimeInterval?
     var trackId: String?
     var collectionId: String?
     var shuffled: Bool?
+    var heartRate: Double?
+    var queueIndex: Int?
+    var artistId: String?
+    var outputId: String?
+    var volume: Double?
+    var continueId: String?
 
     init(
         kind: WatchLinkKind,
@@ -96,23 +80,43 @@ struct WatchCommand: Codable, Sendable {
         dj: WatchDJAction? = nil,
         queue: WatchQueueAction? = nil,
         output: DeviceClass? = nil,
-        polyphony: WatchPolyphonyAction? = nil,
         seekSeconds: TimeInterval? = nil,
         trackId: String? = nil,
         collectionId: String? = nil,
-        shuffled: Bool? = nil
+        shuffled: Bool? = nil,
+        heartRate: Double? = nil,
+        queueIndex: Int? = nil,
+        artistId: String? = nil,
+        outputId: String? = nil,
+        volume: Double? = nil,
+        continueId: String? = nil
     ) {
         self.kind = kind
         self.transport = transport
         self.dj = dj
         self.queue = queue
         self.output = output
-        self.polyphony = polyphony
         self.seekSeconds = seekSeconds
         self.trackId = trackId
         self.collectionId = collectionId
         self.shuffled = shuffled
+        self.heartRate = heartRate
+        self.queueIndex = queueIndex
+        self.artistId = artistId
+        self.outputId = outputId
+        self.volume = volume
+        self.continueId = continueId
     }
+}
+
+struct WatchOutputOption: Codable, Equatable, Hashable, Sendable, Identifiable {
+    static let thisPhoneID = "this-device"
+    static let thisWatchID = "this-watch"
+
+    var id: String
+    var name: String
+    var deviceClass: DeviceClass
+    var isAvailable: Bool = true
 }
 
 struct WatchNowPlaying: Codable, Equatable, Sendable {
@@ -126,6 +130,10 @@ struct WatchNowPlaying: Codable, Equatable, Sendable {
     var output: DeviceClass
     var queueCount: Int
     var updatedAtMillis: Int64
+    var outputId: String? = nil
+    var outputName: String? = nil
+    var outputs: [WatchOutputOption]? = nil
+    var volume: Double? = nil
 
     static let idle = WatchNowPlaying(
         trackId: nil,
@@ -142,11 +150,74 @@ struct WatchNowPlaying: Codable, Equatable, Sendable {
 
     var hasTrack: Bool { trackId != nil }
 
+    var isRemoteOutput: Bool {
+        if let outputId { return outputId != WatchOutputOption.thisPhoneID }
+        return output != .phone
+    }
+
+    var displayOutputName: String { outputName ?? output.displayName }
+
+    var outputOptions: [WatchOutputOption] {
+        if let outputs, !outputs.isEmpty { return outputs }
+        return [
+            WatchOutputOption(id: WatchOutputOption.thisPhoneID, name: DeviceClass.phone.displayName, deviceClass: .phone),
+            WatchOutputOption(id: "class.tv", name: DeviceClass.tv.displayName, deviceClass: .tv),
+        ]
+    }
+
+    func isSelected(_ option: WatchOutputOption) -> Bool {
+        if let outputId { return option.id == outputId }
+        return option.deviceClass == output
+    }
+
+    var clampedVolume: Double? {
+        guard let volume, volume.isFinite else { return nil }
+        return min(1, max(0, volume))
+    }
+
     func projectedPosition(at date: Date, since received: Date) -> TimeInterval {
         guard isPlaying, durationSeconds > 0 else { return positionSeconds }
         let elapsed = max(0, date.timeIntervalSince(received))
         return min(durationSeconds, positionSeconds + elapsed)
     }
+}
+
+struct WatchContinueOffer: Codable, Equatable, Sendable, Identifiable {
+    var id: String
+    var deviceName: String
+    var deviceClass: DeviceClass
+    var title: String
+    var artist: String
+    var artworkURL: URL?
+    var positionSeconds: TimeInterval
+    var durationSeconds: TimeInterval
+    var isPlaying: Bool
+    var updatedAtMillis: Int64
+
+    var progress: Double? {
+        guard durationSeconds > 0 else { return nil }
+        return min(1, max(0, positionSeconds / durationSeconds))
+    }
+}
+
+struct WatchQueueItem: Codable, Equatable, Sendable, Identifiable {
+    var index: Int
+    var trackId: String
+    var title: String
+    var artist: String
+    var artworkURL: URL?
+
+    var id: Int { index }
+}
+
+struct WatchQueueSnapshot: Codable, Equatable, Sendable {
+    static let limit = 20
+
+    var items: [WatchQueueItem]
+    var updatedAtMillis: Int64
+    var sourceTitle: String? = nil
+
+    static let empty = WatchQueueSnapshot(items: [], updatedAtMillis: 0)
 }
 
 struct WatchDJState: Codable, Equatable, Sendable {
@@ -158,6 +229,7 @@ struct WatchDJState: Codable, Equatable, Sendable {
     var mixInSeconds: TimeInterval?
     var reasoning: String?
     var updatedAtMillis: Int64
+    var live: Data? = nil
 
     static let off = WatchDJState(
         isEngineLive: false,
@@ -225,6 +297,7 @@ struct WatchSessionOffer: Codable, Sendable {
     var refreshToken: String?
     var clientId: String?
     var expiresAt: Date?
+    var replacesLineage: String?
 }
 
 enum WatchLinkCodec {
@@ -259,4 +332,15 @@ enum WatchLinkCodec {
     }
 
     static func nowMillis() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+}
+
+enum WatchVolumeThrottle {
+    static let interval: TimeInterval = 0.15
+    static let holdLimit: TimeInterval = 2
+
+    static func settles(pending: Double, reported: Double?, since setAt: Date, now: Date = Date()) -> Bool {
+        if now.timeIntervalSince(setAt) >= holdLimit { return true }
+        guard let reported else { return false }
+        return abs(reported - pending) < 0.02
+    }
 }

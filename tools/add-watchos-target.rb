@@ -34,7 +34,7 @@
 #
 #   * `import AudioToolbox`   -> no such module   (kills MixEngine)
 #   * `import WebKit`         -> no such module   (kills the OAuth web view)
-#   * `import ActivityKit`    -> no such module   (kills Live Activities)
+#   * iOS-only UI frameworks -> no such module   (breaks the watch target)
 #   * `UIApplication`         -> unavailable      (kills PlayerService's
 #                                                  lifecycle observer)
 #
@@ -67,9 +67,6 @@ SHARED_EXCLUDE = {
   # --- SDK modules that do not exist on watchOS ---------------------------
   'Core/DJ/MixEngine.swift' => 'imports AudioToolbox, absent from the watchOS SDK; and DJ audio stays on the phone',
   'Auth/Shared/PhoneCredentialSource.swift' => 'AuthWebSession needs WebKit, absent from the watchOS SDK; the watch uses WatchCredentialSource',
-  'Shared/LiveActivity/NowPlayingActivityAttributes.swift' => 'ActivityKit is absent from the watchOS SDK',
-  'Shared/LiveActivity/NowPlayingLiveActivity.swift' => 'ActivityKit is absent from the watchOS SDK',
-
   # --- symbols marked unavailable on watchOS ------------------------------
   'Core/Playback/PlayerService.swift' => 'UIApplication lifecycle notifications are unavailable on watchOS; the watch is a remote, not a player',
   'Core/Playback/PlaybackStateStore.swift' => 'persists a local playback queue the watch never has; the phone owns the queue',

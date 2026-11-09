@@ -1,4 +1,4 @@
-# SoundingCloud — Visual Audit
+# Sounding — Visual Audit
 
 **Date:** 2026-08-03 · **Auditor:** subagent, read-only · **Verdict on the owner's verdict:** substantiated.
 

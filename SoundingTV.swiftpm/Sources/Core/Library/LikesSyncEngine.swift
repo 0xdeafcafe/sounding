@@ -1,8 +1,5 @@
 import Foundation
-
-extension Notification.Name {
-    static let likesIndexDidChange = Notification.Name("likesIndexDidChange")
-}
+import Combine
 
 @MainActor
 final class LikesSyncEngine: ObservableObject {
@@ -10,28 +7,36 @@ final class LikesSyncEngine: ObservableObject {
 
     @Published private(set) var indexedCount = 0
     @Published private(set) var isSyncing = false
+    /// Monotonic state revision for subscribers that care about content
+    /// changes even when the total item count is unchanged.
+    @Published private(set) var revision = 0
 
     private let cache = LibraryCache.shared
     private let api = SoundCloudAPI.shared
+    private let scheduler = WorkScheduler.shared
 
     private var activated = false
     private var runner: Task<Void, Never>?
-    private var ticker: Task<Void, Never>?
-    private var observers: [NSObjectProtocol] = []
+    private var cancellables = Set<AnyCancellable>()
 
     private static let pageLimit = 100
     private static let interPageDelay: Duration = .milliseconds(500)
     private static let activationDelay: Duration = .seconds(4)
-    private static let tickInterval: Duration = .seconds(15 * 60)
-    private static let topUpInterval: TimeInterval = 15 * 60
-    private static let fullWalkInterval: TimeInterval = 24 * 60 * 60
-    private static let retryDelays: [Duration] = [.seconds(2), .seconds(8), .seconds(32)]
+    private static let tickInterval: Duration = .seconds(60 * 60)
+    private static let topUpInterval: TimeInterval = 60 * 60
+    private static let topUpPageLimit = 10
+    private static let walkPagesPerSegment = 5
+    private static let walkSegmentInterval: TimeInterval = 15 * 60
+    private static let fullWalkInterval: TimeInterval = 7 * 24 * 60 * 60
+    private static let retryBackoff = SoundCloudBackoff(base: 2, cap: 60)
+    private static let maximumRetries = 3
 
     private enum StateKey {
         static let nextHref = "likes.nextHref"
         static let generation = "likes.generation"
         static let completedAt = "likes.completedAt"
         static let toppedUpAt = "likes.toppedUpAt"
+        static let segmentAt = "likes.walkSegmentAt"
     }
 
     static var isEnabled: Bool {
@@ -42,44 +47,29 @@ final class LikesSyncEngine: ObservableObject {
     }
 
     func activate() {
-        LibraryMetadataSyncEngine.shared.activate()
         guard Self.isEnabled, !activated else { return }
         activated = true
-
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .trackLikeChanged, object: nil, queue: .main
-        ) { [weak self] note in
-            let track = note.userInfo?[SoundCloudAPI.likeNotificationTrackKey] as? Track
-            let liked = note.userInfo?[SoundCloudAPI.likeNotificationLikedKey] as? Bool
-            Task { @MainActor in await self?.applyLikeChange(track: track, liked: liked) }
-        })
-
-        ticker = Task { [weak self] in
-            try? await Task.sleep(for: Self.activationDelay)
-            while !Task.isCancelled {
-                await MainActor.run { self?.kick() }
-                try? await Task.sleep(for: Self.tickInterval)
-            }
-        }
-
+        LibrarySyncEngine.shared.activate()
         Task { indexedCount = await cache.likesCount() }
     }
 
     func handleDidBecomeActive() {
-        kick()
+        LibrarySyncEngine.shared.handleDidBecomeActive()
     }
 
     func handleSignOut() {
         LibraryMetadataSyncEngine.shared.handleSignOut()
+        Task { await LibrarySyncEngine.shared.handleSignOut() }
         runner?.cancel()
         runner = nil
         isSyncing = false
         indexedCount = 0
+        revision &+= 1
     }
 
-    func indexedLikes(limit: Int? = nil) async -> (tracks: [Track], likedAt: [String: Date]) {
+    func indexedLikes(offset: Int = 0, limit: Int? = nil) async -> (tracks: [Track], likedAt: [String: Date]) {
         guard Self.isEnabled else { return ([], [:]) }
-        let rows = await cache.loadAllLikes(limit: limit)
+        let rows = await cache.loadAllLikes(offset: offset, limit: limit)
         guard !rows.isEmpty else { return ([], [:]) }
         return await Task.detached(priority: .userInitiated) {
             let decoder = LikesSyncEngine.makeDecoder()
@@ -106,12 +96,11 @@ final class LikesSyncEngine: ObservableObject {
     }
 
     func indexCompletedAt() async -> Date? {
-        await cache.syncValue(forKey: StateKey.completedAt).flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
+        await LibrarySQLiteStore.shared.cursor(.likes).completedAt
     }
 
     func didAdoptPeerLikes() async {
-        indexedCount = await cache.likesCount()
-        NotificationCenter.default.post(name: .likesIndexDidChange, object: nil)
+        await publishIndexChange()
     }
 
     func integrate(firstPage likes: [Like<Track>]) async {
@@ -122,21 +111,40 @@ final class LikesSyncEngine: ObservableObject {
         let boundary = likes.map(Self.millis(of:)).min() ?? 0
         let pageIDs = Set(likes.map(\.item.id))
         let newer = await cache.likeIDs(newerThanMillis: boundary)
-        let stale = newer.filter { !pageIDs.contains($0) }
+        let pending = await LibrarySyncEngine.shared.pendingMutations(.likes)
+        let stale = newer.filter { !pageIDs.contains($0) && pending[LibraryRecord.key(.track, $0)] != true }
         if !stale.isEmpty {
             await cache.removeLikes(ids: stale)
             Log.library.info("Reconciled \(stale.count, privacy: .public) unliked track(s) out of the index")
         }
+        await LibrarySyncEngine.shared.reassertPending(.likes)
 
+        await publishIndexChange()
+    }
+
+    func integrate(laterPage likes: [Like<Track>]) async {
+        guard Self.isEnabled, !likes.isEmpty else { return }
+        await ingest(likes, generation: await currentGeneration())
+        await LibrarySyncEngine.shared.reassertPending(.likes)
         indexedCount = await cache.likesCount()
-        NotificationCenter.default.post(name: .likesIndexDidChange, object: nil)
     }
 
     private func kick() {
-        guard activated, Self.isEnabled, api.hasCredentials, runner == nil else { return }
+        LibrarySyncEngine.shared.kick()
+    }
+
+    private func legacyKick() {
+        guard activated,
+              Self.isEnabled,
+              api.hasCredentials,
+              SoundCloudGateway.shared.isApplicationForeground,
+              runner == nil else { return }
         runner = Task { [weak self] in
-            await self?.sync()
-            self?.runner = nil
+            guard let self else { return }
+            await SoundCloudRequestEnvironment.autonomous(lane: .metadata) {
+                await self.sync()
+            }
+            self.runner = nil
         }
     }
 
@@ -151,6 +159,9 @@ final class LikesSyncEngine: ObservableObject {
             .flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
 
         if let resumeHref, let resumeURL = URL(string: resumeHref) {
+            let segmentAt = await cache.syncValue(forKey: StateKey.segmentAt)
+                .flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
+            guard now.timeIntervalSince(segmentAt ?? .distantPast) >= Self.walkSegmentInterval else { return }
             await walk(resumingFrom: resumeURL)
         } else if completedAt == nil || now.timeIntervalSince(completedAt!) > Self.fullWalkInterval {
             await walk(resumingFrom: nil)
@@ -193,22 +204,47 @@ final class LikesSyncEngine: ObservableObject {
             if let nextHref = page.nextHref {
                 next = nextHref
                 await cache.setSyncValue(nextHref.absoluteString, forKey: StateKey.nextHref)
+                if pages >= Self.walkPagesPerSegment {
+                    await cache.setSyncValue(String(Date().timeIntervalSince1970), forKey: StateKey.segmentAt)
+                    await publishIndexChange()
+                    Log.library.info("Likes walk paused after \(pages, privacy: .public) page(s); resumes in the next segment")
+                    return
+                }
                 try? await Task.sleep(for: Self.interPageDelay)
             } else {
                 let pruned = await cache.pruneLikes(olderThanGeneration: generation)
                 await cache.setSyncValue(nil, forKey: StateKey.nextHref)
                 await cache.setSyncValue(String(Date().timeIntervalSince1970), forKey: StateKey.completedAt)
-                indexedCount = await cache.likesCount()
+                await publishIndexChange()
                 Log.library.info("Likes walk complete: \(self.indexedCount, privacy: .public) indexed, \(pruned, privacy: .public) pruned, \(pages, privacy: .public) page(s) this run")
-                NotificationCenter.default.post(name: .likesIndexDidChange, object: nil)
                 return
             }
         }
     }
 
     private func topUp() async {
-        guard let page = try? await fetchPageWithRetry(from: nil) else { return }
-        await integrate(firstPage: page.collection)
+        var window: [Like<Track>] = []
+        var next: URL?
+        var reachedKnownLike = false
+        for pageIndex in 0..<Self.topUpPageLimit {
+            guard !Task.isCancelled, api.hasCredentials,
+                  let page = try? await fetchPageWithRetry(from: pageIndex == 0 ? nil : next) else { break }
+            window.append(contentsOf: page.collection)
+            for like in page.collection {
+                if await cache.containsLike(id: like.item.id) {
+                    reachedKnownLike = true
+                    break
+                }
+            }
+            next = page.nextHref
+            if reachedKnownLike || next == nil { break }
+            try? await Task.sleep(for: Self.interPageDelay)
+        }
+        guard !window.isEmpty else { return }
+        await integrate(firstPage: window)
+        if !reachedKnownLike, let next {
+            await cache.setSyncValue(next.absoluteString, forKey: StateKey.nextHref)
+        }
         await cache.setSyncValue(String(Date().timeIntervalSince1970), forKey: StateKey.toppedUpAt)
     }
 
@@ -225,8 +261,9 @@ final class LikesSyncEngine: ObservableObject {
                 if case APIError.unauthorized = error { throw error }
                 if case APIError.temporarilyBlocked = error { throw error }
                 if case APIError.rateLimited = error { throw error }
-                guard attempt < Self.retryDelays.count, !Task.isCancelled else { throw error }
-                try await Task.sleep(for: Self.retryDelays[attempt])
+                if error is SoundCloudGatewayError { throw error }
+                guard attempt < Self.maximumRetries, !Task.isCancelled else { throw error }
+                try await Task.sleep(for: Self.retryBackoff.duration(attempt: attempt))
                 attempt += 1
             }
         }
@@ -263,8 +300,12 @@ final class LikesSyncEngine: ObservableObject {
         } else {
             await cache.removeLikes(ids: [track.id])
         }
+        await publishIndexChange()
+    }
+
+    private func publishIndexChange() async {
         indexedCount = await cache.likesCount()
-        NotificationCenter.default.post(name: .likesIndexDidChange, object: nil)
+        revision &+= 1
     }
 
     private func currentGeneration() async -> Int64 {
@@ -307,31 +348,34 @@ final class LibraryMetadataSyncEngine: ObservableObject {
 
     private let api = SoundCloudAPI.shared
     private let cache = LibraryCache.shared
+    private let scheduler = WorkScheduler.shared
     private var activated = false
     private var runner: Task<Void, Never>?
-    private var ticker: Task<Void, Never>?
 
     private static let activationDelay: Duration = .seconds(8)
     private static let interPageDelay: Duration = .milliseconds(450)
-    private static let interCollectionDelay: Duration = .milliseconds(800)
-    // Metadata hydration must remain a polite background task. In particular,
-    // do not turn opening the app into an unbounded playlist-detail crawl.
-    private static let maximumPlaylistManifestsPerRun = 48
-    private static let tickInterval: Duration = .seconds(6 * 60 * 60)
+    private static let libraryPageLimit = 3
+    private static let collectionPageLimit = 10
+    private static let tickInterval: Duration = .seconds(24 * 60 * 60)
+    private static let minimumRunInterval: TimeInterval = 24 * 60 * 60
     private static let completedKey = "libraryMetadata.completedAt"
-    private static let playlistManifestOffsetKey = "libraryMetadata.playlistManifestOffset"
+    private static let attemptedKey = "libraryMetadata.attemptedAt"
 
     private init() {}
 
     func activate() {
         guard !activated else { return }
         activated = true
-        ticker = Task { [weak self] in
-            try? await Task.sleep(for: Self.activationDelay)
-            while !Task.isCancelled {
-                self?.kick()
-                try? await Task.sleep(for: Self.tickInterval)
+        scheduler.registerPeriodic(
+            id: "library.metadata.refresh",
+            scope: "library",
+            initialDelay: Self.activationDelay,
+            interval: Self.tickInterval,
+            condition: {
+                SoundCloudGateway.shared.isApplicationForeground
             }
+        ) { [weak self] in
+            self?.kick()
         }
     }
 
@@ -341,11 +385,20 @@ final class LibraryMetadataSyncEngine: ObservableObject {
         isSyncing = false
     }
 
+    func handleDidBecomeActive() {
+        kick()
+    }
+
     private func kick() {
-        guard api.hasCredentials, runner == nil else { return }
+        guard api.hasCredentials,
+              SoundCloudGateway.shared.isApplicationForeground,
+              runner == nil else { return }
         runner = Task { [weak self] in
-            await self?.sync()
-            self?.runner = nil
+            guard let self else { return }
+            await SoundCloudRequestEnvironment.autonomous(lane: .metadata) {
+                await self.sync()
+            }
+            self.runner = nil
         }
     }
 
@@ -353,10 +406,21 @@ final class LibraryMetadataSyncEngine: ObservableObject {
         isSyncing = true
         statusText = "Updating saved music…"
         defer { isSyncing = false }
+
+        let now = Date()
+        let lastAttempt = await cache.syncValue(forKey: Self.attemptedKey)
+            .flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
+        guard lastAttempt.map({ now.timeIntervalSince($0) >= Self.minimumRunInterval }) ?? true else {
+            statusText = "Library up to date"
+            return
+        }
+        // Persist before the first request. Relaunching during an interrupted
+        // crawl must not restart the entire archive census.
+        await cache.setSyncValue(String(now.timeIntervalSince1970), forKey: Self.attemptedKey)
+
         do {
             var discoveredPlaylists: [Playlist] = []
-            var manifestCount = 0
-            let library = try await walk(first: { try await api.getLibrary(limit: 100) }) { page in
+            let library = try await walk(pageLimit: Self.libraryPageLimit, first: { try await api.getLibrary(limit: 100) }) { page in
                 await persist("RecentlyAdded", values: page, id: Self.libraryItemID)
                 let stations = page.compactMap(\.systemPlaylist)
                 await persist("Stations", values: stations, id: \.id)
@@ -368,7 +432,7 @@ final class LibraryMetadataSyncEngine: ObservableObject {
                 await persist("Artists", values: Self.artists(in: page), id: \.id)
             }
             statusText = "Updating playlists…"
-            _ = try await walk(first: { try await api.getLikedPlaylists(limit: 100) }) { page in
+            _ = try await walk(pageLimit: Self.collectionPageLimit, first: { try await api.getLikedPlaylists(limit: 100) }) { page in
                 discoveredPlaylists.append(contentsOf: page)
                 await persist("LikedPlaylists", values: page, id: \.id)
                 await persist("LikedAlbums", values: page.filter(\.isAlbum), id: \.id)
@@ -377,7 +441,7 @@ final class LibraryMetadataSyncEngine: ObservableObject {
             }
             if let user = await SoundCloudAPI.credentials?.waitForCurrentUser() {
                 statusText = "Updating your playlists…"
-                _ = try await walk(first: { try await self.api.getUserPlaylists(userId: user.id, limit: 100) }) { page in
+                _ = try await walk(pageLimit: Self.collectionPageLimit, first: { try await self.api.getUserPlaylists(userId: user.id, limit: 100) }) { page in
                     discoveredPlaylists.append(contentsOf: page)
                     await self.persist("OwnedPlaylists", values: page, id: \.id)
                     await self.persist("OwnedAlbums", values: page.filter(\.isAlbum), id: \.id)
@@ -386,55 +450,16 @@ final class LibraryMetadataSyncEngine: ObservableObject {
             }
             guard !Task.isCancelled, api.hasCredentials else { return }
 
-            var playlists = discoveredPlaylists
+            let playlists = discoveredPlaylists
                 .deduplicatedByID()
                 .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
-
-            let storedOffset = await cache.syncValue(forKey: Self.playlistManifestOffsetKey)
-                .flatMap(Int.init) ?? 0
-            let startOffset = playlists.isEmpty ? 0 : min(max(0, storedOffset), playlists.count - 1)
-            let endOffset = min(playlists.count, startOffset + Self.maximumPlaylistManifestsPerRun)
-
-            // Hydrate collection manifests at a background pace. This records
-            // titles, artwork, membership and track metadata, never audio. A
-            // durable rotating offset matters here: restarting at zero would
-            // permanently starve playlist 49+ in a large library.
-            for index in startOffset..<endOffset {
-                guard !Task.isCancelled, api.hasCredentials else { return }
-                manifestCount += 1
-                statusText = "Indexing playlist \(index + 1) of \(playlists.count)…"
-                do {
-                    let playlist = try await api.getPlaylist(id: playlists[index].id)
-                    var tracks = playlist.tracks ?? []
-                    let missing = (playlist.trackIDs ?? []).filter { id in
-                        !tracks.contains(where: { $0.id == id })
-                    }
-                    if !missing.isEmpty {
-                        tracks.append(contentsOf: try await api.getPlaylistTracks(playlist, ids: missing))
-                    }
-                    playlists[index] = playlist
-                    await persist("PlaylistTracks.\(playlist.id)", values: tracks.deduplicatedByID(), id: \.id)
-                } catch {
-                    if Self.isTrafficStop(error) {
-                        await cache.setSyncValue(String(index), forKey: Self.playlistManifestOffsetKey)
-                        statusText = "Waiting for SoundCloud"
-                        Log.library.info("Metadata sync parked by SoundCloud traffic safety; playlist cursor retained")
-                        return
-                    }
-                    Log.library.info("Metadata sync skipped playlist \(playlists[index].id, privacy: .public); it will retry later")
-                }
-                await cache.setSyncValue(String(index + 1), forKey: Self.playlistManifestOffsetKey)
-                try? await Task.sleep(for: Self.interCollectionDelay)
-            }
-
             await persist("Playlists", values: playlists, id: \.id)
-            if endOffset >= playlists.count {
-                await cache.setSyncValue("0", forKey: Self.playlistManifestOffsetKey)
-                await cache.setSyncValue(String(Date().timeIntervalSince1970), forKey: Self.completedKey)
-                statusText = "Library up to date"
-            } else {
-                statusText = "Indexed \(endOffset) of \(playlists.count) playlists; continuing later"
-            }
+            // Playlist track manifests are intentionally hydrated only when a
+            // person opens, pins, downloads, or plays that playlist. A broad
+            // autonomous manifest crawl can multiply one library refresh into
+            // hundreds of `/tracks?ids=` calls for large collections.
+            await cache.setSyncValue(String(Date().timeIntervalSince1970), forKey: Self.completedKey)
+            statusText = "Library up to date"
             Log.library.info("Library metadata sync complete: \(library.count, privacy: .public) saved item(s), \(playlists.count, privacy: .public) collection(s)")
         } catch {
             Log.library.info("Library metadata sync parked; the last complete database snapshot remains available")
@@ -442,14 +467,17 @@ final class LibraryMetadataSyncEngine: ObservableObject {
     }
 
     private func walk<T: Decodable>(
+        pageLimit: Int,
         first: () async throws -> Page<T>,
         onPage: @MainActor ([T]) async -> Void
     ) async throws -> [T] {
         var page = try await first()
         let firstCollection = page.collection
         var values = firstCollection
+        var pages = 1
         await onPage(firstCollection)
-        while page.nextHref != nil, !Task.isCancelled, api.hasCredentials {
+        while page.nextHref != nil, pages < pageLimit, !Task.isCancelled, api.hasCredentials {
+            pages += 1
             try await Task.sleep(for: Self.interPageDelay)
             page = try await api.getNextPage(page)
             let nextCollection = page.collection
@@ -484,9 +512,4 @@ final class LibraryMetadataSyncEngine: ObservableObject {
             .deduplicatedByID()
     }
 
-    private static func isTrafficStop(_ error: Error) -> Bool {
-        if case APIError.temporarilyBlocked = error { return true }
-        if case APIError.rateLimited = error { return true }
-        return false
-    }
 }

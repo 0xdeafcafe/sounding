@@ -1,0 +1,6 @@
+"SIGN_IN_REQUEST_TITLE" = "%@ wants to sign in";
+"SIGN_IN_REQUEST_BODY" = "Sign it in to Sounding from here.";
+"ACCOUNT_SIGN_IN_TITLE" = "New Sign-In";
+"ACCOUNT_SIGN_IN_BODY" = "Your SoundCloud account is now signed in on %@.";
+"LINK_REQUEST_TITLE" = "%@ is nearby";
+"LINK_REQUEST_BODY" = "Link it to control playback and share settings.";

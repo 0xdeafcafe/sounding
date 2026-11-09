@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Archive, export and upload SoundingCloud to TestFlight.
+# Archive, export and upload Sounding to TestFlight.
 #
 #   ./tools/testflight/release.sh tvos|ios|macos|all
 #
@@ -13,6 +13,7 @@
 #   VERSION        marketing version override, e.g. 1.0
 #   SKIP_UPLOAD=1  archive + export only
 #   VALIDATE_ONLY=1 archive + export + App Store Connect validation, no upload
+#   XCODE_ACCOUNT=1 upload with the Apple ID signed into Xcode instead of an API key
 
 set -euo pipefail
 
@@ -25,6 +26,11 @@ BUILD_NUMBER="${BUILD_NUMBER:-$(git -C "$REPO_ROOT" rev-list --count HEAD)}"
 
 die() { printf '\033[31merror:\033[0m %s\n' "$1" >&2; exit 1; }
 step() { printf '\n\033[1;34m==>\033[0m \033[1m%s\033[0m\n' "$1"; }
+
+assert_no_personal_code() {
+  "$REPO_ROOT/tools/personal/check-no-personal-marker.sh" "$@" \
+    || die "personal-build code found in $*; refusing to upload"
+}
 
 require_asc_credentials() {
   [[ -n "${ASC_KEY_ID:-}" ]] || die "ASC_KEY_ID is not set"
@@ -52,10 +58,28 @@ release_platform() {
     -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+    SOUNDING_EXPORT_METHOD=app-store-connect \
     "${version_args[@]}"
 
-  step "Exporting $platform .$exported_extension"
+  step "Checking $platform for personal-build code"
+  assert_no_personal_code "$archive/Products"
+
   rm -rf "$export_dir"
+  if [[ "${XCODE_ACCOUNT:-0}" == "1" ]]; then
+    step "Uploading $platform to TestFlight with the Xcode account"
+    local upload_opts="$OUT/ExportOptions-${platform}-upload.plist"
+    cp "$opts" "$upload_opts"
+    /usr/libexec/PlistBuddy -c "Set :destination upload" "$upload_opts"
+    xcodebuild -exportArchive \
+      -archivePath "$archive" \
+      -exportOptionsPlist "$upload_opts" \
+      -exportPath "$export_dir" \
+      -allowProvisioningUpdates
+    step "$platform uploaded — build $BUILD_NUMBER"
+    return
+  fi
+
+  step "Exporting $platform .$exported_extension"
   xcodebuild -exportArchive \
     -archivePath "$archive" \
     -exportOptionsPlist "$opts" \
@@ -65,6 +89,7 @@ release_platform() {
   local package
   package="$(find "$export_dir" -maxdepth 1 -name "*.$exported_extension" -print -quit)"
   [[ -n "$package" ]] || die "no .$exported_extension produced in $export_dir"
+  assert_no_personal_code "$package"
 
   if [[ "${SKIP_UPLOAD:-0}" == "1" ]]; then
     step "SKIP_UPLOAD set — built $package"
@@ -95,7 +120,7 @@ release_macos() { release_platform macOS "SoundingTV macOS" "generic/platform=ma
 main() {
   local target="${1:-}"
   [[ -n "$target" ]] || die "usage: $0 tvos|ios|macos|all"
-  [[ "${SKIP_UPLOAD:-0}" == "1" ]] || require_asc_credentials
+  [[ "${SKIP_UPLOAD:-0}" == "1" || "${XCODE_ACCOUNT:-0}" == "1" ]] || require_asc_credentials
   mkdir -p "$OUT"
 
   case "$target" in
@@ -109,4 +134,6 @@ main() {
   step "Done. Builds appear in App Store Connect after processing (5–30 min)."
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

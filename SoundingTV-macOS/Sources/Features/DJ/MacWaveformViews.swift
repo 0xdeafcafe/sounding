@@ -1,3 +1,4 @@
+import QuartzCore
 import SwiftUI
 
 enum MacWaveformPalette {
@@ -34,6 +35,36 @@ enum MacWaveformPalette {
     private static let detailB = detailStyle(deckB)
     private static let overviewA = overviewStyle(deckA)
     private static let overviewB = overviewStyle(deckB)
+
+    static func metalDetail(for deck: MixEngine.Deck) -> MetalWaveformStyle {
+        deck == .a ? metalDetailA : metalDetailB
+    }
+
+    static func metalOverview(for deck: MixEngine.Deck) -> MetalWaveformStyle {
+        deck == .a ? metalOverviewA : metalOverviewB
+    }
+
+    private static let metalDetailA = metalDetailStyle(deckA)
+    private static let metalDetailB = metalDetailStyle(deckB)
+    private static let metalOverviewA = metalOverviewStyle(deckA)
+    private static let metalOverviewB = metalOverviewStyle(deckB)
+
+    private static func metalDetailStyle(_ lane: Lane) -> MetalWaveformStyle {
+        var style = MetalWaveformStyle.mono(SIMD4(lane.mid))
+        style.playheadWidth = 0
+        style.highColor = SIMD4(lane.inner)
+        return style
+    }
+
+    private static func metalOverviewStyle(_ lane: Lane) -> MetalWaveformStyle {
+        var style = MetalWaveformStyle.mono(SIMD4(1, 1, 1, 1))
+        style.playedTint = SIMD4(lane.mid)
+        style.unplayedTint = SIMD4(lane.rest)
+        style.playheadColor = SIMD4(lane.inner)
+        style.playheadWidth = 1.5
+        style.verticalScale = 0.86
+        return style
+    }
 
     private static func detailStyle(_ lane: Lane) -> SCWaveformStyle {
         var style = SCWaveformStyle.decks
@@ -85,6 +116,7 @@ struct MacLaneState: Equatable {
     var position: TimeInterval
     var duration: TimeInterval
     var isPlaying: Bool
+    var rate: Double
     var loopStartSeconds: Double?
     var loopLengthSeconds: Double?
 
@@ -92,6 +124,7 @@ struct MacLaneState: Equatable {
         position = state.position
         duration = state.duration
         isPlaying = state.isPlaying
+        rate = state.rate
         loopStartSeconds = state.loopStartSeconds
         loopLengthSeconds = state.loopLengthSeconds
     }
@@ -125,58 +158,101 @@ struct MacMixLane: View {
     @ObservedObject var registry = MacDeckTrackRegistry.shared
     @ObservedObject var waveforms = WaveformService.shared
     let tint: Color
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var track: Track? { registry.track(for: deck) }
 
     var body: some View {
         let track = self.track
         let waveformState = track.map { waveforms.state(for: $0.id) } ?? .pending
-        let bpm = controller.analysisByDeck[deck.rawValue]?.bpm
+        let analysis = controller.analysisByDeck[deck.rawValue]
+        let bpm = analysis?.bpm
         let cues = controller.hotCues[deck.rawValue] ?? []
         MacDeckSlice(deck: deck, read: MacLaneState.init) { lane in
             #if DEBUG
             let _ = MacBodyMeter.count("lane\(deck.label)")
             #endif
-            SCWaveformRenderer(
-                envelope: macEnvelope(waveformState),
-                duration: lane.duration,
-                progress: lane.progress,
-                mode: .centered(windowSeconds: 10),
-                showsPlayhead: false,
-                beatGrid: bpm.flatMap { $0 > 0 ? SCBeatGrid(bpm: $0) : nil },
-                cueMarkers: markers(for: lane, cues: cues),
-                placeholder: track == nil ? .unavailable : macPlaceholder(waveformState),
-                identity: track?.id,
-                style: MacWaveformPalette.detail(for: deck)
-            )
+            laneWaveform(track: track, state: waveformState, lane: lane, bpm: bpm, cues: cues)
             .overlay(alignment: .top) { laneHeader(track: track, lane: lane) }
-            .overlay(alignment: .bottomTrailing) { gridBadge(bpm) }
+            .overlay(alignment: .bottomTrailing) { gridBadge(bpm, provenance: analysis?.bpmProvenance) }
             .overlay {
                 if case .failed = waveformState {
-                    Text("No waveform").font(.caption2).foregroundStyle(.white.opacity(0.4))
+                    Text("No waveform").font(.caption2).foregroundStyle(contrast.macInk(0.4, increased: 0.85))
                 }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Deck \(deck.label) waveform")
+            .accessibilityValue(laneAccessibilityValue(track: track, lane: lane, bpm: bpm))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
     }
 
+    @ViewBuilder
+    private func laneWaveform(track: Track?, state: WaveformState, lane: MacLaneState, bpm: Double?, cues: [CuePoint]) -> some View {
+        if let track, lane.duration > 0,
+           let source = MetalWaveformSourceCache.shared.envelope(id: track.id, samples: macEnvelope(state), duration: lane.duration) {
+            MetalWaveformView(
+                source: source,
+                timeline: .following(
+                    anchor: lane.position, hostTime: CACurrentMediaTime(),
+                    rate: lane.isPlaying && !reduceMotion ? lane.rate : 0,
+                    window: 10, playheadFraction: 0.5
+                ),
+                grid: bpm.flatMap { $0 > 0 ? MetalWaveformBeatGrid(bpm: $0) : nil },
+                overlays: metalOverlays(for: lane, cues: cues),
+                style: MacWaveformPalette.metalDetail(for: deck)
+            )
+        } else {
+            SCWaveformPlaceholderLane(
+                placeholder: track == nil ? .unavailable : macPlaceholder(state),
+                progress: lane.progress,
+                style: MacWaveformPalette.detail(for: deck),
+                motionSuppressed: reduceMotion
+            )
+        }
+    }
+
+    private func metalOverlays(for lane: MacLaneState, cues: [CuePoint]) -> [MetalWaveformOverlay] {
+        var overlays = cues.compactMap { cue -> MetalWaveformOverlay? in
+            guard cue.hotCueIndex != nil else { return nil }
+            return MetalWaveformOverlay(id: cue.id, kind: .cue(cue.positionSeconds), color: SIMD4(macCueColor(cue)))
+        }
+        if let start = lane.loopStartSeconds {
+            let end = start + max(0, lane.loopLengthSeconds ?? 0)
+            overlays.append(MetalWaveformOverlay(id: "loop", kind: .loop(start ... end), color: SIMD4(1, 1, 1, 0.8)))
+        }
+        return overlays
+    }
+
+    private func laneAccessibilityValue(track: Track?, lane: MacLaneState, bpm: Double?) -> String {
+        guard let track else { return "No track loaded" }
+        var parts = [track.title]
+        if lane.duration > 0 {
+            parts.append("\(Self.timeString(lane.position)) of \(Self.timeString(lane.duration))")
+        }
+        if let bpm, bpm > 0 { parts.append("\(Int(bpm.rounded())) BPM") }
+        parts.append(lane.isPlaying ? "playing" : "paused")
+        return parts.joined(separator: ", ")
+    }
+
     private func laneHeader(track: Track?, lane: MacLaneState) -> some View {
         HStack(spacing: 6) {
             Text(deck.label)
-                .font(.system(size: 10, weight: .black, design: .monospaced))
+                .font(Font.caption2.monospaced().weight(.black))
                 .foregroundStyle(.black)
                 .frame(width: 16, height: 16)
                 .background(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(tint))
             Text(track?.title ?? "No track loaded")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.white.opacity(track == nil ? 0.35 : 0.85))
+                .font(Font.caption2.weight(.semibold))
+                .foregroundStyle(track == nil ? contrast.macInk(0.35, increased: 0.8) : contrast.macInk(0.85, increased: 1))
                 .lineLimit(1)
             Spacer(minLength: 8)
             if lane.duration > 0 {
                 Text("\(Self.timeString(lane.position))  -\(Self.timeString(max(0, lane.duration - lane.position)))")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.75))
+                    .font(Font.caption2.monospaced().weight(.semibold))
+                    .foregroundStyle(contrast.macInk(0.75, increased: 1))
             }
         }
         .shadow(color: .black.opacity(0.8), radius: 2)
@@ -185,33 +261,15 @@ struct MacMixLane: View {
     }
 
     @ViewBuilder
-    private func gridBadge(_ bpm: Double?) -> some View {
+    private func gridBadge(_ bpm: Double?, provenance: SCAnalysisProvenance?) -> some View {
         if let bpm, bpm > 0 {
-            Text("GRID \(String(format: "%.0f", bpm)) BPM (est.)")
-                .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.35))
+            let suffix = provenance == .measured ? "" : " (est.)"
+            Text("GRID \(String(format: "%.0f", bpm)) BPM\(suffix)")
+                .font(.caption2.monospaced().weight(.semibold))
+                .foregroundStyle(contrast.macInk(0.5, increased: 0.85))
                 .padding(.horizontal, 5)
                 .padding(.vertical, 3)
         }
-    }
-
-    private func markers(for lane: MacLaneState, cues: [CuePoint]) -> [SCWaveformMarker] {
-        guard lane.duration > 0 else { return [] }
-        var markers = cues.compactMap { cue -> SCWaveformMarker? in
-            guard cue.hotCueIndex != nil else { return nil }
-            return SCWaveformMarker(
-                id: cue.id,
-                position: cue.positionSeconds / lane.duration,
-                color: macCueColor(cue)
-            )
-        }
-        if let start = lane.loopStartSeconds {
-            markers.append(SCWaveformMarker(id: "loop-in", position: start / lane.duration, color: .white.opacity(0.8)))
-            if let length = lane.loopLengthSeconds {
-                markers.append(SCWaveformMarker(id: "loop-out", position: (start + length) / lane.duration, color: .white.opacity(0.8)))
-            }
-        }
-        return markers
     }
 
     private static func timeString(_ time: TimeInterval) -> String {
@@ -227,18 +285,27 @@ struct MacWaveformOverview: View {
     var trackId: String?
     var deck: MixEngine.Deck = .a
     var markers: [SCWaveformMarker] = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        SCWaveformRenderer(
-            envelope: macEnvelope(state),
-            duration: duration,
-            progress: progress,
-            mode: .fixed,
-            cueMarkers: markers,
-            placeholder: macPlaceholder(state),
-            identity: trackId,
-            style: MacWaveformPalette.overview(for: deck)
-        )
+        Group {
+            if duration > 0,
+               let source = MetalWaveformSourceCache.shared.envelope(id: trackId ?? "overview", samples: macEnvelope(state), duration: duration) {
+                MetalWaveformView(
+                    source: source,
+                    timeline: .range(0 ... duration, playhead: progress * duration),
+                    overlays: markers.map { MetalWaveformOverlay(id: $0.id, kind: .cue($0.position * duration), color: SIMD4($0.color ?? .white)) },
+                    style: MacWaveformPalette.metalOverview(for: deck)
+                )
+            } else {
+                SCWaveformPlaceholderLane(
+                    placeholder: macPlaceholder(state),
+                    progress: progress,
+                    style: MacWaveformPalette.overview(for: deck),
+                    motionSuppressed: reduceMotion
+                )
+            }
+        }
         .overlay {
             if case .failed = state {
                 Text("No waveform").font(.caption2).foregroundStyle(.white.opacity(0.4))

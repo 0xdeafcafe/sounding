@@ -1,4 +1,4 @@
-# macOS plan — SoundingCloud for Mac
+# macOS plan — Sounding for Mac
 
 **Status:** spiked and partially built. The target compiles and links; the
 console does not exist yet.
@@ -309,6 +309,8 @@ seconds, not from a support thread.
 
 ### 3.2 `MIDIControllerHub` — built
 
+Now `DJControllerHub` in `Core/DJControllers`, behind `DeckControlSurface`, and limited to the user's own music. `Design/specs/dj-controllers.md` is current; the notes below are history.
+
 `MIDIClientCreateWithBlock` + `MIDIInputPortCreateWithProtocol(._1_0)`. The
 modern pairing: the deprecated `MIDIInputPortCreate` read-proc gives
 `MIDIPacketList` rather than UMP.
@@ -402,9 +404,9 @@ optionally write a one-way Mixxx-XML importer to bootstrap device coverage.
 | `keychain-access-groups` | Same two groups as iOS, so `PhoneSessionStore`'s item is *the same item* (§4). |
 | `icloud-container-identifiers` + `icloud-services` | `CKSyncEngine` private DB for analysis + cues. |
 
-Deliberately absent: `device.audio-input` (nothing is captured — add it only
-when DVS or aux-in lands, and pair it with `NSMicrophoneUsageDescription`), and
-anything DriverKit. **DriverKit is not needed**: `IOHIDManager` reaches a CDJ's
+`device.audio-input` is present (with `NSMicrophoneUsageDescription`) only so
+"Add Apple TV" can hear the TV's sign-in chime; see `chime-signin.md`.
+Deliberately absent: anything DriverKit. **DriverKit is not needed**: `IOHIDManager` reaches a CDJ's
 HID interface without it. DriverKit entitlements are Apple-granted per team and
 would only matter for a custom audio-class driver, which this is not.
 

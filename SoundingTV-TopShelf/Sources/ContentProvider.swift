@@ -1,67 +1,45 @@
-import TVServices
+@preconcurrency import TVServices
 
 final class ContentProvider: TVTopShelfContentProvider {
 
-    override func loadTopShelfContent(completionHandler: @escaping (TVTopShelfContent?) -> Void) {
-        guard let snapshot = TopShelfStore.load() else {
-            completionHandler(DefaultShelf.content(for: .noSnapshot))
-            return
-        }
+    nonisolated(nonsending) override func loadTopShelfContent() async -> (any TVTopShelfContent)? {
+        let plan = TopShelfLayout.plan(
+            for: TopShelfStore.load(),
+            placeholder: (Self.placeholder1x, Self.placeholder2x)
+        )
 
-        var seen = Set<String>()
-        var sections: [TVTopShelfItemCollection<TVTopShelfSectionedItem>] = []
-        var dropped = 0
+        switch plan {
+        case .fallback(let reason):
+            Log.topShelf.info("Serving the default shelf (\(String(describing: reason), privacy: .public))")
+            return DefaultShelf.content(for: reason)
 
-        for section in snapshot.sections {
-            var items: [TVTopShelfSectionedItem] = []
-            for entry in section.entries {
-                guard seen.insert(entry.id).inserted else {
-                    dropped += 1
-                    continue
-                }
-                items.append(item(for: entry))
+        case .rows(let rows):
+            let sections = rows.map { row -> TVTopShelfItemCollection<TVTopShelfSectionedItem> in
+                let collection = TVTopShelfItemCollection(items: row.tiles.map(Self.item(for:)))
+                collection.title = row.title
+                return collection
             }
-            guard !items.isEmpty else { continue }
-
-            let collection = TVTopShelfItemCollection(items: items)
-            collection.title = section.title
-            sections.append(collection)
+            Log.topShelf.info("Serving \(sections.count) shelves")
+            return TVTopShelfSectionedContent(sections: sections)
         }
-
-        if dropped > 0 {
-            Log.topShelf.info("Dropped \(dropped) duplicate item identifiers")
-        }
-
-        guard !sections.isEmpty else {
-            let reason: DefaultShelf.Reason = snapshot.isSignedIn ? .emptyLibrary : .signedOut
-            Log.topShelf.info("Snapshot from \(snapshot.generatedAt, privacy: .public) has no renderable shelves (isSignedIn=\(snapshot.isSignedIn, privacy: .public)) — serving the default state")
-            completionHandler(DefaultShelf.content(for: reason))
-            return
-        }
-
-        Log.topShelf.info("Serving \(sections.count) shelves / \(seen.count) items from a snapshot generated \(snapshot.generatedAt, privacy: .public)")
-        completionHandler(TVTopShelfSectionedContent(sections: sections))
     }
 
-    private func item(for entry: TopShelfEntry) -> TVTopShelfSectionedItem {
-        let item = TVTopShelfSectionedItem(identifier: entry.id)
+    private static let placeholder1x = Bundle.main.url(forResource: "ShelfPlaceholder", withExtension: "png")
+    private static let placeholder2x = Bundle.main.url(forResource: "ShelfPlaceholder@2x", withExtension: "png")
 
-        item.title = entry.subtitle.isEmpty ? entry.title : "\(entry.title) · \(entry.subtitle)"
-        item.imageShape = shape(for: entry.shape)
-        item.playbackProgress = entry.progress
-
-        item.setImageURL(entry.artworkURL, for: .screenScale1x)
-        item.setImageURL(entry.artworkURL2x ?? entry.artworkURL, for: .screenScale2x)
-
-        if let url = entry.actionURL {
-            let action = TVTopShelfAction(url: url)
-            item.playAction = action
-            item.displayAction = action
-        }
+    private static func item(for tile: TopShelfTile) -> TVTopShelfSectionedItem {
+        let item = TVTopShelfSectionedItem(identifier: tile.id)
+        item.title = tile.title
+        item.imageShape = shape(for: tile.shape)
+        item.playbackProgress = tile.progress
+        item.setImageURL(tile.imageURL, for: .screenScale1x)
+        item.setImageURL(tile.imageURL2x, for: .screenScale2x)
+        item.displayAction = TVTopShelfAction(url: tile.displayURL)
+        item.playAction = TVTopShelfAction(url: tile.playURL)
         return item
     }
 
-    private func shape(for shape: TopShelfShape) -> TVTopShelfSectionedItem.ImageShape {
+    private static func shape(for shape: TopShelfShape) -> TVTopShelfSectionedItem.ImageShape {
         switch shape {
         case .square: return .square
         case .poster: return .poster

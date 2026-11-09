@@ -1,21 +1,155 @@
 import Foundation
 import Network
 import Combine
+import SwiftUI
+
+@MainActor
+final class CompanionTelemetry: ObservableObject {
+    @Published fileprivate(set) var playback: PlaybackStatePayload?
+    @Published fileprivate(set) var djState: DJStatePayload?
+    @Published fileprivate(set) var autoMixLive: AutoMixLiveState?
+    @Published fileprivate(set) var anchorDate: Date?
+    @Published fileprivate(set) var isLive = false
+
+    var isDJControlLive: Bool { isLive && playback?.isDJEngineLive == true }
+
+    var isPlaying: Bool { isLive && playback?.isPlaying == true }
+
+    var playbackModes: PlaybackModesPayload? { playback?.modes }
+
+    func estimatedPosition(at date: Date = Date()) -> TimeInterval {
+        guard let playback else { return 0 }
+        guard isLive, let anchorDate else { return playback.positionSeconds }
+        return playback.estimatedPosition(elapsed: date.timeIntervalSince(anchorDate))
+    }
+}
+
+private extension PlaybackStatePayload {
+    func frozen(at position: Double) -> PlaybackStatePayload {
+        PlaybackStatePayload(
+            isPlaying: isPlaying, positionSeconds: position, durationSeconds: durationSeconds,
+            trackId: trackId, title: title, artist: artist, artworkURL: artworkURL,
+            isDJEngineLive: isDJEngineLive, revision: revision, issuedAtMillis: issuedAtMillis,
+            signature: signature, rate: rate, modes: modes, volume: volume, sleepTimer: sleepTimer
+        )
+    }
+}
+
+@MainActor
+final class CompanionDecksFeed: ObservableObject {
+    @Published fileprivate(set) var state: DJStatePayload?
+    @Published fileprivate(set) var receivedAt: Date?
+    @Published fileprivate(set) var decksOpen: Bool?
+    fileprivate(set) var isAttached = false
+    fileprivate var telemetryPublishedAt = Date.distantPast
+
+    var supportsRemoteMixing: Bool { decksOpen != nil }
+
+    fileprivate func reset() {
+        state = nil
+        receivedAt = nil
+        decksOpen = nil
+    }
+
+    fileprivate func shouldPublishTelemetry(_ next: DJStatePayload, replacing current: DJStatePayload?, at now: Date) -> Bool {
+        guard isAttached, let current else { return true }
+        if now.timeIntervalSince(telemetryPublishedAt) >= 1 { return true }
+        return current.isEnabled != next.isEnabled
+            || current.isEngineLive != next.isEngineLive
+            || current.isAutoMixEnabled != next.isAutoMixEnabled
+            || current.automaticMix != next.automaticMix
+            || current.plan != next.plan
+            || Self.deckShape(current.deckA) != Self.deckShape(next.deckA)
+            || Self.deckShape(current.deckB) != Self.deckShape(next.deckB)
+    }
+
+    private struct DeckShape: Equatable {
+        let trackId: String?
+        let isPlaying: Bool
+        let role: DJDeckRole?
+    }
+
+    private static func deckShape(_ deck: DJDeckStatePayload) -> DeckShape {
+        DeckShape(trackId: deck.trackId, isPlaying: deck.isPlaying, role: deck.role)
+    }
+}
+
+struct CompanionTelemetryReader<Content: View>: View {
+    @ObservedObject private var telemetry: CompanionTelemetry
+    private let content: (CompanionTelemetry) -> Content
+
+    init(_ telemetry: CompanionTelemetry, @ViewBuilder content: @escaping (CompanionTelemetry) -> Content) {
+        _telemetry = ObservedObject(wrappedValue: telemetry)
+        self.content = content
+    }
+
+    var body: some View { content(telemetry) }
+}
+
+struct OutputModesReader<Content: View>: View {
+    @ObservedObject private var router: OutputRouter
+    @ObservedObject private var client: CompanionClient
+    @ObservedObject private var telemetry: CompanionTelemetry
+    private let content: (OutputRouter) -> Content
+
+    init(_ router: OutputRouter, @ViewBuilder content: @escaping (OutputRouter) -> Content) {
+        _router = ObservedObject(wrappedValue: router)
+        _client = ObservedObject(wrappedValue: router.client)
+        _telemetry = ObservedObject(wrappedValue: router.client.telemetry)
+        self.content = content
+    }
+
+    var body: some View { content(router) }
+}
 
 @MainActor
 final class CompanionClient: ObservableObject {
+    private lazy var volumeChannel: RemoteVolumeChannel = {
+        let channel = RemoteVolumeChannel { [weak self] level in self?.transmitVolume(level) }
+        channel.willChange = { [weak self] in self?.objectWillChange.send() }
+        return channel
+    }()
 
-    private struct PersistedSnapshot: Codable {
+    private let synchronization: SynchronizationCoordinator
+    private let gateway: SynchronizationGateway
+    private let likes: LikesSyncEngine
+    private let library: LibraryCache
+    private let downloads: DownloadManager
+
+    private actor SnapshotWriter {
+        private var writtenGeneration: UInt64 = 0
+
+        func write(_ snapshot: PersistedSnapshot, generation: UInt64, key: String) {
+            guard generation > writtenGeneration,
+                  let data = try? JSONEncoder().encode(snapshot) else { return }
+            writtenGeneration = generation
+            UserDefaults.standard.set(data, forKey: key)
+        }
+
+        func remove(generation: UInt64, key: String) {
+            guard generation > writtenGeneration else { return }
+            writtenGeneration = generation
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
+    private struct PersistedSnapshot: Codable, Sendable {
         let sessionId: String
         let tracks: [QueueTrack]
         let currentIndex: Int
         let isPlaying: Bool
+        var playingNextCount: Int? = nil
         let playback: PlaybackStatePayload?
         let djState: DJStatePayload?
         let savedAt: Date
     }
 
     private static let snapshotDefaultsKey = "red.forbes.sounding.remoteNowPlaying.v1"
+    private static let snapshotPersistInterval: Duration = .seconds(5)
+    private static let staleAfter: TimeInterval = 15
+    private static let inactiveGrace: Duration = .seconds(30)
+    private let snapshotWriter = SnapshotWriter()
+    private var snapshotGeneration: UInt64 = 0
 
     enum State: Equatable {
         case unlinked
@@ -23,32 +157,26 @@ final class CompanionClient: ObservableObject {
         case searching
         case connecting
         case connected
-        case failed(String)
-
-        static func == (lhs: State, rhs: State) -> Bool {
-            switch (lhs, rhs) {
-            case (.unlinked, .unlinked), (.idle, .idle), (.searching, .searching),
-                 (.connecting, .connecting), (.connected, .connected):
-                return true
-            case (.failed(let a), .failed(let b)):
-                return a == b
-            default:
-                return false
-            }
-        }
+        case failed(CompanionFailure)
     }
 
     @Published private(set) var state: State = .idle
     @Published private(set) var tracks: [QueueTrack] = []
     @Published private(set) var currentIndex = 0
+    @Published private(set) var playingNextCount = 0
+    private var reportsPlayingNext = false
     @Published private(set) var isPlaying = false
     @Published private(set) var rejection: String?
     @Published private(set) var hasSnapshot = false
+    @Published private(set) var queueSource: PlaybackQueueSource?
+    @Published private(set) var authHandoffRequest: AuthHandoffRequest?
+    @Published private(set) var peerNeedsSignIn = false
+    @Published private(set) var isRequestingPeerSignIn = false
 
-    @Published private(set) var playback: PlaybackStatePayload?
-    @Published private(set) var djState: DJStatePayload?
+    let telemetry = CompanionTelemetry()
+    let decks = CompanionDecksFeed()
 
-    var isDJControlLive: Bool { playback?.isDJEngineLive == true }
+    private let playbackConfirmations = PlaybackConfirmationTracker()
 
     fileprivate var controlSequence: Int64 = 0
 
@@ -61,75 +189,150 @@ final class CompanionClient: ObservableObject {
     }
 
     private var pendingContinuousControls: [String: PendingContinuousControl] = [:]
-    private var continuousFlushTask: Task<Void, Never>?
 
     private var cueReplayGuard = ReplayGuard()
     private var cuePushHighWaterMark: Int64 = 0
-    private var cuePushWork: Task<Void, Never> = Task {}
-    private var cuePushDebounceTask: Task<Void, Never>?
-    private var likesPushTask: Task<Void, Never>?
+    private var libraryPushHighWaterMark: Int64?
+    private var libraryPushMarks: [String: Int64] = [:]
+    private let synchronizationID = "companion.client.\(UUID().uuidString)"
 
     private nonisolated(unsafe) var browser: NWBrowser?
-    fileprivate nonisolated(unsafe) var connection: NWConnection?
+    private var channel: CompanionChannel?
+    private var connection: NWConnection? { channel?.connection }
 
     private var contentEndpoint: NWEndpoint?
     private var contentEndpointsByDeviceToken: [String: NWEndpoint] = [:]
     private var companionServiceName: String?
-    private let localContentServer = PeerContentServer()
+    private let localContentServer: PeerContentServer
     private nonisolated(unsafe) var searchTimeout: Task<Void, Never>?
     private nonisolated(unsafe) var rejectionTimeout: Task<Void, Never>?
     private nonisolated(unsafe) var connectTimeout: Task<Void, Never>?
     private nonisolated(unsafe) var reconnectTask: Task<Void, Never>?
+    private nonisolated(unsafe) var inactiveGraceTask: Task<Void, Never>?
+    private nonisolated(unsafe) var persistTask: Task<Void, Never>?
+    private nonisolated(unsafe) var peerSignInTimeout: Task<Void, Never>?
+    private var lastDeviceStatusMillis: Int64 = 0
+    private var lastContinueSessionMillis: Int64 = 0
 
     private static let initialReconnectDelay: TimeInterval = 5
     private static let maximumReconnectDelay: TimeInterval = 30
 
     private var reconnectDelay = CompanionClient.initialReconnectDelay
 
-    private var pendingSessionNonce: String?
-
-    private var lastWaitingReason: String?
+    private var lastWaitingError: NWError?
 
     private nonisolated(unsafe) var livenessWatchdog: Task<Void, Never>?
 
     private var lastFrameAt = Date.distantPast
 
-    private var framer = MessageFramer()
     @Published fileprivate var link: LinkedCompanionStore.LinkRecord?
-    /// Same-account phone links are intentionally memory-only. Unlike an
-    /// Apple TV pairing they do not need a second keychain credential.
-    private var sharedSessionLink: LinkedCompanionStore.LinkRecord?
-    private nonisolated(unsafe) var pairingObserver: NSObjectProtocol?
-    private nonisolated(unsafe) var likesObserver: NSObjectProtocol?
+    @Published fileprivate(set) var links: [LinkedCompanionStore.LinkRecord] = []
+    @Published private(set) var advertisedSessionIds: Set<String> = []
+    @Published private(set) var needsSignInSessionIds: Set<String> = []
+    private var advertisedEndpoints: [String: NWEndpoint] = [:]
+    private var couriersInFlight: Set<String> = []
+    private var probesInFlight: Set<String> = []
+    private var pairingSubscription: AnyCancellable?
+    private var likesRevisionSubscription: AnyCancellable?
+    private var localMusicSubscription: AnyCancellable?
+    private var backgroundSubscription: AnyCancellable?
     private var appliedPlaybackRevision = 0
     private var appliedDJRevision = 0
     private var appliedRevision = -1
+    private var observedPlayback: PlaybackStatePayload?
+    private var observedAt = Date.distantPast
+    private(set) var intents = RemotePlaybackIntents()
+    private var intentSettleTask: Task<Void, Never>?
+    #if DEBUG
+    private var isFixture = false
+    private var fixtureRevision = 0
+    private var fixtureVolume: Double = 0.8
+    private var fixtureSleepTimer: SleepTimerStatus?
+    private var fixtureShuffle = false
+    private var fixtureRepeat: RemoteRepeatMode = .off
+    #endif
 
-    private var activeLink: LinkedCompanionStore.LinkRecord? { sharedSessionLink ?? link }
+    var isLinked: Bool { link != nil }
+    var linkedClass: DeviceClass { link?.peerClass ?? .tv }
+    var linkedName: String { link?.peerName ?? DeviceClass.tv.displayName }
+    var activeSessionId: String? { link?.sessionId }
 
-    var isLinked: Bool { activeLink != nil }
-    var linkSessionId: String? { activeLink?.sessionId }
-    var linkedClass: DeviceClass { activeLink?.peerClass ?? .tv }
-    var linkedName: String { activeLink?.peerName ?? DeviceClass.tv.displayName }
-    var isSharingWithPhone: Bool { sharedSessionLink != nil }
+    var linkedOutputDevice: OutputDevice? {
+        link.flatMap(Self.outputDevice(for:))
+    }
 
-    init() {
-        link = LinkedCompanionStore.load()
+    var linkedOutputDevices: [OutputDevice] {
+        links.compactMap(Self.outputDevice(for:))
+    }
+
+    static func outputDevice(for link: LinkedCompanionStore.LinkRecord) -> OutputDevice? {
+        guard OutputDevice.deviceClassesThatAcceptOutput.contains(link.peerClass) else { return nil }
+        return .linked(sessionId: link.sessionId, name: link.peerName, deviceClass: link.peerClass)
+    }
+
+    func isActive(_ sessionId: String) -> Bool { link?.sessionId == sessionId }
+
+    func status(of sessionId: String) -> LinkStatus {
+        if isActive(sessionId) {
+            switch state {
+            case .connected: return peerNeedsSignIn ? .needsSignIn : .connected
+            case .searching, .connecting: return .connecting
+            case .failed(let failure): return .unreachable(failure)
+            case .idle, .unlinked: return advertisedSessionIds.contains(sessionId) ? .available : .unreachable(.notFound)
+            }
+        }
+        guard advertisedSessionIds.contains(sessionId) else { return .unreachable(.notFound) }
+        return needsSignInSessionIds.contains(sessionId) ? .needsSignIn : .available
+    }
+
+    init(
+        synchronization: SynchronizationCoordinator = .shared,
+        gateway: SynchronizationGateway = .shared,
+        likes: LikesSyncEngine = .shared,
+        library: LibraryCache = .shared,
+        downloads: DownloadManager = .shared
+    ) {
+        self.synchronization = synchronization
+        self.gateway = gateway
+        self.likes = likes
+        self.library = library
+        self.downloads = downloads
+        self.localContentServer = PeerContentServer(resolveFile: { trackID in
+            await downloads.peerContentSource(forTrackId: trackID)
+        })
+        self.localContentServer.serveGrants(
+            credential: { LocalMusicShareHost.shared.credential(forGrantId: $0) },
+            resolve: { await LocalMusicShareHost.shared.source(for: $0) }
+        )
+        links = LinkedCompanionStore.loadAll()
+        link = links.first
         state = link == nil ? .unlinked : .idle
         restorePersistedSnapshot()
-        pairingObserver = NotificationCenter.default.addObserver(
-            forName: .pairedTVDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.pairingDidChange() }
-        }
-        likesObserver = NotificationCenter.default.addObserver(
-            forName: .likesIndexDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
+        #if DEBUG
+        if let fixture = RemoteFixture.current { installRemoteFixture(fixture) }
+        #endif
+        pairingSubscription = LinkedCompanionStore.changes
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.pairingDidChange() }
+        #if os(iOS)
+        backgroundSubscription = NotificationCenter.default
+            .publisher(for: UIApplication.didEnterBackgroundNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.didEnterBackground() }
+            }
+        #endif
+        LocalMusicCloudUploader.shared.refresh()
+        localMusicSubscription = LocalMusicShareHost.shared.changes
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard self?.state == .connected else { return }
+                    self?.sendLocalMusicOffer()
+                }
+            }
+        likesRevisionSubscription = LibrarySyncEngine.shared.$revision
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in
                 guard self?.state == .connected else { return }
                 self?.scheduleLikesPushIfSupported()
             }
@@ -137,12 +340,6 @@ final class CompanionClient: ObservableObject {
     }
 
     deinit {
-        if let pairingObserver {
-            NotificationCenter.default.removeObserver(pairingObserver)
-        }
-        if let likesObserver {
-            NotificationCenter.default.removeObserver(likesObserver)
-        }
         cancelNetworkResources()
     }
 
@@ -152,77 +349,169 @@ final class CompanionClient: ObservableObject {
         connectTimeout?.cancel()
         reconnectTask?.cancel()
         livenessWatchdog?.cancel()
+        inactiveGraceTask?.cancel()
+        persistTask?.cancel()
+        peerSignInTimeout?.cancel()
         browser?.cancel()
-        connection?.cancel()
     }
 
     func connect() {
-        if sharedSessionLink == nil {
-            link = LinkedCompanionStore.load()
+        #if DEBUG
+        guard !isFixture else { return }
+        #endif
+        links = LinkedCompanionStore.loadAll()
+        if let active = link, let updated = links.first(where: { $0.sessionId == active.sessionId }) {
+            link = updated
+        } else {
+            link = links.first
         }
-        guard let activeLink, activeLink.secret != nil else {
+        guard let link, link.secret != nil else {
             localContentServer.stop()
             clearPersistedSnapshot()
             state = .unlinked
+            if !LinkedCompanionStore.pendingMessages().isEmpty, browser == nil { startBrowsing() }
             return
         }
-        startLocalContentServer(for: activeLink)
-        guard connection == nil, browser == nil else { return }
-        startBrowsing()
-    }
-
-    /// Connect to the iPhone that shares this SoundCloud session. The iPhone
-    /// advertises the existing CompanionServer protocol while the app is
-    /// active, so queue, playback and DJ state remain real remote state.
-    func connectToSharedPhone(named name: String = "iPhone") {
-        guard let credentials = SharedSessionCompanionLink.current() else {
-            state = .unlinked
+        startLocalContentServer(for: link)
+        guard channel == nil else { return }
+        guard let browser else {
+            startBrowsing()
             return
         }
-        sharedSessionLink = LinkedCompanionStore.LinkRecord(
-            sessionId: credentials.sessionId,
-            secretBase64: credentials.secret.base64EncodedString(),
-            pairedAt: Date(),
-            deviceClass: .phone,
-            displayName: name
-        )
-        retry()
+        guard state != .connecting, state != .searching else { return }
+        state = .searching
+        startSearchTimeout()
+        handleBrowseResults(browser.browseResults)
     }
 
-    func stopSharingWithPhone() {
-        guard sharedSessionLink != nil else { return }
-        teardown()
-        sharedSessionLink = nil
-        link = LinkedCompanionStore.load()
-        state = link == nil ? .unlinked : .idle
-        connect()
+    func setActive(_ active: Bool) {
+        #if DEBUG
+        guard !isFixture else { return }
+        #endif
+        if active {
+            let wasSuspended = inactiveGraceTask != nil
+            inactiveGraceTask?.cancel()
+            inactiveGraceTask = nil
+            if state == .connected, Date().timeIntervalSince(lastFrameAt) > Self.staleAfter {
+                Log.link.info("[CompanionClient] connection went quiet while inactive; reconnecting")
+                retry()
+            } else {
+                connect()
+            }
+            if wasSuspended { Log.link.debug("[CompanionClient] active again within the grace period") }
+            return
+        }
+        #if os(macOS)
+        if LocalMusicShareHost.shared.hasMusic { return }
+        #endif
+        guard inactiveGraceTask == nil else { return }
+        inactiveGraceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.inactiveGrace)
+            guard !Task.isCancelled, let self else { return }
+            self.inactiveGraceTask = nil
+            Log.link.info("[CompanionClient] inactive past the grace period; disconnecting")
+            self.disconnect()
+        }
+    }
+
+    private func didEnterBackground() {
+        guard channel != nil || browser != nil else { return }
+        inactiveGraceTask?.cancel()
+        inactiveGraceTask = nil
+        Log.link.info("[CompanionClient] entered the background; disconnecting before suspension")
+        disconnect()
     }
 
     private func pairingDidChange() {
-        guard sharedSessionLink == nil else { return }
-        let updated = LinkedCompanionStore.load()
-        guard updated != link else { return }
+        #if DEBUG
+        guard !isFixture else { return }
+        #endif
+        let previous = links
+        links = LinkedCompanionStore.loadAll()
+        let known = Set(previous.map(\.sessionId))
+        let added = links.first { !known.contains($0.sessionId) }
+        let active = link.flatMap { current in links.first { $0.sessionId == current.sessionId } }
+        let next = added ?? active ?? links.first
+        guard next?.sessionId != link?.sessionId else {
+            link = next
+            return
+        }
+        activate(next)
+    }
 
+    func select(sessionId: String) {
+        #if DEBUG
+        if isFixture {
+            if let chosen = links.first(where: { $0.sessionId == sessionId }) { link = chosen }
+            return
+        }
+        #endif
+        guard let chosen = links.first(where: { $0.sessionId == sessionId }) else { return }
+        LinkedCompanionStore.markUsed(sessionId: sessionId)
+        guard chosen.sessionId != link?.sessionId else {
+            if case .failed = state { retry() } else { connect() }
+            return
+        }
+        activate(chosen)
+    }
+
+    func waitUntilReachable(timeout: Duration) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if isReachable { return true }
+            if case .failed = state { return false }
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        return isReachable
+    }
+
+    private func activate(_ next: LinkedCompanionStore.LinkRecord?) {
         teardown()
-        link = updated
-
-        guard updated != nil else {
+        resetMirroredState()
+        link = next
+        guard next != nil else {
             localContentServer.stop()
             clearPersistedSnapshot()
             state = .unlinked
+            connect()
             return
         }
-
+        restorePersistedSnapshot()
         state = .idle
+        reconnectDelay = Self.initialReconnectDelay
         connect()
     }
 
+    private func resetMirroredState() {
+        persistTask?.cancel()
+        persistTask = nil
+        tracks = []
+        currentIndex = 0
+        playingNextCount = 0
+        reportsPlayingNext = false
+        isPlaying = false
+        hasSnapshot = false
+        queueSource = nil
+        telemetry.playback = nil
+        telemetry.djState = nil
+        telemetry.autoMixLive = nil
+        telemetry.anchorDate = nil
+        telemetry.isLive = false
+        decks.reset()
+    }
+
     func retry() {
+        #if DEBUG
+        guard !isFixture else { return }
+        #endif
         teardown()
         connect()
     }
 
     func disconnect() {
+        #if DEBUG
+        guard !isFixture else { return }
+        #endif
         teardown()
         localContentServer.stop()
         if state != .unlinked {
@@ -230,19 +519,118 @@ final class CompanionClient: ObservableObject {
         }
     }
 
+    func forget(sessionId: String) {
+        #if DEBUG
+        if isFixture {
+            links.removeAll { $0.sessionId == sessionId }
+            if link?.sessionId == sessionId {
+                link = links.first
+                if link == nil { state = .unlinked }
+            }
+            return
+        }
+        #endif
+        guard let record = links.first(where: { $0.sessionId == sessionId }) else { return }
+        LinkedCompanionStore.enqueue(PendingLinkMessage(kind: .linkRevoke, link: record))
+        LinkedCompanionStore.remove(sessionId: sessionId)
+        needsSignInSessionIds.remove(sessionId)
+        Log.link.info("[CompanionClient] forgot \(record.peerName, privacy: .public); telling it on next contact")
+        flushOutbox()
+    }
+
+    func forgetAllLinks() {
+        for record in links { forget(sessionId: record.sessionId) }
+    }
+
+    @discardableResult
+    func queueSignOutEverywhere(accountId: String?, lineageDigest: String?) -> [String] {
+        let names = links.map(\.peerName)
+        for record in links {
+            LinkedCompanionStore.enqueue(PendingLinkMessage(
+                kind: .sessionRevoke,
+                link: record,
+                accountId: accountId,
+                lineageDigest: lineageDigest
+            ))
+        }
+        flushOutbox()
+        return names
+    }
+
+    func refreshLinkStatuses() {
+        #if DEBUG
+        guard !isFixture else { return }
+        #endif
+        if browser == nil { connect() }
+        for record in links where !isActive(record.sessionId) {
+            probe(record)
+        }
+        flushOutbox()
+    }
+
+    private func flushOutbox() {
+        let pending = LinkedCompanionStore.pendingMessages()
+        guard !pending.isEmpty else { return }
+        if browser == nil {
+            startBrowsing()
+            return
+        }
+        for message in pending {
+            guard !couriersInFlight.contains(message.id),
+                  let endpoint = advertisedEndpoints[message.servicePrefix],
+                  let secret = message.secret,
+                  let outgoing = message.message() else { continue }
+            couriersInFlight.insert(message.id)
+            Task { @MainActor [weak self] in
+                let outcome = await LinkCourier.deliver(outgoing, to: endpoint, sessionId: message.sessionId, secret: secret)
+                guard let self else { return }
+                self.couriersInFlight.remove(message.id)
+                switch outcome {
+                case .delivered, .revoked:
+                    LinkedCompanionStore.settle(messageId: message.id)
+                    if outcome == .revoked { self.drop(sessionId: message.sessionId) }
+                    Log.link.info("[CompanionClient] told \(message.peerName, privacy: .public): \(message.kind.rawValue, privacy: .public)")
+                case .status, .unreachable:
+                    break
+                }
+            }
+        }
+    }
+
+    private func probe(_ record: LinkedCompanionStore.LinkRecord) {
+        guard !probesInFlight.contains(record.sessionId),
+              let endpoint = advertisedEndpoints[record.servicePrefix],
+              let secret = record.secret else { return }
+        probesInFlight.insert(record.sessionId)
+        Task { @MainActor [weak self] in
+            let outcome = await LinkCourier.probe(endpoint, sessionId: record.sessionId, secret: secret)
+            guard let self else { return }
+            self.probesInFlight.remove(record.sessionId)
+            switch outcome {
+            case .status(let needsSignIn):
+                if needsSignIn {
+                    self.needsSignInSessionIds.insert(record.sessionId)
+                } else {
+                    self.needsSignInSessionIds.remove(record.sessionId)
+                }
+            case .revoked:
+                self.drop(sessionId: record.sessionId)
+            case .delivered, .unreachable:
+                break
+            }
+        }
+    }
+
+    private func drop(sessionId: String) {
+        needsSignInSessionIds.remove(sessionId)
+        guard LinkedCompanionStore.remove(sessionId: sessionId) != nil else { return }
+        Log.link.info("[CompanionClient] a linked device forgot this one; removed its link")
+    }
+
     private func startBrowsing() {
-        state = .searching
+        if link != nil { state = .searching }
 
-        let parameters = NWParameters()
-        parameters.includePeerToPeer = false
-
-        let newBrowser = NWBrowser(
-            for: .bonjour(
-                type: BonjourConstants.serviceType,
-                domain: BonjourConstants.serviceDomain
-            ),
-            using: parameters
-        )
+        let newBrowser = CompanionEndpoint.makeBrowser()
 
         newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in
@@ -252,24 +640,36 @@ final class CompanionClient: ObservableObject {
 
         newBrowser.stateUpdateHandler = { [weak self] browserState in
             Task { @MainActor in
-                guard case .failed(let error) = browserState, let self else { return }
-                self.teardown()
-                self.fail("Couldn't search the network: \(error.localizedDescription)")
+                guard let self else { return }
+                switch browserState {
+                case .failed(let error):
+                    self.teardown()
+                    self.fail(CompanionFailure.classify(error, fallback: .networkUnavailable))
+                case .waiting(let error):
+                    self.lastWaitingError = error
+                default:
+                    break
+                }
             }
         }
 
         browser = newBrowser
         newBrowser.start(queue: .main)
+        if link != nil { startSearchTimeout() }
+    }
 
+    private func startSearchTimeout() {
+        searchTimeout?.cancel()
         searchTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(15))
             guard !Task.isCancelled, let self, self.state == .searching else { return }
-            self.fail("Couldn't find your Apple TV. Make sure it's awake and on the same Wi‑Fi network.")
+            self.fail(CompanionFailure.classify(self.lastWaitingError, fallback: .notFound))
         }
     }
 
-    private func fail(_ message: String) {
-        state = .failed(message)
+    private func fail(_ failure: CompanionFailure) {
+        guard link != nil else { return }
+        state = .failed(failure)
         scheduleReconnect()
     }
 
@@ -289,13 +689,13 @@ final class CompanionClient: ObservableObject {
     private func startLivenessWatchdog() {
         livenessWatchdog?.cancel()
         livenessWatchdog = Task { @MainActor [weak self] in
-            let staleAfter: TimeInterval = 10
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
                 guard !Task.isCancelled, let self else { return }
                 guard case .connected = self.state else { continue }
-                guard Date().timeIntervalSince(self.lastFrameAt) > staleAfter else { continue }
+                guard Date().timeIntervalSince(self.lastFrameAt) > Self.staleAfter else { continue }
 
+                Log.link.info("[CompanionClient] no frames for \(Int(Self.staleAfter), privacy: .public)s; reconnecting")
                 self.teardown()
                 self.connect()
                 return
@@ -313,6 +713,8 @@ final class CompanionClient: ObservableObject {
         browser = nil
         contentEndpoint = nil
         contentEndpointsByDeviceToken.removeAll()
+        advertisedEndpoints.removeAll()
+        if !advertisedSessionIds.isEmpty { advertisedSessionIds = [] }
     }
 
     private func startLocalContentServer(for link: LinkedCompanionStore.LinkRecord) {
@@ -328,70 +730,81 @@ final class CompanionClient: ObservableObject {
         }
     }
 
-    private var canAdoptRemoteSession: Bool {
-        DeviceSessionStore.load()?.isUsable != true && !DeviceSessionStore.hasLocalSignOut
-    }
-
-    private func requestSessionIfNeeded() {
-        guard let link = activeLink, let secret = link.secret else { return }
-        guard canAdoptRemoteSession else {
-            pendingSessionNonce = nil
-            return
-        }
-
-        let request = SessionRequestPayload.create(sessionId: link.sessionId, secret: secret)
-        pendingSessionNonce = request.nonce
-        send(.sessionRequest(sessionId: link.sessionId, request: request))
-    }
-
-    private func adoptSession(_ offer: SessionOfferPayload) {
-        guard canAdoptRemoteSession else { return }
-
-        DeviceSessionStore.save(StoredSession(
-            oauthToken: offer.oauthToken,
-            refreshToken: offer.refreshToken,
-            clientId: offer.clientId,
-            expiresAt: offer.expiresAt
-        ))
-        DeviceSessionRefresher.shared.reset()
-        SoundCloudCredentialSource.shared.didCompleteSignIn()
-        Log.link.info("[CompanionClient] adopted the Apple TV's SoundCloud session over the paired link")
+    private var signer: CompanionCommandSigner? {
+        guard let link, let secret = link.secret else { return nil }
+        return CompanionCommandSigner(sessionId: link.sessionId, secret: secret)
     }
 
     private func send(_ message: TokenTransferMessage) {
         guard let connection, let data = try? message.framed() else { return }
-        connection.send(content: data, completion: .contentProcessed { _ in })
+        gateway.sendCompanionFrame(
+            data,
+            type: message.type,
+            ownerID: synchronizationID,
+            connection: connection
+        ) { [weak self, weak connection] in
+            guard let self, let connection else { return false }
+            return self.connection === connection
+        }
+    }
+
+    private func transmitNow(_ message: TokenTransferMessage) {
+        guard let connection, let data = try? message.framed() else { return }
+        gateway.transmitAdmittedCompanionFrame(
+            data,
+            connection: connection
+        ) { [weak self, weak connection] in
+            guard let self, let connection else { return false }
+            return self.connection === connection
+        }
     }
 
     private func dropConnection() {
         livenessWatchdog?.cancel()
         livenessWatchdog = nil
-        continuousFlushTask?.cancel()
-        continuousFlushTask = nil
         pendingContinuousControls.removeAll()
         connectTimeout?.cancel()
         connectTimeout = nil
-        lastWaitingReason = nil
+        lastWaitingError = nil
         companionServiceName = nil
-        pendingSessionNonce = nil
-        connection?.cancel()
-        connection = nil
-        framer = MessageFramer()
+        channel?.cancel()
+        channel = nil
         appliedRevision = -1
         appliedPlaybackRevision = 0
         appliedDJRevision = 0
-        cuePushDebounceTask?.cancel()
-        cuePushDebounceTask = nil
         cuePushHighWaterMark = 0
-        likesPushTask?.cancel()
-        likesPushTask = nil
-        CueSyncTarget.requestCompanionPush = nil
-        // Keep the last verified queue and Now Playing state visible while the
-        // phone reconnects. Fresh signed revisions replace it after .ready.
+        libraryPushHighWaterMark = nil
+        lastDeviceStatusMillis = 0
+        lastContinueSessionMillis = 0
+        if peerNeedsSignIn { peerNeedsSignIn = false }
+        endPeerSignInRequest()
+        playbackConfirmations.observeDisconnect()
+        gateway.cancel(keyPrefix: synchronizationID)
+        LocalMusicShareHost.shared.revokeAll()
+        synchronization.unregisterNearbySink(id: synchronizationID)
+        ContinueFrom.shared.unregisterRelay(id: synchronizationID)
+        intents.clear()
+        intentSettleTask?.cancel()
+        intentSettleTask = nil
+        observedPlayback = nil
+        if telemetry.isLive {
+            let now = Date()
+            if let playback = telemetry.playback, playback.isPlaying, let anchorDate = telemetry.anchorDate {
+                telemetry.playback = playback.frozen(
+                    at: playback.estimatedPosition(elapsed: now.timeIntervalSince(anchorDate))
+                )
+                telemetry.anchorDate = now
+            }
+            telemetry.isLive = false
+            isPlaying = false
+            persistSnapshotNow()
+        }
+        decks.reset()
     }
 
     private func handleBrowseResults(_ results: Set<NWBrowser.Result>) {
-        guard let link = activeLink, let secret = link.secret else { return }
+        noteAdvertisedLinks(results)
+        guard let link, let secret = link.secret else { return }
         let prefix = String(link.sessionId.prefix(8))
         let ownServiceName = localContentServer.advertisedServiceName
         var discovered: [String: NWEndpoint] = [:]
@@ -411,134 +824,113 @@ final class CompanionClient: ObservableObject {
 
         let match = results.first { result in
             guard case .service(let name, _, _, _) = result.endpoint else { return false }
-            return name.hasPrefix(BonjourConstants.companionServiceName) && name.contains(prefix)
+            return CompanionEndpoint.isCompanionService(name, sessionId: link.sessionId)
         }
 
         guard let match, case .service(let name, _, _, _) = match.endpoint else { return }
-        guard connection == nil || companionServiceName != name else { return }
+        guard channel == nil || companionServiceName != name else { return }
 
         searchTimeout?.cancel()
         searchTimeout = nil
         connect(to: match.endpoint, serviceName: name, sessionId: link.sessionId, secret: secret)
     }
 
+    private func noteAdvertisedLinks(_ results: Set<NWBrowser.Result>) {
+        let prefixes = Set(links.map(\.servicePrefix) + LinkedCompanionStore.pendingMessages().map(\.servicePrefix))
+        var endpoints: [String: NWEndpoint] = [:]
+        for result in results {
+            guard case .service(let name, _, _, _) = result.endpoint,
+                  name.hasPrefix(BonjourConstants.companionServiceName + "-") else { continue }
+            let prefix = String(name.dropFirst(BonjourConstants.companionServiceName.count + 1).prefix(8))
+            guard prefixes.contains(prefix) else { continue }
+            endpoints[prefix] = result.endpoint
+        }
+        advertisedEndpoints = endpoints
+        let advertised = Set(links.filter { endpoints[$0.servicePrefix] != nil }.map(\.sessionId))
+        if advertised != advertisedSessionIds { advertisedSessionIds = advertised }
+        flushOutbox()
+    }
+
     private func connect(to endpoint: NWEndpoint, serviceName: String, sessionId: String, secret: Data) {
-        connection?.cancel()
-        connection = nil
+        channel?.cancel()
+        channel = nil
         connectTimeout?.cancel()
         connectTimeout = nil
 
         companionServiceName = serviceName
         state = .connecting
-        framer = MessageFramer()
         cuePushHighWaterMark = 0
+        libraryPushHighWaterMark = libraryPushMarks[sessionId]
 
-        let parameters = LinkTLS.makeParameters(
-            sessionId: sessionId, secret: secret, info: LinkTLS.companionPSKInfo
-        )
-        parameters.includePeerToPeer = false
-        if let tcp = parameters.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options {
-            tcp.enableKeepalive = true
-            tcp.keepaliveIdle = 5
-            tcp.keepaliveInterval = 3
-            tcp.keepaliveCount = 3
-        }
-
-        let newConnection = NWConnection(to: endpoint, using: parameters)
-        newConnection.stateUpdateHandler = { [weak self] connectionState in
-            Task { @MainActor in
-                self?.handleConnectionState(connectionState, for: newConnection)
+        let newChannel = CompanionChannel(to: endpoint, sessionId: sessionId, secret: secret)
+        channel = newChannel
+        newChannel.start(
+            onEvent: { [weak self, weak newChannel] event in
+                guard let self, let newChannel, self.channel === newChannel else { return }
+                self.handleChannelEvent(event)
+            },
+            onMessage: { [weak self, weak newChannel] message in
+                guard let self, let newChannel, self.channel === newChannel else { return }
+                await self.handle(message)
             }
-        }
-
-        connection = newConnection
-        newConnection.start(queue: .main)
-        receive(on: newConnection)
-        startConnectTimeout(for: newConnection)
+        )
+        startConnectTimeout(for: newChannel)
     }
 
-    private func startConnectTimeout(for source: NWConnection) {
+    private func startConnectTimeout(for source: CompanionChannel) {
         connectTimeout?.cancel()
-        connectTimeout = Task { [weak self] in
+        connectTimeout = Task { [weak self, weak source] in
             try? await Task.sleep(for: .seconds(15))
-            guard !Task.isCancelled, let self, source === self.connection else { return }
+            guard !Task.isCancelled, let self, let source, source === self.channel else { return }
             guard self.state == .connecting else { return }
 
-            let detail = self.lastWaitingReason.map { " (\($0))" } ?? ""
+            let failure = CompanionFailure.classify(source.lastError ?? self.lastWaitingError, fallback: .notFound)
             self.dropConnection()
-            self.fail(
-                "Couldn't reach your Apple TV\(detail). Make sure it's awake and on the same Wi‑Fi network."
-            )
+            self.fail(failure)
         }
     }
 
-    private func handleConnectionState(_ connectionState: NWConnection.State, for source: NWConnection) {
-        guard source === connection else { return }
-
-        switch connectionState {
+    private func handleChannelEvent(_ event: CompanionChannel.Event) {
+        switch event {
         case .ready:
             connectTimeout?.cancel()
             connectTimeout = nil
             reconnectTask?.cancel()
             reconnectTask = nil
             reconnectDelay = Self.initialReconnectDelay
-            lastWaitingReason = nil
+            lastWaitingError = nil
             state = .connected
             lastFrameAt = Date()
+            Log.link.info("[CompanionClient] connected to \(self.linkedName, privacy: .public)")
             startLivenessWatchdog()
-            requestQueue()
-            requestSessionIfNeeded()
-            CueSyncTarget.requestCompanionPush = { [weak self] in
+            announceAndRequestQueue()
+            synchronization.registerNearbySink(id: synchronizationID) { [weak self] domain in
+                guard domain == .cues else { return }
                 self?.scheduleCuePush()
             }
             scheduleCuePush()
             scheduleLikesPushIfSupported()
-        case .waiting(let error):
-            lastWaitingReason = error.localizedDescription
-        case .failed(let error):
-            dropConnection()
-            fail("Lost the connection: \(error.localizedDescription)")
-        case .cancelled:
-            connectTimeout?.cancel()
-            connectTimeout = nil
-            connection = nil
-        default:
-            break
-        }
-    }
-
-    private func receive(on source: NWConnection) {
-        source.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
-            Task { @MainActor in
-                guard let self, source === self.connection else { return }
-
-                if let error {
-                    self.dropConnection()
-                    self.fail("Lost the connection: \(error.localizedDescription)")
-                    return
-                }
-
-                if let data, !data.isEmpty {
-                    self.framer.append(data)
-                    while let message = try? self.framer.next() {
-                        await self.handle(message)
-                    }
-                }
-
-                if isComplete {
-                    self.dropConnection()
-                    self.fail("Your Apple TV closed the connection.")
-                } else {
-                    self.receive(on: source)
-                }
+            sendLocalMusicOffer()
+            ContinueFrom.shared.registerRelay(id: synchronizationID) { [weak self] session in
+                self?.sendContinueSession(session)
             }
+            if let own = ContinueFrom.shared.latestOwn { sendContinueSession(own) }
+        case .waiting:
+            lastWaitingError = channel?.lastError
+        case .failed:
+            let failure = CompanionFailure.classify(channel?.lastError)
+            dropConnection()
+            fail(failure)
+        case .closed:
+            dropConnection()
+            fail(.closed)
         }
     }
 
     private func handle(_ message: TokenTransferMessage) async {
         lastFrameAt = Date()
 
-        guard let link = activeLink, let secret = link.secret else { return }
+        guard let link, let secret = link.secret else { return }
         guard message.sessionId == link.sessionId else { return }
 
         switch message.type {
@@ -548,27 +940,45 @@ final class CompanionClient: ObservableObject {
             guard queue.revision > appliedRevision else { return }
 
             appliedRevision = queue.revision
-            tracks = queue.tracks
-            currentIndex = queue.currentIndex
-            isPlaying = queue.isPlaying
-            hasSnapshot = true
-            persistSnapshot()
+            if tracks != queue.tracks { tracks = queue.tracks }
+            if currentIndex != queue.currentIndex { currentIndex = queue.currentIndex }
+            let nextPlayingNextCount = queue.playingNextCount ?? 0
+            if playingNextCount != nextPlayingNextCount { playingNextCount = nextPlayingNextCount }
+            if reportsPlayingNext != (queue.playingNextCount != nil) {
+                objectWillChange.send()
+                reportsPlayingNext = queue.playingNextCount != nil
+            }
+            if isPlaying != queue.isPlaying { isPlaying = queue.isPlaying }
+            let nextSource = Self.queueSource(title: queue.sourceTitle, kind: queue.sourceKind)
+            if queueSource != nextSource { queueSource = nextSource }
+            if !hasSnapshot { hasSnapshot = true }
+            Log.link.debug("[CompanionClient] rx queue_state rev=\(queue.revision, privacy: .public) tracks=\(queue.tracks.count, privacy: .public)")
+            schedulePersistSnapshot()
 
         case .playbackState:
             guard let playback = message.playback else { return }
             guard playback.verify(sessionId: link.sessionId, secret: secret) else { return }
             guard playback.revision > appliedPlaybackRevision else { return }
             appliedPlaybackRevision = playback.revision
-            self.playback = playback
-            persistSnapshot()
+            ingest(playback)
+            Log.link.debug("[CompanionClient] rx playback_state rev=\(playback.revision, privacy: .public) playing=\(playback.isPlaying, privacy: .public) position=\(playback.positionSeconds, privacy: .public)")
 
         case .djState:
             guard let dj = message.dj else { return }
             guard dj.verify(sessionId: link.sessionId, secret: secret) else { return }
             guard dj.revision > appliedDJRevision else { return }
             appliedDJRevision = dj.revision
-            self.djState = dj
-            persistSnapshot()
+            let now = Date()
+            let decksOpen = dj.verifiedDecksOpen(sessionId: link.sessionId, secret: secret)
+            if decks.decksOpen != decksOpen { decks.decksOpen = decksOpen }
+            decks.state = dj
+            decks.receivedAt = now
+            guard decks.shouldPublishTelemetry(dj, replacing: telemetry.djState, at: now) else { return }
+            decks.telemetryPublishedAt = now
+            telemetry.djState = dj
+            let live = AutoMixLiveState.decode(dj.verifiedLive(sessionId: link.sessionId, secret: secret))
+            if telemetry.autoMixLive != live { telemetry.autoMixLive = live }
+            schedulePersistSnapshot()
 
         case .cueSync:
             guard let payload = message.cueSync else { return }
@@ -576,25 +986,42 @@ final class CompanionClient: ObservableObject {
             guard payload.isFresh() else { return }
             guard cueReplayGuard.admit(payload.nonce) else { return }
             guard let body = CueSyncBody.decode(payload.body) else { return }
-            _ = await CueStore.shared.adopt(body.cues)
-            _ = await CueStore.shared.adoptDismissals(body.dismissals)
+            await synchronization.adoptNearbyCueState(body)
 
-        case .sessionOffer:
-            guard let offer = message.sessionOffer else { return }
-            guard let expected = pendingSessionNonce, offer.requestNonce == expected else { return }
-            guard offer.verify(sessionId: link.sessionId, secret: secret) else { return }
-            guard offer.isFresh() else { return }
-            pendingSessionNonce = nil
-            adoptSession(offer)
-
-        case .sessionUnavailable:
-            pendingSessionNonce = nil
+        case .linkRevoke:
+            guard message.verifiedRevoke(sessionId: link.sessionId, secret: secret) != nil else { return }
+            transmitNow(.acknowledgment(sessionId: link.sessionId))
+            Log.link.info("[CompanionClient] \(self.linkedName, privacy: .public) forgot this device")
+            drop(sessionId: link.sessionId)
 
         case .authHandoffSessionRequest:
             await handleAuthHandoffRequest(toPeerWith: link, secret: secret)
 
+        case .localMusicRequest:
+            sendLocalMusicOffer()
+
+        case .continueSession:
+            guard let payload = message.continueSession,
+                  payload.verify(sessionId: link.sessionId, secret: secret),
+                  payload.isFresh(),
+                  payload.issuedAtMillis > lastContinueSessionMillis else { return }
+            lastContinueSessionMillis = payload.issuedAtMillis
+            ContinueFrom.shared.adoptNearby(payload.body)
+
+        case .deviceStatus:
+            guard let status = message.deviceStatus,
+                  status.verify(sessionId: link.sessionId, secret: secret),
+                  status.isFresh(),
+                  status.issuedAtMillis >= lastDeviceStatusMillis else { return }
+            lastDeviceStatusMillis = status.issuedAtMillis
+            if peerNeedsSignIn != status.needsSignIn { peerNeedsSignIn = status.needsSignIn }
+            if !status.needsSignIn { endPeerSignInRequest() }
+            Log.link.info("[CompanionClient] \(self.linkedName, privacy: .public) needs sign-in=\(status.needsSignIn, privacy: .public)")
+
         case .error:
+            Log.link.info("[CompanionClient] \(self.linkedName, privacy: .public) rejected a command: \(message.error ?? "", privacy: .public)")
             rejection = message.error
+            playbackConfirmations.observeRejection(message.error ?? "")
             rejectionTimeout?.cancel()
             rejectionTimeout = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(4))
@@ -608,23 +1035,41 @@ final class CompanionClient: ObservableObject {
     }
 
     private func handleAuthHandoffRequest(toPeerWith link: LinkedCompanionStore.LinkRecord, secret: Data) async {
-        guard activeLink?.sessionId == link.sessionId else { return }
-
-        NotificationCenter.default.post(
-            name: .companionClientAuthHandoffRequest,
-            object: self,
-            userInfo: [
-                CompanionClientAuthHandoffRequestSessionIdKey: link.sessionId,
-                CompanionClientAuthHandoffRequestSecretKey: secret.base64EncodedString()
-            ]
-        )
-        Log.link.info("[CompanionClient] peer asked for auth handoff; posted sign-in request notification")
+        guard self.link?.sessionId == link.sessionId else { return }
+        publishAuthHandoffRequest(for: link, secret: secret)
+        Log.link.info("[CompanionClient] peer asked for auth handoff; published sign-in request state")
     }
 
-    /// Send a freshly captured token pair back to the peer. This is used after
-    /// the user completes the "sign in for device" flow on the companion.
+    func requestPeerSignIn() {
+        guard state == .connected, let link, let secret = link.secret, !isRequestingPeerSignIn else { return }
+        isRequestingPeerSignIn = true
+        publishAuthHandoffRequest(for: link, secret: secret)
+        peerSignInTimeout?.cancel()
+        peerSignInTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            guard !Task.isCancelled else { return }
+            self?.endPeerSignInRequest()
+        }
+        Log.link.info("[CompanionClient] signing in \(self.linkedName, privacy: .public) over the link")
+    }
+
+    private func publishAuthHandoffRequest(for link: LinkedCompanionStore.LinkRecord, secret: Data) {
+        authHandoffRequest = AuthHandoffRequest(
+            sessionId: link.sessionId,
+            secret: secret,
+            peerName: link.displayName,
+            peerClass: link.peerClass
+        )
+    }
+
+    private func endPeerSignInRequest() {
+        peerSignInTimeout?.cancel()
+        peerSignInTimeout = nil
+        if isRequestingPeerSignIn { isRequestingPeerSignIn = false }
+    }
+
     func sendAuthHandoffSession(_ session: StoredSession) {
-        guard let link = activeLink, let secret = link.secret else {
+        guard let link, let secret = link.secret else {
             Log.link.error("[CompanionClient] cannot send auth handoff session: no active companion link")
             return
         }
@@ -641,50 +1086,165 @@ final class CompanionClient: ObservableObject {
         Log.link.info("[CompanionClient] sent fresh auth handoff session over companion link")
     }
 
+    // MARK: - Snapshot persistence
+
     private func restorePersistedSnapshot() {
-        guard let link = activeLink,
+        guard let link,
               let data = UserDefaults.standard.data(forKey: Self.snapshotDefaultsKey),
               let snapshot = try? JSONDecoder().decode(PersistedSnapshot.self, from: data),
               snapshot.sessionId == link.sessionId else { return }
         tracks = snapshot.tracks
         currentIndex = min(max(0, snapshot.currentIndex), max(0, tracks.count - 1))
+        playingNextCount = snapshot.playingNextCount ?? 0
+        reportsPlayingNext = snapshot.playingNextCount != nil
         isPlaying = false
-        playback = snapshot.playback
-        djState = snapshot.djState
+        telemetry.playback = snapshot.playback
+        telemetry.djState = snapshot.djState
+        telemetry.anchorDate = snapshot.savedAt
+        telemetry.isLive = false
         hasSnapshot = !tracks.isEmpty || snapshot.playback?.trackId != nil
     }
 
-    private func persistSnapshot() {
-        guard let link = activeLink else { return }
+    private func schedulePersistSnapshot() {
+        guard persistTask == nil else { return }
+        persistTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.snapshotPersistInterval)
+            guard !Task.isCancelled, let self else { return }
+            self.persistTask = nil
+            self.writeSnapshot()
+        }
+    }
+
+    private func persistSnapshotNow() {
+        persistTask?.cancel()
+        persistTask = nil
+        writeSnapshot()
+    }
+
+    private func writeSnapshot() {
+        guard let link else { return }
         let snapshot = PersistedSnapshot(
             sessionId: link.sessionId,
             tracks: tracks,
             currentIndex: currentIndex,
             isPlaying: isPlaying,
-            playback: playback,
-            djState: djState,
+            playingNextCount: playingNextCount,
+            playback: telemetry.playback,
+            djState: telemetry.djState,
             savedAt: Date()
         )
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        UserDefaults.standard.set(data, forKey: Self.snapshotDefaultsKey)
+        snapshotGeneration &+= 1
+        let generation = snapshotGeneration
+        let writer = snapshotWriter
+        let key = Self.snapshotDefaultsKey
+        Task.detached(priority: .utility) {
+            await writer.write(snapshot, generation: generation, key: key)
+        }
     }
 
     private func clearPersistedSnapshot() {
-        UserDefaults.standard.removeObject(forKey: Self.snapshotDefaultsKey)
+        persistTask?.cancel()
+        persistTask = nil
+        snapshotGeneration &+= 1
+        let generation = snapshotGeneration
+        let writer = snapshotWriter
+        let key = Self.snapshotDefaultsKey
+        Task.detached(priority: .utility) {
+            await writer.remove(generation: generation, key: key)
+        }
         tracks = []
         currentIndex = 0
+        playingNextCount = 0
+        reportsPlayingNext = false
         isPlaying = false
-        playback = nil
-        djState = nil
+        telemetry.playback = nil
+        telemetry.djState = nil
+        telemetry.autoMixLive = nil
+        telemetry.anchorDate = nil
+        telemetry.isLive = false
+        decks.reset()
         hasSnapshot = false
+        queueSource = nil
     }
 
-    func addToQueue(trackId: String, atIndex: Int = -1) {
-        send(.queueAdd, fromIndex: -1, toIndex: atIndex, trackId: trackId)
-    }
+    // MARK: - Queue
 
     func requestQueue() {
-        send(.queueRequest, fromIndex: -1, toIndex: -1, trackId: "")
+        sendQueueCommand(.queueRequest)
+    }
+
+    private func announceAndRequestQueue() {
+        guard let link, let secret = link.secret, let signer else { return }
+        var message = signer.queue(.queueRequest, revision: appliedRevision)
+        message.peer = LinkPeerIdentity.local(sessionId: link.sessionId, secret: secret)
+        transmitCommand(message)
+    }
+
+    @discardableResult
+    nonisolated static func queueSource(title: String?, kind: String?) -> PlaybackQueueSource? {
+        guard let title, !title.isEmpty else { return nil }
+        return PlaybackQueueSource(
+            id: nil,
+            kind: kind.flatMap(PlaybackQueueSource.Kind.init(rawValue:)) ?? .other,
+            title: title
+        )
+    }
+
+    func load(
+        trackIds: [String],
+        startIndex: Int,
+        positionSeconds: Double,
+        autoplay: Bool,
+        source: PlaybackQueueSource? = nil
+    ) -> Bool {
+        guard trackIds.indices.contains(startIndex), let signer else { return false }
+        return transmitCommand(signer.load(
+            trackIds: trackIds,
+            startIndex: startIndex,
+            positionSeconds: max(0, positionSeconds),
+            autoplay: autoplay,
+            sourceTitle: source?.title,
+            sourceKind: source?.kind.rawValue
+        ))
+    }
+
+    func awaitPlayback(trackId: String, timeout: Duration) async -> PlaybackConfirmationTracker.Outcome {
+        await playbackConfirmations.confirm(trackId: trackId, timeout: timeout) { isReachable }
+    }
+
+    func loadConfirmingPlayback(
+        trackIds: [String],
+        startIndex: Int,
+        positionSeconds: Double,
+        autoplay: Bool,
+        source: PlaybackQueueSource? = nil,
+        timeout: Duration
+    ) async -> PlaybackConfirmationTracker.Outcome {
+        guard trackIds.indices.contains(startIndex) else { return .rejected("Could not load the queue") }
+        return await playbackConfirmations.confirm(trackId: trackIds[startIndex], timeout: timeout) {
+            load(trackIds: trackIds, startIndex: startIndex, positionSeconds: positionSeconds, autoplay: autoplay, source: source)
+        }
+    }
+
+    func addToQueue(trackId: String, atIndex: Int = -1, optimistic track: QueueTrack? = nil) {
+        if let track, hasSnapshot {
+            if tracks.isEmpty {
+                tracks.append(track)
+            } else {
+                let queuedEnd = min(tracks.count, currentIndex + 1 + playingNextCount)
+                let appendsAt = reportsPlayingNext ? queuedEnd : tracks.count
+                let target = atIndex < 0 || atIndex >= tracks.count ? appendsAt : atIndex
+                if reportsPlayingNext, target > currentIndex, target <= queuedEnd { playingNextCount += 1 }
+                tracks.insert(track, at: target)
+                if target <= currentIndex { currentIndex += 1 }
+            }
+        }
+        sendQueueCommand(.queueAdd, toIndex: atIndex, trackId: trackId)
+    }
+
+    func playNext(trackId: String, optimistic track: QueueTrack? = nil) {
+        let index = tracks.isEmpty ? -1 : min(currentIndex + 1, tracks.count)
+        addToQueue(trackId: trackId, atIndex: index, optimistic: track)
     }
 
     func move(from source: Int, to destination: Int) {
@@ -701,7 +1261,7 @@ final class CompanionClient: ObservableObject {
             currentIndex = index
         }
 
-        send(.queueReorder, fromIndex: source, toIndex: target, trackId: trackId)
+        sendQueueCommand(.queueReorder, fromIndex: source, toIndex: target, trackId: trackId)
     }
 
     func remove(at index: Int) {
@@ -709,6 +1269,7 @@ final class CompanionClient: ObservableObject {
         let trackId = tracks[index].id
         let playingId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
 
+        if index > currentIndex, index <= currentIndex + playingNextCount { playingNextCount -= 1 }
         tracks.remove(at: index)
         if let playingId, let newIndex = tracks.firstIndex(where: { $0.id == playingId }) {
             currentIndex = newIndex
@@ -716,40 +1277,64 @@ final class CompanionClient: ObservableObject {
             currentIndex = min(index, max(0, tracks.count - 1))
         }
 
-        send(.queueRemove, fromIndex: index, toIndex: -1, trackId: trackId)
+        sendQueueCommand(.queueRemove, fromIndex: index, trackId: trackId)
     }
 
     func jump(to index: Int) {
         guard tracks.indices.contains(index) else { return }
         let trackId = tracks[index].id
+        let target = tracks[index]
+        noteIntent {
+            $0.noteSkip(to: target, observed: $1, observedAt: $2, at: $3)
+            $0.notePlaying(true, observed: $1, observedAt: $2, at: $3)
+        }
         currentIndex = index
         isPlaying = true
-        send(.queueJump, fromIndex: index, toIndex: -1, trackId: trackId)
+        sendQueueCommand(.queueJump, fromIndex: index, trackId: trackId)
     }
+
+    private func sendQueueCommand(_ type: MessageType, fromIndex: Int = -1, toIndex: Int = -1, trackId: String = "") {
+        #if DEBUG
+        if isFixture {
+            simulateFixtureQueue(type, fromIndex: fromIndex)
+            return
+        }
+        #endif
+        guard let signer else { return }
+        transmitCommand(signer.queue(type, fromIndex: fromIndex, toIndex: toIndex, trackId: trackId, revision: appliedRevision))
+    }
+
+    @discardableResult
+    private func transmitCommand(_ message: TokenTransferMessage) -> Bool {
+        guard connection != nil else {
+            Log.link.info("[CompanionClient] dropped \(message.type.rawValue, privacy: .public); \(self.linkedName, privacy: .public) isn't connected")
+            return false
+        }
+        Log.link.info("[CompanionClient] tx \(message.type.rawValue, privacy: .public)")
+        send(message)
+        return true
+    }
+
+    // MARK: - Bulk sync
 
     private func scheduleCuePush() {
-        guard cuePushDebounceTask == nil else { return }
-        cuePushDebounceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled, let self else { return }
-            self.cuePushDebounceTask = nil
-            self.enqueueCuePush()
-        }
-    }
-
-    private func enqueueCuePush() {
-        let previous = cuePushWork
-        cuePushWork = Task { @MainActor [weak self] in
-            await previous.value
+        gateway.submit(
+            lane: .companionBulk,
+            key: "\(synchronizationID).cues"
+        ) { [weak self] in
             await self?.runCuePush()
         }
     }
 
     private func runCuePush() async {
-        guard let link = activeLink, let secret = link.secret else { return }
+        guard let link, let secret = link.secret else { return }
         while connection != nil {
-            let cues = await CueStore.shared.syncRecords(changedSince: cuePushHighWaterMark, limit: CueSyncChunking.maxBatchSize)
-            let dismissals = await CueStore.shared.dismissalRecords(changedSince: cuePushHighWaterMark, limit: CueSyncChunking.maxBatchSize)
+            let batch = await synchronization.nearbyCueBatch(
+                changedSince: cuePushHighWaterMark,
+                limit: CueSyncChunking.maxBatchSize
+            )
+            let cues = batch.cues
+            let dismissals = batch.dismissals
             if cues.isEmpty && dismissals.isEmpty { return }
 
             guard let body = CueSyncBody(cues: cues, dismissals: dismissals).encoded() else { return }
@@ -757,7 +1342,7 @@ final class CompanionClient: ObservableObject {
                 body: body, cueCount: cues.count, dismissalCount: dismissals.count,
                 sessionId: link.sessionId, secret: secret
             )
-            send(.cueSync(sessionId: link.sessionId, payload: payload))
+            transmitNow(.cueSync(sessionId: link.sessionId, payload: payload))
 
             let batchMax = max(cues.map(\.updatedAtMillis).max() ?? 0, dismissals.map(\.dismissedAtMillis).max() ?? 0)
             if batchMax <= cuePushHighWaterMark { return }
@@ -765,89 +1350,256 @@ final class CompanionClient: ObservableObject {
         }
     }
 
+    private func sendLocalMusicOffer() {
+        guard let link, let secret = link.secret,
+              let body = LocalMusicShareHost.shared.offer().encoded() else { return }
+        transmitNow(.localMusicOffer(
+            sessionId: link.sessionId,
+            payload: LocalMusicOfferPayload.create(body: body, sessionId: link.sessionId, secret: secret)
+        ))
+    }
+
+    private func sendContinueSession(_ session: ContinueSession) {
+        guard state == .connected, let link, let secret = link.secret,
+              let body = session.encoded() else { return }
+        transmitNow(.continueSession(
+            sessionId: link.sessionId,
+            payload: ContinueSessionPayload.create(body: body, sessionId: link.sessionId, secret: secret)
+        ))
+    }
+
     private func scheduleLikesPushIfSupported() {
-        guard DeviceClass.current == .phone || DeviceClass.current == .pad else { return }
-        likesPushTask?.cancel()
-        likesPushTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(800))
-            guard !Task.isCancelled else { return }
+        guard [DeviceClass.phone, .pad, .mac].contains(DeviceClass.current) else { return }
+        gateway.submit(
+            lane: .companionBulk,
+            key: "\(synchronizationID).likes"
+        ) { [weak self] in
             await self?.runLikesPush()
         }
     }
 
     private func runLikesPush() async {
-        guard let link = activeLink,
+        guard let link,
               let secret = link.secret,
               let accountId = SoundCloudCredentialSource.shared.currentUser?.id
                 ?? SubscriptionService.shared.authenticatedAccountID else { return }
 
-        let snapshotId = UUID().uuidString
-        let batchSize = 25
-        var offset = 0
-        while connection != nil, !Task.isCancelled {
-            let records = await LibraryCache.shared.loadLikesForPeer(offset: offset, limit: batchSize)
-            let isComplete = records.count < batchSize
-            let body = LikesPeerBody(
-                accountId: accountId,
-                snapshotId: snapshotId,
-                records: records,
-                isComplete: isComplete
-            )
-            guard let encoded = body.encoded() else { return }
-            let payload = LikesSyncPayload.create(
-                body: encoded,
-                accountId: accountId,
-                recordCount: records.count,
-                isComplete: isComplete,
-                sessionId: link.sessionId,
-                secret: secret
-            )
-            send(.likesSync(sessionId: link.sessionId, payload: payload))
-            if isComplete { return }
-            offset += records.count
+        let since = libraryPushHighWaterMark
+        let chunks = await LibrarySyncEngine.shared.peerChunks(since: since)
+        let rowChunks = chunks.filter { $0.carriesRows && $0.account == accountId }
+        if since != nil, rowChunks.isEmpty { return }
+        let sessionId = link.sessionId
+        let owned = chunks.filter { $0.account == accountId }
+        let payloads = await Task.detached(priority: .utility) {
+            Self.libraryPushPayloads(owned, accountId: accountId, sessionId: sessionId, secret: secret)
+        }.value
+        for payload in payloads {
+            guard connection != nil, !Task.isCancelled else { return }
+            transmitNow(.likesSync(sessionId: link.sessionId, payload: payload))
             await Task.yield()
         }
+        let sent = rowChunks.map(\.updatedAtMillis).max() ?? 0
+        libraryPushHighWaterMark = max(since ?? 0, sent)
+        libraryPushMarks[link.sessionId] = libraryPushHighWaterMark
     }
 
-    private func send(_ type: MessageType, fromIndex: Int, toIndex: Int, trackId: String) {
-        guard let link = activeLink, let secret = link.secret, let connection else { return }
-
-        let command = QueueCommandPayload.create(
-            type: type,
-            fromIndex: fromIndex,
-            toIndex: toIndex,
-            trackId: trackId,
-            revision: max(0, appliedRevision),
-            sessionId: link.sessionId,
-            secret: secret
-        )
-
-        guard let data = try? TokenTransferMessage
-            .queueCommand(type, sessionId: link.sessionId, command: command)
-            .framed() else { return }
-
-        connection.send(content: data, completion: .contentProcessed { _ in })
+    nonisolated private static func libraryPushPayloads(_ chunks: [LibraryChunk], accountId: String, sessionId: String, secret: Data) -> [LikesSyncPayload] {
+        let batches = LibraryPeerBody.batches(chunks)
+        var payloads: [LikesSyncPayload] = []
+        for (index, batch) in batches.enumerated() {
+            let isComplete = index == batches.count - 1
+            guard let encoded = LibraryPeerBody(accountId: accountId, chunks: batch, isComplete: isComplete).encoded() else { break }
+            payloads.append(LikesSyncPayload.create(
+                body: encoded,
+                accountId: accountId,
+                recordCount: batch.count,
+                isComplete: isComplete,
+                sessionId: sessionId,
+                secret: secret
+            ))
+        }
+        return payloads
     }
 }
 
 extension CompanionClient {
 
-    func play()     { sendControl(.transportPlay) }
-    func pause()    { sendControl(.transportPause) }
-    func next()     { sendControl(.transportNext) }
-    func previous() { sendControl(.transportPrevious) }
+    var isReachable: Bool {
+        if case .connected = state { return true }
+        return false
+    }
+
+    func play() {
+        noteIntent { $0.notePlaying(true, observed: $1, observedAt: $2, at: $3) }
+        sendControl(.transportPlay)
+    }
+
+    func pause() {
+        noteIntent { $0.notePlaying(false, observed: $1, observedAt: $2, at: $3) }
+        sendControl(.transportPause)
+    }
+
+    func togglePlayPause() {
+        telemetry.playback?.isPlaying == true ? pause() : play()
+    }
+
+    func next() {
+        let target = RemoteSkipPlanner.nextTarget(
+            tracks: tracks,
+            currentIndex: currentIndex,
+            presentedTrackId: telemetry.playback?.trackId
+        )
+        if let target {
+            noteIntent { $0.noteSkip(to: target, observed: $1, observedAt: $2, at: $3) }
+        }
+        sendControl(.transportNext)
+    }
+
+    func previous() {
+        let plan = RemoteSkipPlanner.previous(
+            tracks: tracks,
+            currentIndex: currentIndex,
+            presentedTrackId: telemetry.playback?.trackId,
+            position: telemetry.estimatedPosition()
+        )
+        switch plan {
+        case .restart:
+            noteIntent { $0.noteSkip(to: nil, observed: $1, observedAt: $2, at: $3) }
+        case .track(let target):
+            noteIntent { $0.noteSkip(to: target, observed: $1, observedAt: $2, at: $3) }
+        case .unknown:
+            break
+        }
+        sendControl(.transportPrevious)
+    }
 
     func seek(toSeconds seconds: Double) {
+        noteIntent { $0.noteSeek(to: seconds, observed: $1, observedAt: $2, at: $3) }
         sendControl(.transportSeek, parameter: .position, value: seconds)
+    }
+
+    var upNext: [(index: Int, track: QueueTrack)] {
+        RemoteQueueProjection.upNext(tracks: tracks, currentIndex: currentIndex, presentedTrackId: telemetry.playback?.trackId)
+    }
+
+    var upNextLayout: UpNextLayout {
+        let count = upNext.count
+        let queued = RemoteQueueProjection.playingNextCount(
+            playingNextCount, tracks: tracks, currentIndex: currentIndex, presentedTrackId: telemetry.playback?.trackId
+        )
+        let autoMixOn = telemetry.autoMixLive != nil || telemetry.djState?.isAutoMixEnabled == true
+        return UpNextLayout.make(upcomingCount: count, playingNextCount: queued, autoMixOn: autoMixOn)
+    }
+
+    func playNext(queueIndex index: Int) {
+        guard let destination = RemoteQueueProjection.playNextDestination(
+            for: index,
+            tracks: tracks,
+            currentIndex: currentIndex,
+            presentedTrackId: telemetry.playback?.trackId
+        ) else { return }
+        move(from: index, to: destination)
+    }
+
+    private func noteIntent(_ record: (inout RemotePlaybackIntents, PlaybackStatePayload?, Date, Date) -> Void) {
+        guard isReachable, telemetry.isLive else { return }
+        record(&intents, observedPlayback, observedAt, Date())
+        publishPlayback()
+    }
+
+    fileprivate func ingest(_ playback: PlaybackStatePayload) {
+        observedPlayback = playback
+        observedAt = Date()
+        if !telemetry.isLive { telemetry.isLive = true }
+        publishPlayback()
+        playbackConfirmations.observePlayback(trackId: playback.trackId)
+        schedulePersistSnapshot()
+    }
+
+    private func publishPlayback() {
+        guard let observed = observedPlayback else { return }
+        let now = Date()
+        intents.settle(observed: observed, observedAt: observedAt, isLive: telemetry.isLive, at: now)
+        let presentation = intents.present(observed, observedAt: observedAt, at: now)
+        telemetry.playback = presentation.playback
+        telemetry.anchorDate = presentation.anchorDate
+        scheduleIntentSettle()
+    }
+
+    private func scheduleIntentSettle() {
+        intentSettleTask?.cancel()
+        intentSettleTask = nil
+        guard let deadline = intents.nextDeadline else { return }
+        let delay = max(0.05, deadline.timeIntervalSinceNow + 0.01)
+        intentSettleTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            self.intentSettleTask = nil
+            self.publishPlayback()
+        }
+    }
+
+    var canChangePlaybackModes: Bool { isReachable && telemetry.playbackModes != nil }
+
+    func setShuffle(_ enabled: Bool) {
+        guard canChangePlaybackModes else { return }
+        sendControl(.transportShuffle, value: enabled ? 1 : 0)
+    }
+
+    func setRepeat(_ mode: RemoteRepeatMode) {
+        guard canChangePlaybackModes else { return }
+        sendControl(.transportRepeat, value: mode.wireValue)
+    }
+
+    var volume: Double? {
+        guard let reported = telemetry.playback?.effectiveVolume else { return nil }
+        return volumeChannel.value(echo: reported)
+    }
+
+
+    func setVolume(_ value: Double) {
+        guard isReachable else { return }
+        volumeChannel.set(value)
+    }
+
+    func beginVolumeChange() {
+        volumeChannel.begin()
+    }
+
+    func endVolumeChange() {
+        volumeChannel.end()
+    }
+
+    func stepVolume(_ steps: Int) {
+        guard isReachable, let reported = telemetry.playback?.effectiveVolume else { return }
+        volumeChannel.step(steps, echo: reported)
+    }
+
+    private func transmitVolume(_ value: Double) {
+        guard isReachable else { return }
+        sendControl(.transportVolume, value: min(1, max(0, value)), continuous: true)
+    }
+
+    var sleepTimer: SleepTimerStatus? { telemetry.playback?.sleepTimerStatus }
+
+    func setSleepTimer(_ mode: SleepTimerMode?) {
+        guard isReachable else { return }
+        sendControl(.transportSleepTimer, value: mode?.wireKind ?? 0, value2: mode?.wireMinutes ?? 0)
     }
 
     func setDJEnabled(_ enabled: Bool) { sendControl(enabled ? .djEnable : .djDisable) }
     func setAutoMixEnabled(_ enabled: Bool) { sendControl(enabled ? .djAutoEnable : .djAutoDisable) }
+    func startPartyScene(lights: LightingIntensity) { sendControl(.sceneParty, value: lights.wireValue) }
+    func startWindDown(minutes: Double) { sendControl(.sceneWindDown, value: minutes) }
     func setDJProfile(_ profileId: DJProfileID) {
         guard let index = DJProfile.all.firstIndex(where: { $0.id == profileId }) else { return }
         sendControl(.djProfile, parameter: .profile, value: Double(index))
     }
     func mixNow()                      { sendControl(.djMixNow) }
+    func extendMix()                   { sendControl(.djExtend) }
+    func sendEnergyTarget(level: Int, heartRate: Double?) {
+        sendControl(.djEnergy, value: Double(level), value2: heartRate ?? 0)
+    }
 
     func seek(deck: ControlDeck, toSeconds seconds: Double) {
         sendControl(.djCue, deck: deck, parameter: .position, value: seconds)
@@ -904,6 +1656,23 @@ extension CompanionClient {
         sendControl(.djJog, deck: deck, parameter: .nudge, value: seconds, continuous: true)
     }
 
+    func setHighPassCutoff(deck: ControlDeck, hertz: Double) {
+        guard decks.supportsRemoteMixing else { return }
+        sendControl(.djFilter, deck: deck, parameter: .highPassCutoff, value: hertz, continuous: true)
+    }
+
+    func handBackDecks() {
+        guard decks.supportsRemoteMixing else { return }
+        sendControl(.djHandBack)
+    }
+
+    func attachDecks(_ attached: Bool) {
+        let changed = decks.isAttached != attached
+        decks.isAttached = attached
+        guard decks.supportsRemoteMixing, attached || changed else { return }
+        sendControl(.djRemoteAttach, value: attached ? 1 : 0)
+    }
+
     private func sendControl(
         _ type: MessageType,
         deck: ControlDeck = .none,
@@ -912,6 +1681,12 @@ extension CompanionClient {
         value2: Double = 0,
         continuous: Bool = false
     ) {
+        #if DEBUG
+        if isFixture {
+            simulateFixtureControl(type, value: value, value2: value2)
+            return
+        }
+        #endif
         if continuous {
             let key = "\(type.rawValue)#\(deck.rawValue)#\(parameter.rawValue)"
             if type == .djJog, let pending = pendingContinuousControls[key] {
@@ -934,31 +1709,24 @@ extension CompanionClient {
         )
     }
 
-    /// UI controls can produce updates at display-link speed. Sending only the
-    /// newest value once per frame prevents a slow Wi-Fi link from building a
-    /// stale command backlog while preserving responsive controls.
     private func scheduleContinuousFlush() {
-        guard continuousFlushTask == nil else { return }
-        continuousFlushTask = Task { @MainActor [weak self] in
-            while let self, !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(33))
-                guard !Task.isCancelled else { return }
-                let batch = Array(self.pendingContinuousControls.values)
-                self.pendingContinuousControls.removeAll(keepingCapacity: true)
-                for control in batch {
-                    self.transmitControl(
-                        control.type,
-                        deck: control.deck,
-                        parameter: control.parameter,
-                        value: control.value,
-                        value2: control.value2,
-                        continuous: true
-                    )
-                }
-                if self.pendingContinuousControls.isEmpty {
-                    self.continuousFlushTask = nil
-                    return
-                }
+        gateway.submit(
+            lane: .companionContinuous,
+            key: "\(synchronizationID).controls"
+        ) { [weak self] in
+            guard let self else { return }
+            let batch = Array(self.pendingContinuousControls.values)
+            self.pendingContinuousControls.removeAll(keepingCapacity: true)
+            for control in batch {
+                self.transmitControl(
+                    control.type,
+                    deck: control.deck,
+                    parameter: control.parameter,
+                    value: control.value,
+                    value2: control.value2,
+                    continuous: true,
+                    bypassGateway: true
+                )
             }
         }
     }
@@ -969,96 +1737,953 @@ extension CompanionClient {
         parameter: ControlParameter,
         value: Double,
         value2: Double,
-        continuous: Bool
+        continuous: Bool,
+        bypassGateway: Bool = false
     ) {
-        guard let link = activeLink, let secret = link.secret, let connection else { return }
+        guard let signer, connection != nil else { return }
 
         if continuous { controlSequence &+= 1 }
 
-        let control = ControlCommandPayload.create(
-            type: type,
-            deck: deck,
-            parameter: parameter,
-            value: value,
-            value2: value2,
-            sequence: continuous ? controlSequence : 0,
-            sessionId: link.sessionId,
-            secret: secret
+        let message = signer.control(
+            type, deck: deck, parameter: parameter, value: value, value2: value2,
+            sequence: continuous ? controlSequence : 0
         )
 
-        guard let data = try? TokenTransferMessage
-            .controlCommand(type, sessionId: link.sessionId, control: control)
-            .framed()
-        else { return }
-
-        connection.send(content: data, completion: .contentProcessed { _ in })
-    }
-}
-
-extension CompanionClient: CompanionOutputTarget {
-    var isReachable: Bool {
-        if case .connected = state { return true }
-        return false
-    }
-
-    func sendPlayback(track: Track, queue: [Track], index: Int, position: TimeInterval, isPlaying: Bool) {
-        guard isReachable else { return }
-
-        let upcoming = queue.indices.contains(index)
-            ? Array(queue[index...])
-            : [track]
-        for item in upcoming {
-            addToQueue(trackId: item.id)
+        if bypassGateway {
+            transmitNow(message)
+        } else {
+            if !continuous { Log.link.info("[CompanionClient] tx \(type.rawValue, privacy: .public)") }
+            send(message)
         }
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: .milliseconds(600))
-            guard let landed = self.tracks.firstIndex(where: { $0.id == track.id }) else { return }
-            self.jump(to: landed)
-            try? await Task.sleep(for: .milliseconds(300))
-            if position > 1 { self.seek(toSeconds: position) }
-            if !isPlaying { self.pause() }
-        }
-    }
-
-    func pausePlayback() {
-        guard isReachable else { return }
-        pause()
     }
 }
 
 extension CompanionClient: PeerContentSessionProvider {
     var peerContentEndpoint: (endpoint: NWEndpoint, sessionId: String, secret: Data)? {
-        guard let contentEndpoint, let link = activeLink, let secret = link.secret else { return nil }
+        guard let contentEndpoint, let link, let secret = link.secret else { return nil }
         return (contentEndpoint, link.sessionId, secret)
     }
 
     func peerContentEndpoint(forDeviceId deviceId: String) -> (endpoint: NWEndpoint, sessionId: String, secret: Data)? {
-        guard let link = activeLink, let secret = link.secret else { return nil }
+        guard let link, let secret = link.secret else { return nil }
         let token = PeerContentServer.serviceToken(for: deviceId)
         guard let endpoint = contentEndpointsByDeviceToken[token] else { return nil }
         return (endpoint, link.sessionId, secret)
     }
 }
 
+extension QueueTrack {
+    init(_ track: Track) {
+        self.init(
+            id: track.id,
+            title: track.title,
+            artist: track.user.displayName,
+            artworkURL: track.artworkURL,
+            duration: track.duration
+        )
+    }
+}
+
+// MARK: - Output
+
+@MainActor
+final class OutputRouter: ObservableObject {
+    static let moveConfirmationTimeout: Duration = .seconds(5)
+    static let lateMoveWindow: Duration = .seconds(30)
+
+    let client: CompanionClient
+    private let player: PlayerService
+    private let api: SoundCloudAPI
+
+    @Published private(set) var current: OutputDevice = .thisDevice
+    @Published private(set) var isMoving = false
+    @Published private(set) var notice: String?
+    @Published private(set) var entries: [OutputListEntry] = []
+
+    private let preference: OutputPreference
+    private let now: () -> Date
+    private var presence = OutputPresence()
+    private var restore: OutputRestore?
+    private var outputsRefreshScheduled = false
+    private var outputsWakeTask: Task<Void, Never>?
+    private static let outputsDebounce: Duration = .milliseconds(400)
+
+    static func localTracksNotice(on device: OutputDevice, playingHere: Bool) -> String {
+        let place = device.deviceClass.displayName
+        #if os(macOS)
+        let line = "On This Mac tracks can't play on \(place) yet."
+        #else
+        let line = "Tracks in Files can't play on \(place) yet."
+        #endif
+        return playingHere ? "Playing on this \(DeviceClass.current.displayName). \(line)" : line
+    }
+
+    var sleepTimer: SleepTimerStatus? {
+        current.isLocal ? SleepTimer.shared.status : client.sleepTimer
+    }
+
+    func setSleepTimer(_ mode: SleepTimerMode?) {
+        if current.isLocal {
+            if let mode { SleepTimer.shared.start(mode) } else { SleepTimer.shared.cancel() }
+        } else {
+            client.setSleepTimer(mode)
+        }
+    }
+
+    private var cancellables = Set<AnyCancellable>()
+    private var lateMoveGuard: Task<Void, Never>?
+    private var routedTrackId: String?
+    private var systemSyncScheduled = false
+
+    init(
+        client: CompanionClient,
+        player: PlayerService = .shared,
+        api: SoundCloudAPI = .shared,
+        preference: OutputPreference = OutputPreference(),
+        now: @escaping () -> Date = { Date() }
+    ) {
+        self.client = client
+        self.player = player
+        self.api = api
+        self.preference = preference
+        self.now = now
+        if let saved = preference.savedID, saved != OutputDevice.localID {
+            if let linked = client.linkedOutputDevices.first(where: { $0.id == saved }),
+               let sessionId = linked.linkSessionId {
+                if !client.isActive(sessionId) { client.select(sessionId: sessionId) }
+                current = linked
+                restore = OutputRestore(savedID: saved, startedAt: now())
+                Log.link.info("[OutputRouter] restoring output \(linked.name, privacy: .public)")
+            }
+        }
+        #if DEBUG
+        if RemoteFixture.current != nil,
+           ProcessInfo.processInfo.environment["SOUNDING_TV_REMOTE_OUTPUT"] == "1",
+           let linked = client.linkedOutputDevice {
+            current = linked
+        }
+        #endif
+        client.objectWillChange
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    await Task.yield()
+                    self?.reconcileWithLink()
+                    self?.scheduleOutputsRefresh()
+                }
+            }
+            .store(in: &cancellables)
+        $current
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleSystemNowPlaying()
+                Task { @MainActor in self?.refreshOutputs() }
+            }
+            .store(in: &cancellables)
+        player.$currentTrack
+            .map { $0?.isLocal == true }
+            .removeDuplicates()
+            .sink { [weak self] isLocal in
+                if !isLocal { self?.notice = nil }
+            }
+            .store(in: &cancellables)
+        client.telemetry.objectWillChange
+            .sink { [weak self] _ in self?.scheduleSystemNowPlaying() }
+            .store(in: &cancellables)
+        refreshOutputs()
+        scheduleSystemNowPlaying()
+    }
+
+    private func scheduleSystemNowPlaying() {
+        guard !systemSyncScheduled else { return }
+        systemSyncScheduled = true
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            self.systemSyncScheduled = false
+            self.syncSystemNowPlaying()
+        }
+    }
+
+    private func syncSystemNowPlaying() {
+        guard isRemote else {
+            if player.isSystemNowPlayingRouted { player.routeSystemNowPlaying(to: nil) }
+            routedTrackId = nil
+            return
+        }
+        let client = self.client
+        if !player.isSystemNowPlayingRouted {
+            routedTrackId = nil
+            player.routeSystemNowPlaying(to: SystemTransportHandlers(
+                play: { client.play() },
+                pause: { client.pause() },
+                togglePlayPause: { client.togglePlayPause() },
+                next: { client.next() },
+                previous: { client.previous() },
+                seek: { client.seek(toSeconds: $0) }
+            ))
+        }
+        guard let playback = client.telemetry.playback, let trackId = playback.trackId else {
+            if routedTrackId != nil { player.publishRoutedNowPlaying(nil) }
+            routedTrackId = nil
+            return
+        }
+        if routedTrackId != trackId {
+            routedTrackId = trackId
+            player.publishRoutedNowPlaying(SystemNowPlayingItem(
+                trackId: trackId,
+                title: playback.title ?? "",
+                artist: playback.artist ?? "",
+                artworkURL: playback.artworkURL.flatMap(URL.init(string:)),
+                queueIndex: nil,
+                queueCount: nil
+            ))
+        }
+        player.publishRoutedPlayback(
+            SystemPlaybackStatus(
+                elapsed: client.telemetry.estimatedPosition(),
+                duration: playback.durationSeconds,
+                isPlaying: client.telemetry.isPlaying
+            ),
+            hasNext: !client.upNext.isEmpty
+        )
+    }
+
+    var linkedDevice: OutputDevice? { client.linkedOutputDevice }
+
+    var linkedDevices: [OutputDevice] { client.linkedOutputDevices }
+
+    var devices: [OutputDevice] { entries.map(\.device) }
+
+    var isRemote: Bool { !current.isLocal }
+
+    var isRestoring: Bool { restore != nil }
+
+    func availability(of device: OutputDevice) -> OutputAvailability? {
+        if device.isLocal { return .available }
+        return entries.first { $0.id == device.id }?.availability
+    }
+
+    func isReachable(_ device: OutputDevice) -> Bool {
+        availability(of: device)?.isSelectable ?? false
+    }
+
+    // MARK: Presence
+
+    private var liveOutputIDs: Set<String> {
+        Set(linkedDevices.compactMap { device -> String? in
+            guard let sessionId = device.linkSessionId else { return nil }
+            let advertised = client.advertisedSessionIds.contains(sessionId)
+            if client.isActive(sessionId) { return client.isReachable || advertised ? device.id : nil }
+            return advertised ? device.id : nil
+        })
+    }
+
+    private func scheduleOutputsRefresh() {
+        guard !outputsRefreshScheduled else { return }
+        outputsRefreshScheduled = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.outputsDebounce)
+            guard let self else { return }
+            self.outputsRefreshScheduled = false
+            self.refreshOutputs()
+        }
+    }
+
+    private func refreshOutputs() {
+        let moment = now()
+        let linked = linkedDevices
+        let live = liveOutputIDs
+        presence.retain(only: Set(linked.map(\.id)))
+        presence.observe(live: live, at: moment)
+        resolveRestore(linkedIDs: Set(linked.map(\.id)), liveIDs: live, at: moment)
+        let next = OutputList.entries(
+            local: .thisDevice,
+            linked: linked,
+            current: current,
+            preferredID: linkedDevice?.id,
+            presence: presence,
+            at: moment
+        )
+        if next != entries { entries = next }
+        scheduleOutputsWake(after: moment)
+    }
+
+    private func resolveRestore(linkedIDs: Set<String>, liveIDs: Set<String>, at moment: Date) {
+        guard let pending = restore else { return }
+        guard current.id == pending.savedID else {
+            restore = nil
+            return
+        }
+        switch pending.decide(linkedIDs: linkedIDs, liveIDs: liveIDs, at: moment) {
+        case .wait:
+            break
+        case .restored:
+            restore = nil
+            Log.link.info("[OutputRouter] restored output \(self.current.name, privacy: .public)")
+        case .fallBack:
+            restore = nil
+            Log.link.info("[OutputRouter] \(self.current.name, privacy: .public) didn't appear; output stays on this device")
+            select(.thisDevice, remember: false)
+        }
+    }
+
+    private func scheduleOutputsWake(after moment: Date) {
+        outputsWakeTask?.cancel()
+        outputsWakeTask = nil
+        let wake = [presence.nextChange(after: moment), restore?.deadline].compactMap { $0 }.min()
+        guard let wake else { return }
+        let delay = max(0.1, wake.timeIntervalSince(moment) + 0.05)
+        outputsWakeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            self?.refreshOutputs()
+        }
+    }
+
+    private func focus(on device: OutputDevice) async -> String? {
+        guard let sessionId = device.linkSessionId, linkedDevices.contains(device) else {
+            return "\(device.name) isn't linked to this \(DeviceClass.current.displayName)."
+        }
+        if !client.isActive(sessionId) { client.select(sessionId: sessionId) }
+        guard await client.waitUntilReachable(timeout: Self.focusTimeout) else {
+            return "\(device.name) isn't reachable right now."
+        }
+        return nil
+    }
+
+    private static let focusTimeout: Duration = .seconds(8)
+
+    private func reconcileWithLink() {
+        guard !current.isLocal else { return }
+        if let linked = linkedDevice, linked.id == current.id {
+            if linked != current { current = linked }
+            return
+        }
+        Log.link.info("[OutputRouter] linked device changed; output returns to this device")
+        select(.thisDevice, remember: false)
+    }
+
+    private func select(_ device: OutputDevice, remember: Bool = true) {
+        if remember {
+            restore = nil
+            preference.remember(device)
+        }
+        guard device != current else { return }
+        if !device.isLocal { notice = nil }
+        current = device
+    }
+
+    @discardableResult
+    func move(to device: OutputDevice) async -> String? {
+        guard device != current else { return nil }
+        guard !isMoving else { return "Playback is already moving." }
+        isMoving = true
+        defer { isMoving = false }
+        lateMoveGuard?.cancel()
+        lateMoveGuard = nil
+
+        if device.isLocal {
+            return await moveHere()
+        }
+        if isRemote {
+            return await moveBetweenLinked(to: device)
+        }
+        if player.currentTrack?.isLocal == true {
+            return Self.localTracksNotice(on: device, playingHere: false)
+        }
+        if let problem = await focus(on: device) { return problem }
+
+        guard let track = player.currentTrack else {
+            Log.link.info("[OutputRouter] output is now \(device.name, privacy: .public); nothing was playing here")
+            select(device)
+            return nil
+        }
+
+        let ids = player.queue.filter { !$0.isLocal }.map(\.id)
+        let index = ids.indices.contains(player.currentIndex) && ids[player.currentIndex] == track.id
+            ? player.currentIndex
+            : (ids.firstIndex(of: track.id) ?? 0)
+        let trackIds = ids.isEmpty ? [track.id] : ids
+        let position = player.currentTime
+        let wasPlaying = player.isPlaying
+        Log.link.info("[OutputRouter] moving \(trackIds.count, privacy: .public) tracks to \(device.name, privacy: .public) at \(position, privacy: .public)s")
+        let outcome = await client.loadConfirmingPlayback(
+            trackIds: trackIds,
+            startIndex: index,
+            positionSeconds: position,
+            autoplay: wasPlaying,
+            source: player.queueSource,
+            timeout: Self.moveConfirmationTimeout
+        )
+        let here = DeviceClass.current.displayName
+        switch outcome {
+        case .confirmed:
+            if wasPlaying, player.isPlaying, player.currentTrack?.id == track.id,
+               abs(player.currentTime - position) > 1 {
+                client.seek(toSeconds: player.currentTime)
+            }
+            player.pause()
+            select(device)
+            Log.link.info("[OutputRouter] \(device.name, privacy: .public) confirmed playback")
+            return nil
+        case .rejected(let reason):
+            Log.link.info("[OutputRouter] \(device.name, privacy: .public) rejected the move: \(reason, privacy: .public)")
+            return "\(device.name) couldn’t play this, so playback stayed on this \(here)."
+        case .timedOut:
+            Log.link.info("[OutputRouter] \(device.name, privacy: .public) didn't confirm the move in time")
+            if wasPlaying { pauseIfMoveLands(trackId: track.id) }
+            return "\(device.name) didn’t respond, so playback stayed on this \(here)."
+        case .disconnected:
+            return "\(device.name) isn't reachable right now."
+        }
+    }
+
+    private func moveBetweenLinked(to device: OutputDevice) async -> String? {
+        let ids = client.tracks.map(\.id)
+        let playback = client.telemetry.playback
+        let wasPlaying = client.telemetry.isPlaying
+        let position = client.telemetry.estimatedPosition()
+        let index = playback?.trackId.flatMap { ids.firstIndex(of: $0) } ?? client.currentIndex
+        if wasPlaying { client.pause() }
+        select(.thisDevice)
+        if let problem = await focus(on: device) { return problem }
+        guard !ids.isEmpty, ids.indices.contains(index) else {
+            select(device)
+            return nil
+        }
+        let outcome = await client.loadConfirmingPlayback(
+            trackIds: ids,
+            startIndex: index,
+            positionSeconds: position,
+            autoplay: wasPlaying,
+            source: client.queueSource,
+            timeout: Self.moveConfirmationTimeout
+        )
+        switch outcome {
+        case .confirmed:
+            select(device)
+            return nil
+        case .rejected:
+            return "\(device.name) couldn’t play this."
+        case .timedOut:
+            return "\(device.name) didn’t respond."
+        case .disconnected:
+            return "\(device.name) isn't reachable right now."
+        }
+    }
+
+    private func pauseIfMoveLands(trackId: String) {
+        lateMoveGuard = Task { @MainActor [client] in
+            let outcome = await client.awaitPlayback(trackId: trackId, timeout: Self.lateMoveWindow)
+            guard outcome == .confirmed, !Task.isCancelled else { return }
+            Log.link.info("[OutputRouter] a timed-out move landed late; pausing the remote copy")
+            client.pause()
+        }
+    }
+
+    private func moveHere() async -> String? {
+        let remoteName = current.name
+        guard let playback = client.telemetry.playback, let trackId = playback.trackId else {
+            select(.thisDevice)
+            return nil
+        }
+        let remoteIDs = client.tracks.map(\.id)
+        let tracksByID = await Self.fetchTracks(ids: remoteIDs, currentTrackID: trackId, api: api)
+        if let latest = client.telemetry.playback?.trackId, latest != trackId {
+            return await moveHere()
+        }
+        guard let track = tracksByID[trackId] else {
+            return "Couldn't load the \(remoteName) track on this \(DeviceClass.current.displayName)."
+        }
+        var queue: [Track] = []
+        var playingIndex: Int?
+        for (offset, id) in remoteIDs.enumerated() {
+            guard let resolved = tracksByID[id] else { continue }
+            if offset == client.currentIndex, id == trackId { playingIndex = queue.count }
+            queue.append(resolved)
+        }
+        if playingIndex == nil {
+            playingIndex = queue.firstIndex(where: { $0.id == trackId })
+        }
+        if playingIndex == nil {
+            queue.insert(track, at: 0)
+            playingIndex = 0
+        }
+        let index = playingIndex ?? 0
+
+        let wasLive = client.telemetry.isLive
+        let autoplay = wasLive && (client.telemetry.playback?.isPlaying ?? playback.isPlaying)
+        let position = client.telemetry.estimatedPosition()
+        if wasLive { client.pause() }
+        select(.thisDevice)
+        Log.link.info("[OutputRouter] moving \(queue.count, privacy: .public) tracks from \(remoteName, privacy: .public) here at \(position, privacy: .public)s")
+        await player.adoptOutputSession(
+            track: track,
+            queue: queue,
+            index: index,
+            position: position,
+            autoplay: autoplay
+        )
+        return player.playbackErrorMessage
+    }
+
+    nonisolated private static func fetchTracks(
+        ids: [String],
+        currentTrackID: String,
+        api: SoundCloudAPI
+    ) async -> [String: Track] {
+        var tracksByID: [String: Track] = [:]
+        for offset in stride(from: 0, to: ids.count, by: 50) {
+            let end = min(offset + 50, ids.count)
+            let batch = Array(ids[offset..<end])
+            guard let tracks = try? await api.getTracks(ids: batch) else { continue }
+            for track in tracks { tracksByID[track.id] = track }
+        }
+        if tracksByID[currentTrackID] == nil,
+           let current = try? await api.getTrack(id: currentTrackID) {
+            tracksByID[current.id] = current
+        }
+        return tracksByID
+    }
+
+    // MARK: Transport
+
+    func play() {
+        isRemote ? client.play() : player.play()
+    }
+
+    func pause() {
+        if player.isPlaying || !isRemote { player.pause() }
+        if isRemote { client.pause() }
+    }
+
+    func next() {
+        if isRemote { client.next() } else { Task { await player.playNext() } }
+    }
+
+    func previous() {
+        if isRemote { client.previous() } else { Task { await player.playPrevious() } }
+    }
+
+    func seek(to seconds: TimeInterval) {
+        isRemote ? client.seek(toSeconds: seconds) : player.seek(to: seconds)
+    }
+
+    // MARK: Modes
+
+    var canChangePlaybackModes: Bool { !isRemote || client.canChangePlaybackModes }
+
+    var isShuffleEnabled: Bool {
+        isRemote ? client.telemetry.playbackModes?.isShuffleEnabled == true : player.isShuffleEnabled
+    }
+
+    var repeatMode: RepeatMode {
+        guard isRemote else { return player.repeatMode }
+        return client.telemetry.playbackModes?.remoteRepeatMode.flatMap { RepeatMode(rawValue: $0.rawValue) } ?? .off
+    }
+
+    func toggleShuffle() {
+        if isRemote { client.setShuffle(!isShuffleEnabled) } else { player.toggleShuffle() }
+    }
+
+    func cycleRepeatMode() {
+        guard isRemote else {
+            player.cycleRepeatMode()
+            return
+        }
+        let next: RemoteRepeatMode
+        switch repeatMode {
+        case .off: next = .all
+        case .all: next = .one
+        case .one: next = .off
+        }
+        client.setRepeat(next)
+    }
+
+    // MARK: Queue
+
+    @discardableResult
+    func play(_ track: Track, in context: [Track], collectionId: String? = nil) async -> String? {
+        await play(track, in: context, collectionId: collectionId, source: nil)
+    }
+
+    @discardableResult
+    func play(_ track: Track, in context: [Track], collectionId: String?, source: PlaybackQueueSource?) async -> String? {
+        guard isRemote else {
+            await player.play(track, in: context, collectionId: collectionId, source: source)
+            return player.playbackErrorMessage
+        }
+        if track.isLocal {
+            return await playHere(track, in: context, collectionId: collectionId, source: source, instead: current)
+        }
+        guard client.isReachable else { return "\(current.name) isn't reachable right now." }
+        if let source { PlaybackQueueSourceDirectory.note(source) }
+        var ids = context.filter { !$0.isLocal }.map(\.id)
+        if !ids.contains(track.id) { ids.insert(track.id, at: 0) }
+        let index = ids.firstIndex(of: track.id) ?? 0
+        client.load(
+            trackIds: ids, startIndex: index, positionSeconds: 0, autoplay: true,
+            source: source ?? PlaybackQueueSourceDirectory.source(for: collectionId)
+        )
+        return nil
+    }
+
+    private func playHere(
+        _ track: Track,
+        in context: [Track],
+        collectionId: String?,
+        source: PlaybackQueueSource?,
+        instead device: OutputDevice
+    ) async -> String? {
+        if isRemote {
+            if client.telemetry.isPlaying { client.pause() }
+            select(.thisDevice)
+        }
+        await player.play(track, in: context, collectionId: collectionId, source: source)
+        notice = Self.localTracksNotice(on: device, playingHere: true)
+        return player.playbackErrorMessage
+    }
+
+    var playOnDevice: OutputDevice? { playOnDevices.first }
+
+    var playOnDevices: [OutputDevice] {
+        entries.filter { !$0.device.isLocal && $0.id != current.id && $0.availability.isSelectable }.map(\.device)
+    }
+
+    @discardableResult
+    func play(_ track: Track, in context: [Track], on device: OutputDevice, source: PlaybackQueueSource? = nil) async -> String? {
+        guard !device.isLocal else { return await play(track, in: context, collectionId: nil, source: source) }
+        if track.isLocal {
+            return await playHere(track, in: context, collectionId: nil, source: source, instead: device)
+        }
+        guard !isMoving else { return "Playback is already moving." }
+        isMoving = true
+        defer { isMoving = false }
+        lateMoveGuard?.cancel()
+        lateMoveGuard = nil
+        if isRemote, current != device { select(.thisDevice) }
+        if let problem = await focus(on: device) { return problem }
+
+        var ids = context.filter { !$0.isLocal }.map(\.id)
+        if !ids.contains(track.id) { ids.insert(track.id, at: 0) }
+        let index = ids.firstIndex(of: track.id) ?? 0
+        Log.link.info("[OutputRouter] playing \(ids.count, privacy: .public) tracks on \(device.name, privacy: .public)")
+        let outcome = await client.loadConfirmingPlayback(
+            trackIds: ids,
+            startIndex: index,
+            positionSeconds: 0,
+            autoplay: true,
+            source: source,
+            timeout: Self.moveConfirmationTimeout
+        )
+        switch outcome {
+        case .confirmed:
+            player.pause()
+            select(device)
+            return nil
+        case .rejected:
+            return "\(device.name) couldn’t play this."
+        case .timedOut:
+            return "\(device.name) didn’t respond."
+        case .disconnected:
+            return "\(device.name) isn't reachable right now."
+        }
+    }
+
+    @discardableResult
+    func play(shuffled tracks: [Track], collectionId: String? = nil) async -> String? {
+        await play(shuffled: tracks, collectionId: collectionId, source: nil)
+    }
+
+    @discardableResult
+    func play(shuffled tracks: [Track], collectionId: String?, source: PlaybackQueueSource?) async -> String? {
+        guard let start = tracks.randomElement() else { return "There are no playable tracks here." }
+        guard isRemote else {
+            player.isShuffleEnabled = true
+            await player.play(start, in: tracks, collectionId: collectionId, source: source)
+            return player.playbackErrorMessage
+        }
+        guard let pick = tracks.filter({ !$0.isLocal }).randomElement() else {
+            player.isShuffleEnabled = true
+            return await playHere(start, in: tracks, collectionId: collectionId, source: source, instead: current)
+        }
+        var rest = tracks.filter { $0.id != pick.id && !$0.isLocal }
+        rest.shuffle()
+        return await play(pick, in: [pick] + rest, collectionId: collectionId, source: source)
+    }
+
+    func playNext(_ track: Track) {
+        if isRemote, track.isLocal {
+            notice = Self.localTracksNotice(on: current, playingHere: false)
+        } else if isRemote {
+            client.playNext(trackId: track.id, optimistic: QueueTrack(track))
+        } else if player.queue.isEmpty {
+            Task { await player.play(track, in: [track]) }
+        } else {
+            player.insertIntoQueue(track, at: player.currentIndex + 1)
+        }
+    }
+
+    func addToQueue(_ track: Track) {
+        if isRemote, track.isLocal {
+            notice = Self.localTracksNotice(on: current, playingHere: false)
+        } else if isRemote {
+            client.addToQueue(trackId: track.id, optimistic: QueueTrack(track))
+        } else {
+            player.addToQueue(track)
+        }
+    }
+
+    func insertIntoQueue(_ tracks: [Track], at index: Int) {
+        if isRemote {
+            var position = index
+            for track in tracks {
+                if track.isLocal {
+                    notice = Self.localTracksNotice(on: current, playingHere: false)
+                    continue
+                }
+                client.addToQueue(trackId: track.id, atIndex: position, optimistic: QueueTrack(track))
+                position += 1
+            }
+        } else if player.queue.isEmpty {
+            guard let first = tracks.first else { return }
+            Task { await player.play(first, in: tracks) }
+        } else {
+            var position = index
+            for track in tracks {
+                player.insertIntoQueue(track, at: position)
+                position += 1
+            }
+        }
+    }
+
+    func moveQueueItem(from source: Int, to destination: Int) {
+        isRemote ? client.move(from: source, to: destination) : player.moveQueueItem(from: source, to: destination)
+    }
+
+    func removeQueueItem(at index: Int) {
+        if isRemote { client.remove(at: index) } else { Task { await player.removeFromQueue(at: index) } }
+    }
+
+    func jump(to index: Int) {
+        if isRemote { client.jump(to: index) } else { Task { await player.playTrackAt(index: index) } }
+    }
+}
+
+// MARK: - Sign out
+
+@MainActor
+enum AccountSignOut {
+    static func devicesStayingSignedIn(client: CompanionClient) -> [String] {
+        var names = client.links.map(\.peerName)
+        let local = CompanionRegistry.shared.localDeviceId
+        for peer in CompanionRegistry.shared.peers where peer.deviceId != local && peer.deviceClass != .tv {
+            if !names.contains(peer.displayName) { names.append(peer.displayName) }
+        }
+        return names
+    }
+
+    static func tokenIsShared(client: CompanionClient) async -> Bool {
+        if !devicesStayingSignedIn(client: client).isEmpty { return true }
+        return await SynchronizationCoordinator.shared.latestSyncedSession() != nil
+    }
+
+    static func signOutThisDevice(client: CompanionClient, credentials: SoundCloudCredentialSource) async {
+        let shared = await tokenIsShared(client: client)
+        await credentials.signOutThisDevice(tokenIsShared: shared)
+    }
+
+    static func stayingSignedInMessage(client: CompanionClient) -> String? {
+        let names = devicesStayingSignedIn(client: client)
+        guard !names.isEmpty else { return nil }
+        let list = ListFormatter.localizedString(byJoining: Array(names.prefix(3)) + (names.count > 3 ? ["\(names.count - 3) more"] : []))
+        return "\(list) \(names.count == 1 ? "stays" : "stay") signed in."
+    }
+
+    static func everywhereMessage(client: CompanionClient) -> String {
+        "Signs you out of SoundCloud in Sounding on all your devices."
+    }
+
+    static func signOutEverywhere(client: CompanionClient, credentials: SoundCloudCredentialSource) async {
+        let accountId = credentials.currentUser?.id ?? SubscriptionService.shared.authenticatedAccountID
+        let lineage = SessionSyncBookkeeping.lineageDigest(refreshToken: DeviceSessionStore.load()?.refreshToken)
+        client.queueSignOutEverywhere(accountId: accountId, lineageDigest: lineage)
+        await SynchronizationCoordinator.shared.clearSyncedSession()
+        await credentials.signOutEverywhere()
+    }
+}
+
+#if DEBUG
+enum RemoteFixture: String {
+    case playing
+    case paused
+    case nothing
+    case needsSignIn
+    case connecting
+    case reconnecting
+    case unreachable
+    case unlinked
+
+    static let current: RemoteFixture? = ProcessInfo.processInfo.environment["SOUNDING_TV_REMOTE_FIXTURE"].flatMap(RemoteFixture.init(rawValue:))
+
+    static var hasSecondTV: Bool {
+        ProcessInfo.processInfo.environment["SOUNDING_TV_REMOTE_FIXTURE_TVS"] == "2"
+    }
+}
+
 extension CompanionClient {
-    func playNext(trackId: String) {
-        addToQueue(trackId: trackId, atIndex: min(currentIndex + 1, tracks.count))
+    fileprivate func installRemoteFixture(_ fixture: RemoteFixture) {
+        isFixture = true
+        if fixture != .unlinked {
+            let livingRoom = LinkedCompanionStore.LinkRecord(
+                sessionId: "fixture",
+                secretBase64: Data(repeating: 7, count: 32).base64EncodedString(),
+                pairedAt: .now,
+                deviceClass: .tv,
+                displayName: "Living Room"
+            )
+            link = livingRoom
+            links = [livingRoom]
+            if RemoteFixture.hasSecondTV {
+                let bedroom = LinkedCompanionStore.LinkRecord(
+                    sessionId: "fixture-bedroom",
+                    secretBase64: Data(repeating: 9, count: 32).base64EncodedString(),
+                    pairedAt: .now.addingTimeInterval(-86_400),
+                    deviceClass: .tv,
+                    displayName: "Bedroom"
+                )
+                links.append(bedroom)
+                advertisedSessionIds = [livingRoom.sessionId, bedroom.sessionId]
+            }
+        }
+        switch fixture {
+        case .unlinked:
+            link = nil
+            links = []
+            state = .unlinked
+        case .connecting:
+            state = .connecting
+        case .nothing:
+            state = .connected
+            telemetry.isLive = true
+        case .needsSignIn:
+            state = .connected
+            peerNeedsSignIn = true
+        case .playing, .paused, .reconnecting, .unreachable:
+            tracks = ([VisualFixtures.nowPlayingMix] + VisualFixtures.tracks.prefix(7)).map(QueueTrack.init)
+            currentIndex = 0
+            playingNextCount = ProcessInfo.processInfo.environment["SOUNDING_TV_FIXTURE_PLAYING_NEXT"].flatMap(Int.init) ?? 0
+            reportsPlayingNext = true
+            hasSnapshot = true
+            queueSource = PlaybackQueueSource(id: nil, kind: .playlist, title: "Late Night Drive")
+            state = .connected
+            publishFixtureFrame(index: 0, position: 1834, isPlaying: fixture != .paused)
+            if fixture == .reconnecting {
+                state = .connecting
+                telemetry.isLive = false
+            }
+            if fixture == .unreachable {
+                state = .failed(.notFound)
+                telemetry.isLive = false
+            }
+        }
     }
 
-    func addToEnd(trackId: String) {
-        addToQueue(trackId: trackId, atIndex: -1)
+    private func publishFixtureFrame(index: Int, position: TimeInterval, isPlaying: Bool) {
+        guard tracks.indices.contains(index) else { return }
+        let track = tracks[index]
+        fixtureRevision += 1
+        ingest(PlaybackStatePayload(
+            isPlaying: isPlaying,
+            positionSeconds: track.duration > 0 ? min(track.duration, max(0, position)) : max(0, position),
+            durationSeconds: track.duration,
+            trackId: track.id,
+            title: track.title,
+            artist: track.artist,
+            artworkURL: track.artworkURL?.absoluteString,
+            isDJEngineLive: false,
+            revision: fixtureRevision,
+            issuedAtMillis: Int64(Date().timeIntervalSince1970 * 1000),
+            signature: "",
+            modes: PlaybackModesPayload(
+                isShuffleEnabled: fixtureShuffle,
+                repeatMode: fixtureRepeat.rawValue,
+                signature: ""
+            ),
+            volume: fixtureVolume,
+            sleepTimer: fixtureSleepTimer.map {
+                SleepTimerStatePayload(
+                    kind: Int($0.mode.wireKind),
+                    minutes: Int($0.mode.wireMinutes),
+                    endsAtMillis: $0.endsAt.map { Int64($0.timeIntervalSince1970 * 1000) },
+                    signature: ""
+                )
+            }
+        ))
     }
 
-    func replaceQueue(withTrackId trackId: String) {
-        send(.queueReplace, fromIndex: -1, toIndex: -1, trackId: trackId)
+    private func fixtureIndex() -> Int {
+        RemoteQueueProjection.playingIndex(
+            tracks: tracks,
+            currentIndex: currentIndex,
+            presentedTrackId: observedPlayback?.trackId
+        ) ?? currentIndex
+    }
+
+    fileprivate func simulateFixtureControl(_ type: MessageType, value: Double, value2: Double = 0) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard let self, let observed = self.observedPlayback else { return }
+            let position = observed.estimatedPosition(elapsed: Date().timeIntervalSince(self.observedAt))
+            let index = self.fixtureIndex()
+            switch type {
+            case .transportPlay:
+                self.publishFixtureFrame(index: index, position: position, isPlaying: true)
+            case .transportPause:
+                self.publishFixtureFrame(index: index, position: position, isPlaying: false)
+            case .transportSeek:
+                self.publishFixtureFrame(index: index, position: value, isPlaying: observed.isPlaying)
+            case .transportNext:
+                let next = min(index + 1, self.tracks.count - 1)
+                self.currentIndex = next
+                self.publishFixtureFrame(index: next, position: 0, isPlaying: true)
+            case .transportVolume:
+                self.fixtureVolume = min(1, max(0, value))
+                self.publishFixtureFrame(index: index, position: position, isPlaying: observed.isPlaying)
+            case .transportSleepTimer:
+                self.fixtureSleepTimer = SleepTimerMode(wireKind: value, minutes: value2).map { mode in
+                    let track = self.tracks.indices.contains(index) ? self.tracks[index] : nil
+                    let seconds: TimeInterval
+                    if case .minutes(let minutes) = mode {
+                        seconds = TimeInterval(minutes) * 60
+                    } else {
+                        seconds = max(0, (track?.duration ?? 0) - position)
+                    }
+                    return SleepTimerStatus(mode: mode, endsAt: Date().addingTimeInterval(seconds))
+                }
+                self.publishFixtureFrame(index: index, position: position, isPlaying: observed.isPlaying)
+            case .transportShuffle:
+                self.fixtureShuffle = value != 0
+                self.publishFixtureFrame(index: index, position: position, isPlaying: observed.isPlaying)
+            case .transportRepeat:
+                self.fixtureRepeat = RemoteRepeatMode(wireValue: value) ?? .off
+                self.publishFixtureFrame(index: index, position: position, isPlaying: observed.isPlaying)
+            case .transportPrevious:
+                let previous = position > RemotePlaybackIntents.restartThreshold ? index : max(0, index - 1)
+                self.currentIndex = previous
+                self.publishFixtureFrame(index: previous, position: 0, isPlaying: true)
+            default:
+                break
+            }
+        }
+    }
+
+    fileprivate func simulateFixtureQueue(_ type: MessageType, fromIndex: Int) {
+        guard type == .queueJump else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            self?.publishFixtureFrame(index: fromIndex, position: 0, isPlaying: true)
+        }
     }
 }
-
-extension Notification.Name {
-    static let companionClientAuthHandoffRequest = Notification.Name("red.forbes.sounding.companion.auth-handoff-request")
-}
-
-let CompanionClientAuthHandoffRequestSessionIdKey = "sessionId"
-let CompanionClientAuthHandoffRequestSecretKey = "secret"
+#endif

@@ -362,7 +362,8 @@ enum CueSuggester {
             let after = mean(envelope, from: i, to: i + window)
             let ratio = after / max(0.06, before)
             guard ratio >= minimumRatio else { continue }
-            if best == nil || ratio > best!.ratio { best = (i, ratio) }
+            if let current = best, ratio > current.ratio { best = (i, ratio) }
+            else if best == nil { best = (i, ratio) }
         }
         return best
     }

@@ -1,7 +1,15 @@
 import Foundation
+import XCTest
 @testable import SoundingTV
 
 #if DEBUG
+
+final class PhantomPlanTests: XCTestCase {
+    func testPhantomPlanSelfTest() {
+        let report = PhantomPlanSelfTest.run()
+        XCTAssertTrue(report.failures.isEmpty, report.failures.joined(separator: "\n"))
+    }
+}
 
 enum PhantomPlanSelfTest {
     struct Report {
@@ -105,13 +113,17 @@ enum PhantomPlanSelfTest {
         if let cleanCut = PhantomDJEngine.cleanCutFallbackPlan(
             outgoingDuration: 200,
             incomingTrackId: "next",
-            profileId: .wedding
+            profile: .weddingDJ
         ) {
             expect("deadline fallback is the catalog clean cut", cleanCut.templateId == DJTemplates.cutOnTheOne)
             expect("deadline fallback keeps the incoming track", cleanCut.incomingTrackId == "next")
             expect("deadline fallback plays nearly to the end", cleanCut.mixPointSeconds > 199)
             expect("deadline fallback never becomes a generic blend",
                    cleanCut.transitionSeconds == CutOnTheOneTemplate.fadeSeconds)
+            expect("a clean cut projects a hardCut stage, not a fake fader ramp",
+                   cleanCut.presentationStages.contains { if case .hardCut = $0.action { return true }; return false })
+            expect("a clean cut's projected stages contain no eqLow ramp",
+                   !cleanCut.presentationStages.contains { if case .eqLow = $0.action { return true }; return false })
         } else {
             report.failures.append("deadline fallback: expected a clean cut for a 200s track, got nil")
         }

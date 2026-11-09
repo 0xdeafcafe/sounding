@@ -13,6 +13,7 @@ struct CueSyncRecord: Codable, Sendable, Equatable {
     let isDeleted: Bool
     let promotedFromName: String?
     let promotedFromVersion: Int?
+    let origin: CueOrigin?
 
     let createdAtMillis: Int64
     let updatedAtMillis: Int64
@@ -30,6 +31,7 @@ struct CueSyncRecord: Codable, Sendable, Equatable {
         isDeleted = cue.isDeleted
         promotedFromName = cue.promotedFrom?.name
         promotedFromVersion = cue.promotedFrom?.version
+        origin = cue.origin == .user ? nil : cue.origin
         createdAtMillis = cue.createdAtMillis
         updatedAtMillis = cue.updatedAtMillis
         writerId = cue.writerId
@@ -51,7 +53,8 @@ struct CueSyncRecord: Codable, Sendable, Equatable {
             promotedFrom: promotedFromName.flatMap { name in
                 promotedFromVersion.map { CueSuggesterIdentity(name: name, version: $0) }
             },
-            writerId: writerId
+            writerId: writerId,
+            origin: origin ?? .user
         )
     }
 }
@@ -65,8 +68,6 @@ enum CueSyncPolicy {
         }
         return remote.writerId > local.writerId
     }
-
-    static let tombstoneRetentionMillis: Int64 = 180 * 24 * 60 * 60 * 1000
 }
 
 struct CueSyncCursor: Codable, Sendable, Equatable {
@@ -118,17 +119,6 @@ struct CueSyncBody: Codable, Sendable, Equatable {
 
     static func decode(_ data: Data) -> CueSyncBody? {
         try? JSONDecoder().decode(CueSyncBody.self, from: data)
-    }
-}
-
-@MainActor
-enum CueSyncTarget {
-    static var requestCloudSync: (() -> Void)?
-    static var requestCompanionPush: (() -> Void)?
-
-    static func localChangeCommitted() {
-        requestCloudSync?()
-        requestCompanionPush?()
     }
 }
 

@@ -1,8 +1,30 @@
 import SwiftUI
 
 struct DecksCommands: Commands {
+    private var isAutoMixEnabled: Bool {
+        PlayerService.shared.djDirector.snapshot?.isAutoMixEnabled ?? PlayerService.shared.isAutoMixEnabled
+    }
+
     var body: some Commands {
         CommandMenu("Decks") {
+            if isAutoMixEnabled {
+                Button {
+                    PlayerService.shared.endDJSession()
+                } label: {
+                    Label("Turn Off Auto Mix", systemImage: "wand.and.stars.inverse")
+                }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+            } else {
+                Button {
+                    MacNowPlayingPresentation.shared.showsAutoMixSetup = true
+                } label: {
+                    Label("Start Auto Mix…", systemImage: "wand.and.stars")
+                }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+            }
+
+            Divider()
+
             Button {
                 MacConsoleController.shared.loadTarget = .a
             } label: {

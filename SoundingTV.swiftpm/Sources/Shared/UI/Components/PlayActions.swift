@@ -3,17 +3,9 @@ import Foundation
 @MainActor
 enum PlayActions {
     static func play(playlist: Playlist) async {
-        var tracks = playlist.tracks ?? []
-
-        if tracks.isEmpty {
-            guard let full = try? await SoundCloudAPI.shared.getPlaylist(id: playlist.id) else {
-                return
-            }
-            tracks = full.tracks ?? []
+        await CollectionPlayback.start(playlist: playlist) { first, queue in
+            await PlayerService.shared.play(first, in: queue, collectionId: playlist.id, source: PlaybackQueueSource(playlist: playlist))
         }
-
-        guard let first = tracks.first else { return }
-        await PlayerService.shared.play(first, in: tracks, collectionId: playlist.id)
     }
 
     static func play(user: User) async {
@@ -21,7 +13,7 @@ enum PlayActions {
             return
         }
         guard let first = page.collection.first else { return }
-        await PlayerService.shared.play(first, in: page.collection)
+        await PlayerService.shared.play(first, in: page.collection, source: PlaybackQueueSource(artist: user))
     }
 }
 

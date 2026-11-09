@@ -68,10 +68,41 @@ final class LinkServer: ObservableObject {
         }
     }
 
-    @Published private(set) var state: State = .idle
+    @Published private(set) var state: State = .idle {
+        didSet {
+            guard state != oldValue else { return }
+            if state.isTerminal {
+                finishLinkProgress()
+                if state != .completed { validationTask?.cancel() }
+                validationTask = nil
+            }
+            if case .failed = state { events.send(.failed) }
+            if state == .completed { events.send(.signedIn) }
+        }
+    }
+
+    let events = PassthroughSubject<SignInEvent, Never>()
+    private var hasIssuedCode = false
     @Published private(set) var credentials: SessionCredentials?
 
     @Published private(set) var numericComparisonCode: String?
+    @Published private(set) var isLinkInProgress = false
+    @Published private(set) var connectingDeviceName: String?
+
+    private var awaitingHandoff = false
+    private nonisolated(unsafe) var linkProgressTimeout: Task<Void, Never>?
+
+    @Published private(set) var linkApproval: LinkApproval?
+
+    @Published private(set) var chimeCode: ChimeCode?
+
+    struct LinkApproval: Equatable, Identifiable {
+        let id = UUID()
+        let deviceName: String
+        let code: String
+    }
+
+    static let chimeRedeemGrace: TimeInterval = 45
 
     private nonisolated(unsafe) var listener: NWListener?
     private nonisolated(unsafe) var connection: NWConnection?
@@ -87,7 +118,23 @@ final class LinkServer: ObservableObject {
     private var offerCommitNonce: Data?
     private var offerSharedSecret: SharedSecret?
     private var offerPhonePublicKey: Data?
+    private var numericPeerName = ""
+    private var numericApprovedOnTV = false
+    private var numericConfirmedByPeer = false
+    private var numericOwnerKey: LinkOwnerKey?
+    private var numericOwnerTranscript: LinkOwnerProof.Transcript?
+    private var numericPendingApproval: LinkApproval?
     private nonisolated(unsafe) var offerConnectionIdleTimeout: Task<Void, Never>?
+    private nonisolated(unsafe) var chimeRotation: Task<Void, Never>?
+    private nonisolated(unsafe) var chimeResume: Task<Void, Never>?
+    private var chimeLedger = ChimeCodeLedger()
+    private var chimePending: ChimeCodeLedger.Pending?
+    private var lastRequestedChime: ContinuousClock.Instant?
+    private static let requestedChimeSpacing: Duration = .seconds(10)
+
+    private static var localTVName: String {
+        String(UIDevice.current.name.prefix(ChimeLinkCrypto.maximumNameLength))
+    }
 
     private let refreshCoordinator = TokenRefreshCoordinator()
 
@@ -115,11 +162,29 @@ final class LinkServer: ObservableObject {
 
     var onTokenReceived: ((String, String?, String?, Date?) -> Void)?
 
+    var rendezvous: String?
+
+    var accountHint: LinkAccountHint.Advert?
+
+    var ownerAccountId: String?
+
+    @Published private(set) var linkedPeerName: String?
+
+    var playsChime = true
+
+    var onChimeRequested: (() -> Void)?
+
+    func requestChime() {
+        guard chimeCode != nil else { return }
+        onChimeRequested?()
+    }
+
     deinit {
         cancelNetworkResources()
     }
 
     private nonisolated func cancelNetworkResources() {
+        linkProgressTimeout?.cancel()
         timeoutTask?.cancel()
         validationTask?.cancel()
         connection?.cancel()
@@ -127,10 +192,15 @@ final class LinkServer: ObservableObject {
         offerConnection?.cancel()
         offerListener?.cancel()
         offerConnectionIdleTimeout?.cancel()
+        chimeRotation?.cancel()
+        chimeResume?.cancel()
     }
 
     func start() {
         stop()
+
+        if hasIssuedCode { events.send(.codeRotated) }
+        hasIssuedCode = true
 
         listenerRecoveryAttempts = 0
 
@@ -144,13 +214,6 @@ final class LinkServer: ObservableObject {
 
         refreshCoordinator.reset()
 
-        LinkOfferKeychainStore.publish(LinkOffer(
-            sessionId: newCredentials.sessionId,
-            secretBase64: newCredentials.secret.base64EncodedString(),
-            createdAt: newCredentials.createdAt,
-            tvName: UIDevice.current.name
-        ))
-
         do {
             let parameters = LinkTLS.makeParameters(
                 sessionId: newCredentials.sessionId,
@@ -160,7 +223,7 @@ final class LinkServer: ObservableObject {
             listener = try NWListener(using: parameters)
 
             listener?.service = NWListener.Service(
-                name: "\(BonjourConstants.serviceName)-\(newCredentials.sessionId.prefix(8))",
+                name: BonjourConstants.linkServiceName(sessionId: newCredentials.sessionId),
                 type: BonjourConstants.serviceType
             )
 
@@ -188,6 +251,7 @@ final class LinkServer: ObservableObject {
         }
 
         startPushOfferListener()
+        if playsChime { rotateChimeCode() }
     }
 
     static var debugStateOverride: State? {
@@ -215,6 +279,9 @@ final class LinkServer: ObservableObject {
     }
 
     func stop() {
+        finishLinkProgress()
+        connectingDeviceName = nil
+        linkedPeerName = nil
         timeoutTask?.cancel()
         timeoutTask = nil
 
@@ -228,13 +295,12 @@ final class LinkServer: ObservableObject {
         listener = nil
 
         stopPushOfferListener()
+        stopChime()
 
         if !state.isTerminal {
             state = .idle
         }
         credentials = nil
-
-        LinkOfferKeychainStore.clear()
     }
 
     private func handleListenerState(_ listenerState: NWListener.State) {
@@ -293,12 +359,15 @@ final class LinkServer: ObservableObject {
         }
 
         connection = newConnection
+        beginLinkProgress()
         framer = MessageFramer()
+        events.send(.scanned)
         state = .connected
 
-        newConnection.stateUpdateHandler = { [weak self] connectionState in
+        newConnection.stateUpdateHandler = { [weak self, weak newConnection] connectionState in
             Task { @MainActor in
-                self?.handleConnectionState(connectionState)
+                guard let self, let newConnection, self.connection === newConnection else { return }
+                self.handleConnectionState(connectionState)
             }
         }
 
@@ -317,15 +386,17 @@ final class LinkServer: ObservableObject {
         case .cancelled:
             Log.link.debug("[LinkServer] Connection cancelled")
             connection = nil
+            if !state.isTerminal { state = .failed(.connectionLost("")) }
         default:
             break
         }
     }
 
     private func receiveData() {
-        connection?.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+        guard let connection else { return }
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             Task { @MainActor in
-                guard let self = self else { return }
+                guard let self, self.connection === connection else { return }
                 Log.link.debug("[LinkServer] receive: bytes=\(data?.count ?? 0, privacy: .public) complete=\(isComplete, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
 
                 if let error = error {
@@ -340,6 +411,9 @@ final class LinkServer: ObservableObject {
                 if isComplete {
                     self.connection?.cancel()
                     self.connection = nil
+                    if !self.state.isTerminal, self.validationTask == nil {
+                        self.state = .failed(.connectionLost(""))
+                    }
                 } else {
                     self.receiveData()
                 }
@@ -375,7 +449,6 @@ final class LinkServer: ObservableObject {
         guard !credentials.isExpired else {
             sendError("Session expired")
             state = .timeout
-            LinkOfferKeychainStore.clear()
             return
         }
 
@@ -397,12 +470,16 @@ final class LinkServer: ObservableObject {
             }
 
             state = .receivingToken
+            let identity = message.peer
+            if let identity, identity.verify(sessionId: credentials.sessionId, secret: credentials.secret) {
+                connectingDeviceName = Self.displayName(identity.name, deviceClass: identity.deviceClass)
+            }
             validationTask = Task { [weak self] in
-                let validation = await SoundCloudAPI.shared.validateToken(payload.oauthToken)
+                let validation = await Self.validate(payload.oauthToken)
                 guard !Task.isCancelled, let self else { return }
 
                 if validation == .valid {
-                    self.accept(payload, renewed: nil, session: credentials)
+                    self.accept(payload, renewed: nil, session: credentials, identity: identity)
                     return
                 }
 
@@ -427,7 +504,7 @@ final class LinkServer: ObservableObject {
 
                 switch outcome {
                 case .succeeded(let renewed):
-                    self.accept(payload, renewed: renewed, session: credentials)
+                    self.accept(payload, renewed: renewed, session: credentials, identity: identity)
 
                 case .transient:
                     self.sendError("Couldn't reach SoundCloud to renew your login. Check the network and try again.")
@@ -444,10 +521,20 @@ final class LinkServer: ObservableObject {
         }
     }
 
+    private static func validate(_ token: String) async -> SoundCloudTokenValidation {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["SOUNDING_TV_LINK_FIXTURE_TOKEN"] == "1", token == BonjourConstants.fixtureLinkToken {
+            return .valid
+        }
+        #endif
+        return await SoundCloudAPI.shared.validateToken(token)
+    }
+
     private func accept(
         _ payload: TokenPayload,
         renewed: SoundCloudTokenRefresh.Credentials?,
-        session: SessionCredentials
+        session: SessionCredentials,
+        identity: LinkPeerIdentity?
     ) {
         let token = renewed?.accessToken ?? payload.oauthToken
         let refreshToken = renewed?.refreshToken ?? payload.refreshToken
@@ -469,9 +556,9 @@ final class LinkServer: ObservableObject {
         state = .completed
         timeoutTask?.cancel()
 
-        LinkOfferKeychainStore.clear()
+        stopChime()
 
-        CompanionServer.shared.pair(with: session)
+        CompanionServer.shared.pair(with: session, identity: identity)
 
         onTokenReceived?(token, refreshToken, payload.clientId, expiresAt)
     }
@@ -526,9 +613,15 @@ final class LinkServer: ObservableObject {
 
             guard !Task.isCancelled else { return }
 
-            if state == .advertising {
+            switch state {
+            case .advertising:
                 stop()
                 state = .timeout
+            case .failed(let fault) where fault.codeIsStillLive:
+                stop()
+                state = .timeout
+            default:
+                break
             }
         }
     }
@@ -556,7 +649,7 @@ final class LinkServer: ObservableObject {
             parameters.includePeerToPeer = true
             let newListener = try NWListener(using: parameters)
             newListener.service = NWListener.Service(
-                name: "\(BonjourConstants.linkOfferServiceName)-\(credentials.sessionId.prefix(8))",
+                name: BonjourConstants.linkOfferServiceName(sessionId: credentials.sessionId),
                 type: BonjourConstants.serviceType,
                 txtRecord: NWTXTRecord(LinkOfferTXT.dictionary(
                     name: UIDevice.current.name,
@@ -564,11 +657,23 @@ final class LinkServer: ObservableObject {
                     commitment: LinkConfirmationCrypto.commitment(
                         nonce: commitNonce,
                         publicKey: ephemeralKey.publicKey.rawRepresentation
-                    )
+                    ),
+                    rendezvous: rendezvous,
+                    accountHint: accountHint
                 ))
             )
             newListener.newConnectionHandler = { [weak self] connection in
                 Task { @MainActor in self?.handleOfferConnection(connection) }
+            }
+            newListener.stateUpdateHandler = { [signedIn = accountHint != nil] state in
+                switch state {
+                case .ready:
+                    Log.link.info("[LinkServer] offer advertised (signedIn=\(signedIn, privacy: .public))")
+                case .failed(let error), .waiting(let error):
+                    Log.link.error("[LinkServer] offer listener: \(String(describing: error), privacy: .public)")
+                default:
+                    break
+                }
             }
             newListener.start(queue: .main)
             offerListener = newListener
@@ -583,43 +688,63 @@ final class LinkServer: ObservableObject {
         offerListener = nil
         offerEphemeralKey = nil
         offerCommitNonce = nil
+        offerFramer = MessageFramer()
+    }
+
+    private func clearNumericExchange() {
         offerSharedSecret = nil
         offerPhonePublicKey = nil
-        offerFramer = MessageFramer()
+        numericPeerName = ""
+        numericApprovedOnTV = false
+        numericConfirmedByPeer = false
+        numericOwnerKey = nil
+        numericOwnerTranscript = nil
+        numericPendingApproval = nil
         numericComparisonCode = nil
+        linkApproval = nil
     }
 
     private func clearOfferConnection() {
+        if isLinkInProgress && !awaitingHandoff && connection == nil && !state.isTerminal {
+            state = .failed(.connectionLost(""))
+        }
+        if offerConnection != nil { events.send(.offerClosed) }
+        chimePending = nil
+        clearNumericExchange()
         offerConnection?.cancel()
         offerConnection = nil
         offerConnectionIdleTimeout?.cancel()
         offerConnectionIdleTimeout = nil
     }
 
-    private func armOfferConnectionIdleTimeout() {
+    private func armOfferConnectionIdleTimeout(seconds: Double = 20) {
         offerConnectionIdleTimeout?.cancel()
         offerConnectionIdleTimeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(20))
+            try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled, let self else { return }
-            self.numericComparisonCode = nil
             self.clearOfferConnection()
         }
     }
 
     private func handleOfferConnection(_ newConnection: NWConnection) {
         guard offerConnection == nil else {
+            Log.link.error("[LinkServer] offer connection refused: another exchange is in progress")
             newConnection.cancel()
             return
         }
 
+        Log.link.info("[LinkServer] offer connection from \(String(describing: newConnection.endpoint), privacy: .public)")
         offerConnection = newConnection
+        beginLinkProgress(timeout: 20)
         offerFramer = MessageFramer()
+        events.send(.offerReceived)
 
-        newConnection.stateUpdateHandler = { [weak self] connectionState in
+        newConnection.stateUpdateHandler = { [weak self, weak newConnection] connectionState in
             Task { @MainActor in
+                guard let self, let newConnection, self.offerConnection === newConnection else { return }
                 switch connectionState {
                 case .failed, .cancelled:
-                    self?.clearOfferConnection()
+                    self.clearOfferConnection()
                 default:
                     break
                 }
@@ -631,9 +756,10 @@ final class LinkServer: ObservableObject {
     }
 
     private func receiveOfferData() {
-        offerConnection?.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+        guard let offerConnection else { return }
+        offerConnection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.offerConnection === offerConnection else { return }
                 if error != nil {
                     self.clearOfferConnection()
                     return
@@ -659,69 +785,347 @@ final class LinkServer: ObservableObject {
 
         switch message.type {
         case .numericComparisonHello:
-            guard let hello = message.numericHello,
-                  let phonePublicKeyRaw = Data(base64Encoded: hello.ephemeralPublicKeyBase64),
-                  let ephemeralKey = offerEphemeralKey,
-                  let commitNonce = offerCommitNonce,
-                  let phonePublicKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: phonePublicKeyRaw),
-                  let shared = try? ephemeralKey.sharedSecretFromKeyAgreement(with: phonePublicKey) else {
-                sendOfferError()
-                return
-            }
-            offerSharedSecret = shared
-            offerPhonePublicKey = phonePublicKeyRaw
-            numericComparisonCode = LinkConfirmationCrypto.code(
-                sharedSecret: shared,
-                publicKeyA: ephemeralKey.publicKey.rawRepresentation,
-                publicKeyB: phonePublicKeyRaw,
-                sessionId: sessionIdSalt
-            )
-            sendOfferMessage(.numericComparisonHelloAck(
-                sessionId: sessionIdSalt,
-                payload: LinkConfirmationHelloAckPayload(
-                    ephemeralPublicKeyBase64: ephemeralKey.publicKey.rawRepresentation.base64EncodedString(),
-                    commitNonceBase64: commitNonce.base64EncodedString()
-                )
-            ))
-            armOfferConnectionIdleTimeout()
+            handleNumericHello(message, sessionIdSalt: sessionIdSalt)
 
         case .numericComparisonConfirm:
-            guard let shared = offerSharedSecret,
-                  let ephemeralKey = offerEphemeralKey,
-                  let phonePublicKey = offerPhonePublicKey else {
+            guard offerSharedSecret != nil else {
                 sendOfferError()
                 return
             }
-            let transportKey = LinkConfirmationCrypto.transportKey(
-                sharedSecret: shared,
-                publicKeyA: ephemeralKey.publicKey.rawRepresentation,
-                publicKeyB: phonePublicKey,
-                sessionId: sessionIdSalt
-            )
-            let offer = LinkOffer(
-                sessionId: credentials.sessionId,
-                secretBase64: credentials.secret.base64EncodedString(),
-                createdAt: credentials.createdAt,
-                tvName: UIDevice.current.name
-            )
-            guard let encoded = try? JSONEncoder().encode(offer),
-                  let sealed = try? LinkConfirmationCrypto.seal(encoded, key: transportKey) else {
+            if let ownerKey = numericOwnerKey, let transcript = numericOwnerTranscript,
+               !numericApprovedOnTV, linkApproval == nil {
+                if LinkOwnerProof.verify(message.numericConfirm?.ownerProof, role: .initiator, key: ownerKey.material, transcript: transcript) {
+                    numericApprovedOnTV = true
+                    Log.link.info("[LinkServer] same owner verified; linking without asking")
+                } else {
+                    Log.link.info("[LinkServer] no same-owner proof; asking on this Apple TV")
+                    linkApproval = numericPendingApproval
+                    numericComparisonCode = numericPendingApproval?.code
+                }
+            }
+            guard linkApproval != nil || numericApprovedOnTV else {
                 sendOfferError()
                 return
             }
-            sendOfferMessage(.numericComparisonCredentials(
-                sessionId: sessionIdSalt,
-                payload: LinkConfirmationCredentialsPayload(sealedBase64: sealed.base64EncodedString())
-            ), closeAfterSending: true)
-            numericComparisonCode = nil
+            numericConfirmedByPeer = true
+            armOfferConnectionIdleTimeout(seconds: BonjourConstants.linkApprovalTimeout)
+            releaseNumericCredentialsIfApproved()
 
         case .numericComparisonDeclined:
-            numericComparisonCode = nil
             clearOfferConnection()
+
+        case .chimeHello:
+            handleChimeHello(message, credentials: credentials, sessionIdSalt: sessionIdSalt)
+
+        case .chimeConfirm:
+            handleChimeConfirm(message, credentials: credentials, sessionIdSalt: sessionIdSalt)
+
+        case .chimePlayRequest:
+            handleChimePlayRequest(sessionIdSalt: sessionIdSalt)
 
         default:
             break
         }
+    }
+
+    // MARK: - Numeric comparison
+
+    private func handleNumericHello(_ message: TokenTransferMessage, sessionIdSalt: String) {
+        guard offerSharedSecret == nil,
+              chimeLedger.admitHello(at: .now),
+              let hello = message.numericHello,
+              let phonePublicKeyRaw = Data(base64Encoded: hello.ephemeralPublicKeyBase64),
+              let ephemeralKey = offerEphemeralKey,
+              let commitNonce = offerCommitNonce,
+              let phonePublicKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: phonePublicKeyRaw),
+              let shared = try? ephemeralKey.sharedSecretFromKeyAgreement(with: phonePublicKey) else {
+            Log.link.error("[LinkServer] numeric_hello refused")
+            sendOfferError()
+            return
+        }
+        let peerName = hello.deviceName ?? ""
+        guard peerName.count <= LinkPeerIdentity.maximumNameLength else {
+            sendOfferError()
+            return
+        }
+        let code = LinkConfirmationCrypto.code(
+            sharedSecret: shared,
+            publicKeyA: ephemeralKey.publicKey.rawRepresentation,
+            publicKeyB: phonePublicKeyRaw,
+            sessionId: sessionIdSalt,
+            peerName: peerName
+        )
+        offerSharedSecret = shared
+        offerPhonePublicKey = phonePublicKeyRaw
+        numericPeerName = peerName
+        numericApprovedOnTV = false
+        numericConfirmedByPeer = false
+        let approval = LinkApproval(deviceName: Self.displayName(peerName, deviceClass: hello.deviceClass), code: code)
+        beginLinkProgress(name: approval.deviceName, timeout: BonjourConstants.linkApprovalTimeout)
+        numericPendingApproval = approval
+        let tvPublicKey = ephemeralKey.publicKey.rawRepresentation.base64EncodedString()
+        let owner = ownerProof(
+            hello,
+            transcript: LinkOwnerProof.Transcript(
+                sessionId: sessionIdSalt,
+                initiatorKey: phonePublicKeyRaw.base64EncodedString(),
+                responderKey: tvPublicKey,
+                commitNonce: commitNonce.base64EncodedString(),
+                initiatorName: peerName,
+                initiatorClass: hello.deviceClass ?? "",
+                accountId: ownerAccountId ?? ""
+            )
+        )
+        linkApproval = owner == nil ? approval : nil
+        numericComparisonCode = owner == nil ? code : nil
+        sendOfferMessage(.numericComparisonHelloAck(
+            sessionId: sessionIdSalt,
+            payload: LinkConfirmationHelloAckPayload(
+                ephemeralPublicKeyBase64: tvPublicKey,
+                commitNonceBase64: commitNonce.base64EncodedString(),
+                ownerKeyTag: owner?.tag,
+                ownerProof: owner?.proof
+            )
+        ))
+        events.send(.exchangeStarted)
+        armOfferConnectionIdleTimeout(seconds: BonjourConstants.linkApprovalTimeout)
+    }
+
+    private func ownerProof(
+        _ hello: LinkConfirmationHelloPayload,
+        transcript: LinkOwnerProof.Transcript
+    ) -> (tag: String, proof: String)? {
+        guard let tags = hello.ownerKeyTags, !tags.isEmpty, !transcript.accountId.isEmpty,
+              let match = LinkOwnerKeyStore.load().key(
+                  matching: tags,
+                  sessionId: transcript.sessionId,
+                  initiatorKey: transcript.initiatorKey,
+                  at: Date()
+              ),
+              let proof = LinkOwnerProof.sign(.responder, key: match.key.material, transcript: transcript) else { return nil }
+        numericOwnerKey = match.key
+        numericOwnerTranscript = transcript
+        Log.link.info("[LinkServer] the device asking shares this Apple ID's link key; waiting for its proof")
+        return (match.tag, proof)
+    }
+
+    private static func displayName(_ name: String, deviceClass: String?) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
+        if !trimmed.isEmpty { return trimmed }
+        return deviceClass.flatMap(DeviceClass.init(rawValue:))?.displayName ?? "A nearby device"
+    }
+
+    func approveLink() {
+        guard linkApproval != nil, offerSharedSecret != nil else { return }
+        linkApproval = nil
+        numericApprovedOnTV = true
+        numericComparisonCode = nil
+        releaseNumericCredentialsIfApproved()
+    }
+
+    func declineLink() {
+        guard linkApproval != nil || numericApprovedOnTV else { return }
+        if let credentials {
+            sendOfferMessage(
+                .numericComparisonDeclined(sessionId: String(credentials.sessionId.prefix(8))),
+                closeAfterSending: true
+            )
+        }
+        clearNumericExchange()
+        state = .failed(.rejected(""))
+        events.send(.failed)
+    }
+
+    private func releaseNumericCredentialsIfApproved() {
+        guard numericApprovedOnTV, numericConfirmedByPeer else { return }
+        guard let credentials, !credentials.isExpired,
+              let shared = offerSharedSecret,
+              let ephemeralKey = offerEphemeralKey,
+              let phonePublicKey = offerPhonePublicKey else {
+            sendOfferError()
+            clearNumericExchange()
+            return
+        }
+        let sessionIdSalt = String(credentials.sessionId.prefix(8))
+        let transportKey = LinkConfirmationCrypto.transportKey(
+            sharedSecret: shared,
+            publicKeyA: ephemeralKey.publicKey.rawRepresentation,
+            publicKeyB: phonePublicKey,
+            sessionId: sessionIdSalt,
+            peerName: numericPeerName
+        )
+        let approvedName = numericPendingApproval?.deviceName
+        beginLinkProgress(name: approvedName)
+        awaitingHandoff = true
+        clearNumericExchange()
+        linkedPeerName = approvedName
+        let offer = LinkOffer(
+            sessionId: credentials.sessionId,
+            secretBase64: credentials.secret.base64EncodedString(),
+            createdAt: credentials.createdAt,
+            tvName: UIDevice.current.name
+        )
+        guard let encoded = try? JSONEncoder().encode(offer),
+              let sealed = try? LinkConfirmationCrypto.seal(encoded, key: transportKey) else {
+            sendOfferError()
+            return
+        }
+        sendOfferMessage(.numericComparisonCredentials(
+            sessionId: sessionIdSalt,
+            payload: LinkConfirmationCredentialsPayload(sealedBase64: sealed.base64EncodedString())
+        ), closeAfterSending: true)
+        events.send(.confirmed)
+    }
+
+    // MARK: - Chime
+
+    private func rotateChimeCode() {
+        chimeResume?.cancel()
+        chimeResume = nil
+        chimeRotation?.cancel()
+        chimeRotation = nil
+        chimePending = nil
+        guard credentials != nil, let code = ChimeCode.random() else {
+            stopChime()
+            return
+        }
+        chimeLedger.rotate(to: code, at: .now)
+        chimeCode = code
+        chimeRotation = Task { [weak self] in
+            try? await Task.sleep(for: ChimeCodeLedger.lifetime)
+            guard !Task.isCancelled, let self, self.chimeCode != nil else { return }
+            self.events.send(.codeRotated)
+            self.rotateChimeCode()
+        }
+    }
+
+    private func stopChime() {
+        chimeRotation?.cancel()
+        chimeRotation = nil
+        chimeResume?.cancel()
+        chimeResume = nil
+        chimeLedger.retire()
+        chimePending = nil
+        chimeCode = nil
+    }
+
+    private func redeemChimeCode() {
+        stopChime()
+        chimeResume = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.chimeRedeemGrace))
+            guard !Task.isCancelled, let self, self.credentials != nil, !self.state.isTerminal else { return }
+            self.rotateChimeCode()
+        }
+    }
+
+    private func handleChimeHello(_ message: TokenTransferMessage, credentials: SessionCredentials, sessionIdSalt: String) {
+        let now = ContinuousClock.now
+        chimePending = nil
+        guard chimeLedger.admitHello(at: now),
+              let live = chimeLedger.live(at: now),
+              let payload = message.chime,
+              payload.version == ChimeLinkCrypto.protocolVersion,
+              let phoneNonce = payload.nonceBase64.flatMap({ Data(base64Encoded: $0) }),
+              let tvNonce = ChimeLinkCrypto.makeNonce() else {
+            Log.link.error("[LinkServer] chime_hello refused (budget, no live code, or bad version)")
+            sendOfferError()
+            return
+        }
+        Log.link.info("[LinkServer] chime_hello accepted")
+        let transcript = ChimeLinkCrypto.Transcript(
+            version: ChimeLinkCrypto.protocolVersion,
+            sessionId: credentials.sessionId,
+            tvDeviceId: LinkPeerIdentity.localDeviceId(),
+            tvName: Self.localTVName,
+            tvKind: DeviceClass.current.rawValue,
+            phoneNonce: phoneNonce,
+            tvNonce: tvNonce
+        )
+        guard let session = ChimeLinkCrypto.session(code: live.code, transcript: transcript),
+              let pending = chimeLedger.pending(session, at: now) else {
+            sendOfferError()
+            return
+        }
+        chimePending = pending
+        beginLinkProgress(timeout: 60)
+        sendOfferMessage(.chime(.chimeHelloAck, sessionId: sessionIdSalt, payload: ChimeLinkPayload(
+            version: transcript.version,
+            nonceBase64: tvNonce.base64EncodedString(),
+            sessionId: transcript.sessionId,
+            tvName: transcript.tvName,
+            tvKind: transcript.tvKind,
+            tvDeviceId: transcript.tvDeviceId,
+            confirmationBase64: ChimeLinkCrypto.confirmation(session, role: .tv).base64EncodedString()
+        )))
+        events.send(.exchangeStarted)
+        armOfferConnectionIdleTimeout(seconds: 60)
+    }
+
+    private func handleChimeConfirm(_ message: TokenTransferMessage, credentials: SessionCredentials, sessionIdSalt: String) {
+        let now = ContinuousClock.now
+        guard let pending = chimePending, chimeLedger.isRedeemable(pending, at: now) else {
+            chimePending = nil
+            sendOfferError()
+            return
+        }
+        chimePending = nil
+        guard let confirmation = message.chime?.confirmationBase64.flatMap({ Data(base64Encoded: $0) }),
+              ChimeLinkCrypto.verifyConfirmation(confirmation, session: pending.session, role: .phone) else {
+            Log.link.error("[LinkServer] chime_confirm failed verification")
+            if chimeLedger.recordFailure() {
+                events.send(.codeRotated)
+                rotateChimeCode()
+            }
+            sendOfferError()
+            return
+        }
+        guard !credentials.isExpired, chimeLedger.redeem(pending, at: now) else {
+            sendOfferError()
+            return
+        }
+
+        let offer = LinkOffer(
+            sessionId: credentials.sessionId,
+            secretBase64: credentials.secret.base64EncodedString(),
+            createdAt: credentials.createdAt,
+            tvName: pending.session.transcript.tvName
+        )
+        guard let encoded = try? JSONEncoder().encode(offer),
+              let sealed = try? ChimeLinkCrypto.seal(encoded, session: pending.session) else {
+            sendOfferError()
+            return
+        }
+        beginLinkProgress()
+        awaitingHandoff = true
+        sendOfferMessage(
+            .chime(.chimeCredentials, sessionId: sessionIdSalt, payload: ChimeLinkPayload(
+                version: ChimeLinkCrypto.protocolVersion,
+                sealedBase64: sealed.base64EncodedString()
+            )),
+            closeAfterSending: true
+        )
+        events.send(.confirmed)
+        redeemChimeCode()
+    }
+
+    private func handleChimePlayRequest(sessionIdSalt: String) {
+        let now = ContinuousClock.now
+        guard chimeCode != nil, onChimeRequested != nil, chimeLedger.admitHello(at: now) else {
+            Log.link.error("[LinkServer] chime request refused (no live code, no player, or budget)")
+            sendOfferMessage(.error(sessionId: sessionIdSalt, message: "Invalid request"), closeAfterSending: true)
+            return
+        }
+        beginLinkProgress()
+        awaitingHandoff = true
+        if lastRequestedChime.map({ now - $0 >= Self.requestedChimeSpacing }) ?? true {
+            lastRequestedChime = now
+            Log.link.info("[LinkServer] chime requested by a nearby device")
+            requestChime()
+        }
+        sendOfferMessage(
+            .chime(.chimePlaying, sessionId: sessionIdSalt, payload: ChimeLinkPayload(version: ChimeLinkCrypto.protocolVersion)),
+            closeAfterSending: true
+        )
     }
 
     private func sendOfferMessage(
@@ -735,18 +1139,47 @@ final class LinkServer: ObservableObject {
 
         offerConnection.send(content: data, completion: .contentProcessed { [weak self] error in
             Task { @MainActor in
+                guard let self, self.offerConnection === offerConnection else { return }
                 if let error {
                     Log.link.error("[LinkServer] push-offer send failed: \(error.localizedDescription, privacy: .public)")
+                    self.state = .failed(.connectionLost(error.localizedDescription))
                 }
                 if closeAfterSending {
-                    self?.clearOfferConnection()
+                    self.clearOfferConnection()
                 }
             }
         })
     }
 
+    private func beginLinkProgress(name: String? = nil, timeout: Double = 30) {
+        linkProgressTimeout?.cancel()
+        if case .failed = state { state = .advertising }
+        if let name { connectingDeviceName = name }
+        isLinkInProgress = true
+        awaitingHandoff = false
+        linkProgressTimeout = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(timeout))
+            guard let self, !Task.isCancelled, self.isLinkInProgress else { return }
+            self.state = .failed(.connectionLost("The connection timed out."))
+            self.validationTask?.cancel()
+            self.validationTask = nil
+            self.connection?.cancel()
+            self.connection = nil
+            self.clearOfferConnection()
+        }
+    }
+
+    private func finishLinkProgress() {
+        linkProgressTimeout?.cancel()
+        linkProgressTimeout = nil
+        isLinkInProgress = false
+        connectingDeviceName = nil
+        awaitingHandoff = false
+    }
+
     private func sendOfferError() {
         guard let credentials else { return }
+        state = .failed(.rejected(""))
         sendOfferMessage(
             .error(sessionId: String(credentials.sessionId.prefix(8)), message: "Invalid request"),
             closeAfterSending: true
@@ -754,39 +1187,204 @@ final class LinkServer: ObservableObject {
     }
 }
 
-enum LinkOfferKeychainStore {
-    private static let service = "red.forbes.sounding.pairing-offer"
-    private static let account = "pairing_offer"
-    private static let sharedAccessGroup = "6Z49PF6642.red.forbes.sounding.shared"
+@MainActor
+final class SameAccountLinkAdvertiser: ObservableObject {
+    static let shared = SameAccountLinkAdvertiser()
 
-    static func publish(_ offer: LinkOffer) {
-        guard let data = try? JSONEncoder().encode(offer) else { return }
-        clear()
+    let server = LinkServer()
 
-        let attributes: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecAttrAccessGroup as String: sharedAccessGroup,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-        ]
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        if status != errSecSuccess {
-            Log.link.error("[LinkOfferKeychainStore] publish failed: \(status, privacy: .public)")
+    @Published private(set) var isAdvertising = false
+    @Published private(set) var linkedName: String?
+
+    private var accountId: String?
+    private var isActive = false
+    private var holds = 0
+    private var restart: Task<Void, Never>?
+    private var stateSubscription: AnyCancellable?
+    private var approvalSubscription: AnyCancellable?
+    private var approvedName: String?
+
+    init() {
+        server.playsChime = false
+        stateSubscription = server.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in self?.serverChanged(state) }
+        approvalSubscription = server.$linkedPeerName
+            .compactMap { $0 }
+            .sink { [weak self] name in self?.approvedName = name }
+    }
+
+    static var currentAccountId: String? {
+        #if DEBUG
+        if let forced = ProcessInfo.processInfo.environment["SOUNDING_TV_LINK_ACCOUNT"], !forced.isEmpty { return forced }
+        #endif
+        return SoundCloudCredentialSource.shared.currentUser?.id
+    }
+
+    func update(accountId: String?, isActive: Bool) {
+        Log.link.info("[SameAccountLink] update signedIn=\(accountId != nil, privacy: .public) active=\(isActive, privacy: .public) holds=\(self.holds, privacy: .public)")
+        self.accountId = accountId
+        self.isActive = isActive
+        if isActive, accountId?.isEmpty == false { LinkOwnerKeyCloud.shared.refreshIfNeeded() }
+        reconcile()
+    }
+
+    func hold() {
+        holds += 1
+        reconcile()
+    }
+
+    func release() {
+        holds = max(0, holds - 1)
+        reconcile()
+    }
+
+    func refreshLinkedPeers() {
+        guard isAdvertising else { return }
+        begin()
+    }
+
+    private var wantsAdvert: Bool { isActive && holds == 0 && accountId?.isEmpty == false }
+
+    private func reconcile() {
+        if wantsAdvert {
+            if !isAdvertising { begin() }
+        } else if isAdvertising {
+            Log.link.info("[SameAccountLink] stop advertising")
+            restart?.cancel()
+            server.stop()
+            isAdvertising = false
         }
     }
 
-    static func clear() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecAttrAccessGroup as String: sharedAccessGroup,
-        ]
-        let status = SecItemDelete(query as CFDictionary)
-        if status != errSecSuccess && status != errSecItemNotFound {
-            Log.link.error("[LinkOfferKeychainStore] clear failed: \(status, privacy: .public)")
+    private func begin() {
+        guard let accountId, let salt = LinkAccountHint.makeSalt() else { return }
+        let linked = CompanionServer.shared.devices.compactMap(\.deviceId)
+        server.accountHint = LinkAccountHint.advert(accountId: accountId, linkedDeviceIds: linked, salt: salt)
+        server.ownerAccountId = accountId
+        server.onTokenReceived = { [weak self] _, _, _, _ in
+            Log.link.info("[SameAccountLink] linked; keeping this Apple TV's own session")
+            self?.linkedName = self?.approvedName
         }
+        Log.link.info("[SameAccountLink] advertising for \(linked.count, privacy: .public) linked devices")
+        server.start()
+        isAdvertising = true
+    }
+
+    private func serverChanged(_ state: LinkServer.State) {
+        guard isAdvertising, state.isTerminal else { return }
+        restart?.cancel()
+        let delay: Double
+        switch state {
+        case .completed: delay = 2
+        case .timeout: delay = 1
+        default: delay = 30
+        }
+        restart = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self, self.isAdvertising, self.wantsAdvert else { return }
+            self.begin()
+        }
+    }
+}
+
+@MainActor
+final class SameAccountPhoneBrowser: ObservableObject {
+    static let shared = SameAccountPhoneBrowser()
+
+    @Published private(set) var nearbyName: String?
+
+    private nonisolated(unsafe) var browser: NWBrowser?
+    private var accountId: String?
+    private var linkedDeviceIds: [String] = []
+
+    func update(accountId: String?, linkedDeviceIds: [String]) {
+        self.linkedDeviceIds = linkedDeviceIds
+        guard accountId != self.accountId || (accountId != nil && browser == nil) else { return }
+        self.accountId = accountId
+        browser?.cancel()
+        browser = nil
+        nearbyName = nil
+        guard accountId != nil else { return }
+        let parameters = NWParameters()
+        parameters.includePeerToPeer = true
+        let newBrowser = NWBrowser(
+            for: .bonjourWithTXTRecord(type: BonjourConstants.serviceType, domain: BonjourConstants.serviceDomain),
+            using: parameters
+        )
+        newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
+            Task { @MainActor in self?.handle(results) }
+        }
+        newBrowser.start(queue: .main)
+        browser = newBrowser
+    }
+
+    private func handle(_ results: Set<NWBrowser.Result>) {
+        guard let accountId else { return }
+        let match = results.first { result in
+            guard case .service(let name, _, _, _) = result.endpoint,
+                  name.hasPrefix(BonjourConstants.nearbyServiceName + "-"),
+                  case .bonjour(let record) = result.metadata,
+                  let advert = LinkAccountHint.decode(record),
+                  advert.matches(accountId: accountId) else { return false }
+            return !linkedDeviceIds.contains { advert.isLinked(toDeviceId: $0) }
+        }
+        var name: String?
+        if let match, case .bonjour(let record) = match.metadata,
+           case .string(let value)? = record.getEntry(for: LinkAccountHint.nameKey), !value.isEmpty {
+            name = String(value.prefix(LinkPeerIdentity.maximumNameLength))
+        } else if match != nil {
+            name = "An iPhone"
+        }
+        if name != nearbyName {
+            Log.link.info("[SameAccountLink] nearby same-account device: \(name ?? "none", privacy: .public)")
+        }
+        nearbyName = name
+    }
+}
+
+@MainActor
+final class NearbyPhonePresence: ObservableObject {
+    @Published private(set) var name: String?
+
+    private nonisolated(unsafe) var browser: NWBrowser?
+
+    deinit {
+        browser?.cancel()
+    }
+
+    func start() {
+        guard browser == nil else { return }
+        let parameters = NWParameters()
+        parameters.includePeerToPeer = true
+        let newBrowser = NWBrowser(
+            for: .bonjourWithTXTRecord(type: BonjourConstants.serviceType, domain: BonjourConstants.serviceDomain),
+            using: parameters
+        )
+        newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
+            Task { @MainActor in self?.handle(results) }
+        }
+        newBrowser.start(queue: .main)
+        browser = newBrowser
+    }
+
+    func stop() {
+        browser?.cancel()
+        browser = nil
+        name = nil
+    }
+
+    private func handle(_ results: Set<NWBrowser.Result>) {
+        let names = results.compactMap { result -> String? in
+            guard case .service(let service, _, _, _) = result.endpoint,
+                  service.hasPrefix(BonjourConstants.nearbyServiceName + "-"),
+                  case .bonjour(let record) = result.metadata else { return nil }
+            return NearbyPresenceTXT.name(record)
+        }
+        let next = names.sorted().first
+        if next != name {
+            Log.link.info("[NearbyPhonePresence] nearby: \(next ?? "none", privacy: .public)")
+        }
+        name = next
     }
 }

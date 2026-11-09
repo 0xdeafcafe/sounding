@@ -27,7 +27,7 @@ enum AnalysisSyncSelfTest {
 
     static func record(
         trackId: String,
-        engineName: String = "sounding.fftAudioAnalyzer",
+        engineName: String = "apple.musicUnderstanding",
         engineVersion: Int = 1,
         schemaVersion: Int = 1,
         durationMillis: Int = 180_000,
@@ -185,7 +185,7 @@ enum AnalysisSyncSelfTest {
 
         struct Fixture: Codable, Sendable, Equatable { let bpm: Double }
         let key = AnalysisCacheKey(
-            trackId: "local-1", engine: .fftAudioAnalyzer(), schemaVersion: 1,
+            trackId: "local-1", engine: .musicUnderstanding(), schemaVersion: 1,
             fingerprint: AnalyzedAudioFingerprint(durationMillis: 180_000, preset: "aac_256k", bitrate: 256, codec: "aac")
         )
         do {
@@ -263,7 +263,7 @@ enum AnalysisSyncSelfTest {
         report.expect("a well-formed record validates", AnalysisSyncPolicy.validate(record(trackId: "1")) == nil,
                       String(describing: AnalysisSyncPolicy.validate(record(trackId: "1"))))
 
-        let forged = record(trackId: "1", overrideCacheKey: "2#sounding.fftAudioAnalyzer#1#1#180000#aac_256k#256#aac")
+        let forged = record(trackId: "1", overrideCacheKey: "2#apple.musicUnderstanding#1#1#180000#aac_256k#256#aac")
         report.expect("a cacheKey that disagrees with its identity fields is refused",
                       AnalysisSyncPolicy.validate(forged) == .identityMismatch,
                       String(describing: AnalysisSyncPolicy.validate(forged)))

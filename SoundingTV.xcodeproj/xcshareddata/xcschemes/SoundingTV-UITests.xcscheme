@@ -39,6 +39,17 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "5FE8E4271F8709A234377F09"
+               BuildableName = "SoundingTV-UITests.xctest"
+               BlueprintName = "SoundingTV-UITests"
+               ReferencedContainer = "container:SoundingTV.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>

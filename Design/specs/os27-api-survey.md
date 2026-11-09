@@ -1,4 +1,4 @@
-# OS 27 API survey — what SoundingCloud should adopt
+# OS 27 API survey — what Sounding should adopt
 
 **Written 2026-08-03. Read-only research; no repo file outside this one was touched.**
 
@@ -29,8 +29,8 @@ and adds three things the API-area pass missed. Ordered by how visible the featu
 
 | # | What the user gets | New in 27? | Platform | Detail |
 |---|---|---|---|---|
-| C1 | **"Hey Siri, play Four Tet on SoundingCloud"** — plus like it, add to library, add to a playlist, all by voice, with no user-authored shortcut | **Yes** | iPhone/iPad | §1.7 |
-| C2 | **Point the camera at a record sleeve or a gig poster → SoundingCloud results** in Visual Intelligence | No (iOS 26) | iPhone/iPad | §6.8 |
+| C1 | **"Hey Siri, play Four Tet on Sounding"** — plus like it, add to library, add to a playlist, all by voice, with no user-authored shortcut | **Yes** | iPhone/iPad | §1.7 |
+| C2 | **Point the camera at a record sleeve or a gig poster → Sounding results** in Visual Intelligence | No (iOS 26) | iPhone/iPad | §6.8 |
 | C3 | **Ask your library questions in natural language** — "what did I like that sounds like this", "what deep house have I saved" — grounded in your own SoundCloud content | **Yes** | iPhone/iPad | §2.11 |
 | C4 | **Like / repeat / shuffle from the Lock Screen, Control Center and the Siri Remote**, instead of just play-pause-skip | **Yes** | **Both** | §1.2 |
 | C5 | **Larger text on the TV** for anyone who needs it, and an App Store accessibility badge for it | **Yes** | Apple TV | §1.3 |
@@ -106,7 +106,7 @@ Ranked by value × confidence × cost. The one-line version:
 | 4 | `AVPlayer.setDisconnectedFromSystemAudio(_:completionHandler:)` | `PlayerService.swift` ↔ `MixEngine.swift` handover | `[SDK]` | Small |
 | 5 | **MusicUnderstanding** — still not imported by any shipping target | `AnalysisCache`, `GenreDetector`, `CueSuggester`, `DJCore` | `[SDK]` `[WWDC]` | Large (already designed) |
 | 6 | AVAudioSession interruption model — **the old one is deprecated** | `PlayerService.swift:406, 452`, `MixEngine.swift:651` | `[SDK]` | Small, but mandatory |
-| 7 | The **`.audio` App Schema domain** — Siri "play … on SoundingCloud" | iOS app + `SoundingTV-Widget` intents | `[SDK]` | Medium |
+| 7 | The **`.audio` App Schema domain** — Siri "play … on Sounding" | iOS app + `SoundingTV-Widget` intents | `[SDK]` | Medium |
 | 8 | `AsyncImage` HTTP caching + `asyncImageURLSession(_:)` | 10 iOS call sites | `[SDK]` `[RN]` | Trivial |
 | 9 | SwiftUI `reorderable()` / `swipeActionsContainer()` (iOS only) | `QueueManagerView.swift` | `[SDK]` | Small |
 | 10 | `AVAssetReader` / `AVAssetWriter` provider–receiver migration | `MixEngine.SourceImporter`, `PlayerService.AudioAnalyzer` | `[SDK]` `[DOC]` | Medium — real redesign |
@@ -506,7 +506,7 @@ public struct AudioSearch : Codable, Equatable, Hashable, Sendable {
 }
 ```
 
-Mapped onto this app: `.audio.playAudio` is "Hey Siri, play *<anything>* on SoundingCloud".
+Mapped onto this app: `.audio.playAudio` is "Hey Siri, play *<anything>* on Sounding".
 `.audio.updateAudioAffinity` is the SoundCloud like. `.audio.song` / `.audio.artist` /
 `.audio.playlist` map onto `Track`, `User` and `Playlist` in `Sources/Models/`.
 `Criteria.url([URL])` maps onto the existing `SoundCloudAPI.resolve(url:)` path that the Share
@@ -724,7 +724,7 @@ Surface: `AVSystemRouteController`, `AVSystemRouteControllerObserver`, `AVSystem
 Why it is interesting here: the phone→TV relationship this app already implements by hand — discover
 a device, send it a URL, then exchange control messages over a persistent channel — is *exactly* the
 shape `AVSystemRouteSession(url:mode: .application)` plus `dataChannel` describes. Adopting it would
-put "Apple TV (SoundingCloud)" in the **system** route picker rather than in a bespoke tab, and would
+put "Apple TV (Sounding)" in the **system** route picker rather than in a bespoke tab, and would
 subsume the output-switching UI in `CompanionRootView` / `RemoteOutputTarget` / `RemoteQueueClient`.
 The docs also note `playbackControl` "supports Observation in Swift", so SwiftUI views update
 automatically — which is what `PhonePlaybackCoordinator` currently hand-rolls.
@@ -1297,7 +1297,7 @@ current, and it isn't.
 3. **`AppShortcutsProvider` / `AppShortcut`** — absent entirely. Without it none of the app's intents
    appear in Shortcuts or Siri without the user building a shortcut by hand.
 4. **`ControlWidget` / `ControlWidgetButton`** (iOS 18) — absent. A Control Center "play/pause
-   SoundingCloud" toggle is the single most obvious missing surface for a music app.
+   Sounding" toggle is the single most obvious missing surface for a music app.
 5. **`ActivityFamily.small` via `supplementalActivityFamilies([.small])`** (iOS 18, see §3.13) —
    absent. This is what puts the Live Activity in the Apple Watch Smart Stack and the CarPlay
    Dashboard, **without a watchOS target**.
@@ -1341,7 +1341,7 @@ thing on this list.
 
 - **`watchos-plan.md`.** Its verdict ("technically possible, not worth doing") is not overturned by
   anything in 27 — but §3.13 is relevant to *how* the Watch gets a presence. Live Activity
-  `ActivityFamily.small` lands SoundingCloud in the Watch Smart Stack **without a watchOS target**,
+  `ActivityFamily.small` lands Sounding in the Watch Smart Stack **without a watchOS target**,
   and has been available since iOS 18 rather than being a new 27 capability. That is a materially
   cheaper path to the same user-visible outcome than the plan evaluates, and the plan should say so.
   Separately, `NowPlaying` is available on **watchOS 27** `[DOC]`, which changes what a future watch

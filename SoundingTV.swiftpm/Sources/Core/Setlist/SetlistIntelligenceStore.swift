@@ -3,6 +3,11 @@ import AVFoundation
 import Combine
 import ShazamKit
 
+@MainActor
+protocol SetlistSynchronizationReceiving: AnyObject, Sendable {
+    func noteSetlistMutation()
+}
+
 struct SetlistScanProgress: Equatable {
     let completed: Int
     let total: Int
@@ -14,35 +19,92 @@ struct SetlistScanProgress: Equatable {
     }
 }
 
+enum SetlistIdentification: Equatable, Sendable {
+    case matched(SetlistSegment)
+    case noMatch
+    case unavailable(String)
+    case failed(String)
+}
+
+struct SetlistAudioWindow: Sendable {
+    let fileURL: URL
+    let startSeconds: TimeInterval
+    let isTemporary: Bool
+}
+
+protocol SetlistAudioSource: Sendable {
+    func window(startingAt seconds: TimeInterval, duration: TimeInterval) async throws -> SetlistAudioWindow
+}
+
+struct SetlistLocalAudioSource: SetlistAudioSource {
+    let fileURL: URL
+
+    func window(startingAt seconds: TimeInterval, duration: TimeInterval) async throws -> SetlistAudioWindow {
+        SetlistAudioWindow(fileURL: fileURL, startSeconds: 0, isTemporary: false)
+    }
+}
+
 @MainActor
 final class SetlistIntelligenceStore: ObservableObject {
     static let shared = SetlistIntelligenceStore()
 
     @Published private(set) var setlists: [String: GeneratedSetlist] = [:]
+    @Published private(set) var isLoaded = false
     @Published private(set) var scanningTrackIds: Set<String> = []
+    @Published private(set) var identifyingTrackIds: Set<String> = []
     @Published private(set) var scanErrors: [String: String] = [:]
     @Published private(set) var scanProgress: [String: SetlistScanProgress] = [:]
+    @Published private(set) var identifiedSongs: [String: IdentifiedSong] = [:]
 
-    private static let defaultsKey = "red.forbes.sounding.generatedSetlists.v1"
+    static let identifyLookbehindSeconds: TimeInterval = 8
+    private static let persistDelay: Duration = .seconds(1)
+
+    private let archive = SetlistArchive()
     private let scanner = SetlistShazamScanner()
-    private let persistenceWriter = SetlistPersistenceWriter()
-    private var persistenceGeneration: UInt64 = 0
+    private var loadTask: Task<Void, Never>?
+    private var dirtyTrackIds: Set<String> = []
+    private var persistTask: Task<Void, Never>?
     private var semanticCommentTasks: [String: Task<Void, Never>] = [:]
     private var semanticCommentSignatures: [String: Int] = [:]
+    private var hydratingMetadataTrackIds: Set<String> = []
+    private var hydratedMetadataTrackIds: Set<String> = []
+    private weak var synchronizationSink: (any SetlistSynchronizationReceiving)?
 
     private init() {
-        if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
-           let decoded = try? JSONDecoder().decode([String: GeneratedSetlist].self, from: data) {
-            setlists = decoded
+        let archive = archive
+        loadTask = Task { [weak self] in
+            let loaded = await archive.loadAll()
+            self?.absorbLoaded(loaded)
         }
+    }
+
+    func waitUntilLoaded() async {
+        await loadTask?.value
     }
 
     func setlist(for trackId: String?) -> GeneratedSetlist? {
         trackId.flatMap { setlists[$0] }
     }
 
+    func tracklist(for trackId: String?) -> Tracklist? {
+        setlist(for: trackId).map(\.tracklist)
+    }
+
+    func isMix(trackID: String?, title: String?, description: String? = nil, duration: TimeInterval) -> Bool {
+        if !(tracklist(for: trackID)?.isEmpty ?? true) { return true }
+        return DeckIdentityResolver.isLikelyMix(title: title ?? "", description: description, duration: duration)
+    }
+
+    func isMix(_ track: Track) -> Bool {
+        isMix(trackID: track.id, title: track.title, description: track.description, duration: track.duration)
+    }
+
     func snapshotsForSync() -> [GeneratedSetlist] {
         Array(setlists.values)
+    }
+
+    func connectSynchronization(to sink: any SetlistSynchronizationReceiving) {
+        synchronizationSink = sink
     }
 
     var savedSetlists: [GeneratedSetlist] {
@@ -58,129 +120,40 @@ final class SetlistIntelligenceStore: ObservableObject {
     }
 
     func adoptSynced(_ incoming: [GeneratedSetlist]) {
+        let incoming = incoming.filter { !$0.trackId.isEmpty }
         guard !incoming.isEmpty else { return }
-        var changed = false
-        for remote in incoming {
-            guard !remote.trackId.isEmpty else { continue }
-            guard var local = setlists[remote.trackId] else {
-                setlists[remote.trackId] = normalized(remote)
-                changed = true
-                continue
-            }
-            let original = local
-            let remoteIsNewer = remote.updatedAt > local.updatedAt
-            if remoteIsNewer {
-                local.trackTitle = remote.trackTitle
-                local.duration = remote.duration
-            }
-            let localSavedRevision = local.savedUpdatedAt ?? local.updatedAt
-            let remoteSavedRevision = remote.savedUpdatedAt ?? remote.updatedAt
-            if remoteSavedRevision > localSavedRevision {
-                local.isSaved = remote.isSaved
-                local.savedUpdatedAt = remoteSavedRevision
-            }
-            for segment in remote.segments {
-                merge(
-                    segment,
-                    into: &local,
-                    incomingFallback: remote.updatedAt,
-                    currentFallback: local.updatedAt
-                )
-            }
-            var probes = local.probes ?? []
-            for probe in remote.probes ?? [] {
-                if let index = probes.firstIndex(where: {
-                    abs($0.positionSeconds - probe.positionSeconds) < 5
-                }) {
-                    let current = probes[index]
-                    let outcomeRank: (SetlistScanOutcome) -> Int = {
-                        switch $0 {
-                        case .matched: return 2
-                        case .noMatch: return 1
-                        case .failed: return 0
-                        }
-                    }
-                    if outcomeRank(probe.outcome) > outcomeRank(current.outcome)
-                        || (probe.outcome == current.outcome && probe.attemptedAt > current.attemptedAt) {
-                        probes[index] = probe
-                    }
-                } else {
-                    probes.append(probe)
-                }
-            }
-            local.probes = probes.sorted { $0.positionSeconds < $1.positionSeconds }
-            local.updatedAt = max(local.updatedAt, remote.updatedAt)
-            local = normalized(local)
-            if local != original {
-                setlists[remote.trackId] = local
-                changed = true
-            }
+        let base = setlists
+        Task { [weak self] in
+            let merged = await Task.detached(priority: .utility) {
+                SetlistMerging.adopt(incoming, into: base)
+            }.value
+            self?.apply(merged, base: base, requestSync: false)
         }
-        if changed { persist(requestSync: false) }
     }
 
     func seed(track: Track, comments: [Comment]) {
         guard DeckIdentityResolver.isLikelyMix(track) else { return }
-        var setlist = setlists[track.id] ?? GeneratedSetlist(
-            trackId: track.id,
-            trackTitle: track.title,
-            duration: track.duration,
-            segments: [],
-            isSaved: false,
-            updatedAt: Date()
-        )
-        setlist.trackTitle = track.title
-        setlist.duration = track.duration
+        Task { await seedNow(track: track, comments: comments) }
+    }
 
-        for identity in DeckIdentityResolver.descriptionIdentities(for: track) {
-            guard let start = identity.startsAt else { continue }
-            let parts = Self.splitLabel(identity.label)
-            merge(
-                SetlistSegment(
-                    id: "description#\(Int(start * 1000))",
-                    startSeconds: start,
-                    observedAtSeconds: start,
-                    artist: parts.artist,
-                    title: parts.title,
-                    version: parts.version,
-                    source: .uploaderTracklist,
-                    confidence: identity.confidence,
-                    evidence: identity.evidence,
-                    shazamId: nil,
-                    soundCloudTrackId: nil,
-                    isUserEdited: false,
-                    updatedAt: Date()
-                ),
-                into: &setlist
-            )
-        }
-
-        for identity in DeckIdentityResolver.commentIdentities(comments: comments) {
-            guard let time = identity.startsAt else { continue }
-            let parts = Self.splitLabel(identity.label)
-            merge(
-                SetlistSegment(
-                    id: "comment#\(identity.commentID ?? String(Int(time * 1000)))",
-                    startSeconds: time,
-                    observedAtSeconds: time,
-                    artist: parts.artist,
-                    title: parts.title,
-                    version: parts.version,
-                    source: .listenerComment,
-                    confidence: identity.confidence,
-                    evidence: identity.evidence,
-                    shazamId: nil,
-                    soundCloudTrackId: nil,
-                    isUserEdited: false,
-                    updatedAt: Date()
-                ),
-                into: &setlist
-            )
-        }
-        setlist.updatedAt = Date()
-        setlists[track.id] = normalized(setlist)
-        persist()
+    private func seedNow(track: Track, comments: [Comment]) async {
+        let base = setlists[track.id]
+        let seeded = await Task.detached(priority: .utility) {
+            SetlistMerging.seeded(base, track: track, comments: comments)
+        }.value
+        apply([track.id: seeded], base: base.map { [track.id: $0] } ?? [:], requestSync: true)
         scheduleSemanticCommentEnrichment(track: track, comments: comments)
+    }
+
+    func hydrateMetadataIfNeeded(for track: Track) async {
+        guard !hydratedMetadataTrackIds.contains(track.id),
+              hydratingMetadataTrackIds.insert(track.id).inserted else { return }
+        defer { hydratingMetadataTrackIds.remove(track.id) }
+        let comments = await loadCommentEvidence(trackId: track.id)
+        guard !Task.isCancelled else { return }
+        hydratedMetadataTrackIds.insert(track.id)
+        guard DeckIdentityResolver.isLikelyMix(track) else { return }
+        await seedNow(track: track, comments: comments)
     }
 
     private func scheduleSemanticCommentEnrichment(track: Track, comments: [Comment]) {
@@ -191,47 +164,14 @@ final class SetlistIntelligenceStore: ObservableObject {
         semanticCommentTasks[track.id]?.cancel()
         semanticCommentTasks[track.id] = Task { @MainActor [weak self] in
             let identities = await DeckIdentityResolver.semanticCommentIdentities(comments: comments)
-            guard !Task.isCancelled, let self else { return }
-            self.mergeSemanticCommentIdentities(identities, into: track)
+            guard !Task.isCancelled, let self, !identities.isEmpty else { return }
+            let base = self.setlists[track.id]
+            let merged = await Task.detached(priority: .utility) {
+                SetlistMerging.merging(identities, source: .listenerComment, into: base, track: track)
+            }.value
+            self.apply([track.id: merged], base: base.map { [track.id: $0] } ?? [:], requestSync: true)
             self.semanticCommentTasks[track.id] = nil
         }
-    }
-
-    private func mergeSemanticCommentIdentities(_ identities: [DeckIdentity], into track: Track) {
-        guard !identities.isEmpty else { return }
-        var setlist = setlists[track.id] ?? GeneratedSetlist(
-            trackId: track.id,
-            trackTitle: track.title,
-            duration: track.duration,
-            segments: [],
-            isSaved: false,
-            updatedAt: Date()
-        )
-        for identity in identities {
-            guard let time = identity.startsAt else { continue }
-            let parts = Self.splitLabel(identity.label)
-            merge(
-                SetlistSegment(
-                    id: "comment#\(identity.commentID ?? String(Int(time * 1000)))",
-                    startSeconds: time,
-                    observedAtSeconds: time,
-                    artist: parts.artist,
-                    title: parts.title,
-                    version: parts.version,
-                    source: .listenerComment,
-                    confidence: identity.confidence,
-                    evidence: identity.evidence,
-                    shazamId: nil,
-                    soundCloudTrackId: nil,
-                    isUserEdited: false,
-                    updatedAt: Date()
-                ),
-                into: &setlist
-            )
-        }
-        setlist.updatedAt = Date()
-        setlists[track.id] = normalized(setlist)
-        persist()
     }
 
     func analyze(track: Track, localFileURL: URL?, comments suppliedComments: [Comment]? = nil) async {
@@ -242,32 +182,109 @@ final class SetlistIntelligenceStore: ObservableObject {
         } else {
             comments = await loadCommentEvidence(trackId: track.id)
         }
-        seed(track: track, comments: comments)
+        await seedNow(track: track, comments: comments)
         guard let localFileURL else { return }
-        let priorityPositions = DeckIdentityResolver.identificationRequestPositions(comments: comments)
+        let priorityPositions = DeckIdentityResolver.candidateIdentityPositions(track: track, comments: comments)
         #if os(macOS)
         await scan(
-            track: track, localFileURL: localFileURL, unknownOnly: false,
+            track: track, source: SetlistLocalAudioSource(fileURL: localFileURL), unknownOnly: false,
             worker: .primary, priorityPositions: priorityPositions
         )
         #elseif os(tvOS)
         await scan(
-            track: track, localFileURL: localFileURL, unknownOnly: false,
+            track: track, source: SetlistLocalAudioSource(fileURL: localFileURL), unknownOnly: false,
             worker: .secondary, priorityPositions: priorityPositions
         )
         #else
-        // iPhone and iPad consume the Mac/TV result by default. This avoids a
-        // long online scan on battery; an explicit retry still works below.
-        SetlistSyncTarget.requestSync?()
+        synchronizationSink?.noteSetlistMutation()
         #endif
     }
 
+    func hasPendingBackgroundScan(for track: Track) async -> Bool {
+        guard DeckIdentityResolver.isLikelyMix(track) else { return false }
+        await waitUntilLoaded()
+        let existing = setlists[track.id]
+        #if os(tvOS)
+        let worker = ScanWorker.secondary
+        #else
+        let worker = ScanWorker.primary
+        #endif
+        return !Self.scanPositions(
+            duration: track.duration,
+            existing: (existing?.segments ?? []).filter { !$0.isDeleted },
+            probes: existing?.probes ?? [],
+            unknownOnly: false,
+            worker: worker,
+            priorityPositions: []
+        ).isEmpty
+    }
+
     func retryUnknowns(track: Track, localFileURL: URL, comments: [Comment] = []) async {
+        await retryUnknowns(track: track, source: SetlistLocalAudioSource(fileURL: localFileURL), comments: comments)
+    }
+
+    func retryUnknowns(track: Track, source: any SetlistAudioSource, comments: [Comment] = []) async {
         await scan(
-            track: track, localFileURL: localFileURL, unknownOnly: true,
+            track: track, source: source, unknownOnly: true,
             worker: .explicit,
-            priorityPositions: DeckIdentityResolver.identificationRequestPositions(comments: comments)
+            priorityPositions: DeckIdentityResolver.candidateIdentityPositions(track: track, comments: comments)
         )
+    }
+
+    func requestTracklist(track: Track, source: any SetlistAudioSource, comments suppliedComments: [Comment]? = nil) async {
+        let comments: [Comment]
+        if let suppliedComments {
+            comments = suppliedComments
+        } else {
+            comments = await loadCommentEvidence(trackId: track.id)
+        }
+        await seedNow(track: track, comments: comments)
+        await scan(
+            track: track, source: source, unknownOnly: false,
+            worker: .explicit,
+            priorityPositions: DeckIdentityResolver.candidateIdentityPositions(track: track, comments: comments)
+        )
+    }
+
+    func identify(track: Track, at position: TimeInterval, source: any SetlistAudioSource) async -> SetlistIdentification {
+        guard identifyingTrackIds.insert(track.id).inserted else { return .unavailable("Already identifying") }
+        defer { identifyingTrackIds.remove(track.id) }
+        let probeStart = max(0, position - Self.identifyLookbehindSeconds)
+        do {
+            let match = try await scanner.match(source: source, at: probeStart, retryNoMatch: true)
+            var setlist = setlists[track.id] ?? Self.emptySetlist(for: track)
+            SetlistMerging.recordProbe(
+                at: probeStart,
+                outcome: match == nil ? .noMatch : .matched,
+                shazamId: match?.shazamId,
+                in: &setlist
+            )
+            var candidate: SetlistSegment?
+            if let match {
+                let segment = Self.segment(for: match)
+                SetlistMerging.merge(segment, into: &setlist)
+                candidate = segment
+            }
+            setlist.updatedAt = Date()
+            let normalized = SetlistMerging.normalized(setlist)
+            commit(normalized)
+            guard let match, let candidate else { return .noMatch }
+            let song = IdentifiedSong(match: match, mix: track, at: position)
+            identifiedSongs[track.id] = song
+            IdentifiedSongHistory.shared.record(song)
+            let resolved = normalized.activeSegments.first {
+                $0.shazamId == match.shazamId && abs($0.observedAtSeconds - match.queryStartSeconds) < 150
+            } ?? normalized.segment(at: position) ?? candidate
+            return .matched(resolved)
+        } catch is CancellationError {
+            return .failed("Cancelled")
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
+    func recordExternalSetlist(_ setlist: GeneratedSetlist) {
+        commit(SetlistMerging.normalized(setlist))
     }
 
     func setSaved(_ saved: Bool, trackId: String) {
@@ -276,23 +293,24 @@ final class SetlistIntelligenceStore: ObservableObject {
         setlist.isSaved = saved
         setlist.savedUpdatedAt = now
         setlist.updatedAt = now
-        setlists[trackId] = setlist
-        persist()
+        commit(setlist)
     }
 
     func update(_ segment: SetlistSegment, trackId: String) {
-        guard var setlist = setlists[trackId],
-              let index = setlist.segments.firstIndex(where: { $0.id == segment.id }) else { return }
+        guard var setlist = setlists[trackId] else { return }
         var edited = segment
         edited.source = .user
         edited.confidence = 1
         edited.isUserEdited = true
         edited.updatedAt = Date()
         edited.deletedAt = nil
-        setlist.segments[index] = edited
+        if let index = setlist.segments.firstIndex(where: { $0.id == segment.id }) {
+            setlist.segments[index] = edited
+        } else {
+            setlist.segments.append(edited)
+        }
         setlist.updatedAt = Date()
-        setlists[trackId] = normalized(setlist)
-        persist()
+        commit(SetlistMerging.normalized(setlist))
     }
 
     func remove(segmentId: String, trackId: String) {
@@ -302,8 +320,7 @@ final class SetlistIntelligenceStore: ObservableObject {
         setlist.segments[index].deletedAt = now
         setlist.segments[index].updatedAt = now
         setlist.updatedAt = now
-        setlists[trackId] = normalized(setlist)
-        persist()
+        commit(SetlistMerging.normalized(setlist))
     }
 
     func link(_ soundCloudTrack: Track, to segmentId: String, trackId: String) {
@@ -321,19 +338,18 @@ final class SetlistIntelligenceStore: ObservableObject {
         segment.deletedAt = nil
         setlist.segments[index] = segment
         setlist.updatedAt = Date()
-        setlists[trackId] = normalized(setlist)
-        persist()
+        commit(SetlistMerging.normalized(setlist))
     }
 
-    private enum ScanWorker {
+    enum ScanWorker {
         case primary
         case secondary
         case explicit
     }
 
-    private func scan(
+    func scan(
         track: Track,
-        localFileURL: URL,
+        source: any SetlistAudioSource,
         unknownOnly: Bool,
         worker: ScanWorker,
         priorityPositions: [TimeInterval]
@@ -370,62 +386,33 @@ final class SetlistIntelligenceStore: ObservableObject {
                 try Task.checkCancellation()
                 do {
                     let match = try await scanner.match(
-                        fileURL: localFileURL,
+                        source: source,
                         at: position,
                         retryNoMatch: unknownOnly
                     )
                     consecutiveServiceFailures = 0
-                    var setlist = setlists[track.id] ?? GeneratedSetlist(
-                        trackId: track.id, trackTitle: track.title, duration: track.duration,
-                        segments: [], isSaved: false, updatedAt: Date()
-                    )
-                    recordProbe(
+                    var setlist = setlists[track.id] ?? Self.emptySetlist(for: track)
+                    SetlistMerging.recordProbe(
                         at: position,
                         outcome: match == nil ? .noMatch : .matched,
                         shazamId: match?.shazamId,
                         in: &setlist
                     )
                     if let match {
-                        let start = max(0, match.queryStartSeconds - match.matchOffset)
-                        merge(
-                            SetlistSegment(
-                                id: "shazam#\(match.shazamId ?? UUID().uuidString)#\(Int(start.rounded()))",
-                                startSeconds: start,
-                                observedAtSeconds: match.queryStartSeconds,
-                                artist: match.artist,
-                                title: match.title,
-                                version: nil,
-                                source: .shazam,
-                                confidence: match.confidence,
-                                evidence: "Matched around \(Self.time(match.queryStartSeconds))",
-                                shazamId: match.shazamId,
-                                soundCloudTrackId: nil,
-                                isUserEdited: false,
-                                updatedAt: Date()
-                            ),
-                            into: &setlist
-                        )
+                        SetlistMerging.merge(Self.segment(for: match), into: &setlist)
                     }
                     setlist.updatedAt = Date()
-                    setlists[track.id] = normalized(setlist)
                     probesSinceSync += 1
-                    persist(requestSync: probesSinceSync % 8 == 0)
+                    commit(SetlistMerging.normalized(setlist), requestSync: probesSinceSync % 8 == 0)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
                     consecutiveServiceFailures += 1
-                    var setlist = setlists[track.id] ?? GeneratedSetlist(
-                        trackId: track.id, trackTitle: track.title, duration: track.duration,
-                        segments: [], isSaved: false, updatedAt: Date()
-                    )
-                    recordProbe(at: position, outcome: .failed, shazamId: nil, in: &setlist)
+                    var setlist = setlists[track.id] ?? Self.emptySetlist(for: track)
+                    SetlistMerging.recordProbe(at: position, outcome: .failed, shazamId: nil, in: &setlist)
                     setlist.updatedAt = Date()
-                    setlists[track.id] = setlist
                     probesSinceSync += 1
-                    persist(requestSync: probesSinceSync % 8 == 0)
-                    // A single flaky request must not lose a five-hour scan.
-                    // Three consecutive exhausted retries indicates the service
-                    // or network is unavailable, so preserve progress and pause.
+                    commit(setlist, requestSync: probesSinceSync % 8 == 0)
                     if consecutiveServiceFailures >= 3 { throw error }
                 }
                 scanProgress[track.id] = SetlistScanProgress(
@@ -438,72 +425,335 @@ final class SetlistIntelligenceStore: ObservableObject {
         } catch {
             scanErrors[track.id] = error.localizedDescription
         }
-        SetlistSyncTarget.requestSync?()
+        synchronizationSink?.noteSetlistMutation()
+    }
+
+    func reportScanError(_ message: String?, for trackId: String) {
+        scanErrors[trackId] = message
+    }
+
+    private static func emptySetlist(for track: Track) -> GeneratedSetlist {
+        GeneratedSetlist(
+            trackId: track.id, trackTitle: track.title, duration: track.duration,
+            segments: [], isSaved: false, updatedAt: Date()
+        )
+    }
+
+    private static func segment(for match: SetlistShazamScanner.Match) -> SetlistSegment {
+        let start = max(0, match.queryStartSeconds - match.matchOffset)
+        return SetlistSegment(
+            id: "shazam#\(match.shazamId ?? UUID().uuidString)#\(Int(start.rounded()))",
+            startSeconds: start,
+            observedAtSeconds: match.queryStartSeconds,
+            artist: match.artist,
+            title: match.title,
+            version: nil,
+            source: .shazam,
+            confidence: match.confidence,
+            evidence: "Matched around \(time(match.queryStartSeconds))",
+            shazamId: match.shazamId,
+            soundCloudTrackId: nil,
+            isUserEdited: false,
+            updatedAt: Date()
+        )
     }
 
     private func loadCommentEvidence(trackId: String) async -> [Comment] {
-        do {
-            var page = try await SoundCloudAPI.shared.getComments(trackId: trackId, limit: 200)
-            var comments = page.collection
-            var pagesLoaded = 1
-            while comments.count < 1_000, pagesLoaded < 5, page.nextHref != nil {
-                page = try await SoundCloudAPI.shared.getNextPage(page)
-                comments.append(contentsOf: page.collection)
-                pagesLoaded += 1
+        await SoundCloudRequestEnvironment.autonomous(lane: .metadata) {
+            do {
+                var page = try await SoundCloudAPI.shared.getComments(trackId: trackId, limit: 200)
+                var comments = page.collection
+                var pagesLoaded = 1
+                while comments.count < 1_000, pagesLoaded < 5, page.nextHref != nil {
+                    page = try await SoundCloudAPI.shared.getNextPage(page)
+                    comments.append(contentsOf: page.collection)
+                    pagesLoaded += 1
+                }
+                return Array(comments.prefix(1_000))
+            } catch {
+                return []
             }
-            return Array(comments.prefix(1_000))
-        } catch {
-            return []
         }
     }
 
-    private func merge(
-        _ incoming: SetlistSegment,
-        into setlist: inout GeneratedSetlist,
-        incomingFallback: Date = .distantPast,
-        currentFallback: Date = .distantPast
+    // MARK: - Persistence
+
+    private func absorbLoaded(_ loaded: [String: GeneratedSetlist]) {
+        var next = setlists
+        for (trackId, stored) in loaded {
+            if let current = next[trackId] {
+                let merged = SetlistMerging.merge(remote: stored, into: current)
+                next[trackId] = merged
+                if merged != stored { dirtyTrackIds.insert(trackId) }
+            } else {
+                next[trackId] = stored
+            }
+        }
+        setlists = next
+        isLoaded = true
+        if !dirtyTrackIds.isEmpty { schedulePersist() }
+    }
+
+    private func apply(
+        _ merged: [String: GeneratedSetlist],
+        base: [String: GeneratedSetlist],
+        requestSync: Bool
     ) {
-        if let index = setlist.segments.firstIndex(where: { $0.id == incoming.id }) {
-            let current = setlist.segments[index]
-            let incomingRevision = revision(of: incoming, fallback: incomingFallback)
-            let currentRevision = revision(of: current, fallback: currentFallback)
-            guard incomingRevision > currentRevision
-                    || (incomingRevision == currentRevision && incoming.deletedAt != nil && current.deletedAt == nil)
-            else { return }
-            if current.isUserEdited, !incoming.isUserEdited, incoming.deletedAt == nil { return }
-            setlist.segments[index] = incoming
-            return
-        }
-
-        if let shazamId = incoming.shazamId,
-           let index = setlist.segments.firstIndex(where: {
-               $0.shazamId == shazamId && abs($0.startSeconds - incoming.startSeconds) < 35
-           }) {
-            let current = setlist.segments[index]
-            let incomingRevision = revision(of: incoming, fallback: incomingFallback)
-            let currentRevision = revision(of: current, fallback: currentFallback)
-            if current.isDeleted {
-                if incomingRevision > currentRevision { setlist.segments[index] = incoming }
-                return
+        var next = setlists
+        var changed = false
+        for (trackId, value) in merged {
+            let current = next[trackId]
+            let resolved: GeneratedSetlist
+            if current == base[trackId] {
+                resolved = value
+            } else if let current {
+                resolved = SetlistMerging.merge(remote: value, into: current)
+            } else {
+                resolved = value
             }
-            if !current.isUserEdited,
-               incomingRevision >= currentRevision,
-               incoming.confidence >= current.confidence {
-                var merged = incoming
-                merged.id = current.id
-                merged.startSeconds = min(current.startSeconds, incoming.startSeconds)
-                setlist.segments[index] = merged
-            }
-            return
+            guard resolved != current else { continue }
+            next[trackId] = resolved
+            dirtyTrackIds.insert(trackId)
+            changed = true
         }
-        setlist.segments.append(incoming)
+        guard changed else { return }
+        setlists = next
+        schedulePersist()
+        if requestSync { synchronizationSink?.noteSetlistMutation() }
     }
 
-    private func revision(of segment: SetlistSegment, fallback: Date) -> Date {
-        segment.deletedAt ?? segment.updatedAt ?? fallback
+    private func commit(_ setlist: GeneratedSetlist, requestSync: Bool = true) {
+        setlists[setlist.trackId] = setlist
+        dirtyTrackIds.insert(setlist.trackId)
+        schedulePersist()
+        if requestSync { synchronizationSink?.noteSetlistMutation() }
     }
 
-    private func recordProbe(
+    private func schedulePersist() {
+        guard persistTask == nil else { return }
+        persistTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.persistDelay)
+            await self?.flush()
+        }
+    }
+
+    private func flush() async {
+        await loadTask?.value
+        persistTask = nil
+        let snapshot = dirtyTrackIds.compactMap { setlists[$0] }
+        dirtyTrackIds.removeAll()
+        guard !snapshot.isEmpty else { return }
+        await archive.write(snapshot)
+    }
+
+    private static func scanPositions(
+        duration: TimeInterval,
+        existing: [SetlistSegment],
+        probes: [SetlistScanProbe],
+        unknownOnly: Bool,
+        worker: ScanWorker,
+        priorityPositions: [TimeInterval]
+    ) -> [TimeInterval] {
+        guard duration >= 30 else { return [] }
+        let spacing: TimeInterval
+        switch duration {
+        case ..<7_200: spacing = 60
+        case ..<10_800: spacing = 75
+        default: spacing = 90
+        }
+        let end = max(8, duration - 12)
+        let workerSpacing = worker == .secondary ? spacing * 2 : spacing
+        let base = Swift.stride(from: min(8, duration / 3), through: end, by: workerSpacing).map { $0 }
+        let wasProbed: (TimeInterval) -> Bool = { position in
+            probes.contains { abs($0.positionSeconds - position) < 5 }
+        }
+        let requested = priorityPositions
+            .map { min(end, max(0, $0 - 2)) }
+            .filter { !wasProbed($0) }
+
+        if !unknownOnly {
+
+
+
+            let remaining = base.enumerated().filter { !wasProbed($0.element) }
+            let progressive = [0, 2, 1, 3].flatMap { phase in
+                remaining.compactMap { index, position in index % 4 == phase ? position : nil }
+            }
+            var ordered: [TimeInterval] = []
+            for position in requested + progressive {
+                if !ordered.contains(where: { abs($0 - position) < 10 }) { ordered.append(position) }
+            }
+            return Array(ordered.prefix(worker == .secondary ? 120 : 240))
+        }
+
+        var candidates: [TimeInterval] = requested + probes
+            .filter { $0.outcome != .matched }
+            .sorted { $0.attemptedAt < $1.attemptedAt }
+            .map(\.positionSeconds)
+
+
+
+
+        let anchors = ([0.0] + existing.map(\.observedAtSeconds) + [end]).sorted()
+        for pair in zip(anchors, anchors.dropFirst()) where pair.1 - pair.0 > workerSpacing * 1.65 {
+            candidates.append(contentsOf: Swift.stride(
+                from: pair.0 + workerSpacing,
+                to: pair.1,
+                by: workerSpacing
+            ))
+        }
+        candidates.append(contentsOf: base.filter { !wasProbed($0) })
+
+        var seen: [TimeInterval] = []
+        for position in candidates where position >= 0 && position <= end {
+            if !seen.contains(where: { abs($0 - position) < 10 }) { seen.append(position) }
+        }
+        return Array(seen.prefix(120))
+    }
+
+    private static func time(_ seconds: TimeInterval) -> String {
+        let value = max(0, Int(seconds.rounded()))
+        return String(format: "%d:%02d", value / 60, value % 60)
+    }
+
+    private static func exportTime(_ seconds: TimeInterval) -> String {
+        let value = max(0, Int(seconds.rounded()))
+        let hours = value / 3600
+        let minutes = (value % 3600) / 60
+        let seconds = value % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%d:%02d", minutes, seconds)
+    }
+
+}
+
+enum SetlistMerging {
+    static func adopt(
+        _ incoming: [GeneratedSetlist],
+        into base: [String: GeneratedSetlist]
+    ) -> [String: GeneratedSetlist] {
+        var changed: [String: GeneratedSetlist] = [:]
+        for remote in incoming where !remote.trackId.isEmpty {
+            let current = changed[remote.trackId] ?? base[remote.trackId]
+            let merged = current.map { merge(remote: remote, into: $0) } ?? normalized(remote)
+            if merged != base[remote.trackId] { changed[remote.trackId] = merged }
+        }
+        return changed
+    }
+
+    static func merge(remote: GeneratedSetlist, into current: GeneratedSetlist) -> GeneratedSetlist {
+        var local = current
+        if remote.updatedAt > local.updatedAt {
+            local.trackTitle = remote.trackTitle
+            local.duration = remote.duration
+        }
+        let localSavedRevision = local.savedUpdatedAt ?? local.updatedAt
+        let remoteSavedRevision = remote.savedUpdatedAt ?? remote.updatedAt
+        if remoteSavedRevision > localSavedRevision {
+            local.isSaved = remote.isSaved
+            local.savedUpdatedAt = remoteSavedRevision
+        }
+        for segment in remote.segments {
+            merge(
+                segment,
+                into: &local,
+                incomingFallback: remote.updatedAt,
+                currentFallback: local.updatedAt
+            )
+        }
+        var probes = local.probes ?? []
+        for probe in remote.probes ?? [] {
+            if let index = probes.firstIndex(where: { abs($0.positionSeconds - probe.positionSeconds) < 5 }) {
+                let existing = probes[index]
+                if outcomeRank(probe.outcome) > outcomeRank(existing.outcome)
+                    || (probe.outcome == existing.outcome && probe.attemptedAt > existing.attemptedAt) {
+                    probes[index] = probe
+                }
+            } else {
+                probes.append(probe)
+            }
+        }
+        if local.probes != nil || !probes.isEmpty {
+            local.probes = probes.sorted { $0.positionSeconds < $1.positionSeconds }
+        }
+        local.updatedAt = max(local.updatedAt, remote.updatedAt)
+        let result = normalized(local)
+        return result == normalized(current) ? current : result
+    }
+
+    static func seeded(_ base: GeneratedSetlist?, track: Track, comments: [Comment]) -> GeneratedSetlist {
+        var setlist = base ?? GeneratedSetlist(
+            trackId: track.id,
+            trackTitle: track.title,
+            duration: track.duration,
+            segments: [],
+            isSaved: false,
+            updatedAt: Date()
+        )
+        setlist.trackTitle = track.title
+        setlist.duration = track.duration
+        let description = DeckIdentityResolver.descriptionIdentities(for: track)
+        let listener = DeckIdentityResolver.commentIdentities(comments: comments)
+        setlist = merging(description, source: .uploaderTracklist, into: setlist, track: track, stamp: false)
+        setlist = merging(listener, source: .listenerComment, into: setlist, track: track, stamp: false)
+        if let base, normalized(base) == setlist { return base }
+        setlist.updatedAt = Date()
+        return setlist
+    }
+
+    static func merging(
+        _ identities: [DeckIdentity],
+        source: SetlistSegmentSource,
+        into base: GeneratedSetlist?,
+        track: Track,
+        stamp: Bool = true
+    ) -> GeneratedSetlist {
+        var setlist = base ?? GeneratedSetlist(
+            trackId: track.id,
+            trackTitle: track.title,
+            duration: track.duration,
+            segments: [],
+            isSaved: false,
+            updatedAt: Date()
+        )
+        for identity in identities {
+            guard let start = identity.startsAt else { continue }
+            let parts = splitLabel(identity.label)
+            let id = source == .listenerComment
+                ? "comment#\(identity.commentID ?? String(Int(start * 1000)))"
+                : "description#\(Int(start * 1000))"
+            if let existing = setlist.segments.first(where: { $0.id == id }),
+               existing.startSeconds == start,
+               existing.artist == parts.artist,
+               existing.title == parts.title,
+               existing.version == parts.version {
+                continue
+            }
+            merge(
+                SetlistSegment(
+                    id: id,
+                    startSeconds: start,
+                    observedAtSeconds: start,
+                    artist: parts.artist,
+                    title: parts.title,
+                    version: parts.version,
+                    source: source,
+                    confidence: identity.confidence,
+                    evidence: identity.evidence,
+                    shazamId: nil,
+                    soundCloudTrackId: nil,
+                    isUserEdited: false,
+                    updatedAt: Date()
+                ),
+                into: &setlist
+            )
+        }
+        if stamp { setlist.updatedAt = Date() }
+        return normalized(setlist)
+    }
+
+    static func recordProbe(
         at position: TimeInterval,
         outcome: SetlistScanOutcome,
         shazamId: String?,
@@ -524,10 +774,134 @@ final class SetlistIntelligenceStore: ObservableObject {
         setlist.probes = probes.sorted { $0.positionSeconds < $1.positionSeconds }
     }
 
-    private func normalized(_ setlist: GeneratedSetlist) -> GeneratedSetlist {
+    private static func outcomeRank(_ outcome: SetlistScanOutcome) -> Int {
+        switch outcome {
+        case .matched: return 2
+        case .noMatch: return 1
+        case .failed: return 0
+        }
+    }
+
+    static func merge(
+        _ incoming: SetlistSegment,
+        into setlist: inout GeneratedSetlist,
+        incomingFallback: Date = .distantPast,
+        currentFallback: Date = .distantPast
+    ) {
+        if let index = setlist.segments.firstIndex(where: { $0.id == incoming.id }) {
+            let current = setlist.segments[index]
+            let incomingRevision = revision(of: incoming, fallback: incomingFallback)
+            let currentRevision = revision(of: current, fallback: currentFallback)
+            guard incomingRevision > currentRevision
+                    || (incomingRevision == currentRevision && incoming.deletedAt != nil && current.deletedAt == nil)
+            else { return }
+            if current.isUserEdited, !incoming.isUserEdited, incoming.deletedAt == nil { return }
+            setlist.segments[index] = incoming
+            return
+        }
+
+        if let shazamId = incoming.shazamId,
+           let index = setlist.segments.firstIndex(where: {
+               $0.shazamId == shazamId
+                   && (abs($0.startSeconds - incoming.startSeconds) < 35
+                       || abs($0.observedAtSeconds - incoming.observedAtSeconds) < 150)
+           }) {
+            let current = setlist.segments[index]
+            let incomingRevision = revision(of: incoming, fallback: incomingFallback)
+            let currentRevision = revision(of: current, fallback: currentFallback)
+            if current.isDeleted {
+                if incomingRevision > currentRevision { setlist.segments[index] = incoming }
+                return
+            }
+            if !current.isUserEdited,
+               incomingRevision >= currentRevision,
+               incoming.confidence >= current.confidence {
+                var merged = incoming
+                merged.id = current.id
+                merged.startSeconds = min(current.startSeconds, incoming.startSeconds)
+                setlist.segments[index] = merged
+            }
+            return
+        }
+
+
+
+
+        if incoming.source == .shazam,
+           let index = setlist.segments.firstIndex(where: {
+               !$0.isDeleted
+                   && ($0.source == .uploaderTracklist || $0.source == .listenerComment)
+                   && abs($0.startSeconds - incoming.startSeconds) < 12
+                   && labelsLikelyMatch($0.displayLabel, incoming.displayLabel)
+           }) {
+            var corroborated = setlist.segments[index]
+            corroborated.shazamId = incoming.shazamId
+            corroborated.observedAtSeconds = incoming.observedAtSeconds
+            corroborated.confidence = max(corroborated.confidence, incoming.confidence)
+            corroborated.evidence = [corroborated.evidence, "Confirmed by Shazam as \(incoming.displayLabel)"]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+            corroborated.updatedAt = max(
+                corroborated.updatedAt ?? .distantPast,
+                incoming.updatedAt ?? .distantPast
+            )
+            setlist.segments[index] = corroborated
+            return
+        }
+        setlist.segments.append(incoming)
+    }
+
+    static func labelsLikelyMatch(_ lhs: String, _ rhs: String) -> Bool {
+        let tokens: (String) -> Set<String> = { label in
+            Set(label.lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { $0.count > 1 && !["the", "and", "feat", "remix", "edit"].contains($0) })
+        }
+        let left = tokens(lhs)
+        let right = tokens(rhs)
+        guard !left.isEmpty, !right.isEmpty else { return false }
+        let overlap = left.intersection(right).count
+        return overlap >= 2 || Double(overlap) / Double(min(left.count, right.count)) >= 0.75
+    }
+
+    static func prefers(_ candidate: SetlistSegment, over current: SetlistSegment) -> Bool {
+        if candidate.isUserEdited != current.isUserEdited { return candidate.isUserEdited }
+        let sourceRank: (SetlistSegmentSource) -> Int = { source in
+            switch source {
+            case .user: return 4
+            case .shazam: return 3
+            case .uploaderTracklist: return 2
+            case .listenerComment: return 1
+            }
+        }
+        let candidateRank = sourceRank(candidate.source)
+        let currentRank = sourceRank(current.source)
+        if candidateRank != currentRank { return candidateRank > currentRank }
+        return candidate.confidence > current.confidence
+    }
+
+    static func revision(of segment: SetlistSegment, fallback: Date) -> Date {
+        segment.deletedAt ?? segment.updatedAt ?? fallback
+    }
+
+    static func normalized(_ setlist: GeneratedSetlist) -> GeneratedSetlist {
         var copy = setlist
         var byId: [String: SetlistSegment] = [:]
-        for segment in copy.segments {
+        for rawSegment in copy.segments {
+            var segment = rawSegment
+            segment.artist = SetlistText.normalized(segment.artist)
+            segment.title = SetlistText.normalized(segment.title)
+            segment.version = SetlistText.normalized(segment.version)
+            if segment.source == .listenerComment,
+               !segment.isUserEdited,
+               !DeckIdentityResolver.looksLikeIdentificationAnswer(segment.displayLabel) {
+                let deletionRevision = max(
+                    segment.updatedAt ?? copy.updatedAt,
+                    copy.updatedAt
+                )
+                segment.updatedAt = deletionRevision
+                segment.deletedAt = deletionRevision
+            }
             guard let current = byId[segment.id] else {
                 byId[segment.id] = segment
                 continue
@@ -547,8 +921,18 @@ final class SetlistIntelligenceStore: ObservableObject {
         }
         var result: [SetlistSegment] = []
         for segment in active {
+            if let last = result.last,
+               let shazamId = segment.shazamId,
+               last.shazamId == shazamId,
+               abs(last.observedAtSeconds - segment.observedAtSeconds) < 150 {
+                var coalesced = prefers(segment, over: last) ? segment : last
+                coalesced.startSeconds = min(last.startSeconds, segment.startSeconds)
+                coalesced.observedAtSeconds = min(last.observedAtSeconds, segment.observedAtSeconds)
+                result[result.count - 1] = coalesced
+                continue
+            }
             if let last = result.last, abs(last.startSeconds - segment.startSeconds) < 8 {
-                if segment.confidence > last.confidence, !last.isUserEdited { result[result.count - 1] = segment }
+                if prefers(segment, over: last) { result[result.count - 1] = segment }
             } else {
                 result.append(segment)
             }
@@ -557,73 +941,8 @@ final class SetlistIntelligenceStore: ObservableObject {
         return copy
     }
 
-    private static func scanPositions(
-        duration: TimeInterval,
-        existing: [SetlistSegment],
-        probes: [SetlistScanProbe],
-        unknownOnly: Bool,
-        worker: ScanWorker,
-        priorityPositions: [TimeInterval]
-    ) -> [TimeInterval] {
-        guard duration >= 30 else { return [] }
-        let spacing: TimeInterval
-        switch duration {
-        case ..<7_200: spacing = 60       // up to 2 hours
-        case ..<10_800: spacing = 75      // 2–3 hours
-        default: spacing = 90             // 3–5+ hours
-        }
-        let end = max(8, duration - 12)
-        let workerSpacing = worker == .secondary ? spacing * 2 : spacing
-        let base = Swift.stride(from: min(8, duration / 3), through: end, by: workerSpacing).map { $0 }
-        let wasProbed: (TimeInterval) -> Bool = { position in
-            probes.contains { abs($0.positionSeconds - position) < 5 }
-        }
-        let requested = priorityPositions
-            .map { min(end, max(0, $0 - 2)) }
-            .filter { !wasProbed($0) }
-
-        if !unknownOnly {
-            // Interleave quarters of the set so a useful rough tracklist appears
-            // early, then fill it to full cadence. Every completed probe is
-            // durable, so re-entering analysis resumes instead of restarting.
-            let remaining = base.enumerated().filter { !wasProbed($0.element) }
-            let progressive = [0, 2, 1, 3].flatMap { phase in
-                remaining.compactMap { index, position in index % 4 == phase ? position : nil }
-            }
-            var ordered: [TimeInterval] = []
-            for position in requested + progressive {
-                if !ordered.contains(where: { abs($0 - position) < 10 }) { ordered.append(position) }
-            }
-            return Array(ordered.prefix(worker == .secondary ? 120 : 240))
-        }
-
-        var candidates: [TimeInterval] = requested + probes
-            .filter { $0.outcome != .matched }
-            .sorted { $0.attemptedAt < $1.attemptedAt }
-            .map(\.positionSeconds)
-
-        // Fill any wide hole between recognized observations. This catches
-        // short tracks that fell between coarse probes without rescanning the
-        // already-understood parts of a long set.
-        let anchors = ([0.0] + existing.map(\.observedAtSeconds) + [end]).sorted()
-        for pair in zip(anchors, anchors.dropFirst()) where pair.1 - pair.0 > workerSpacing * 1.65 {
-            candidates.append(contentsOf: Swift.stride(
-                from: pair.0 + workerSpacing,
-                to: pair.1,
-                by: workerSpacing
-            ))
-        }
-        candidates.append(contentsOf: base.filter { !wasProbed($0) })
-
-        var seen: [TimeInterval] = []
-        for position in candidates where position >= 0 && position <= end {
-            if !seen.contains(where: { abs($0 - position) < 10 }) { seen.append(position) }
-        }
-        return Array(seen.prefix(120))
-    }
-
-    private static func splitLabel(_ label: String) -> (artist: String?, title: String, version: String?) {
-        let cleaned = label.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func splitLabel(_ label: String) -> (artist: String?, title: String, version: String?) {
+        let cleaned = SetlistText.normalized(label)
         let pieces = cleaned.components(separatedBy: " – ")
         let hyphenPieces = pieces.count > 1 ? pieces : cleaned.components(separatedBy: " - ")
         let artist = hyphenPieces.count > 1 ? hyphenPieces[0].trimmingCharacters(in: .whitespaces) : nil
@@ -639,209 +958,95 @@ final class SetlistIntelligenceStore: ObservableObject {
         return (artist, title, version)
     }
 
-    private static func time(_ seconds: TimeInterval) -> String {
-        let value = max(0, Int(seconds.rounded()))
-        return String(format: "%d:%02d", value / 60, value % 60)
+}
+
+private actor SetlistArchive {
+    private static let legacyDefaultsKey = "red.forbes.sounding.generatedSetlists.v1"
+
+    static let fileExtension = "snds"
+
+    private let legacyDirectory: URL
+
+    init() {
+        legacyDirectory = AppDataDirectory.root.appendingPathComponent("Setlists", isDirectory: true)
     }
 
-    private static func exportTime(_ seconds: TimeInterval) -> String {
-        let value = max(0, Int(seconds.rounded()))
-        let hours = value / 3600
-        let minutes = (value % 3600) / 60
-        let seconds = value % 60
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
-            : String(format: "%d:%02d", minutes, seconds)
+    private var directory: URL {
+        SoundingDataLocation.shared.directory(.setlists)
     }
 
-    private func persist(requestSync: Bool = true) {
-        persistenceGeneration &+= 1
-        let generation = persistenceGeneration
-        let snapshot = setlists
-        Task {
-            await persistenceWriter.write(
-                snapshot,
-                generation: generation,
-                defaultsKey: Self.defaultsKey
-            )
+    func loadAll() -> [String: GeneratedSetlist] {
+        let decoder = JSONDecoder()
+        var result: [String: GeneratedSetlist] = [:]
+        let entries = SoundingDataFiles.resolveConflicts(
+            in: SoundingDataFiles.files(in: directory, extension: Self.fileExtension),
+            merge: Self.merge
+        )
+        for entry in entries where entry.isDownloaded {
+            guard case .data(let data) = SoundingDataFiles.read(entry.url),
+                  let setlist = try? SoundingDataFormat.decode(GeneratedSetlist.self, from: data, kind: .setlist) else { continue }
+            result[setlist.trackId] = SetlistMerging.normalized(setlist)
         }
-        if requestSync { SetlistSyncTarget.requestSync?() }
-    }
-}
 
-private actor SetlistPersistenceWriter {
-    private var writtenGeneration: UInt64 = 0
-
-    func write(
-        _ setlists: [String: GeneratedSetlist],
-        generation: UInt64,
-        defaultsKey: String
-    ) {
-        guard generation > writtenGeneration,
-              let data = try? JSONEncoder().encode(setlists) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
-        writtenGeneration = generation
-    }
-}
-
-/// Serialises automatic long-set work across downloads and deck loads. A
-/// single Mac remains the dense worker, Apple TV remains the sparse fallback,
-/// and explicit user retries can still run immediately.
-@MainActor
-final class SetlistBackgroundWorkCoordinator {
-    static let shared = SetlistBackgroundWorkCoordinator()
-
-    private struct Job {
-        let track: Track
-        let localFileURL: URL
-        let comments: [Comment]?
-    }
-
-    private var jobs: [Job] = []
-    private var queuedTrackIds: Set<String> = []
-    private var runner: Task<Void, Never>?
-
-    private init() {}
-
-    func enqueue(track: Track, localFileURL: URL, comments: [Comment]? = nil) {
-        guard DeckIdentityResolver.isLikelyMix(track),
-              queuedTrackIds.insert(track.id).inserted else { return }
-        jobs.append(Job(track: track, localFileURL: localFileURL, comments: comments))
-        startIfNeeded()
-    }
-
-    private func startIfNeeded() {
-        guard runner == nil else { return }
-        runner = Task { @MainActor [weak self] in
-            guard let self else { return }
-            while !self.jobs.isEmpty, !Task.isCancelled {
-                let job = self.jobs.removeFirst()
-                await SetlistIntelligenceStore.shared.analyze(
-                    track: job.track,
-                    localFileURL: job.localFileURL,
-                    comments: job.comments
-                )
-                self.queuedTrackIds.remove(job.track.id)
-                try? await Task.sleep(for: .seconds(1))
+        let legacyFiles = (try? FileManager.default.contentsOfDirectory(
+            at: legacyDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        )) ?? []
+        var migrated: [GeneratedSetlist] = []
+        for file in legacyFiles where file.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: file),
+                  let setlist = try? decoder.decode(GeneratedSetlist.self, from: data) else { continue }
+            let normalized = SetlistMerging.normalized(setlist)
+            let merged = result[setlist.trackId].map { SetlistMerging.merge(remote: normalized, into: $0) } ?? normalized
+            result[setlist.trackId] = merged
+            migrated.append(merged)
+        }
+        if !migrated.isEmpty {
+            write(migrated)
+            for file in legacyFiles where file.pathExtension == "json" {
+                try? FileManager.default.moveItem(at: file, to: file.appendingPathExtension("migrated"))
             }
-            self.runner = nil
         }
-    }
-}
 
-private actor SetlistShazamScanner {
-    struct Match: Sendable {
-        let title: String
-        let artist: String?
-        let shazamId: String?
-        let queryStartSeconds: TimeInterval
-        let matchOffset: TimeInterval
-        let confidence: Double
-    }
-
-    private struct Query {
-        let signature: SHSignature
-        let startSeconds: TimeInterval
-    }
-
-    func match(fileURL: URL, at position: TimeInterval, retryNoMatch: Bool) async throws -> Match? {
-        // ShazamIO centers a bounded fingerprint inside long audio. For unknown
-        // sections, try neighboring windows too; ShazamKit remains the native
-        // recognizer and transport on iOS, macOS, and tvOS.
-        let requestedStarts = retryNoMatch
-            ? [position, max(0, position - 6), position + 6]
-            : [position]
-        var attemptedStarts: Set<Int64> = []
-        let session = SHSession()
-
-        for requestedStart in requestedStarts {
-            let key = Int64((requestedStart * 1000).rounded())
-            guard attemptedStarts.insert(key).inserted,
-                  let query = try makeQuery(fileURL: fileURL, at: requestedStart) else { continue }
-
-            // Retry transient service failures with the same non-invertible
-            // signature. A genuine no-match advances to the shifted window.
-            for attempt in 0..<3 {
-                try Task.checkCancellation()
-                switch await session.result(from: query.signature) {
-                case .match(let shazamMatch):
-                    guard let item = shazamMatch.mediaItems.first,
-                          let title = item.title, !title.isEmpty else { break }
-                    let confidence: Double
-                    if #available(macOS 15.4, iOS 18.4, tvOS 18.4, *) {
-                        confidence = Double(item.confidence)
-                    } else {
-                        confidence = 0.82
-                    }
-                    return Match(
-                        title: title,
-                        artist: item.artist,
-                        shazamId: item.shazamID,
-                        queryStartSeconds: query.startSeconds,
-                        matchOffset: item.matchOffset,
-                        confidence: confidence
-                    )
-                case .noMatch:
-                    break
-                case .error(let error, _):
-                    guard attempt < 2 else { throw error }
-                    try await Task.sleep(for: .milliseconds(attempt == 0 ? 350 : 900))
-                    continue
+        if let legacy = UserDefaults.standard.data(forKey: Self.legacyDefaultsKey) {
+            if let decoded = try? decoder.decode([String: GeneratedSetlist].self, from: legacy) {
+                for (trackId, setlist) in decoded {
+                    let normalized = SetlistMerging.normalized(setlist)
+                    result[trackId] = result[trackId].map { SetlistMerging.merge(remote: normalized, into: $0) } ?? normalized
                 }
-                break
+                write(Array(result.values))
+                UserDefaults.standard.removeObject(forKey: Self.legacyDefaultsKey)
+            } else {
+                Log.analysis.error("Legacy setlist archive could not be decoded; leaving it in place")
             }
         }
-        return nil
+        return result
     }
 
-    private func makeQuery(fileURL: URL, at position: TimeInterval) throws -> Query? {
-        let file = try AVAudioFile(forReading: fileURL)
-        let inputFormat = file.processingFormat
-        let sampleRate = inputFormat.sampleRate
-        guard sampleRate > 0 else { return nil }
-        let startFrame = AVAudioFramePosition(max(0, position) * sampleRate)
-        guard startFrame < file.length else { return nil }
-        file.framePosition = startFrame
-        let requested = min(file.length - startFrame, AVAudioFramePosition(sampleRate * 12))
-        guard requested > 0,
-              let inputBuffer = AVAudioPCMBuffer(
-                  pcmFormat: inputFormat,
-                  frameCapacity: AVAudioFrameCount(min(requested, AVAudioFramePosition(UInt32.max)))
-              ) else { return nil }
-        try file.read(into: inputBuffer, frameCount: inputBuffer.frameCapacity)
-        guard inputBuffer.frameLength > 0,
-              let outputFormat = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1),
-              let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else { return nil }
-
-        let ratio = outputFormat.sampleRate / inputFormat.sampleRate
-        let outputCapacity = AVAudioFrameCount(ceil(Double(inputBuffer.frameLength) * ratio)) + 32
-        guard let outputBuffer = AVAudioPCMBuffer(
-            pcmFormat: outputFormat,
-            frameCapacity: outputCapacity
-        ) else { return nil }
-
-        var suppliedInput = false
-        var conversionError: NSError?
-        let conversionStatus = converter.convert(to: outputBuffer, error: &conversionError) { _, status in
-            if suppliedInput {
-                status.pointee = .endOfStream
-                return nil
+    func write(_ setlists: [GeneratedSetlist]) {
+        let root = directory
+        for setlist in setlists {
+            guard let data = try? SoundingDataFormat.encode(setlist, kind: .setlist) else { continue }
+            let url = Self.fileURL(for: setlist.trackId, in: root)
+            if case .data(let existing) = SoundingDataFiles.read(url),
+               let merged = Self.merge(existing, data) {
+                _ = try? SoundingDataFiles.write(merged, to: url)
+            } else {
+                _ = try? SoundingDataFiles.write(data, to: url)
             }
-            suppliedInput = true
-            status.pointee = .haveData
-            return inputBuffer
         }
-        if let conversionError { throw conversionError }
-        guard conversionStatus != .error, outputBuffer.frameLength > 0 else { return nil }
+    }
 
-        let generator = SHSignatureGenerator()
-        try generator.append(
-            outputBuffer,
-            at: AVAudioTime(sampleTime: 0, atRate: outputFormat.sampleRate)
-        )
-        return Query(
-            signature: generator.signature(),
-            startSeconds: Double(startFrame) / sampleRate
-        )
+    static func fileURL(for trackId: String, in root: URL) -> URL {
+        let safe = trackId.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? trackId
+        return SoundingDataFiles.shardedDirectory(in: root, for: SoundingDataFiles.hashName(trackId))
+            .appendingPathComponent(safe)
+            .appendingPathExtension(fileExtension)
+    }
+
+    static func merge(_ current: Data, _ other: Data) -> Data? {
+        guard let incoming = try? SoundingDataFormat.decode(GeneratedSetlist.self, from: other, kind: .setlist) else { return nil }
+        guard let existing = try? SoundingDataFormat.decode(GeneratedSetlist.self, from: current, kind: .setlist) else { return other }
+        let merged = SetlistMerging.merge(remote: SetlistMerging.normalized(incoming), into: SetlistMerging.normalized(existing))
+        return try? SoundingDataFormat.encode(merged, kind: .setlist)
     }
 }

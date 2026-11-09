@@ -3,21 +3,14 @@ import TVServices
 
 enum DefaultShelf {
 
-    enum Reason {
-        case signedOut
-        case noSnapshot
-        case emptyLibrary
-    }
-
-    static func content(for reason: Reason) -> TVTopShelfContent {
+    static func content(for reason: TopShelfFallback) -> TVTopShelfContent {
         let item = TVTopShelfCarouselItem(identifier: "default-shelf.\(identifierSuffix(for: reason))")
+        item.contextTitle = "Sounding"
         item.title = title(for: reason)
         item.summary = summary(for: reason)
-        item.contextTitle = "SoundingCloud"
 
-        let art = artwork(for: reason)
-        item.setImageURL(art.oneX, for: .screenScale1x)
-        item.setImageURL(art.twoX, for: .screenScale2x)
+        item.setImageURL(artworkURL1x, for: .screenScale1x)
+        item.setImageURL(artworkURL2x ?? artworkURL1x, for: .screenScale2x)
 
         let action = TVTopShelfAction(url: destinationURL(for: reason))
         item.playAction = action
@@ -26,26 +19,26 @@ enum DefaultShelf {
         return TVTopShelfCarouselContent(style: .details, items: [item])
     }
 
-    private static func title(for reason: Reason) -> String {
+    private static func title(for reason: TopShelfFallback) -> String {
         switch reason {
-        case .signedOut:    return "Sign in to start listening"
-        case .noSnapshot:   return "Open SoundingCloud"
-        case .emptyLibrary: return "Nothing to show yet"
+        case .signedOut:    return String(localized: "Sign In")
+        case .noSnapshot:   return String(localized: "Open Sounding")
+        case .emptyLibrary: return String(localized: "Nothing Here Yet")
         }
     }
 
-    private static func summary(for reason: Reason) -> String {
+    private static func summary(for reason: TopShelfFallback) -> String {
         switch reason {
         case .signedOut:
-            return "Signing in happens on your iPhone. Scan the code to get SoundingCloud for iPhone, then come back here and follow the sign-in screen."
+            return String(localized: "Open Sounding on this Apple TV, then scan the sign-in code with your iPhone.")
         case .noSnapshot:
-            return "Recently played tracks, likes and playlists show up here once you start listening."
+            return String(localized: "Your recently played music, likes and mixes appear here.")
         case .emptyLibrary:
-            return "Play a track, like something, or follow a playlist and it'll show up here."
+            return String(localized: "Play or like something and it appears here.")
         }
     }
 
-    private static func identifierSuffix(for reason: Reason) -> String {
+    private static func identifierSuffix(for reason: TopShelfFallback) -> String {
         switch reason {
         case .signedOut:    return "signed-out"
         case .noSnapshot:   return "no-snapshot"
@@ -53,7 +46,7 @@ enum DefaultShelf {
         }
     }
 
-    private static func destinationURL(for reason: Reason) -> URL {
+    private static func destinationURL(for reason: TopShelfFallback) -> URL {
         switch reason {
         case .signedOut:
             return TopShelfStore.signInURL()
@@ -64,16 +57,4 @@ enum DefaultShelf {
 
     private static let artworkURL1x = Bundle.main.url(forResource: "DefaultShelfArt", withExtension: "png")
     private static let artworkURL2x = Bundle.main.url(forResource: "DefaultShelfArt@2x", withExtension: "png")
-
-    private static let signInArtworkURL1x = Bundle.main.url(forResource: "SignInShelfArt", withExtension: "png")
-    private static let signInArtworkURL2x = Bundle.main.url(forResource: "SignInShelfArt@2x", withExtension: "png")
-
-    private static func artwork(for reason: Reason) -> (oneX: URL?, twoX: URL?) {
-        switch reason {
-        case .signedOut:
-            return (signInArtworkURL1x ?? artworkURL1x, signInArtworkURL2x ?? artworkURL2x)
-        case .noSnapshot, .emptyLibrary:
-            return (artworkURL1x, artworkURL2x)
-        }
-    }
 }

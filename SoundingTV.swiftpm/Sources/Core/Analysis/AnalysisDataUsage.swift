@@ -23,7 +23,7 @@ enum AnalysisDataUsage {
         let localProducerId = AnalysisSyncIdentity.producerId(defaults: .standard)
         let tempoKeyEngines: Set<String> = [
             AnalysisEngineIdentity.musicUnderstanding().name,
-            AnalysisEngineIdentity.fftAudioAnalyzer().name,
+            AnalysisEngineIdentity.userCorrection().name,
         ]
         let genreEngine = AnalysisEngineIdentity.genreTaxonomy().name
         let waveformEngine = AnalysisEngineIdentity.soundCloudWaveform().name
@@ -55,13 +55,11 @@ enum AnalysisDataUsage {
     }
 
     static func clearAnalysisData() async {
-        await AnalysisCache.shared.removeAll()
+        await AnalysisCache.shared.removeAll(keepingUserCorrections: true)
     }
 
-    static func clearLibraryCache() async {
-        #if !os(macOS)
-        await LibraryCache.shared.clearAll()
-        #endif
+    static func storageUsedBytes() async -> Int64 {
+        await AnalysisCache.shared.usedBytes
     }
 
     static func directoryBytes(at url: URL) -> Int64 {

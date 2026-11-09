@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sounding · Concept drive, November 2026</title>
+<link rel="stylesheet" href="board.css">
+<link rel="stylesheet" href="mocks.css">
+</head>
+<body>
+<div class="layout">
+<aside class="toc" aria-label="Contents">
+  <div class="toc-brand"><img src="assets/icon.jpg" alt=""><div><b>Concept drive</b><span>Sounding · 6 Nov 2026</span></div></div>
+  <div class="theme-switch" role="group" aria-label="Appearance">
+    <button type="button" data-theme="auto" aria-pressed="true">Auto</button>
+    <button type="button" data-theme="light" aria-pressed="false">Light</button>
+    <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+  </div>
+  <nav>
+    <ol>
+      <li><a href="#part-a">A · Website</a>
+        <ol>
+          <li><a href="#c1">1 Copper line-art</a></li>
+          <li><a href="#c2">2 Product-first</a></li>
+          <li><a href="#c3">3 Live player</a></li>
+          <li><a href="#c4">4 Editorial zine</a></li>
+          <li><a href="#c5">5 Dark club</a></li>
+          <li><a href="#c6">6 Minimal one-pager</a></li>
+          <li><a href="#c7">7 Felt &amp; copper</a></li>
+          <li><a href="#c8">8 Every screen</a></li>
+          <li><a href="#c9">9 Tracklist page</a></li>
+          <li><a href="#c10">10 astra (draft)</a></li>
+          <li><a href="#c11">11 sol (draft)</a></li>
+          <li><a href="#a-criteria">Criteria matrix</a></li>
+          <li><a href="#a-sections">Sections matrix</a></li>
+          <li><a href="#a-rec">Recommendation</a></li>
+        </ol>
+      </li>
+      <li><a href="#part-b">B · Features</a>
+        <ol>
+          <li><a href="#f1">1 SharePlay</a></li>
+          <li><a href="#f2">2 Controls</a></li>
+          <li><a href="#f3">3 Widgets</a></li>
+          <li><a href="#f4">4 On-device model</a></li>
+          <li><a href="#f5">5 Siri &amp; Shortcuts</a></li>
+          <li><a href="#f6">6 Alarm &amp; sleep</a></li>
+          <li><a href="#f7">7 TipKit</a></li>
+          <li><a href="#f8">8 Scout</a></li>
+          <li><a href="#b-platform">Feature × platform</a></li>
+          <li><a href="#b-value">Value × effort</a></li>
+          <li><a href="#b-deps">Dependencies</a></li>
+          <li><a href="#b-risk">Risk register</a></li>
+          <li><a href="#b-order">Build order</a></li>
+        </ol>
+      </li>
+      <li><a href="#part-c">C · Decisions</a></li>
+    </ol>
+  </nav>
+  <p class="toc-note">Static board. No network, system fonts. Mocks are HTML and CSS at reduced scale; the app screenshots come from <code>Design/prototypes/now-playing/shots</code>.</p>
+</aside>
+
+<main>
+<header class="board-hero">
+  <svg class="art-bg" data-lineart="banner" data-palette="auto" data-ground="none" data-seed="4" aria-hidden="true" preserveAspectRatio="xMaxYMid slice"></svg>
+  <p class="eyebrow">Concept drive · before anything is built</p>
+  <h1>Nine ways to tell people about Sounding, and eight features to build next.</h1>
+  <p class="lede">Part A is the website, with nine directions, each mocked in real type and colour, then scored. Part B covers the eight planned OS&nbsp;27 features, with two to four designs each, grounded in the 27.2 SDK survey. Part C lists every decision, with my pick marked, so you can answer in one line.</p>
+  <div class="hero-stats">
+    <div><b>9 + 2</b><span>site directions + model drafts</span></div>
+    <div><b>8</b><span>features</span></div>
+    <div><b>27</b><span>feature options</span></div>
+    <div><b>6</b><span>matrices</span></div>
+    <div><b>19</b><span>decisions</span></div>
+  </div>
+  <p class="how-to">How to use it: skim the mocks, check the matrices, then go to <a href="#part-c">Decisions</a>. Every choice there is a button, and the answer line at the bottom builds itself, for example <code>Site: 1+2+3, SharePlay: A, …</code>. ★ marks my recommendation.</p>
+</header>
+
+<section class="part" id="part-a" data-part="a">
+  <div class="part-head"><span class="letter">A</span><h2>Website concepts</h2><p>For sounding.forbes.red: Home, Privacy and Support. Static, no build step, system fonts, light and dark.</p></div>
+
+  <article class="concept" id="c1">
+    <div class="concept-head"><div class="concept-num">1</div><div><h4>Copper line-art</h4><p class="idea">The welcome screen's procedural jack and cable contours draw themselves on as the page loads.</p></div><div class="tags"><span class="tag rec">★ Recommended hero</span><span class="tag">Brand-led</span></div></div>
+    <div class="concept-body">
+      <div class="concept-mock">
+        <div class="browser"><div class="browser-bar"><i></i><i></i><i></i><span>sounding.forbes.red</span></div>
+          <div class="viewport m1">
+            <div class="mnav"><span class="brand"><img src="assets/icon.jpg" alt="">Sounding</span><span>Features</span><span>Platforms</span><span>Privacy</span><span class="pill" style="background:#2b1d16;color:#fbf5ed">TestFlight</span></div>
+            <div class="hero" style="margin-top:-40px">
+              <svg class="art-svg c1-art" data-lineart="hero" data-palette="light" data-seed="7" aria-hidden="true"></svg>
+              <div class="copy">
+                <div class="k">iPhone · iPad · Watch · Apple TV · Mac</div>
+                <h1>Plug in.<br>Turn it up.</h1>
+                <p>An independent SoundCloud client with the waveform, timed comments and tracklists for every mix. No servers. No accounts of its own.</p>
+                <div class="ctas"><span class="btn p">Join the TestFlight</span><span class="btn g">Coming to the App Store</span></div>
+              </div>
+            </div>
+            <div class="sec">
+              <div><div class="k">Now Playing</div><h2>The whole mix, and everyone listening to it.</h2>
+                <ul><li><b>Waveform</b> with comments pinned to the second</li><li><b>Tracklist</b> highlights the track that's playing</li><li><b>Identify</b> names the ID with ShazamKit</li><li><b>Output</b> moves it to the Apple TV</li></ul></div>
+              <img src="assets/np-iphone.jpg" alt="">
+            </div>
+          </div>
+        </div>
+        <button class="replay" type="button" data-replay=".c1-art">↻ Replay draw-on</button>
+      </div>
+      <div class="concept-meta">
+        <div class="meta-grid">
+          <div>
+            <h5>Palette (from SoundingLineArt.swift)</h5>
+            <div class="swatches"><span class="sw"><i style="background:#fbf5ed"></i>ground</span><span class="sw"><i style="background:#db5410"></i>copper</span><span class="sw"><i style="background:#b3801f"></i>brass</span><span class="sw"><i style="background:#147569"></i>verdigris</span><span class="sw"><i style="background:#a8363d"></i>rose</span><span class="sw"><i style="background:#fcc9a3"></i>mass</span></div>
+            <h5>Dark ground</h5>
+            <svg data-lineart="square" data-palette="dark" data-seed="9" style="width:120px;height:120px;border-radius:12px;display:block" aria-hidden="true"></svg>
+          </div>
+          <div>
+            <h5>Type</h5>
+            <div class="typepair"><b style="font:700 22px var(--display);letter-spacing:-.02em">SF Pro Display</b><span>Bold, tight, for headlines</span></div>
+            <div class="typepair"><span style="font:15px var(--font);color:var(--ink)">SF Pro Text</span><span>for body, 17 px</span></div>
+            <h5>Motion</h5>
+            <p>Contours draw on with a 70&nbsp;ms stagger over 2.6&nbsp;s, once. The colour masses fade in. Under reduced motion it's a still. No scroll-jacking.</p>
+          </div>
+        </div>
+        <h5>Page structure</h5>
+        <ol><li>Hero: line art, "Plug in. Turn it up.", TestFlight</li><li>Now Playing, with a phone shot</li><li>Mixes: Tracklist, Identify, Setlists</li><li>Decks and Auto Mix</li><li>Output and Polyphony</li><li>Analysis and Downloads</li><li>Platforms row</li><li>Privacy band, then the CTA again</li><li>FAQ, then the footer with the independence line</li></ol>
+        <div class="meta-grid">
+          <div><h5>Speaks to</h5><p>Anyone who just installed the app. The site continues the onboarding they've already seen.</p></div>
+          <div><h5>Risks</h5><ul class="risk-list"><li>Line art doesn't show the product, so a screenshot must appear in the first scroll.</li><li><code>stroke-dashoffset</code> isn't compositor-only, which the brief's "transform and opacity only" rule forbids. Fix it with a mask reveal, or accept the paint cost of about 40 paths.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="concept" id="c2">
+    <div class="concept-head"><div class="concept-num">2</div><div><h4>Product-first, Apple-style</h4><p class="idea">Big, calm device renders on white, with the app on every screen at once and bento tiles below.</p></div><div class="tags"><span class="tag rec">★ Recommended skeleton</span><span class="tag">Clarity-led</span></div></div>
+    <div class="concept-body">
+      <div class="concept-mock">
+        <div class="browser"><div class="browser-bar"><i></i><i></i><i></i><span>sounding.forbes.red</span></div>
+          <div class="viewport m2">
+            <div class="mnav"><span class="brand"><img src="assets/icon.jpg" alt="">Sounding</span><span>Overview</span><span>Mixes</span><span>Decks</span><span>Privacy</span><span>Support</span></div>
+            <div class="hero">
+              <img class="icon" src="assets/icon.jpg" alt="">
+              <h1>Your SoundCloud.<br>Every screen you own.</h1>
+              <p>iPhone, iPad, Apple Watch, Apple TV and Mac. In step.</p>
+              <div class="links"><span>Join the TestFlight ›</span><span>See what's inside ›</span></div>
+              <div class="devices">
+                <div class="mac"><div class="lid"><img src="assets/np-mac.jpg" alt=""></div><div class="base"></div></div>
+                <img class="phone" src="assets/np-iphone.jpg" alt="">
+                <img class="watchi" src="assets/watch.jpg" alt="">
+              </div>
+            </div>
+            <div class="sec">
+              <div class="tile big"><h3>Tracklists for DJ mixes.</h3><p>The current track lights up as the mix plays.</p>
+                <div class="tl"><div><span>8:30</span><div><b>Lanterns</b>Pale Harbour</div></div><div class="on"><span>13:05</span><div><b>Undertow</b>Kōji Aren</div></div><div><span>17:48</span><div><b>ID</b>Unidentified</div></div><div><span>22:10</span><div><b>Glass Tide</b>Nilu &amp; Brask</div></div></div></div>
+              <div class="tile"><h3>Downloads, like Apple Music.</h3><p>Playlists stay in sync. Encrypted on disk.</p><div class="gauge"><i></i></div></div>
+              <div class="tile"><h3>No servers.</h3><p>No accounts of its own. Sync is your iCloud.</p><div class="big-n">0</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="concept-meta">
+        <div class="meta-grid">
+          <div><h5>Palette</h5><div class="swatches"><span class="sw"><i style="background:#ffffff"></i>white</span><span class="sw"><i style="background:#f5f5f7"></i>mist</span><span class="sw"><i style="background:#1d1d1f"></i>ink</span><span class="sw"><i style="background:#0f0f10"></i>tile</span><span class="sw"><i style="background:#a5531e"></i>link</span></div></div>
+          <div><h5>Type</h5><div class="typepair"><b style="font:700 22px var(--display);letter-spacing:-.025em">SF Pro Display</b><span>centred, 56–80 px</span></div><div class="typepair"><span style="font:15px var(--font);color:var(--ink)">SF Pro Text</span><span>grey sub-heads</span></div></div>
+        </div>
+        <h5>Motion</h5><p>Devices rise 12&nbsp;px and fade in on enter. Bento tiles do the same with a stagger. Nothing loops.</p>
+        <h5>Page structure</h5>
+        <ol><li>Centred hero with a Mac, iPhone and Watch line-up</li><li>Bento: Tracklists, Downloads, Privacy</li><li>Now Playing: a large dark band with the TV shot</li><li>Decks, on a Mac screenshot</li><li>Output: "Start here, finish there"</li><li>Platforms grid</li><li>FAQ, then the footer</li></ol>
+        <div class="meta-grid">
+          <div><h5>Speaks to</h5><p>First-time visitors from the App Store or a link. They see at once that it's real and native, and runs everywhere.</p></div>
+          <div><h5>Risks</h5><ul class="risk-list"><li>It looks like every Apple-app site, and the copper jack barely appears.</li><li>Five platforms of screenshots go stale with every redesign.</li><li>Device frames must be CSS, not Apple's marketing renders.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="concept" id="c3">
+    <div class="concept-head"><div class="concept-num">3</div><div><h4>Live player</h4><p class="idea">The hero is a working Now Playing: the playhead moves, comments follow it, the tracklist highlights. Try it.</p></div><div class="tags"><span class="tag part">★ As a section, not the hero</span><span class="tag">Interactive</span></div></div>
+    <div class="concept-body">
+      <div class="concept-mock">
+        <div class="browser dark"><div class="browser-bar"><i></i><i></i><i></i><span>sounding.forbes.red</span></div>
+          <div class="viewport m3">
+            <div class="glow"></div>
+            <div class="mnav"><span class="brand"><img src="assets/icon.jpg" alt="">Sounding</span><span>Features</span><span>Privacy</span><span class="pill">TestFlight</span></div>
+            <div class="hero">
+              <div class="copy"><div class="k">Now Playing</div><h1>Every comment, on the beat.</h1><p>Press play. The waveform, the comments and the tracklist move together, as they do in the app.</p><span class="btn">Join the TestFlight</span><p class="demo-note">Demo with made-up music. No audio plays.</p></div>
+              <div class="player" id="lp" aria-label="Now Playing demo">
+                <div class="top"><div class="art"><span class="art-t">LOW TIDE</span></div><div><div class="t">Low Tide 041 — Live at Pier Nine</div><div class="a">Maren Holt</div><div class="now"></div></div></div>
+                <div class="wv" tabindex="0" role="slider" aria-label="Position" aria-valuemin="0" aria-valuemax="3600"><div class="wave" data-n="90" data-seed="5"></div><div class="played"><div class="wave" data-n="90" data-seed="5"></div></div></div>
+                <div class="times"><span class="el">17:00</span><span class="rem">−43:00</span></div>
+                <div class="bubble" aria-hidden="true"></div>
+                <div class="transport"><button class="prev" type="button" aria-label="Previous track"><svg viewBox="0 0 24 24"><path d="M11 6v12L2.5 12zM21 6v12l-8.5-6z"/></svg></button><button class="pp" type="button" aria-label="Play"></button><button class="next" type="button" aria-label="Next track"><svg viewBox="0 0 24 24"><path d="M13 6v12l8.5-6zM3 6v12l8.5-6z"/></svg></button></div>
+                <div class="tabs" role="tablist"><button type="button" role="tab" data-tab="upnext" aria-selected="false">Up Next</button><button type="button" role="tab" data-tab="comments" aria-selected="false">Comments</button><button type="button" role="tab" data-tab="tracklist" aria-selected="true">Tracklist</button></div>
+                <div class="panel"></div>
+              </div>
+            </div>
+            <div class="sec">
+              <div><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg><b>Comments on the beat</b>Timed comments follow the playhead.</div>
+              <div><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><b>Tracklist</b>The current track lights up. Identify names the IDs.</div>
+              <div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5 19a10 10 0 1 1 14 0"/></svg><b>Output</b>Hand it to the Apple TV mid-track.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="concept-meta">
+        <div class="meta-grid">
+          <div><h5>Palette (Now Playing is always dark)</h5><div class="swatches"><span class="sw"><i style="background:#0c0b0a"></i>ground</span><span class="sw"><i style="background:#d6843a"></i>amber</span><span class="sw"><i style="background:#203e68"></i>tide</span><span class="sw"><i style="background:#f4efe8"></i>cream</span><span class="sw"><i style="background:#f0b27a"></i>copper</span></div></div>
+          <div><h5>Type</h5><div class="typepair"><b style="font:600 20px var(--display)">SF Pro Display</b><span>title, as in the app</span></div><div class="typepair"><span style="font:13px var(--mono);color:var(--ink)">SF Mono 0:00</span><span>timestamps</span></div></div>
+        </div>
+        <h5>Motion</h5><p>The playhead runs at 8× speed while in view and stops off-screen. Comments cross-fade. Reduced motion: paused, and nothing auto-plays.</p>
+        <h5>Page structure</h5>
+        <ol><li>Hero: copy on the left, playable player on the right</li><li>Three feature pillars under the player</li><li>Decks: a looping crossfade demo, muted</li><li>Platforms, Privacy, CTA, FAQ</li></ol>
+        <div class="meta-grid">
+          <div><h5>Speaks to</h5><p>DJ-mix listeners who already know SoundCloud and want to see the tracklist and comments working.</p></div>
+          <div><h5>Risks</h5><ul class="risk-list"><li>Heaviest JS; it must start lazily and pause off-screen.</li><li>A fake player with no sound can disappoint, so label it a demo.</li><li>It must follow every Now Playing redesign, or it lies.</li><li>Custom slider and tabs need full keyboard and ARIA support.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="concept" id="c4">
+    <div class="concept-head"><div class="concept-num">4</div><div><h4>Editorial zine</h4><p class="idea">A printed flyer for DJ-mix culture: masthead, giant condensed type, a typeset tracklist, pull quotes.</p></div><div class="tags"><span class="tag">Type-led</span><span class="tag">Light only</span></div></div>
+    <div class="concept-body">
+      <div class="concept-mock">
+        <div class="browser"><div class="browser-bar"><i></i><i></i><i></i><span>sounding.forbes.red</span></div>
+          <div class="viewport m4">
+            <div class="mast"><span>Sounding</span><span>Issue 01 · November 2026</span><span>Free · TestFlight</span></div>
+            <div class="hero">
+              <div><h1>Plug in.<em>Turn it up.</em></h1><p class="deck">A SoundCloud client for people who listen to the whole mix, not just the first minute.</p></div>
+              <div class="side"><b>In this issue</b>Tracklists that follow the set. Comments on the beat. Two decks on your phone, steering the TV.<img src="assets/np-iphone-tracklist.jpg" alt=""><span class="cta">→ JOIN THE TESTFLIGHT</span></div>
+            </div>
+            <div class="sec">
+              <div><h2>Side A — What's inside</h2><ol><li><span>00:00</span>Now Playing, always dark</li><li><span>03:52</span>Tracklists, with Identify</li><li><span>08:30</span>Decks and Auto Mix</li><li><span>13:05</span>Output: phone, Mac, TV</li><li><span>17:48</span>Tempo, key and genre</li><li><span>22:10</span>Downloads that stay in sync</li><li><span>27:35</span>Privacy: no servers at all</li></ol></div>
+              <div class="quote">“The comment lands on the drop it's talking about.”<small>— Now Playing, page 3</small></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="concept-meta">
+        <div class="meta-grid">
+          <div><h5>Palette</h5><div class="swatches"><span class="sw"><i style="background:#efe9df"></i>newsprint</span><span class="sw"><i style="background:#15120f"></i>ink</span><span class="sw"><i style="background:#c2471f"></i>copper red</span><span class="sw"><i style="background:#8c8378"></i>rule</span></div></div>
+          <div><h5>Type</h5><div class="typepair"><b style="font:900 22px var(--display);letter-spacing:-.05em;text-transform:uppercase">SF Display Black</b><span>uppercase</span></div><div class="typepair"><i style="font:16px var(--serif);color:var(--ink)">New York italic</i><span>decks and quotes</span></div><div class="typepair"><span style="font:12px var(--mono);color:var(--ink)">SF MONO 00:00</span><span>folios</span></div></div>
+        </div>
+        <h5>Motion</h5><p>Almost none. Rules draw across on enter, and the tracklist "plays" with its current row inked as you scroll past it.</p>
+        <h5>Page structure</h5><ol><li>Masthead and cover headline</li><li>"Side A": features as a typeset tracklist</li><li>Feature spreads with a pull quote each</li><li>Back page: platforms, privacy, colophon, FAQ</li></ol>
+        <div class="meta-grid">
+          <div><h5>Speaks to</h5><p>DJs, crate-diggers and the SoundCloud underground, who care about culture more than chrome.</p></div>
+          <div><h5>Risks</h5><ul class="risk-list"><li>Style before product: it can read as a magazine, not an app.</li><li>New York is Apple-only; elsewhere it falls back to Georgia.</li><li>Giant type at 390&nbsp;px wide needs careful clamp() work.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="concept" id="c5">
+    <div class="concept-head"><div class="concept-num">5</div><div><h4>Dark club</h4><p class="idea">Black, mix-forward and waveform-driven. A full-width glowing waveform, BPM and key readouts, and the decks.</p></div><div class="tags"><span class="tag">Mix-led</span><span class="tag">Dark only</span></div></div>
+    <div class="concept-body">
+      <div class="concept-mock">
+        <div class="browser dark"><div class="browser-bar"><i></i><i></i><i></i><span>sounding.forbes.red</span></div>
+          <div class="viewport m5">
+            <div class="mnav"><span class="brand"><img src="assets/icon.jpg" alt="">Sounding</span><span>Decks</span><span>Mixes</span><span>Privacy</span><span class="pill">TestFlight</span></div>
+            <div class="readout"><div>124.00 <span>BPM</span></div><div>8A <span>KEY</span></div><div>17:00 <span>/ 60:00</span></div><div>DECK <span>A ▸ B</span></div></div>
+            <h1>Two decks. One crossfader. All of your SoundCloud.</h1>
+            <p>Auto Mix beat-matches the next track. On iPhone, the decks steer the Apple TV.</p>
+            <div class="bigwave"><svg data-bigwave aria-hidden="true"></svg><div class="cues"><i style="left:12%;background:#e0915a"></i><i style="left:31%;background:#6ecbb3"></i><i style="left:58%;background:#fa998f"></i><i style="left:77%;background:#f5bf66"></i></div><div class="playhead"></div></div>
+            <div class="sec">
+              <div class="deck"><div class="jog spin" style="--c:#e0915a"></div><div style="color:#e0915a">A · 124.0 · 8A</div><div class="knobs"><i style="--c:#e0915a;--r:-40deg"></i><i style="--c:#e0915a"></i><i style="--c:#e0915a;--r:30deg"></i><i style="--c:#6ecbb3;--r:60deg"></i></div></div>
+              <div class="xf"><span>MIXER</span><div class="rail"><i></i></div><span class="auto">AUTO MIX</span></div>
+              <div class="deck"><div class="jog" style="--c:#6ecbb3"></div><div style="color:#6ecbb3">B · 123.8 · 9A</div><div class="knobs"><i style="--c:#6ecbb3"></i><i style="--c:#6ecbb3;--r:-20deg"></i><i style="--c:#6ecbb3"></i><i style="--c:#e0915a;--r:-60deg"></i></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="concept-meta">
+        <div class="meta-grid">
+          <div><h5>Palette</h5><div class="swatches"><span class="sw"><i style="background:#060606"></i>black</span><span class="sw"><i style="background:#e0915a"></i>deck A</span><span class="sw"><i style="background:#6ecbb3"></i>deck B</span><span class="sw"><i style="background:#ffdb9e"></i>signal</span><span class="sw"><i style="background:#c25a4a"></i>rose</span></div></div>
+          <div><h5>Type</h5><div class="typepair"><b style="font:700 20px var(--display)">SF Pro Display</b><span>white headline</span></div><div class="typepair"><span style="font:600 13px var(--mono);color:var(--copper)">SF MONO 124.00</span><span>readouts</span></div></div>
+        </div>
+        <h5>Motion</h5><p>Deck A's jog turns slowly. The playhead glows. The waveform slides left under a fixed playhead on scroll, as the app's deck view does. All transform.</p>
+        <h5>Page structure</h5><ol><li>Readout strip, headline, waveform</li><li>Decks: mixer and Auto Mix</li><li>Mixes: tracklist and Identify</li><li>Analysis: BPM, key and genre rows</li><li>Output, Privacy, CTA</li></ol>
+        <div class="meta-grid">
+          <div><h5>Speaks to</h5><p>Bedroom DJs and people who play long sets loud. Fewer of them, but the most enthusiastic.</p></div>
+          <div><h5>Risks</h5><ul class="risk-list"><li>Undersells the calm listening app that most people will use.</li><li>Dark-only goes against the brief's light and dark requirement.</li><li>Grey-on-black readouts fail contrast unless tuned.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="concept" id="c6">
+    <div class="concept-head"><div class="concept-num">6</div><div><h4>Minimal one-pager</h4><p class="idea">One column and one button, with everything a visitor needs above two scrolls. It loads in an instant.</p></div><div class="tags"><span class="tag">Fallback</span><span class="tag">Light + dark</span></div></div>
+    <div class="concept-body">
+      <div class="concept-mock">
+        <div class="browser"><div class="browser-bar"><i></i><i></i><i></i><span>sounding.forbes.red</span></div>
+          <div class="viewport m6">
+            <div class="col">
+              <img class="icon" src="assets/icon.jpg" alt="">
+              <h1>Sounding</h1>
+              <p>Your SoundCloud on iPhone, iPad, Apple Watch, Apple TV and Mac. With the waveform, timed comments, tracklists for mixes, and two decks. No servers, and no accounts of its own.</p>
+              <span class="btn">Join the TestFlight</span>
+              <div class="plats">Coming to the App Store · iOS 27, tvOS 27, macOS 27, watchOS 27</div>
+              <dl><dt>Now Playing</dt><dd>Waveform, comments, Up Next</dd><dt>Mixes</dt><dd>Tracklist, Identify, Setlists</dd><dt>Decks</dt><dd>Crossfader, EQ, Auto Mix</dd><dt>Output</dt><dd>Phone, Mac and TV, in step</dd><dt>Downloads</dt><dd>Synced, encrypted, Optimise Storage</dd></dl>
+              <div class="faq"><div>Is it made by SoundCloud?</div><div>Do I need an account?</div><div>Where does my data go?</div></div>
+              <div class="foot">Not affiliated with SoundCloud. · Privacy · Support</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="concept-meta">
+        <div class="meta-grid">
+          <div><h5>Palette</h5><div class="swatches"><span class="sw"><i style="background:#ffffff"></i>paper</span><span class="sw"><i style="background:#141210"></i>night</span><span class="sw"><i style="background:#1c1916"></i>ink</span><span class="sw"><i style="background:#b0541d"></i>copper</span></div></div>
+          <div><h5>Type</h5><div class="typepair"><b style="font:700 20px var(--display)">SF Pro Display</b><span>one size only</span></div><div class="typepair"><span style="font:15px var(--font);color:var(--ink)">SF Pro Text</span><span>everything else</span></div></div>
+        </div>
+        <h5>Motion</h5><p>None. FAQ answers use <code>&lt;details&gt;</code>.</p>
+        <h5>Page structure</h5><ol><li>Icon, name, sentence, button</li><li>Definition list of features</li><li>FAQ</li><li>Footer</li></ol>
+        <div class="meta-grid">
+          <div><h5>Speaks to</h5><p>People who arrived from the App Store and want a support or privacy link, fast.</p></div>
+          <div><h5>Risks</h5><ul class="risk-list"><li>Forgettable, and it shows nothing of a very visual app.</li><li>Fine for Support and Privacy, too thin for Home.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="concept" id="c7">
+    <div class="concept-head"><div class="concept-num">7</div><div><h4>Felt &amp; copper</h4><p class="idea">The icon's own photography as the hero: a copper jack on black felt, lit like a product shot, with copper hairlines.</p></div><div class="tags"><span class="tag">Photo-led</span><span class="tag">New</span></div></div>
+    <div class="concept-body">
+      <div class="concept-mock">
+        <div class="browser dark"><div class="browser-bar"><i></i><i></i><i></i><span>sounding.forbes.red</span></div>
+          <div class="viewport m7">
+            <div class="felt"></div>
+            <div class="photo"><div class="copy"><h1>Plug in.<br><span>Turn it up.</span></h1><p>SoundCloud on iPhone, iPad, Apple Watch, Apple TV and Mac, made with care and kept private.</p></div></div>
+            <div class="mnav"><span class="brand"><img src="assets/icon.jpg" alt="">Sounding</span><span>Features</span><span>Privacy</span><span class="pill">TestFlight</span></div>
+            <div class="eyebrow7">Made of good stuff</div>
+            <div class="sec">
+              <div class="card"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><b>No servers</b><span>No accounts of its own, no analytics. Sync goes through your own iCloud.</span></div>
+              <div class="card"><svg viewBox="0 0 24 24"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg><b>Downloads</b><span>Playlists stay in sync. Encrypted on disk. Optimise Storage.</span></div>
+              <div class="card"><svg viewBox="0 0 24 24"><path d="M3 12h3l2-6 4 12 3-9 2 3h4"/></svg><b>On-device analysis</b><span>Tempo, key and genre on every row, worked out on your device.</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="concept-meta">
+        <div class="meta-grid">
+          <div><h5>Palette</h5><div class="swatches"><span class="sw"><i style="background:#121010"></i>felt</span><span class="sw"><i style="background:#c8743c"></i>copper</span><span class="sw"><i style="background:#e7a271"></i>rose gold</span><span class="sw"><i style="background:#f3e9dc"></i>cream</span></div></div>
+          <div><h5>Type</h5><div class="typepair"><b style="font:600 20px var(--display)">SF Pro Display</b><span>semibold</span></div><div class="typepair"><span style="font:600 11px var(--font);letter-spacing:.1em;text-transform:uppercase;color:var(--copper-ink)">SF Text tracked</span><span>eyebrows</span></div></div>
+        </div>
+        <h5>Motion</h5><p>A slow 1.03× push-in on the photo, and a light sweep across the jack (an opacity mask). Cards lift on hover.</p>
+        <h5>Page structure</h5><ol><li>Full-bleed jack photo with the headline</li><li>"Made of good stuff": privacy, downloads, analysis</li><li>Now Playing on a dark band</li><li>Platforms on felt</li><li>CTA, FAQ, footer</li></ol>
+        <div class="meta-grid">
+          <div><h5>Speaks to</h5><p>People drawn by craft: hi-fi and design fans, and anyone who liked the icon enough to click.</p></div>
+          <div><h5>Risks</h5><ul class="risk-list"><li>A large photo hero; it must stay under the 250&nbsp;KB per-image budget.</li><li>Says nothing about features until the second screen.</li><li>Dark by nature; a light version needs a cream crop.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="concept" id="c8">
+    <div class="concept-head"><div class="concept-num">8</div><div><h4>One session, every screen</h4><p class="idea">The Output story as the hero: one track travels from phone to TV to Mac along a copper cable.</p></div><div class="tags"><span class="tag">Story-led</span><span class="tag">New</span></div></div>
+    <div class="concept-body">
+      <div class="concept-mock">
+        <div class="browser"><div class="browser-bar"><i></i><i></i><i></i><span>sounding.forbes.red</span></div>
+          <div class="viewport m8">
+            <div class="mnav" style="justify-content:space-between"><span class="brand"><img src="assets/icon.jpg" alt="">Sounding</span><span class="pill" style="background:#1d1a17;color:#fff">TestFlight</span></div>
+            <h1>Start on your phone.<br>Finish on the big screen.</h1>
+            <p>One session, wherever you are: the track, the queue and the position.</p>
+            <div class="stage">
+              <svg class="cable" viewBox="0 0 558 250" aria-hidden="true"><path d="M 110 160 C 160 250, 260 250, 279 180 S 420 230, 470 170" fill="none" stroke="#c8743c" stroke-width="2.5" stroke-linecap="round"/><path d="M 110 166 C 160 256, 260 256, 279 186 S 420 236, 470 176" fill="none" stroke="#147569" stroke-width="1" opacity=".6"/></svg>
+              <div class="tv"><img src="assets/np-tv.jpg" alt=""></div>
+              <div class="mac"><img src="assets/np-mac.jpg" alt=""></div>
+              <img class="phone" src="assets/np-iphone.jpg" alt="">
+              <div class="chip"><i></i>Now playing on Living Room</div>
+            </div>
+            <div class="sec">
+              <div><div style="font:600 9.5px var(--font);letter-spacing:.08em;text-transform:uppercase;color:#b0541d">Output</div><h2>Pick where it plays, as with AirPlay.</h2><p>Up Next on your phone becomes the TV's queue. On iPhone, the decks become its remote. Several people can link to one Apple TV.</p></div>
+              <div class="picker">
+                <div><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/></svg><div>This iPhone</div></div>
+                <div class="on"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8"/></svg><div>Living Room<small>Apple TV · playing</small></div><span class="chk">✓</span></div>
+                <div><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M1 19h22"/></svg><div>This Mac</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="concept-meta">
+        <div class="meta-grid">
+          <div><h5>Palette</h5><div class="swatches"><span class="sw"><i style="background:#f3efe9"></i>linen</span><span class="sw"><i style="background:#1d1a17"></i>ink</span><span class="sw"><i style="background:#c8743c"></i>cable</span><span class="sw"><i style="background:#147569"></i>verdigris</span><span class="sw"><i style="background:#e0915a"></i>signal</span></div></div>
+          <div><h5>Type</h5><div class="typepair"><b style="font:700 20px var(--display)">SF Pro Display</b><span>centred</span></div><div class="typepair"><span style="font:600 12px var(--font);color:var(--ink)">SF Pro Text semibold</span><span>chips</span></div></div>
+        </div>
+        <h5>Motion</h5><p>A "Now playing on…" chip rides the cable with <code>offset-path</code>, a transform. Each device screen dims as the chip leaves it. Reduced motion shows the end state.</p>
+        <h5>Page structure</h5><ol><li>Devices joined by the cable</li><li>Output picker</li><li>Decks as the TV's remote</li><li>Polyphony: play in time on nearby devices</li><li>Watch</li><li>Privacy, CTA, FAQ</li></ol>
+        <div class="meta-grid">
+          <div><h5>Speaks to</h5><p>Apple-everything households with an Apple TV in the living room, who want SoundCloud on it.</p></div>
+          <div><h5>Risks</h5><ul class="risk-list"><li>Three device frames to keep in sync with the UI.</li><li>Choreography is fiddly at mobile widths; stack it vertically.</li><li>Undersells mixes, which are the app's heart.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="concept" id="c9">
+    <div class="concept-head"><div class="concept-num">9</div><div><h4>The page is a tracklist</h4><p class="idea">The home page is formatted as a DJ mix: sections are timestamped tracks, and a sticky waveform shows how far through you are.</p></div><div class="tags"><span class="tag">Conceptual</span><span class="tag">New</span></div></div>
+    <div class="concept-body">
+      <div class="concept-mock">
+        <div class="browser dark"><div class="browser-bar"><i></i><i></i><i></i><span>sounding.forbes.red</span></div>
+          <div class="viewport m9">
+            <div class="bar"><img src="assets/icon.jpg" alt=""><div class="mini"><div class="wave" data-n="80" data-seed="8"></div><div class="played"><div class="wave" data-n="80" data-seed="8"></div></div><div class="ticks"><i style="left:12%"></i><i style="left:30%"></i><i style="left:47%"></i><i style="left:63%"></i><i style="left:80%"></i></div></div><span>08:30 / 42:00</span></div>
+            <div class="hero"><div class="art"><span class="art-t">SOUNDING</span></div><div><div class="k">Mix · 9 tracks · 42 min</div><h1>Sounding — Live at Yours</h1><div class="who">For iPhone, iPad, Apple Watch, Apple TV and Mac</div><div class="meta">0 servers · 0 accounts · 1 iCloud</div><span class="play">▶ Join the TestFlight</span></div></div>
+            <ol>
+              <li><span>00:00</span><b>Intro — Plug in</b><em>Hero</em></li>
+              <li><span>03:52</span><b>Now Playing</b><em>Comments on the beat</em></li>
+              <li class="open on"><div class="row"><span>08:30</span><div><b>Tracklists &amp; Identify</b></div></div><div class="body"><div>Long mixes get a tracklist that follows the set. When there's an ID, Identify asks ShazamKit at that moment. Save the result to Library → Setlists.</div><img src="assets/np-iphone-tracklist.jpg" alt=""></div></li>
+              <li><span>13:05</span><b>Decks (Auto Mix edit)</b><em>Two decks, one fader</em></li>
+              <li><span>17:48</span><b>Output</b><em>Phone → Living Room</em></li>
+            </ol>
+          </div>
+        </div>
+      </div>
+      <div class="concept-meta">
+        <div class="meta-grid">
+          <div><h5>Palette</h5><div class="swatches"><span class="sw"><i style="background:#17120f"></i>booth</span><span class="sw"><i style="background:#f1e7da"></i>cream</span><span class="sw"><i style="background:#e7a271"></i>copper</span><span class="sw"><i style="background:#203e68"></i>tide</span></div></div>
+          <div><h5>Type</h5><div class="typepair"><b style="font:700 20px var(--display)">SF Pro Display</b><span>mix title</span></div><div class="typepair"><span style="font:12px var(--mono);color:var(--ink)">SF Mono 08:30</span><span>timestamps</span></div></div>
+        </div>
+        <h5>Motion</h5><p>The top waveform fills with scroll (a scaleX transform). The current row is highlighted, as in the app's Tracklist pane. Rows expand in place. No scroll-snapping.</p>
+        <h5>Page structure</h5><ol><li>Mix header, which is the hero</li><li>Nine "tracks", one per feature area</li><li>"Outro" row: Privacy, CTA, FAQ</li></ol>
+        <div class="meta-grid">
+          <div><h5>Speaks to</h5><p>People who listen to mixes and will get the joke, while staying readable for everyone else.</p></div>
+          <div><h5>Risks</h5><ul class="risk-list"><li>The conceit can feel like a gimmick on the second visit.</li><li>Collapsed rows hide content from skimmers and search; keep them open by default.</li><li>Fake timestamps might confuse.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <div class="sub" id="drafts">
+    <h3>Other model drafts</h3>
+    <p class="sub-lede">Two other models drafted full homepages from the same brief, in <code>Design/site/astra/</code> and <code>Design/site/sol/</code>. They're shown as captured at 15:43, scroll inside each frame to see the full page. Both arrived, independently, at a combination close to the recommendation below: astra is roughly 1+2, and sol is 3 inside 2.</p>
+  </div>
+
+  <article class="concept" id="c10">
+    <div class="concept-head"><div class="concept-num">10</div><div><h4>astra: warm paper and a drawn jack</h4><p class="idea">A large "Plug in. Turn it up." on warm paper, with the line-art jack and colour masses on the right, then dark "room" bands for the product.</p></div><div class="tags"><span class="tag part">≈ 1 + 2</span><span class="tag">Model draft</span></div></div>
+    <div class="concept-body">
+      <div class="concept-mock">
+        <div class="browser"><div class="browser-bar"><i></i><i></i><i></i><span>Design/site/astra</span></div>
+          <div class="viewport" style="overflow-y:auto" tabindex="0" aria-label="astra full-page screenshot, scrollable"><img src="assets/draft-astra.jpg" alt="astra homepage draft, full page" style="width:100%;display:block"></div>
+        </div>
+        <figure class="shot-figure" style="margin-top:12px"><img src="assets/draft-astra-dark.jpg" alt="astra hero in dark mode"><figcaption>Dark mode, captured before the draw-on had run</figcaption></figure>
+      </div>
+      <div class="concept-meta">
+        <div class="meta-grid">
+          <div><h5>Palette (from its CSS)</h5><div class="swatches"><span class="sw"><i style="background:#f5f1e9"></i>paper</span><span class="sw"><i style="background:#292b26"></i>ink</span><span class="sw"><i style="background:#99502e"></i>copper</span><span class="sw"><i style="background:#49645b"></i>sage</span><span class="sw"><i style="background:#a18142"></i>brass</span><span class="sw"><i style="background:#171b19"></i>room</span></div></div>
+          <div><h5>Type</h5><div class="typepair"><b style="font:600 22px var(--display);letter-spacing:-.05em">SF Display, very tight</b></div><div class="typepair"><span>Two-tone headline: ink, then copper</span></div></div>
+        </div>
+        <h5>Motion</h5><p>The masses appear and the wire is revealed over 2.3&nbsp;s. Reduced motion is honoured (its own check: 0 active animations).</p>
+        <h5>Page structure</h5><ol><li>Hero with line art</li><li>Platforms strip</li><li>Listen: phones on a dark band</li><li>Mix: the Mac decks</li><li>Devices: "Same track. Different room."</li><li>Downloads and Privacy</li><li>FAQ, closing CTA, footer</li></ol>
+        <div class="meta-grid">
+          <div><h5>What's good</h5><ul><li>The closest to the brand: the welcome art is reused well.</li><li>Light and dark both done, no external requests, no overflow from 320 to 1440&nbsp;px (its own <code>verification.json</code>).</li><li>148&nbsp;KB of images.</li></ul></div>
+          <div><h5>Gaps</h5><ul class="risk-list"><li>Its own check fails: the FAQ and the theme toggle aren't keyboard-operable yet.</li><li>The CTA reads "Get Sounding", not TestFlight.</li><li>No Now Playing demo; it's screenshots only.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="concept" id="c11">
+    <div class="concept-head"><div class="concept-num">11</div><div><h4>sol: big type and a playable Now Playing</h4><p class="idea">The same headline, then an "interactive preview, no audio" Now Playing straight under it, with tracklist, comments and waveform, followed by calm product sections.</p></div><div class="tags"><span class="tag part">≈ 3 in 2</span><span class="tag">Model draft</span></div></div>
+    <div class="concept-body">
+      <div class="concept-mock">
+        <div class="browser"><div class="browser-bar"><i></i><i></i><i></i><span>Design/site/sol</span></div>
+          <div class="viewport" style="overflow-y:auto" tabindex="0" aria-label="sol full-page screenshot, scrollable"><img src="assets/draft-sol.jpg" alt="sol homepage draft, full page" style="width:100%;display:block"></div>
+        </div>
+        <figure class="shot-figure" style="margin-top:12px"><img src="assets/draft-sol-dark.jpg" alt="sol hero in dark mode"><figcaption>Dark mode</figcaption></figure>
+      </div>
+      <div class="concept-meta">
+        <div class="meta-grid">
+          <div><h5>Palette (from its CSS)</h5><div class="swatches"><span class="sw"><i style="background:#f7f5ef"></i>paper</span><span class="sw"><i style="background:#282923"></i>ink</span><span class="sw"><i style="background:#9c4e2c"></i>copper</span><span class="sw"><i style="background:#303b31"></i>button</span><span class="sw"><i style="background:#142c32"></i>NP</span><span class="sw"><i style="background:#bce3d9"></i>accent</span></div></div>
+          <div><h5>Type</h5><div class="typepair"><b style="font:600 22px var(--display);letter-spacing:-.05em">SF Display, very tight</b></div><div class="typepair"><span>Small tracked eyebrows</span></div></div>
+        </div>
+        <h5>Motion</h5><p>The player is the motion: scrub the waveform to change the track, and comments follow it. No line-art draw-on.</p>
+        <h5>Page structure</h5><ol><li>Headline and CTA</li><li>Interactive Now Playing</li><li>Features: decks, downloads, three small pillars</li><li>Platforms: "At home. On the move. In step."</li><li>Privacy</li><li>FAQ, closing, footer</li></ol>
+        <div class="meta-grid">
+          <div><h5>What's good</h5><ul><li>It shows the product working above the fold, clearly labelled "no audio".</li><li>BPM, key and genre chips in the player make analysis visible.</li><li>100&nbsp;KB of images.</li></ul></div>
+          <div><h5>Gaps</h5><ul class="risk-list"><li>The jack line art is absent, so the brand is carried only by the copper headline.</li><li>About 13&nbsp;KB of player JS on the critical path.</li><li>The player's teal ground drifts from the app's amber Now Playing.</li><li>"Ask about TestFlight" (by email) is a weaker CTA than a public link.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <div class="sub" id="a-criteria">
+    <h3>Concept × criteria</h3>
+    <p class="sub-lede">Each cell is a 1–5 score with a reason. <b>5 is always good</b>, so for performance, build effort and maintenance, 5 means light, cheap or low-upkeep. Change the weighting to re-rank.</p>
+    <div class="controls-row">Weighting
+      <div class="seg" role="group" aria-label="Weighting"><button type="button" data-weights="balanced" aria-pressed="true">Balanced</button><button type="button" data-weights="launch">Ship for launch</button><button type="button" data-weights="brand">Brand first</button></div>
+    </div>
+    <div class="legend"><span class="score s1"><b>1</b>poor</span><span class="score s2"><b>2</b>weak</span><span class="score s3"><b>3</b>fair</span><span class="score s4"><b>4</b>good</span><span class="score s5"><b>5</b>excellent</span><span>· A copper bar marks the recommended base.</span></div>
+    <div class="table-wrap"><table class="matrix crit"><thead><tr id="crit-head"></tr></thead><tbody id="crit-body"></tbody></table></div>
+  </div>
+
+  <div class="sub" id="a-sections">
+    <h3>Concept × page sections</h3>
+    <p class="sub-lede">Which home-page sections each direction includes. The brief requires a hero, features by area, platforms, privacy, a TestFlight CTA, a FAQ and the "not affiliated" footer line.</p>
+    <div class="legend"><span><span class="has">●</span> featured</span><span><span class="lite">◐</span> brief mention</span><span><span class="none">—</span> absent</span></div>
+    <div class="table-wrap"><table class="matrix secm"><thead><tr id="sec-head"></tr></thead><tbody id="sec-body"></tbody></table></div>
+  </div>
+
+  <div class="sub" id="a-rec">
+    <h3>Recommendation</h3>
+    <div class="callout">
+      <h4>Build 1 on the skeleton of 2, and use 3 as the Now Playing section. Answer: <code>Site: 1+2+3</code></h4>
+      <p>Copper line-art is the only direction that is unmistakably Sounding, and it continues the onboarding people have already seen. On its own, though, it doesn't show the app. Product-first is the clearest and most App Store-ready, but generic. Put the line art in the hero, then switch to calm, product-first sections. In the first of those, embed the live player, lazily, as the "show, don't tell" moment for Now Playing. It shouldn't be the hero, where it would carry the whole page's weight and its risk.</p>
+      <div class="recipe">
+        <div><b>From 1</b>Hero: draw-on jack and cable, "Plug in. Turn it up.", cream in light mode and near-black in dark.</div>
+        <div><b>From 2</b>Section rhythm: centred headings, device frames in CSS around real screenshots, bento tiles for Downloads and Privacy.</div>
+        <div><b>From 3</b>The Now Playing section is the playable demo, always dark, starting only in view and paused under reduced motion.</div>
+        <div><b>Borrow</b>From 5, one waveform band for Decks. From 7, the jack photo as the share image and CTA band. From 6, Privacy and Support pages that minimal.</div>
+      </div>
+      <p style="margin-top:14px"><b>Fastest route:</b> the two model drafts already sit on either side of this. Start from <b>astra</b>, which has the hero, the brand, light and dark, and passes the overflow checks. Graft <b>sol</b>'s player in as the Now Playing section, re-skinned from teal to the app's amber. Then fix astra's keyboard FAQ and theme toggle, and change the CTA to a public TestFlight link.</p>
+      <p class="note" style="margin-top:12px"><b>Budget for the combined page:</b> hero SVG under 15&nbsp;KB of JS; first load under 600&nbsp;KB with all images as lazy WebP or JPEG; player JS under 10&nbsp;KB, loaded on intersection. <b>Second choice:</b> 7+2 if you'd rather lead with the photograph than the line art.</p>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="part-b" data-part="b">
+  <div class="part-head"><span class="letter">B</span><h2>Feature concepts</h2><p>From <code>os27-feature-survey-2026-11.md</code>, checked against the Xcode 27.2 SDKs. Effort is S, M or L. Platform chips: green yes, amber via another device, red no, grey unverified.</p></div>
+
+  <article class="feature" id="f1">
+    <div class="feature-head"><div class="concept-num">1</div><div><h4>SharePlay: listen together</h4><p>GroupActivities has no new API in 27, so build on the 26 surface now. Start sessions from iPhone. Apple TV can only <b>join</b>: <code>registerGroupActivity</code> and the sharing sheet aren't available on tvOS. Each person streams their own copy; only IDs and transport state travel.</p></div></div>
+    <div class="options">
+      <div class="option rec"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall np"></div><div class="isl"></div><div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+          <div class="sp-pill"><span><span class="av" style="background:#c0603a">A</span><span class="av" style="background:#2f6db3">J</span><span class="av" style="background:#3a8f86">M</span></span>SharePlay · 3 listening</div>
+          <div class="np-mini" style="padding-top:50px"><div class="art"><span class="art-t">LOW TIDE</span></div><div class="t">Low Tide 041 — Live at Pier Nine</div><div class="a">Maren Holt</div><div class="wv"><div class="wave" data-n="50" data-seed="5"></div></div><div class="ctl"><span>◀◀</span><span>❚❚</span><span>▶▶</span></div></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">A</span>Playback only ★</h5><p><code>ListenTogetherActivity</code> carries a queue snapshot. <code>AVPlaybackCoordinator</code> keeps everyone's AVPlayer in step. Play, pause, skip and queue edits go over <code>GroupSessionMessenger(.reliable)</code>.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat v">TV joins</span><span class="plat n">Watch</span></div><span class="effort">M</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="ph"><div class="scr m5" style="background:#060606"><div class="isl"></div><div class="sb"><span>9:41</span><span>▮</span></div>
+          <div style="margin:18px 10px 0;background:rgba(48,209,88,.15);color:#7ee29a;border-radius:9px;padding:5px 7px;font:600 8.5px var(--font)">You're leading · 2 following<br><span style="font-weight:400;opacity:.8">They hear your mix, rendered on their phones</span></div>
+          <div style="display:flex;justify-content:space-around;margin-top:16px"><div class="jog spin" style="--c:#e0915a;width:58px;height:58px"></div><div class="jog" style="--c:#6ecbb3;width:58px;height:58px"></div></div>
+          <div class="xf" style="margin-top:14px"><div class="rail" style="width:90px"><i></i></div><span class="auto">AUTO MIX</span></div>
+          <div style="margin:12px 10px 0;font:9px var(--mono);color:rgba(236,230,221,.6)">msg → xfade 0.62 @ t+120ms<br>msg → cue B 2 @ bar 64</div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">B</span>DJ-synced</h5><p>The leader's MixEngine sends deck loads, crossfader moves and cues, timestamped against a shared clock. Followers render the same mix with <code>playAudio(at:)</code>. The coordinator can't drive AVAudioEngine.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat v">TV joins</span><span class="plat n">Watch</span></div><span class="effort">L</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall np"></div><div class="isl"></div><div class="sb"><span>9:41</span><span>▮</span></div>
+          <div class="sheet dark" style="top:34px"><h6>Up Next · shared</h6>
+            <div class="grp"><div><span><b>Saltwater</b><br><span style="opacity:.6">Teodora</span></span><span class="av" style="background:#2f6db3">J</span></div><div><span><b>Glass Tide</b><br><span style="opacity:.6">Nilu &amp; Brask</span></span><span class="av" style="background:#3a8f86">M</span></div><div><span><b>Northbound (Dub)</b><br><span style="opacity:.6">Cassia Moor</span></span><span class="av" style="background:#c0603a">A</span></div><div><span><b>Halfway House</b><br><span style="opacity:.6">Sennet</span></span><span class="av" style="background:#2f6db3">J</span></div></div>
+            <span class="btnx">Add to Shared Queue</span><p style="font-size:8px;opacity:.6;margin-top:6px">The host's device plays; everyone adds.</p></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">C</span>Party queue</h5><p>One person plays, and everyone in the call adds to Up Next from their own library. It works with the host on Apple TV joined via FaceTime. Only queue edits travel.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat v">TV joins</span><span class="plat n">Watch</span></div><span class="effort">M</span></div></div></div>
+    </div>
+    <div class="feature-notes"><div><h6>From the survey</h6><ul><li>The Group Activities entitlement key isn't in the SDK [GAP]; add it in Xcode.</li><li>Whether a TV that isn't in a FaceTime call becomes eligible: device test.</li></ul></div><div><h6>Product question</h6><ul><li>Does SoundCloud allow a second listener without their own login? Every option assumes each person is signed in.</li></ul></div></div>
+  </article>
+
+  <article class="feature" id="f2">
+    <div class="feature-head"><div class="concept-num">2</div><div><h4>Controls: Control Center, Lock Screen, Action button</h4><p><code>ControlWidgetToggle</code> and <code>ControlWidgetButton</code> on App Intents, unchanged since iOS 18. iPhone, iPad, Mac 26 and Watch 26; no Apple TV. This worktree has no widget target (<code>c72aa77</code> deleted it), and restoring it means hand-editing the pbxproj.</p></div></div>
+    <div class="options">
+      <div class="option rec"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall"></div><div class="isl"></div><div class="sb"><span>Sounding</span><span>▮</span></div>
+          <div class="cc"><i class="np2"><div class="art"></div><b>Low Tide 041</b><br><span style="opacity:.7">Maren Holt</span></i><i>✈</i><i class="on">◉</i><i>◐</i><i>☾</i><i class="cu">❚❚<small>Sounding</small></i><i>⌁</i><i class="w2">☀ ━━━</i><i>🔦</i><i>⏱</i></div>
+          <div class="cc-label">Control Center · copper tile is the Sounding toggle</div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">A</span>Play/pause toggle ★</h5><p>A <code>ControlWidgetToggle</code> bound to a <code>SetValueIntent</code> that is also an <code>AudioPlaybackIntent</code>, so it runs in the app. State comes from an App Group snapshot, and it reloads with <code>reloadControls(ofKind:)</code>.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac 26</span><span class="plat y">Watch 26</span><span class="plat n">TV</span></div><span class="effort">S</span></div></div></div>
+      <div class="option rec"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall"></div><div class="isl"></div><div class="sb"><span></span><span>▮</span></div>
+          <div class="lock-time"><small>Friday 6 November</small><b>9:41</b></div>
+          <div style="position:absolute;left:12px;right:12px;bottom:56px;text-align:center;font-size:8.5px;background:rgba(0,0,0,.35);border-radius:10px;padding:6px">Hold to resume <b>Low Tide 041</b><br><span style="opacity:.7">from 17:00</span></div>
+          <div class="lock-bottom"><i>🔦</i><i class="hl">↻</i></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">B</span>"Resume last mix" button ★</h5><p>A <code>ControlWidgetButton</code> whose intent restores the last queue and position. It's the natural pick for the Action button and the Lock Screen slots. Whether it can start audio from a cold app is a device test.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac 26</span><span class="plat y">Watch 26</span><span class="plat n">TV</span></div><span class="effort">S</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall"></div><div class="isl"></div><div class="sb"><span></span><span>▮</span></div>
+          <div class="cc"><i class="np2" style="background:rgba(255,255,255,.2)"><div class="art"></div><b>Living Room</b><br><span style="opacity:.7">Apple TV · Undertow</span></i><i class="cu">❚❚<small>TV</small></i><i class="cu" style="background:#b0541d">▶▶<small>TV</small></i><i>◐</i><i>☾</i><i class="w2">☀ ━━━</i><i>🔦</i><i>⏱</i></div>
+          <div class="cc-label">Controls aimed at the Apple TV, over Bonjour</div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">C</span>Apple TV remote controls</h5><p>The same controls, aimed at the linked Apple TV through the existing <code>WidgetControlSender</code> Bonjour path (in the main checkout). Play/pause and skip on the TV without opening the app.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat q">Mac ?</span><span class="plat q">Watch ?</span><span class="plat n">TV</span></div><span class="effort">S–M</span></div></div></div>
+    </div>
+  </article>
+
+  <article class="feature" id="f3">
+    <div class="feature-head"><div class="concept-num">3</div><div><h4>Widgets: Lock Screen, StandBy, Live Activity</h4><p>WidgetKit gained only <code>systemExtraLargePortrait</code> in 27, and ActivityKit gained nothing. A widget can't own playback, and <code>MediaSession</code> isn't available in extensions, so the app writes the current mix to the App Group. Progress is a timer-driven view, not reloaded entries.</p></div></div>
+    <div class="options">
+      <div class="option rec"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall"></div><div class="isl"></div><div class="sb"><span></span><span>▮</span></div>
+          <div class="lock-time"><small>Friday 6 November</small><b>9:41</b></div>
+          <div class="acc-row"><div class="acc rect"><div class="art"></div><div><b>Low Tide 041</b>Maren Holt<div class="prog"><i></i></div></div></div><div class="acc circ"><span>−43</span></div></div>
+          <div class="lock-bottom"><i>🔦</i><i>📷</i></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">A</span>Lock Screen accessories ★</h5><p><code>accessoryRectangular</code> (art, title, progress) and <code>accessoryCircular</code> (time left). Handles <code>widgetAccentedRenderingMode</code> for tinted Lock Screens.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat q">iPad ?</span><span class="plat q">Watch ?</span><span class="plat n">TV</span></div><span class="effort">S</span></div></div></div>
+      <div class="option rec"><div class="option-sketch">
+        <div class="ph land"><div class="scr"><div class="standby"><div style="font:700 44px/1 var(--rounded);color:#ff7a59">9:41</div><div class="widget sm" style="background:linear-gradient(160deg,#3b2615,#0e0b09);width:130px;height:130px"><div class="art"></div><b>Low Tide 041</b><span style="opacity:.6">Maren Holt · Undertow</span><div class="acc" style="background:none;padding:0"><div class="prog"><i></i></div></div></div></div></div></div></div>
+        <div class="option-body"><h5><span class="opt">B</span>StandBy and Home Screen ★</h5><p>One static <code>systemSmall</code> widget, which StandBy shows. The same view goes on the Home Screen and the Mac desktop. Reload budgets are a device test.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat n">TV</span></div><span class="effort">S</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall"></div><div class="isl la"><div class="art"></div><div class="wave" data-n="8" data-seed="2"></div></div><div class="sb"><span></span><span></span></div>
+          <div class="lock-time"><small>Friday 6 November</small><b>9:41</b></div>
+          <div style="position:absolute;bottom:50px;left:0;right:0"><div class="la-card"><div class="art"></div><div><b>Undertow</b>Kōji Aren · in Low Tide 041</div><span style="font-size:13px">❚❚</span><div class="bar2"><i></i></div></div></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">C</span>Polish the existing Live Activity</h5><p>Don't add a second one. Show the current tracklist entry in the Dynamic Island, add the <code>.small</code> supplemental family the current one lacks, and handle <code>isDynamicIslandLimitedInWidth</code> (new in 27).</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat q">iPad ?</span><span class="plat n">TV</span><span class="plat n">Watch</span></div><span class="effort">S</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="widget" style="width:180px;height:270px;background:linear-gradient(170deg,#1f2a3d,#0d0c0b 60%);border-radius:22px;box-shadow:0 10px 24px rgba(0,0,0,.25)"><div style="display:flex;gap:8px;align-items:center"><div class="art" style="width:38px;height:38px"></div><div><b style="margin:0">Low Tide 041</b><span style="opacity:.6">12 tracks · 10 identified</span></div></div>
+          <div style="margin-top:10px;display:grid;gap:3px;font-size:8.5px">
+            <div style="opacity:.55">8:30 · Lanterns</div><div style="background:rgba(255,255,255,.14);border-radius:6px;padding:4px 5px"><b style="margin:0;display:inline">13:05 · Undertow</b></div><div style="opacity:.55">17:48 · ID</div><div style="opacity:.55">22:10 · Glass Tide</div><div style="opacity:.55">27:35 · Northbound (Dub)</div><div style="opacity:.55">32:20 · Halfway House</div><div style="opacity:.55">37:02 · ID</div><div style="opacity:.55">41:40 · Sodium Lights</div></div></div></div>
+        <div class="option-body"><h5><span class="opt">D</span>Tall tracklist widget</h5><p><code>systemExtraLargePortrait</code> is the one new 27 family (iOS 27, macOS 27). A whole mix's tracklist on the desktop or iPad, with the current entry lit.</p><div class="option-foot"><div class="plats"><span class="plat q">iPhone ?</span><span class="plat y">iPad</span><span class="plat y">Mac 27</span><span class="plat n">TV</span><span class="plat n">Watch</span></div><span class="effort">M</span></div></div></div>
+    </div>
+    <p class="note"><b>Grey "?" chips:</b> the survey confirms WidgetKit on iPhone, iPad, Mac and Watch, and the Lock Screen families on iPhone (iOS 16). It doesn't confirm which family appears on which device, so check those in Xcode.</p>
+  </article>
+
+  <article class="feature" id="f4">
+    <div class="feature-head"><div class="concept-num">4</div><div><h4>On-device model (FoundationModels)</h4><p><code>LanguageModelSession</code> with <code>@Generable</code> output and tool calling. iPhone, iPad and Mac only: <b>nothing compiles on tvOS</b>, and the Watch gets only Private Cloud Compute (PCC), which needs a managed entitlement. Every feature needs a non-AI fallback and must handle <code>.deviceNotEligible</code>, guardrails, and a 4,096-token context on 26.x.</p></div></div>
+    <div class="options">
+      <div class="option"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall np"></div><div class="isl"></div><div class="sb"><span>9:41</span><span>▮</span></div>
+          <div class="sheet dark" style="top:34px"><h6>Comments · 1,284</h6>
+            <div class="grp" style="padding:8px;display:block"><div style="display:block;padding:0;border:0"><b style="font-size:9px">What people are saying</b><p style="margin:4px 0 6px;font-size:8.5px;opacity:.85;line-height:1.35">Most love the run from Undertow into Glass Tide. Many ask for the ID at 17:48. A few heard it live at Pier Nine.</p><span class="chipx">17:48 ID hunt</span><span class="chipx">22:10 the switch</span><span class="chipx">Warm</span></div></div>
+            <div class="cap">Latest</div>
+            <div class="grp"><div><span><b>K</b> sounds like unreleased Ardent Fields</span><span style="opacity:.5">16:02</span></div><div><span><b>J</b> ID? anyone?</span><span style="opacity:.5">17:30</span></div></div>
+          </div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">A</span>Summarise the comments</h5><p>Chunk the comments by token count, summarise each chunk, then merge. Returns <code>summary</code>, <code>moments</code> (tappable times) and <code>sentiment</code>. Lives at the top of the Comments pane.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat v">TV via sync</span><span class="plat n">Watch</span></div><span class="effort">M</span></div></div></div>
+      <div class="option rec"><div class="option-sketch">
+        <div class="ph"><div class="scr" style="background:#f5f2ee;color:#1c1916"><div class="isl"></div><div class="sb"><span>9:41</span><span>▮</span></div>
+          <div style="padding:14px 10px 0"><div style="font:700 15px var(--display);margin-bottom:8px">Likes</div>
+            <div style="display:grid;gap:8px;font-size:9px">
+              <div style="display:grid;grid-template-columns:30px 1fr;gap:7px"><div class="art" style="width:30px;height:30px;border-radius:6px"></div><div><b>Low Tide 041</b> · Maren Holt<br><span class="chipx">Deep house</span><span class="chipx">Late night</span><span style="font:8px var(--mono);opacity:.5"> 122 · 8A</span></div></div>
+              <div style="display:grid;grid-template-columns:30px 1fr;gap:7px"><div class="art v" style="width:30px;height:30px;border-radius:6px"></div><div><b>Glasshouse Session 7</b> · Teodora<br><span class="chipx">Ambient</span><span class="chipx">Calm</span><span style="font:8px var(--mono);opacity:.5"> 96 · 3B</span></div></div>
+              <div style="display:grid;grid-template-columns:30px 1fr;gap:7px"><div class="art r" style="width:30px;height:30px;border-radius:6px"></div><div><b>Sodium Lights</b> · Okari<br><span class="chipx">Techno</span><span class="chipx">Driving</span><span style="font:8px var(--mono);opacity:.5"> 132 · 11A</span></div></div>
+              <div style="display:grid;grid-template-columns:30px 1fr;gap:7px"><div class="art b" style="width:30px;height:30px;border-radius:6px"></div><div><b>Harbour Lights</b> · Maren Holt<br><span class="chipx">Balearic</span><span class="chipx">Sunset</span><span style="font:8px var(--mono);opacity:.5"> 112 · 5A</span></div></div>
+            </div><div style="margin-top:10px;font-size:8px;opacity:.55">Sort by Mood ▾</div></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">B</span>Mood and genre tags ★</h5><p>An <code>@Generable</code> enum of the app's own taxonomy, so it can't invent tags, scored with a confidence. Compare <code>.contentTagging</code> with <code>.general</code> for quality. Sits beside BPM and key on track rows.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat v">TV via sync</span><span class="plat n">Watch</span></div><span class="effort">M</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall"></div><div class="isl"></div><div class="sb"><span>9:41</span><span>▮</span></div>
+          <div class="sheet" style="top:30px"><h6>New Set List</h6><div class="field">90 minutes for a sunset, deep into minimal, mostly my likes</div>
+            <div class="cap">12 picks · all found on SoundCloud</div>
+            <div class="grp"><div><span><b>1</b> Harbour Lights — Maren Holt</span><span style="color:#34a853">✓</span></div><div><span><b>2</b> Saltwater — Teodora</span><span style="color:#34a853">✓</span></div><div><span><b>3</b> Glass Tide — Nilu &amp; Brask</span><span style="color:#34a853">✓</span></div><div><span style="opacity:.45;text-decoration:line-through">Moonrise — ?</span><span style="opacity:.6">dropped</span></div></div>
+            <span class="btnx">Load into Decks</span></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">C</span>Prompt to set list</h5><p>A <code>Tool</code> wraps <code>searchTracks</code>; <code>@Generable SetList</code> returns picks. <b>Every ID is checked against real search results</b>, and invented tracks are dropped. Hand off to Auto Mix.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat v">TV via iPhone</span><span class="plat n">Watch</span></div><span class="effort">M–L</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="ph"><div class="scr" style="background:#f5f2ee;color:#1c1916"><div class="isl"></div><div class="sb"><span>9:41</span><span>▮</span></div>
+          <div style="padding:14px 10px 0"><div class="field" style="background:#e9e4dd;border:0">🔍 deep house I liked last year</div>
+            <div style="font-size:8px;opacity:.55;margin:2px 2px 6px">From your Likes · 2025</div>
+            <div class="grp" style="background:#fff;border-radius:9px;font-size:9px">
+              <div style="padding:6px 8px;border-bottom:1px solid #eee"><b>Low Tide 038</b> · Maren Holt <span style="opacity:.5">liked Mar 2025</span></div>
+              <div style="padding:6px 8px;border-bottom:1px solid #eee"><b>Undertow</b> · Kōji Aren <span style="opacity:.5">liked Jun 2025</span></div>
+              <div style="padding:6px 8px"><b>Lanterns (Edit)</b> · Pale Harbour <span style="opacity:.5">liked Sep 2025</span></div></div></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">D</span>Ask your library</h5><p><code>SpotlightSearchTool</code> (iOS and macOS 27) over the app's own Core Spotlight index answers plain-English questions from your own data. It needs Spotlight donation first.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat n">TV</span><span class="plat n">Watch</span></div><span class="effort">L</span></div></div></div>
+    </div>
+    <div class="feature-notes"><div><h6>Guard</h6><ul><li><code>#if canImport(FoundationModels) &amp;&amp; !os(tvOS) &amp;&amp; !os(watchOS)</code>, as <code>DeckIdentity.swift</code> already does.</li><li>Keep the model out of the DJ decision loop, for determinism.</li></ul></div><div><h6>Don't plan on</h6><ul><li>PCC (managed entitlement) or adapters (obsoleted at 27.0).</li><li>Anything model-driven on Apple TV; results get there through CloudKit.</li></ul></div></div>
+  </article>
+
+  <article class="feature" id="f5">
+    <div class="feature-head"><div class="concept-num">5</div><div><h4>Siri and Shortcuts</h4><p>The new <code>.audio</code> App Schema domain (play, add to library, add to playlist, like, recognise) works on iPhone, iPad and Mac, but <b>not</b> on Watch or TV. There, voice lands on the phone and reaches the TV over Bonjour. Three <code>AudioPlaybackIntent</code>s and their <code>AppShortcut</code>s already exist.</p></div></div>
+    <div class="options">
+      <div class="option"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall np"></div><div class="siri-edge"></div><div class="isl"></div><div class="sb"><span>9:41</span><span>▮</span></div>
+          <div style="height:40px"></div>
+          <div class="phrases"><span>Play Low Tide on Sounding</span><span>Play my likes on Sounding</span><span>Play Maren Holt on Sounding</span></div>
+          <div class="siri-snip" style="position:absolute;bottom:14px;left:0;right:0"><div class="q">Playing Low Tide 041</div><span style="opacity:.6">Sounding · Maren Holt</span></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">A</span>Play phrases (today)</h5><p>The existing <code>PlayTrack</code>, <code>PlayPlaylist</code> and <code>PlayArtist</code> intents and their three App Shortcuts. They need the app name, and work in Shortcuts.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat q">TV ?</span><span class="plat q">Watch ?</span></div><span class="effort">done</span></div></div></div>
+      <div class="option rec"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall np"></div><div class="siri-edge"></div><div class="isl"></div><div class="sb"><span>9:41</span><span>▮</span></div>
+          <div style="height:40px"></div>
+          <div class="phrases"><span>Play Low Tide</span><span>Like this</span><span>Add this to my Sunday set</span><span>Play the last set I liked</span></div>
+          <div class="siri-snip" style="position:absolute;bottom:14px;left:0;right:0"><div class="q">Added to Sunday Set</div><span style="opacity:.6">Undertow · Kōji Aren</span></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">B</span>Library phrases via <code>.audio</code> ★</h5><p><code>@AppIntent(schema: .audio.playAudio)</code> maps <code>.searchQuery</code> to search and <code>.url</code> to <code>resolve(url:)</code>, plus <code>updateAudioAffinity</code> (like) and <code>addToPlaylist</code> (set lists). Needs <code>TrackEntity</code>, <code>ArtistEntity</code> and <code>PlaylistEntity</code>.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat v">TV via iPhone</span><span class="plat v">Watch via iPhone</span></div><span class="effort">M</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall"></div><div class="siri-edge"></div><div class="isl"></div><div class="sb"><span>9:41</span><span>▮</span></div>
+          <div style="height:40px"></div>
+          <div class="phrases"><span>What's this track?</span><span>Play this on Living Room</span><span>Scout for Young Marco at Lago Lago</span><span>Turn on Auto Mix</span></div>
+          <div class="siri-snip" style="position:absolute;bottom:14px;left:0;right:0"><div class="q">Scouting for Young Marco</div><span style="opacity:.6">I'll tell you when the Lago Lago set is up.</span></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">C</span>Sounding-only phrases</h5><p><code>.audio.recognizeAudio</code> runs Identify. Custom <code>AppIntent</code>s handle Output ("on Living Room"), Scout (feature 8) and Auto Mix. These run on the phone or Mac, then reach the TV.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat v">TV via iPhone</span><span class="plat v">Watch via iPhone</span></div><span class="effort">M</span></div></div></div>
+    </div>
+    <div class="feature-notes"><div><h6>Decide</h6><ul><li>Do set lists map onto the schema's <code>PlaylistEntity</code>, or stay a custom <code>SetListEntity</code>?</li><li>Donate likes to Core Spotlight (<code>IndexedEntity</code>) so Siri can answer without launching the app.</li></ul></div><div><h6>Unknown</h6><ul><li>Schema parameter shapes live in the macro: adopt by compile-and-fix.</li><li>Whether Apple reviews or gates schema adoption [GAP].</li></ul></div></div>
+  </article>
+
+  <article class="feature" id="f6">
+    <div class="feature-head"><div class="concept-num">6</div><div><h4>Wake to a mix, and a sleep timer</h4><p>AlarmKit is <b>iPhone and iPad only</b>. The alarm sound <b>can't be a stream</b>: only <code>.default</code> or a bundled file. And <code>.timer(duration:)</code> rings when it ends, which is wrong for a sleep timer. So they're two separate features.</p></div></div>
+    <div class="options">
+      <div class="option rec"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall" style="background:radial-gradient(70% 50% at 50% 30%,#d0773a,transparent 70%),#1a120c"></div><div class="isl"></div>
+          <div class="alarm-full"><div class="lbl">⏰ Alarm</div><div class="tm">7:00</div>
+            <div class="mx"><div class="art"></div><div style="font-size:8.5px"><b>Low Tide 041</b><br><span style="opacity:.7">ready to play</span></div></div>
+            <span class="big-btn p">▶ Play Mix</span><span class="big-btn s">Stop</span></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">A</span>Alarm and a "Play Mix" button ★</h5><p>An AlarmKit alarm with a short bundled tone. The custom secondary button runs a <code>LiveActivityIntent</code> that starts the mix, tied to it by <code>AlarmConfiguration(appEntityIdentifier:)</code> (new in 27). Whether it can start audio while locked is a device test.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat n">Mac</span><span class="plat n">TV</span><span class="plat n">Watch</span></div><span class="effort">M</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="ph land"><div class="scr"><div class="standby" style="grid-template-columns:1fr 1.1fr"><div><div style="font:700 36px/1 var(--rounded);color:#ff7a59">6:52</div><div style="font-size:8px;color:#ff7a59;opacity:.7;margin-top:4px">Fading in Low Tide 041 at 7:00</div></div>
+          <div class="fade-curve" style="margin:0;height:70px"><svg viewBox="0 0 160 70"><path d="M0 64 C 60 64, 90 60, 160 8" stroke="#ff7a59" stroke-width="2" fill="none"/><path d="M0 66 H160" stroke="rgba(255,122,89,.3)"/><text x="0" y="12" fill="#ff7a59" font-size="8" opacity=".7">volume</text><text x="120" y="62" fill="#ff7a59" font-size="8" opacity=".7">+10 min</text></svg></div></div></div></div></div>
+        <div class="option-body"><h5><span class="opt">B</span>In-app fade-in wake</h5><p>The phone sits in StandBy with Sounding open. At wake time the mix starts silent and fades up over 10 minutes. No AlarmKit, no bundled tone. <b>Not covered by the survey:</b> it relies on the app staying alive all night, so it fails if the app is killed. Device test.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat q">iPad ?</span><span class="plat q">Mac ?</span><span class="plat q">TV ?</span><span class="plat n">Watch</span></div><span class="effort">S–M</span></div></div></div>
+      <div class="option rec"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall"></div><div class="isl la" style="width:96px"><span style="font-size:7px">☾</span><span style="font:700 7.5px var(--mono);color:#e0915a">24:10</span></div><div class="sb"><span></span><span></span></div>
+          <div class="lock-time"><small>Friday 6 November</small><b>23:18</b></div>
+          <div style="position:absolute;bottom:40px;left:0;right:0"><div class="la-card"><div class="art"></div><div><b>Sleep timer</b>Fading out Low Tide 041</div><span class="big">24:10</span><div class="bar2"><i style="width:30%"></i></div></div>
+          <div class="fade-curve"><svg viewBox="0 0 160 46"><path d="M0 6 H110 C 130 6, 140 40, 160 40" stroke="#e0915a" stroke-width="2" fill="none"/><text x="104" y="26" fill="#e0915a" font-size="7">fade 2 min</text></svg></div></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">C</span>Sleep timer: fade and a countdown ★</h5><p>An in-app timer that fades the volume and pauses, with a Live Activity countdown. "End of track" and "End of mix" choices use the tracklist. No AlarmKit, because its timer rings.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat q">Mac ?</span><span class="plat q">TV ?</span><span class="plat q">Watch ?</span></div><span class="effort">S–M</span></div></div></div>
+    </div>
+    <p class="note"><b>Rejected:</b> AlarmKit <code>.timer</code> as the sleep timer, because it alerts like an alarm when it expires. <code>CountdownDuration.preAlert</code> also rings. <b>Grey "?":</b> the in-app timer is ordinary app code, but the survey doesn't confirm it on those platforms.</p>
+  </article>
+
+  <article class="feature" id="f7">
+    <div class="feature-head"><div class="concept-num">7</div><div><h4>TipKit: which tips</h4><p>TipKit is unchanged in 27 and runs on all five platforms. Give each hidden feature an <code>Event</code> and a <code>Rule</code> (for example, after three mixes without opening Tracklist). Use <code>popoverTip</code> on tvOS, where an inline <code>TipView</code> fights the focus engine; <code>popoverTip</code> isn't available on watchOS. With <code>cloudKitContainer</code>, a tip dismissed on the phone doesn't come back on the TV.</p></div></div>
+    <div class="options">
+      <div class="option rec"><div class="option-sketch">
+        <div class="stack" style="width:220px">
+          <div class="tipcard"><span class="ic">💬</span><div><b>Comments follow the music</b>Tap the bubble to see everyone's, pinned to the second.</div><span class="x">✕</span></div>
+          <div class="tipcard"><span class="ic">≡</span><div><b>This is a mix</b>Tracklist shows what's playing. Tap Identify on an ID.</div><span class="x">✕</span></div>
+          <div class="tipcard"><span class="ic">◎</span><div><b>Play it on the TV</b>Choose Living Room to move this session there.</div><span class="x">✕</span></div>
+        </div></div>
+        <div class="option-body"><h5><span class="opt">A</span>Three listening tips ★</h5><p>Comments, Tracklist with Identify, and Output. These are the features people miss. Each shows at most once a day (<code>.displayFrequency(.daily)</code>).</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat y">TV</span><span class="plat y">Watch</span></div><span class="effort">S</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="stack" style="width:220px">
+          <div class="tipcard dark"><span class="ic">◐</span><div><b>Auto Mix</b>Turn it on and the next track comes in on the beat.</div><span class="x">✕</span></div>
+          <div class="tipcard dark"><span class="ic">①</span><div><b>Hot cues</b>Tap a pad to jump. Hold to set it.</div><span class="x">✕</span></div>
+          <div class="tipcard dark"><span class="ic">↓</span><div><b>Downloaded playlists stay in sync</b>New tracks download on their own.</div><span class="x">✕</span></div>
+          <div style="font-size:11px;color:var(--muted)">…plus the three from A</div>
+        </div></div>
+        <div class="option-body"><h5><span class="opt">B</span>Six tips, including the decks</h5><p>A's three, plus Auto Mix, hot cues and download sync. More coverage, but more interruptions; the decks tips show only after the Decks screen opens.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat y">TV</span><span class="plat y">Watch</span></div><span class="effort">S</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="stack"><div class="tvf"><img src="assets/np-tv.jpg" alt=""><div class="tipcard dark" style="position:absolute;right:30px;top:68px;width:120px;font-size:7px"><span class="ic">💬</span><div><b>Comments</b>Press to show them.</div><span></span></div></div>
+          <div style="font-size:11px;color:var(--muted);text-align:center;max-width:230px">Dismissed on iPhone, so it never shows on the TV</div></div></div>
+        <div class="option-body"><h5><span class="opt">C</span>Synced across devices</h5><p>A or B, with <code>Tips.configure([.cloudKitContainer(…)])</code>. Whether TipKit can share <code>iCloud.red.forbes.sounding</code> or needs its own container is a [GAP]. tvOS focus behaviour is a device test.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat y">TV</span><span class="plat y">Watch</span></div><span class="effort">+S</span></div></div></div>
+    </div>
+  </article>
+
+  <article class="feature" id="f8">
+    <div class="feature-head"><div class="concept-num">8</div><div><h4>Scout: "tell me when the set is up"</h4><p>"I saw Young Marco at Lago Lago 2026, tell me when his set is up." Parse it on the device, confirm the account, and watch with no server of our own. A Scout is a CloudKit record. Any poller that finds a match writes a <code>ScoutHit</code>, and a <code>CKQuerySubscription</code> on the iPhone turns that into an alert with no app code running. The Apple TV can't show the alert, because tvOS notifications have no title or body.</p></div></div>
+    <div class="options">
+      <div class="option"><div class="option-sketch">
+        <div class="stack">
+          <div class="mac-mini"><div class="mb"><span>Fri 9:41</span><span class="ic">◉ 3</span></div><div class="drop"><div class="on"><span>Scouting 3 sets</span><span>›</span></div><hr><div><span>Young Marco · Lago Lago</span><span style="opacity:.6">4 m ago</span></div><div><span>Maren Holt · Pier Nine</span><span style="opacity:.6">4 m ago</span></div><div><span>Okari · Dekmantel</span><span style="opacity:.6">expires 12 d</span></div><hr><div><span>Check Now</span><span style="opacity:.6">⌘R</span></div></div></div>
+          <div class="notif" style="width:236px"><img src="assets/icon.jpg" alt=""><div><b>Sounding <small>now</small></b>Young Marco at Lago Lago is up<br><span style="opacity:.6">2 h 14 m · posted by Lago Lago</span></div></div>
+          <span class="lat">≈ 5–15 min after upload</span>
+        </div></div>
+        <div class="option-body"><h5><span class="opt">A</span>Mac relay via CloudKit</h5><p>The menu-bar app polls with a <code>Timer</code> and <code>NSBackgroundActivityScheduler</code>. A hit becomes a <code>ScoutHit</code> record, and CloudKit pushes the alert to the iPhone. It's the least new code, since <code>FeedViewModel.poll</code> exists. It only works while the Mac is awake.</p><div class="option-foot"><div class="plats"><span class="plat y">Mac polls</span><span class="plat y">iPhone alerts</span><span class="plat n">TV alert</span></div><span class="effort">M</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall"></div><div class="isl"></div><div class="sb"><span></span><span>▮</span></div>
+          <div class="lock-time"><small>Saturday 7 November</small><b>14:06</b></div>
+          <div class="notif" style="margin-top:20px"><img src="assets/icon.jpg" alt=""><div><b>Sounding <small>2 h ago</small></b>Possible match: Young Marco live at Lago Lago<div class="acts"><span>Check</span><span>Not it</span></div></div></div>
+          <div style="position:absolute;bottom:18px;left:0;right:0;text-align:center"><span class="lat">hours · the system decides</span></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">B</span>Phone only, in the background</h5><p>One <code>BGAppRefreshTask</code>, <code>fetch</code> added to <code>UIBackgroundModes</code>, rescheduled 15–30 minutes out. It's opportunistic: nothing runs if Background App Refresh is off or the app was force-quit. Alerts are local notifications.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat q">TV: device test</span><span class="plat n">Mac</span><span class="plat n">Watch</span></div><span class="effort">S</span></div></div></div>
+      <div class="option"><div class="option-sketch">
+        <div class="ph"><div class="scr" style="background:#f5f2ee;color:#1c1916"><div class="isl"></div><div class="sb"><span>9:41</span><span>▮</span></div>
+          <div style="padding:14px 10px 0"><div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font:700 15px var(--display)">Scout</div><span style="font-size:9px;color:#b0541d;font-weight:600">Check Now</span></div>
+            <div class="cap" style="margin-top:8px">Watching · checked when you open Sounding</div>
+            <div class="grp" style="background:#fff;border-radius:9px;font-size:9px;display:grid">
+              <div class="scout-row" style="padding:7px 8px;border-bottom:1px solid #eee"><span class="av2" style="background:#c0603a">Y</span><span><b>Young Marco</b><br><span style="opacity:.6">Lago Lago · ended 2 Nov</span></span><span style="color:#34a853;font-weight:700">1 new</span></div>
+              <div class="scout-row" style="padding:7px 8px;border-bottom:1px solid #eee"><span class="av2" style="background:#2f6db3">M</span><span><b>Maren Holt</b><br><span style="opacity:.6">Pier Nine · 9 Nov</span></span><span style="opacity:.5">waiting</span></div>
+              <div class="scout-row" style="padding:7px 8px"><span class="av2" style="background:#3a8f86">O</span><span><b>Okari</b><br><span style="opacity:.6">Dekmantel · daily</span></span><span style="opacity:.5">day 48</span></div></div>
+            <div style="text-align:center;margin-top:12px"><span class="lat">instant, but only when opened</span></div></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">C</span>Manual "Check now" and on open</h5><p>Polls on launch, on scene activation, and on demand, on every device. It's free, honest and instant when you look, but tells you nothing while the app is closed.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat y">TV</span><span class="plat q">Watch ?</span></div><span class="effort">S–M</span></div></div></div>
+      <div class="option rec"><div class="option-sketch">
+        <div class="ph"><div class="scr"><div class="wall"></div><div class="isl"></div><div class="sb"><span>9:41</span><span>▮</span></div>
+          <div class="sheet" style="top:30px"><h6>New Scout</h6><div class="field">I saw Young Marco at Lago Lago 2026</div>
+            <div class="cap">Understood as</div><div style="margin-bottom:8px"><span class="chipx">Artist · Young Marco</span><span class="chipx">Event · Lago Lago</span><span class="chipx">Ended · 2 Nov 2026</span></div>
+            <div class="cap">Which Young Marco?</div>
+            <div class="grp"><div><span><b>Young Marco</b> · 48.2K followers</span><span style="color:#b0541d">✓</span></div><div><span><b>Lago Lago</b> · festival account</span><span style="color:#b0541d">✓</span></div></div>
+            <p style="font-size:8px;opacity:.6;margin:0 0 6px">With your Mac running: within about 15 minutes of upload. Phone only: within a few hours, or when you open Sounding.</p>
+            <span class="btnx">Start Scouting</span></div>
+        </div></div></div>
+        <div class="option-body"><h5><span class="opt">D</span>Layered: C, then A, then B ★</h5><p>Ship the form, the on-open poll and local notifications first. Then add the Mac poller and the CloudKit alert relay (prototype the push first), then background tasks, then the model parser. The UI states the expected latency honestly.</p><div class="option-foot"><div class="plats"><span class="plat y">iPhone</span><span class="plat y">iPad</span><span class="plat y">Mac</span><span class="plat v">TV polls</span><span class="plat q">Watch ?</span></div><span class="effort">L</span></div></div></div>
+    </div>
+    <div class="feature-notes">
+      <div><h6>Expected latency (survey §3.4)</h6>
+        <table class="matrix" style="font-size:12px"><thead><tr><th style="position:static">Approach</th><th style="position:static">Latency</th><th style="position:static">Reliability</th></tr></thead><tbody>
+          <tr><td>Mac poller + CloudKit alert</td><td><b class="lvl l">5–15 min</b></td><td>Good while the Mac is awake</td></tr>
+          <tr><td>Poll on open</td><td><b class="lvl l">instant</b></td><td>Only when opened</td></tr>
+          <tr><td>iPhone background refresh</td><td><b class="lvl m">hours</b></td><td>Low to medium; none if force-quit</td></tr>
+          <tr><td>Apple TV background refresh</td><td><b class="lvl h">unknown</b></td><td>Device test</td></tr>
+          <tr><td>Live Activity "it's up"</td><td><b class="lvl h">n/a</b></td><td>Needs a server (push-to-start)</td></tr>
+        </tbody></table></div>
+      <div><h6>Cost control and matching</h6><ul><li>Don't poll before the event ends. Poll often for 72 hours, then daily for about 60 days, then expire and tell the person.</li><li>Sources: the artist's uploads and reposts, the festival or label account, 2–3 search variants, your own feed.</li><li>Scoring is deterministic first: a duration over about 30 minutes, created after the event, matching tokens. High scores say "is up"; middling ones say "Possible match". Never auto-play.</li><li><code>ScoutHit</code> name = hash(scout + track), so two pollers give one push.</li></ul></div>
+    </div>
+  </article>
+
+  <div class="sub" id="b-platform">
+    <h3>Feature × platform</h3>
+    <p class="sub-lede">Taken from the survey's SDK reads only. "Via iPhone" means the feature runs on the phone (or Mac) and the result or control reaches this device. "Not in survey" means unverified, not no.</p>
+    <div class="table-wrap"><table class="matrix">
+      <thead><tr><th>Feature</th><th>iPhone</th><th>iPad</th><th>Watch</th><th>Apple TV</th><th>Mac</th><th>Evidence</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">1 SharePlay</th><td class="pf pf-yes">✓<small>starts (share sheet)</small></td><td class="pf pf-yes">✓</td><td class="pf pf-no">✗<small>no framework</small></td><td class="pf pf-part">join only<small>no register / sheet</small></td><td class="pf pf-yes">✓<small>no share sheet</small></td><td>GroupActivities, iOS 15 / tvOS 15 / macOS 12</td></tr>
+        <tr><th scope="row">2 Controls</th><td class="pf pf-yes">✓<small>iOS 18</small></td><td class="pf pf-yes">✓</td><td class="pf pf-yes">✓<small>watchOS 26</small></td><td class="pf pf-no">✗<small>no WidgetKit</small></td><td class="pf pf-yes">✓<small>macOS 26</small></td><td><code>ControlWidget*</code>, tvOS unavailable</td></tr>
+        <tr><th scope="row">3 Widgets</th><td class="pf pf-yes">✓</td><td class="pf pf-yes">✓</td><td class="pf pf-yes">✓</td><td class="pf pf-no">✗</td><td class="pf pf-yes">✓</td><td>WidgetKit framework table</td></tr>
+        <tr><th scope="row">3 Live Activity</th><td class="pf pf-yes">✓</td><td class="pf pf-yes">✓</td><td class="pf pf-no">✗</td><td class="pf pf-no">✗</td><td class="pf pf-yes">✓<small>framework present</small></td><td>ActivityKit table; no 27 API</td></tr>
+        <tr><th scope="row">3 XL portrait widget</th><td class="pf pf-yes">✓<small>iOS 27</small></td><td class="pf pf-yes">✓</td><td class="pf pf-no">✗</td><td class="pf pf-no">✗</td><td class="pf pf-yes">✓<small>macOS 27</small></td><td><code>systemExtraLargePortrait</code></td></tr>
+        <tr><th scope="row">4 On-device model</th><td class="pf pf-yes">✓</td><td class="pf pf-yes">✓</td><td class="pf pf-via">via iPhone<small>PCC only, gated</small></td><td class="pf pf-via">via iPhone<small>all symbols unavailable</small></td><td class="pf pf-yes">✓</td><td>FoundationModels; PCC needs a managed entitlement</td></tr>
+        <tr><th scope="row">5 Siri <code>.audio</code> schemas</th><td class="pf pf-yes">✓</td><td class="pf pf-yes">✓</td><td class="pf pf-via">via iPhone<small>plumbing, no schemas</small></td><td class="pf pf-via">via iPhone<small>over Bonjour</small></td><td class="pf pf-yes">✓</td><td><code>anyAppleOS 27</code>, watchOS and tvOS unavailable</td></tr>
+        <tr><th scope="row">6 AlarmKit wake</th><td class="pf pf-yes">✓</td><td class="pf pf-yes">✓</td><td class="pf pf-no">✗</td><td class="pf pf-no">✗</td><td class="pf pf-no">✗<small>Catalyst too</small></td><td>AlarmKit in iOS SDK only</td></tr>
+        <tr><th scope="row">6 Sleep timer (in-app)</th><td class="pf pf-yes">✓<small>+ Live Activity</small></td><td class="pf pf-yes">✓</td><td class="pf pf-ns">not in survey</td><td class="pf pf-ns">not in survey</td><td class="pf pf-ns">not in survey</td><td>Survey §5.3: in-app fade, no AlarmKit</td></tr>
+        <tr><th scope="row">7 TipKit</th><td class="pf pf-yes">✓</td><td class="pf pf-yes">✓</td><td class="pf pf-yes">✓<small>watchOS 10; no popover</small></td><td class="pf pf-yes">✓<small>tvOS 17; popover 26</small></td><td class="pf pf-yes">✓</td><td>TipKit, zero 27 markers</td></tr>
+        <tr><th scope="row">8 Scout: parse (model)</th><td class="pf pf-yes">✓</td><td class="pf pf-yes">✓</td><td class="pf pf-no">✗</td><td class="pf pf-no">✗<small>form only</small></td><td class="pf pf-yes">✓</td><td>Form fallback with <code>NLTagger</code> everywhere</td></tr>
+        <tr><th scope="row">8 Scout: background poll</th><td class="pf pf-part">✓<small>BG refresh, hours</small></td><td class="pf pf-part">✓<small>BG refresh</small></td><td class="pf pf-no">✗<small>no BGTasks</small></td><td class="pf pf-ns">device test<small>API only</small></td><td class="pf pf-yes">✓<small>best poller</small></td><td>BackgroundTasks: macOS and watchOS unavailable</td></tr>
+        <tr><th scope="row">8 Scout: alert</th><td class="pf pf-yes">✓<small>CloudKit alert push</small></td><td class="pf pf-yes">✓</td><td class="pf pf-ns">not in survey</td><td class="pf pf-no">✗<small>no title / body</small></td><td class="pf pf-yes">✓<small>local</small></td><td><code>UNNotificationContent</code> tvOS-unavailable fields</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="sub" id="b-value">
+    <h3>Value × effort</h3>
+    <p class="sub-lede">Effort comes from the survey where it gives one (Scout L; Siri M) and is my estimate otherwise. Value is my judgement: how many people notice it, and how much it sets Sounding apart. Hover a dot for the reasoning.</p>
+    <div class="quad-wrap">
+      <div class="quad-axis-pad"><div class="quad" id="quad">
+        <div class="q q1">Quick wins</div><div class="q q2">Big bets</div><div class="q q3">Fill-ins</div><div class="q q4">Think twice</div>
+        <div class="mid-x"></div><div class="mid-y"></div>
+        <div class="axis-x"><span>S effort</span><span>M</span><span>L effort</span></div>
+        <div class="axis-y">← lower value · higher value →</div>
+      </div></div>
+      <div class="quad-legend"><b>Reading it</b><ol>
+        <li><b>Siri and the app entities</b> are high value at medium effort, and they unlock four other features.</li>
+        <li><b>Controls</b> are the cheapest visible win once the widget target is back.</li>
+        <li><b>Scout</b> is the one big bet worth making: nobody else does it, and it plays to "no servers".</li>
+        <li><b>SharePlay, DJ-synced</b>, is costly, and its value depends on SoundCloud's terms.</li>
+        <li><b>TipKit</b> is a cheap fill-in. Do it before the App Store launch.</li>
+      </ol></div>
+    </div>
+  </div>
+
+  <div class="sub" id="b-deps">
+    <h3>Dependencies</h3>
+    <p class="sub-lede">Top row: the things features stand on. Copper ones still need building; grey ones exist. Solid lines are hard requirements; dashed lines are "makes it better". Spotlight donation also needs the app entities.</p>
+    <svg class="dep-svg" id="deps" viewBox="0 0 1000 300" role="img" aria-label="Dependency graph from foundations to features"></svg>
+    <div class="feature-notes" style="margin-top:14px">
+      <div><h6>The hub</h6><ul><li><b>App entities</b> (<code>TrackEntity</code>, <code>ArtistEntity</code>, <code>PlaylistEntity</code>, <code>SetListEntity</code>) power Siri's <code>.audio</code> schemas, control intents, the set-list tool, Scout's "Scout for…" intent and entity-tagged notifications, and alarms tied to a mix.</li><li><b>Widget target restore</b> blocks Controls, Widgets and the sleep-timer countdown. It's a hand edit to the pbxproj; never run xcodegen.</li></ul></div>
+      <div><h6>Independent</h6><ul><li><b>SharePlay</b> needs nothing else; it can start any time.</li><li><b>TipKit</b> needs nothing else; sync depends on the CloudKit container question.</li><li><b>Scout v1</b> (form, poll on open, local notification) needs only the existing CloudKit inbox pattern.</li></ul></div>
+    </div>
+  </div>
+
+  <div class="sub" id="b-risk">
+    <h3>Risk register</h3>
+    <p class="sub-lede">Taken from the survey's [GAP] and device-test markers, plus the repo state.</p>
+    <div class="table-wrap"><table class="matrix">
+      <thead><tr><th>#</th><th>Risk</th><th>Features</th><th>Kind</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">R1</th><td>The Group Activities capability key isn't in the SDK</td><td>1</td><td><span class="kind k-ent">Entitlement</span></td><td><span class="lvl l">L</span></td><td><span class="lvl m">M</span></td><td>Add it in Signing &amp; Capabilities and inspect the generated key</td></tr>
+        <tr><th scope="row">R2</th><td>SoundCloud's terms on a second listener without their own login</td><td>1</td><td><span class="kind k-leg">Product / legal</span></td><td><span class="lvl m">M</span></td><td><span class="lvl h">H</span></td><td>Require every participant to be signed in; send IDs, never audio</td></tr>
+        <tr><th scope="row">R3</th><td>An intent can't start audio from the Lock Screen with a cold app</td><td>2, 5, 6</td><td><span class="kind k-dev">Device test</span></td><td><span class="lvl m">M</span></td><td><span class="lvl h">H</span></td><td>Test <code>AudioPlaybackIntent</code> and <code>allowedExecutionTargets(.main)</code> on a device first</td></tr>
+        <tr><th scope="row">R4</th><td>No widget target in this worktree; restoring it means a hand edit to the pbxproj</td><td>2, 3, 6</td><td><span class="kind k-repo">Repo</span></td><td><span class="lvl h">H</span></td><td><span class="lvl m">M</span></td><td>Port <code>SoundingTV-Widget/</code> from main; never regenerate with xcodegen</td></tr>
+        <tr><th scope="row">R5</th><td>WidgetCenter reload budgets are unknown</td><td>3</td><td><span class="kind k-dev">Device test</span></td><td><span class="lvl m">M</span></td><td><span class="lvl l">L</span></td><td>Show progress with timer-driven views, not reloaded entries</td></tr>
+        <tr><th scope="row">R6</th><td>PCC needs a managed entitlement</td><td>4, 8</td><td><span class="kind k-ent">Entitlement</span></td><td><span class="lvl h">H</span></td><td><span class="lvl l">L</span></td><td>Use the on-device model only, with a non-AI fallback</td></tr>
+        <tr><th scope="row">R7</th><td>Model unavailable (ineligible device, Apple Intelligence off)</td><td>4, 8</td><td><span class="kind k-unk">Unknown</span></td><td><span class="lvl h">H</span></td><td><span class="lvl m">M</span></td><td>Every feature has a deterministic path; the model is a convenience</td></tr>
+        <tr><th scope="row">R8</th><td>Model invents tracks in set lists</td><td>4</td><td><span class="kind k-unk">Quality</span></td><td><span class="lvl h">H</span></td><td><span class="lvl m">M</span></td><td>Resolve every ID against tool results and drop the rest</td></tr>
+        <tr><th scope="row">R9</th><td><code>.audio</code> schema shapes are only in the macro; Apple may gate adoption</td><td>5</td><td><span class="kind k-rev">App Review</span></td><td><span class="lvl m">M</span></td><td><span class="lvl m">M</span></td><td>Adopt by compile-and-fix; keep the existing <code>AppShortcut</code>s as a fallback</td></tr>
+        <tr><th scope="row">R10</th><td>AlarmKit usage-description key and Lock Screen UI requirements are a [GAP]</td><td>6</td><td><span class="kind k-rev">App Review</span></td><td><span class="lvl m">M</span></td><td><span class="lvl m">M</span></td><td>Check in Xcode; explain the bundled tone in the review notes</td></tr>
+        <tr><th scope="row">R11</th><td>A <code>LiveActivityIntent</code> can't start audio while locked</td><td>6</td><td><span class="kind k-dev">Device test</span></td><td><span class="lvl m">M</span></td><td><span class="lvl h">H</span></td><td>Fall back to opening the app on "Play Mix"</td></tr>
+        <tr><th scope="row">R12</th><td>Whether TipKit can share <code>iCloud.red.forbes.sounding</code>; tvOS focus behaviour</td><td>7</td><td><span class="kind k-unk">Unknown</span></td><td><span class="lvl m">M</span></td><td><span class="lvl l">L</span></td><td>Use a separate container if needed; <code>popoverTip</code> on TV</td></tr>
+        <tr><th scope="row">R13</th><td>CloudKit alert push on the shared <code>CKSyncEngine</code> zone is unproven</td><td>8</td><td><span class="kind k-unk">Unknown</span></td><td><span class="lvl m">M</span></td><td><span class="lvl h">H</span></td><td>Prototype first: a <code>CKQuerySubscription</code> with <code>zoneID</code>, plus a record-type index</td></tr>
+        <tr><th scope="row">R14</th><td>Whether an idle Apple TV app is ever woken for <code>BGAppRefreshTask</code></td><td>8</td><td><span class="kind k-dev">Device test</span></td><td><span class="lvl h">H</span></td><td><span class="lvl l">L</span></td><td>Treat it as a bonus; the Mac and iPhone carry Scout</td></tr>
+        <tr><th scope="row">R15</th><td>SoundCloud private API rate limits and stability</td><td>8, 4</td><td><span class="kind k-leg">Product / legal</span></td><td><span class="lvl m">M</span></td><td><span class="lvl h">H</span></td><td>No polling before the event ends; back off; expire Scouts</td></tr>
+        <tr><th scope="row">R16</th><td>Background refresh off, or the app force-quit</td><td>8</td><td><span class="kind k-dev">Device test</span></td><td><span class="lvl h">H</span></td><td><span class="lvl m">M</span></td><td>State the latency in the UI; poll on open</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="sub" id="b-order">
+    <h3>Build order</h3>
+    <p class="sub-lede">The recommended track builds the foundations first, since they make five features cheaper. The alternatives trade that for an earlier headline.</p>
+    <div class="order">
+      <div class="track rec"><h5>R · Foundations first ★</h5><p>Least rework; every step ships something.</p><ol>
+        <li>App entities, App Group snapshot, widget target <span>M</span></li><li>Siri .audio: play, like, add to set list <span>M</span></li><li>Controls: toggle and resume <span>S</span></li><li>Widgets: Lock Screen and StandBy <span>S</span></li><li>TipKit: three tips <span>S</span></li><li>Scout v1: form, poll on open, local alert <span>M</span></li><li>Scout v2: Mac poller and CloudKit relay <span>M</span></li><li>Model: tags, then summaries <span>M</span></li><li>Sleep timer, then wake alarm <span>M</span></li><li>SharePlay: playback <span>M</span></li></ol></div>
+      <div class="track"><h5>Alt 1 · Scout first</h5><p>Leads with the differentiator; builds entities along the way.</p><ol>
+        <li>Scout v1 <span>M</span></li><li>CloudKit alert prototype <span>S</span></li><li>Scout v2: Mac relay <span>M</span></li><li>App entities and the "Scout for…" intent <span>M</span></li><li>Model parser for Scout <span>S</span></li><li>Siri .audio phrases <span>M</span></li><li>Controls and widgets <span>M</span></li><li>TipKit, sleep timer, SharePlay <span>M</span></li></ol></div>
+      <div class="track"><h5>Alt 2 · Launch polish</h5><p>Low-risk, visible system features before the App Store.</p><ol>
+        <li>TipKit <span>S</span></li><li>Widget target, controls <span>S</span></li><li>Lock Screen and StandBy widgets <span>S</span></li><li>Live Activity polish <span>S</span></li><li>Sleep timer <span>S</span></li><li>Then R from step 1 <span>—</span></li></ol></div>
+      <div class="track"><h5>Alt 3 · Together</h5><p>Social first, if listening with friends is the story.</p><ol>
+        <li>SharePlay: playback <span>M</span></li><li>Party queue <span>M</span></li><li>TipKit for SharePlay <span>S</span></li><li>App entities and Siri <span>M</span></li><li>DJ-synced SharePlay <span>L</span></li><li>Then the rest of R <span>—</span></li></ol></div>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="part-c" data-part="c">
+  <div class="part-head"><span class="letter">C</span><h2>Decisions</h2><p>Every button is pre-set to my pick (★). Change any of them, then copy the line at the bottom and send it back.</p></div>
+  <div class="decisions">
+    <div class="decision" data-key="Start" data-multi="false"><div class="id">S0</div><div><h5>Starting point</h5><div class="why">Two drafts already exist.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>astra + sol's player<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>sol + astra's line art</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Build fresh from this board</button></div></div>
+    <div class="decision" data-key="Site" data-multi="true"><div class="id">S1</div><div><h5>Website direction</h5><div class="why">Pick one or combine. Numbers match Part A. Multiple allowed.</div></div><div class="choices"><button type="button" class="choice" data-v="1" data-rec aria-pressed="false"><b>1</b>Copper line-art<span class="star">★</span></button><button type="button" class="choice" data-v="2" data-rec aria-pressed="false"><b>2</b>Product-first<span class="star">★</span></button><button type="button" class="choice" data-v="3" data-rec aria-pressed="false"><b>3</b>Live player<span class="star">★</span></button><button type="button" class="choice" data-v="4" aria-pressed="false"><b>4</b>Zine</button><button type="button" class="choice" data-v="5" aria-pressed="false"><b>5</b>Dark club</button><button type="button" class="choice" data-v="6" aria-pressed="false"><b>6</b>Minimal</button><button type="button" class="choice" data-v="7" aria-pressed="false"><b>7</b>Felt &amp; copper</button><button type="button" class="choice" data-v="8" aria-pressed="false"><b>8</b>Every screen</button><button type="button" class="choice" data-v="9" aria-pressed="false"><b>9</b>Tracklist page</button><button type="button" class="choice" data-v="10" aria-pressed="false"><b>10</b>astra</button><button type="button" class="choice" data-v="11" aria-pressed="false"><b>11</b>sol</button></div></div>
+    <div class="decision" data-key="Hero" data-multi="false"><div class="id">S2</div><div><h5>Hero art</h5><div class="why">What greets a first-time visitor.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Line-art draw-on<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>Jack photograph</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Playable player</button><button type="button" class="choice" data-v="D" aria-pressed="false"><b>D</b>Device line-up</button></div></div>
+    <div class="decision" data-key="Theme" data-multi="false"><div class="id">S3</div><div><h5>Site appearance</h5><div class="why">The brief asks for light and dark.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Follow the system<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>Always dark</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Always light</button></div></div>
+    <div class="decision" data-key="NP demo" data-multi="false"><div class="id">S4</div><div><h5>Now Playing section</h5><div class="why">How the app's core screen is shown.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Interactive, lazy<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>Muted looping video</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Static screenshots</button></div></div>
+    <div class="decision" data-key="Frames" data-multi="false"><div class="id">S5</div><div><h5>Device imagery</h5><div class="why">Screenshots need framing.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>CSS frames on real shots<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>Bare screenshots</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Apple marketing renders</button></div></div>
+    <div class="decision" data-key="Pages" data-multi="false"><div class="id">S6</div><div><h5>Page set</h5><div class="why">Privacy text stays verbatim; auth page untouched.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Home, Privacy, Support<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>+ Features page</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>+ Changelog</button></div></div>
+    <div class="decision" data-key="CTA" data-multi="false"><div class="id">S7</div><div><h5>Call to action</h5><div class="why">Pre-launch wording.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>TestFlight + 'Coming to the App Store'<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>TestFlight only</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Badge placeholder</button></div></div>
+    <div class="decision" data-key="SharePlay" data-multi="false"><div class="id">F1</div><div><h5>SharePlay</h5><div class="why">Apple TV can only join.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Playback only<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>DJ-synced</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Party queue</button><button type="button" class="choice" data-v="D" aria-pressed="false"><b>D</b>Defer</button></div></div>
+    <div class="decision" data-key="Controls" data-multi="true"><div class="id">F2</div><div><h5>Controls</h5><div class="why">Pick any. Multiple allowed.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Play/pause toggle<span class="star">★</span></button><button type="button" class="choice" data-v="B" data-rec aria-pressed="false"><b>B</b>Resume last mix<span class="star">★</span></button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Apple TV remote</button></div></div>
+    <div class="decision" data-key="Widgets" data-multi="true"><div class="id">F3</div><div><h5>Widgets</h5><div class="why">Pick any. Multiple allowed.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Lock Screen<span class="star">★</span></button><button type="button" class="choice" data-v="B" data-rec aria-pressed="false"><b>B</b>StandBy / Home<span class="star">★</span></button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Live Activity polish</button><button type="button" class="choice" data-v="D" aria-pressed="false"><b>D</b>Tall tracklist</button></div></div>
+    <div class="decision" data-key="Model" data-multi="true"><div class="id">F4</div><div><h5>On-device model</h5><div class="why">Pick any; order matters less than the fallback. Multiple allowed.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Comment summary<span class="star">★</span></button><button type="button" class="choice" data-v="B" data-rec aria-pressed="false"><b>B</b>Mood &amp; genre tags<span class="star">★</span></button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Prompt to set list</button><button type="button" class="choice" data-v="D" aria-pressed="false"><b>D</b>Ask your library</button></div></div>
+    <div class="decision" data-key="Siri" data-multi="true"><div class="id">F5</div><div><h5>Siri phrase sets</h5><div class="why">A exists today. Multiple allowed.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Play phrases<span class="star">★</span></button><button type="button" class="choice" data-v="B" data-rec aria-pressed="false"><b>B</b>.audio library<span class="star">★</span></button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Sounding-only</button></div></div>
+    <div class="decision" data-key="Wake" data-multi="false"><div class="id">F6</div><div><h5>Wake to a mix</h5><div class="why">iPhone and iPad only.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Alarm + Play Mix<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>In-app fade-in</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>None</button></div></div>
+    <div class="decision" data-key="Sleep" data-multi="false"><div class="id">F6b</div><div><h5>Sleep timer</h5><div class="why">AlarmKit's timer rings.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Fade + Live Activity<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>Fade only</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>None</button></div></div>
+    <div class="decision" data-key="Tips" data-multi="false"><div class="id">F7</div><div><h5>Which tips</h5><div class="why">Start small.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Three listening tips<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>Six, incl. decks</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>None</button></div></div>
+    <div class="decision" data-key="Tip sync" data-multi="false"><div class="id">F7b</div><div><h5>Tip state across devices</h5><div class="why">Depends on the container question.</div></div><div class="choices"><button type="button" class="choice" data-v="A" data-rec aria-pressed="false"><b>A</b>Sync with CloudKit<span class="star">★</span></button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>Per device</button></div></div>
+    <div class="decision" data-key="Scout" data-multi="false"><div class="id">F8</div><div><h5>Scout delivery</h5><div class="why">Latency is the trade.</div></div><div class="choices"><button type="button" class="choice" data-v="A" aria-pressed="false"><b>A</b>Mac relay</button><button type="button" class="choice" data-v="B" aria-pressed="false"><b>B</b>Phone background</button><button type="button" class="choice" data-v="C" aria-pressed="false"><b>C</b>Check now</button><button type="button" class="choice" data-v="D" data-rec aria-pressed="false"><b>D</b>Layered C→A→B<span class="star">★</span></button></div></div>
+    <div class="decision" data-key="Order" data-multi="false"><div class="id">BO</div><div><h5>Build order</h5><div class="why">Part B, last section.</div></div><div class="choices"><button type="button" class="choice" data-v="R" data-rec aria-pressed="false"><b>R</b>Foundations first<span class="star">★</span></button><button type="button" class="choice" data-v="1" aria-pressed="false"><b>1</b>Scout first</button><button type="button" class="choice" data-v="2" aria-pressed="false"><b>2</b>Launch polish</button><button type="button" class="choice" data-v="3" aria-pressed="false"><b>3</b>Together</button></div></div>
+  </div>
+  <div class="answer"><code id="answer-text" aria-live="polite"></code><button type="button" class="reset" id="reset-answer">Reset to ★</button><button type="button" id="copy-answer">Copy answer</button></div>
+</section>
+
+<footer class="footer">Concept board for Sounding, 6 November 2026. Sources: <code>Design/site/BRIEF.md</code>, <code>Design/specs/os27-feature-survey-2026-11.md</code>, <code>Design/specs/redesign-2026-11.md</code>, <code>Design/prototypes/now-playing/</code>, <code>Branding/</code>. Track and artist names in the mocks are fixtures. Sounding is not affiliated with SoundCloud.</footer>
+</main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

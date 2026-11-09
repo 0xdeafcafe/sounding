@@ -15,7 +15,6 @@ enum MixEngineError: LocalizedError, Equatable {
     case graphBuildFailed(String)
     case playbackStartFailed(String)
     case deckEmpty
-    case airPlayRouteActive
     case cancelled
 
     var errorDescription: String? {
@@ -46,10 +45,24 @@ enum MixEngineError: LocalizedError, Equatable {
             return "Playback could not be started: \(detail)"
         case .deckEmpty:
             return "That deck has no audio loaded."
-        case .airPlayRouteActive:
-            return "DJ mode isn't available over AirPlay — beat-matching needs a local output with predictable latency. Switch to a local speaker to mix."
         case .cancelled:
             return "Loading was cancelled."
+        }
+    }
+
+    var displayMessage: String {
+        switch self {
+        case .httpStatus, .networkFailure:
+            return "Couldn't download the audio."
+        case .emptyPlaylist, .encryptedStream, .byteRangeSegments, .playlistTooDeep,
+             .unsupportedFormat, .decodeFailed, .unexpectedDecodedFormat:
+            return "This track can't be mixed."
+        case .engineStartFailed, .graphBuildFailed, .playbackStartFailed:
+            return "Mixing isn't available right now."
+        case .deckEmpty:
+            return "Nothing is loaded on this deck."
+        case .cancelled:
+            return "Cancelled."
         }
     }
 }

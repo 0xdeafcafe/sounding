@@ -1,4 +1,4 @@
-# SoundingCloud — remaining work
+# Sounding — remaining work
 
 Handoff document. Everything an agent needs to pick up the backlog without
 re-deriving context. Written 2026-08-04.
@@ -10,7 +10,7 @@ dozens of already-debugged traps. This file does not repeat it.**
 
 ## What this is
 
-**SoundingCloud** — an unofficial SoundCloud client for Apple TV, iPhone and
+**Sounding** — an unofficial SoundCloud client for Apple TV, iPhone and
 Mac, plus a two-deck DJ mixer. No backend of our own: all three apps talk to
 `api-v2.soundcloud.com` directly, and to each other over the local network via
 Bonjour + a length-prefixed TCP protocol. Internal names still say `SoundingTV`

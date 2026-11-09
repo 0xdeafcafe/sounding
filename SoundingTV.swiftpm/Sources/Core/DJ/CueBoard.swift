@@ -102,12 +102,14 @@ final class CueBoard: ObservableObject {
     func rename(_ cue: CuePoint, to label: String) async {
         var updated = cue
         updated.label = label
+        updated.origin = .user
         await store.upsert(updated)
         await reload()
     }
 
     func reposition(_ cue: CuePoint, toMillis positionMillis: Int64) async {
         var updated = cue
+        updated.origin = .user
         updated.positionMillis = max(0, positionMillis)
         if let end = updated.endMillis, end <= updated.positionMillis {
             updated.endMillis = updated.positionMillis + 1
@@ -135,6 +137,40 @@ final class CueBoard: ObservableObject {
 
     func dismiss(_ suggestion: CueSuggestion) async {
         await store.dismiss(suggestion)
+        await reload()
+    }
+
+    func freeHotSlot() -> Int? {
+        let taken = Set(sheet.userCues.compactMap(\.hotCueIndex))
+        return (0..<CuePoint.hotCueSlotCount).first { !taken.contains($0) }
+    }
+
+    @discardableResult
+    func acceptAsHotCue(_ suggestion: CueSuggestion) async -> CuePoint? {
+        guard let slot = freeHotSlot() else { return nil }
+        let cue = await store.promote(suggestion, asKind: .hotCue, hotCueIndex: slot)
+        await reload()
+        return cue
+    }
+
+    func assignHotSlot(_ cue: CuePoint, slot: Int) async {
+        let moved = CuePoint(
+            trackId: cue.trackId,
+            kind: cue.kind == .loop ? .loop : .hotCue,
+            positionMillis: cue.positionMillis,
+            endMillis: cue.endMillis,
+            hotCueIndex: slot,
+            label: cue.label,
+            color: cue.kind == .loop ? cue.color : nil,
+            createdAtMillis: cue.createdAtMillis,
+            promotedFrom: cue.promotedFrom
+        )
+        if moved.id != cue.id { await store.delete(cueId: cue.id) }
+        await store.upsert(moved)
+        await reload()
+    }
+
+    func refresh() async {
         await reload()
     }
 }

@@ -29,7 +29,7 @@ import SwiftUI
 @main
 struct MetalPreviewApp: App {
     var body: some Scene {
-        WindowGroup("SoundingCloud · Metal Preview") {
+        WindowGroup("Sounding · Metal Preview") {
             PreviewRoot()
                 .frame(minWidth: 1180, minHeight: 760)
                 .preferredColorScheme(.dark)

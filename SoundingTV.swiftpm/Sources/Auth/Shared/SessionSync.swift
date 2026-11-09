@@ -9,6 +9,21 @@ struct SyncedSoundCloudSession: Codable, Sendable, Equatable {
 
     let updatedAtMillis: Int64
     let writerId: String
+    var issuedAtMillis: Int64? = nil
+    var generation: Int64? = nil
+
+    var lineage: String? { SessionSyncBookkeeping.lineageDigest(refreshToken: refreshToken) }
+
+    var storedSession: StoredSession {
+        StoredSession(
+            oauthToken: oauthToken,
+            refreshToken: refreshToken,
+            clientId: clientId,
+            expiresAt: expiresAtMillis.map { Date(timeIntervalSince1970: Double($0) / 1000) },
+            issuedAt: Date(timeIntervalSince1970: Double(issuedAtMillis ?? updatedAtMillis) / 1000),
+            generation: generation.map { Int($0) }
+        )
+    }
 }
 
 enum SessionSyncBookkeeping {
@@ -26,10 +41,6 @@ enum SessionSyncBookkeeping {
 
     static func lastUpdatedAtMillis(defaults: UserDefaults = .standard) -> Int64 {
         (defaults.object(forKey: updatedAtMillisKey) as? NSNumber)?.int64Value ?? 0
-    }
-
-    static func recordLocalChange(now: Int64 = Int64(Date().timeIntervalSince1970 * 1000), defaults: UserDefaults = .standard) {
-        defaults.set(NSNumber(value: now), forKey: updatedAtMillisKey)
     }
 
     static func adoptForeignProvenance(
@@ -62,6 +73,11 @@ enum SessionSyncBookkeeping {
         return Data(SHA256.hash(data: Data(combined.utf8))).base64EncodedString()
     }
 
+    static func lineageDigest(refreshToken: String?) -> String? {
+        guard let refreshToken, !refreshToken.isEmpty else { return nil }
+        return Data(SHA256.hash(data: Data("lineage|\(refreshToken)".utf8))).base64EncodedString()
+    }
+
     static func localSignOutMillis(defaults: UserDefaults = .standard) -> Int64? {
         (defaults.object(forKey: localSignOutMillisKey) as? NSNumber)?.int64Value
     }
@@ -84,11 +100,6 @@ struct ObservedDigestStore: Sendable {
     var write: @Sendable (String) -> Void
     var delete: @Sendable () -> Void
 
-    /// The observed value is a one-way SHA-256 fingerprint, not a credential.
-    /// Keeping it in Keychain caused macOS to request the login password after
-    /// development builds changed signing identity, sometimes once per sync.
-    /// The actual OAuth and refresh tokens remain in their existing Keychain
-    /// store; this non-secret idempotency marker belongs in app preferences.
     static let defaults = ObservedDigestStore(
         read: { UserDefaults.standard.string(forKey: observedDigestDefaultsKey) },
         write: { UserDefaults.standard.set($0, forKey: observedDigestDefaultsKey) },
@@ -117,19 +128,23 @@ protocol SoundCloudSessionSyncSource: AnyObject, Sendable {
     func adoptSyncedSession(_ session: SyncedSoundCloudSession) async
 }
 
-@MainActor
-enum SessionSyncTarget {
-    static var source: (any SoundCloudSessionSyncSource)?
-}
-
 enum SessionSyncPolicy {
     static func remoteWins(
         local: SyncedSoundCloudSession?,
         remote: SyncedSoundCloudSession,
-        localSignOutMillis: Int64? = nil
+        localSignOutMillis: Int64? = nil,
+        rejectedLineages: RejectedLineageLedger = .defaults
     ) -> Bool {
+        if let lineage = remote.lineage, rejectedLineages.contains(lineage) { return false }
         guard let local else { return localSignOutMillis == nil }
         if local == remote { return false }
+        if let lineage = local.lineage, rejectedLineages.contains(lineage) { return true }
+        if remote.issuedAtMillis != nil || local.issuedAtMillis != nil {
+            let remoteIssued = remote.issuedAtMillis ?? remote.updatedAtMillis
+            let localIssued = local.issuedAtMillis ?? local.updatedAtMillis
+            if remoteIssued != localIssued { return remoteIssued > localIssued }
+            if (remote.generation ?? 0) != (local.generation ?? 0) { return (remote.generation ?? 0) > (local.generation ?? 0) }
+        }
         if remote.updatedAtMillis != local.updatedAtMillis {
             return remote.updatedAtMillis > local.updatedAtMillis
         }

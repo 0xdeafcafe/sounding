@@ -25,7 +25,7 @@ struct NowPlayingView: View {
 
     private var emptyState: some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: Space.section) {
+            LazyVStack(alignment: .leading, spacing: Space.section) {
                 hero
                     .focusSection()
 
@@ -51,12 +51,14 @@ struct NowPlayingView: View {
         ContentUnavailableView {
             Label("Nothing Playing", systemImage: "play.circle")
         } description: {
-                Text(subtitle)
+            Text(subtitle)
         } actions: {
-            Button("Browse Music", systemImage: "rectangle.grid.2x2") {
+            Button {
                 navigationState.selectedTab = .home
+            } label: {
+                TVGlassPillLabel(title: "Browse Music", systemImage: "rectangle.grid.2x2")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(TVGlassPillStyle())
             .focused($browseFocused)
             .accessibilityIdentifier("nowplaying.empty.browseHome")
         }
@@ -76,7 +78,8 @@ struct NowPlayingView: View {
             Text(title)
                 .font(.tvSection)
                 .foregroundStyle(Color.scTextPrimary)
-                .padding(.horizontal, Space.page)
+                .padding(.horizontal, SCBrowseMetrics.pageInset)
+                .accessibilityAddTraits(.isHeader)
 
             TrackShelf(tracks: tracks)
         }

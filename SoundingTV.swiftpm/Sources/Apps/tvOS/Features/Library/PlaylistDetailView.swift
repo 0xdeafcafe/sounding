@@ -1,167 +1,472 @@
 import SwiftUI
 
 struct PlaylistDetailView: View {
-    @StateObject private var viewModel: PlaylistDetailViewModel
+    @StateObject private var model: CollectionPageModel
+    @StateObject private var related = CollectionRelatedModel()
+    @EnvironmentObject private var playerService: PlayerService
+    @EnvironmentObject private var authService: AuthenticationService
+    @EnvironmentObject private var navigationState: NavigationState
     @State private var isShowingCollectionPolicy = false
+    @State private var openedPlaylist: Playlist?
+    @State private var isShowingArtist = false
+    @FocusState private var focus: CollectionFocus?
 
-    init(playlist: Playlist) {
-        _viewModel = StateObject(wrappedValue: PlaylistDetailViewModel(playlist: playlist))
+    private enum CollectionFocus: Hashable {
+        case play
+        case shuffle
     }
 
-    var body: some View {
-        ScrollView(.vertical) {
-            HStack(alignment: .top, spacing: 72) {
-                artworkColumn
-                    .frame(width: 610)
+    init(playlist: Playlist) {
+        _model = StateObject(wrappedValue: CollectionPageModel(playlist: playlist))
+    }
 
-                contentColumn
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.top, SCBrowseMetrics.contentTopInset)
-            .padding(.horizontal, SCBrowseMetrics.pageInset)
-            .padding(.bottom, Space.page)
-        }
-        .background { BrowseBackdrop() }
+    private var isOwnFiles: Bool { model.playlist.permalinkURL.isFileURL }
+
+    private var artist: User { related.artist ?? model.artist }
+
+    var body: some View {
+        CollectionHeroPage(
+            model: model,
+            metrics: .tv,
+            onSubtitle: isOwnFiles ? nil : { openArtist() },
+            actions: { actionRow },
+            row: { track, row in trackButton(track, row) },
+            status: { status },
+            footer: { footer },
+            shelves: { shelves }
+        )
         .scrollClipDisabled()
-        .task { await viewModel.loadIfNeeded() }
-        .task(id: viewModel.tracks.map(\.id)) {
-            DownloadManager.shared.applyCollectionPolicy(
-                tracks: viewModel.tracks,
-                collectionId: viewModel.playlist.id
-            )
+        .ignoresSafeArea(edges: [.top, .horizontal])
+        .foregroundStyle(Color.scTextPrimary)
+        .collectionPageMesh(url: model.artworkURL)
+        .defaultFocus($focus, .play)
+        .navigationDestination(item: $openedPlaylist) { PlaylistDetailView(playlist: $0) }
+        .navigationDestination(isPresented: $isShowingArtist) {
+            ArtistDetailView(user: artist)
+        }
+        .task(id: model.tracks.map(\.id)) {
+            DownloadManager.shared.applyCollectionPolicy(tracks: model.tracks, collectionId: model.id)
         }
         .sheet(isPresented: $isShowingCollectionPolicy) {
             CollectionPolicyEditor(
-                collectionId: viewModel.playlist.id,
-                collectionName: viewModel.playlist.title,
-                collectionKind: CollectionKind.classify(playlist: viewModel.playlist),
-                tracks: viewModel.tracks,
+                collectionId: model.id,
+                collectionName: model.title,
+                collectionKind: CollectionKind.classify(playlist: model.playlist),
+                tracks: model.tracks,
                 applier: DownloadManager.shared
             )
         }
     }
 
-    private var artworkColumn: some View {
-        VStack(alignment: .leading, spacing: Space.base) {
-            ArtworkImage(
-                url: viewModel.playlist.largeDisplayArtworkURL,
-                variant: .hero,
-                icon: viewModel.playlist.isAlbum ? "square.stack" : "music.note.list"
-            )
-            .frame(width: 610, height: 610)
-            .clipShape(RoundedRectangle(cornerRadius: Corner.card, style: .continuous))
-            .kyleCrowned(user: viewModel.playlist.user, context: viewModel.playlist.title)
-
-            if let description = viewModel.playlist.description, !description.isEmpty {
-                Text(description)
-                    .font(.tvCallout)
-                    .foregroundStyle(Color.scTextSecondary)
-                    .lineLimit(5)
-                    .frame(maxWidth: 580, alignment: .leading)
-            }
+    private func openArtist() {
+        if artist.id == authService.currentUser?.id {
+            navigationState.showProfile()
+        } else {
+            isShowingArtist = true
         }
-    }
-
-    private var contentColumn: some View {
-        VStack(alignment: .leading, spacing: Space.roomy) {
-            metadata
-            actionRow
-                .focusSection()
-            trackSection
-        }
-    }
-
-    private var metadata: some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
-            Text(viewModel.playlist.isAlbum ? "ALBUM" : "PLAYLIST")
-                .font(.tvEyebrow)
-                .foregroundStyle(Color.scAccent)
-
-            Text(viewModel.playlist.title)
-                .font(.tvLargeTitle)
-                .foregroundStyle(Color.scTextPrimary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.72)
-                .frame(maxWidth: 940, alignment: .leading)
-
-            Text(viewModel.playlist.user.displayName)
-                .font(.tvHeadline)
-                .foregroundStyle(Color.scTextSecondary)
-                .lineLimit(1)
-
-            Text(metadataLine)
-                .font(.tvCallout)
-                .foregroundStyle(Color.scTextTertiary)
-                .monospacedDigit()
-        }
-    }
-
-    private var metadataLine: String {
-        let count = viewModel.playlist.totalTrackCount
-        return "\(count) \(count == 1 ? "track" : "tracks")  ·  \(viewModel.playlist.formattedDuration)"
     }
 
     private var actionRow: some View {
         HStack(spacing: Space.snug) {
             Button {
-                Task { await PlayActions.play(tracks: viewModel.tracks, collectionId: viewModel.playlist.id) }
+                Task { await model.play() }
             } label: {
-                Label("Play", systemImage: "play.fill")
-                    .frame(minWidth: 132)
+                TVGlassPillLabel(title: "Play", systemImage: "play.fill")
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
-            .tint(.white)
-            .foregroundStyle(.black)
+            .buttonStyle(TVGlassPillStyle(isProminent: true))
+            .focused($focus, equals: .play)
+            .accessibilityIdentifier("collection.play")
 
             Button {
-                Task { await PlayActions.shufflePlay(tracks: viewModel.tracks, collectionId: viewModel.playlist.id) }
+                Task { await model.shuffle() }
             } label: {
-                Label("Shuffle", systemImage: "shuffle")
-                    .frame(minWidth: 150)
+                TVGlassPillLabel(title: "Shuffle", systemImage: "shuffle")
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
-            .tint(.white)
+            .buttonStyle(TVGlassPillStyle())
+            .focused($focus, equals: .shuffle)
+            .accessibilityIdentifier("collection.shuffle")
 
-            Button {
-                isShowingCollectionPolicy = true
-            } label: {
-                Label("Collection Settings", systemImage: "slider.horizontal.3")
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
-            .tint(.white)
+            TVCollectionMoreMenu(
+                playlist: model.playlist,
+                settingsTitle: "\(model.kind.label) Settings",
+                tracks: { model.tracks },
+                showSettings: { isShowingCollectionPolicy = true }
+            )
         }
-        .disabled(viewModel.tracks.isEmpty)
+        .padding(.top, Space.tight)
+        .focusSection()
+    }
+
+    private func trackButton(_ track: Track, _ row: CollectionTrackRow) -> some View {
+        Button {
+            Task { await model.play(track) }
+        } label: {
+            SCTrackListRow(
+                item: row,
+                leading: .number,
+                activity: activity(for: track),
+                metrics: .tv
+            )
+        }
+        .buttonStyle(TVCollectionRowStyle())
+        .contextMenu { TVTrackMenuItems(track: track) }
+        .accessibilityLabel(row.accessibilityLabel)
+        .accessibilityIdentifier("collection.track.\(row.number - 1)")
+        .prewarmPlaybackOnFocus(row.isPlayable ? track : nil)
+    }
+
+    private func activity(for track: Track) -> SCTrackActivity {
+        guard playerService.currentTrack?.id == track.id else { return .none }
+        return playerService.isPlaying ? .playing : .paused
     }
 
     @ViewBuilder
-    private var trackSection: some View {
-        if viewModel.isLoading, viewModel.tracks.isEmpty {
-            TVDetailStatusRow(title: "Loading tracks…")
-        } else if let error = viewModel.errorMessage, viewModel.tracks.isEmpty {
+    private var shelves: some View {
+        if !model.tracks.isEmpty, !model.pager.hasMore {
+            collectionFooter
+                .onAppear {
+                    loadRelated(.artist)
+                    loadRelated(.moreByArtist)
+                }
+
+            if !related.moreByArtist.isEmpty {
+                CollectionShelf(
+                    title: CollectionRelatedModel.moreTitle(for: artist),
+                    items: related.moreByArtist,
+                    style: SCBrowseMetrics.header,
+                    tileWidth: SCBrowseMetrics.tileEdge,
+                    spacing: SCBrowseMetrics.gutter,
+                    inset: CollectionHeroMetrics.tv.horizontalInset,
+                    headerAction: openArtist
+                ) { playlist in
+                    Button {
+                        openedPlaylist = playlist
+                    } label: {
+                        ArtworkShelfCard(playlist: playlist, style: SCBrowseMetrics.tile)
+                    }
+                    .buttonStyle(SCCardButtonStyle(cornerRadius: Corner.control, sizeClass: .tile))
+                    .focusEffectDisabled()
+                }
+                .prefetchArtwork(related.moreByArtist.compactMap(\.largeDisplayArtworkURL))
+                .padding(.top, SCBrowseMetrics.shelfGap)
+            }
+
+            if !related.similar.isEmpty {
+                CollectionShelf(
+                    title: "You Might Also Like",
+                    items: related.similar,
+                    style: SCBrowseMetrics.header,
+                    tileWidth: SCBrowseMetrics.tileEdge,
+                    spacing: SCBrowseMetrics.gutter,
+                    inset: CollectionHeroMetrics.tv.horizontalInset
+                ) { track in
+                    Button {
+                        guard track.streamURL != nil else { return }
+                        Task { await playerService.play(track, in: related.similar.filter { $0.streamURL != nil }) }
+                    } label: {
+                        ArtworkShelfCard(track: track, style: SCBrowseMetrics.tile)
+                    }
+                    .buttonStyle(SCCardButtonStyle(cornerRadius: Corner.control, sizeClass: .tile))
+                    .focusEffectDisabled()
+                    .prewarmPlaybackOnFocus(track.streamURL != nil ? track : nil)
+                }
+                .padding(.top, SCBrowseMetrics.shelfGap)
+            } else if !related.hasFinished(.similar) {
+                CollectionRelatedTrigger { loadRelated(.similar) }
+            }
+        }
+    }
+
+    private var collectionFooter: some View {
+        VStack(alignment: .leading, spacing: Space.roomy) {
+            CollectionReleaseFooter(
+                info: CollectionReleaseInfo(playlist: model.playlist, tracks: model.tracks),
+                font: .tvCaption,
+                spacing: Space.hair
+            )
+            .padding(.horizontal, Space.base)
+
+            if !isOwnFiles {
+                Button(action: openArtist) {
+                    TVCollectionArtistRow(user: artist)
+                }
+                .buttonStyle(TVCollectionRowStyle())
+                .focusSection()
+            }
+            if !isOwnFiles {
+                CollectionEngagementSection(playlist: model.playlist, destination: { ArtistDetailView(user: $0) })
+            }
+        }
+        .padding(.horizontal, CollectionHeroMetrics.tv.horizontalInset - Space.base)
+    }
+
+    private func loadRelated(_ part: CollectionRelatedModel.Part) {
+        let playlist = model.playlist
+        let tracks = model.tracks
+        Task { await related.load(part, for: playlist, tracks: tracks) }
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        if model.isLoading {
+            LoadingPlaceholder(.trackList(.tv), count: 8, insets: false)
+                .frame(minHeight: 520, alignment: .top)
+        } else if let error = model.errorMessage {
             StatusPanel(
                 kind: .error,
-                title: "Couldn't load this \(viewModel.playlist.isAlbum ? "album" : "playlist")",
+                title: "Couldn\u{2019}t Load This \(model.kind.label)",
                 message: error,
                 actionTitle: "Try Again",
-                action: { Task { await viewModel.load() } },
-                minHeight: 300
+                action: { Task { await model.reload() } },
+                minHeight: 520
             )
-        } else if viewModel.tracks.isEmpty {
-            TVDetailStatusRow(title: "No tracks", icon: "music.note.list")
         } else {
-            TVDetailTrackList(
-                tracks: viewModel.tracks,
-                collectionId: viewModel.playlist.id,
-                showArtist: !viewModel.playlist.isAlbum,
-                onNearEnd: { Task { await viewModel.loadMore() } },
-                isLoadingMore: viewModel.isLoadingMore
-            )
+            StatusPanel(kind: .empty, icon: model.kind.fallbackSymbol, title: "No Tracks", minHeight: 520)
+        }
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        if let paging = TVPaging(model.pager) {
+            TVPagedFooter(paging: paging)
+        }
+    }
+}
+
+private struct TVCollectionMoreMenu: View {
+    let playlist: Playlist
+    let settingsTitle: String
+    let tracks: () -> [Track]
+    let showSettings: () -> Void
+
+    @ObservedObject private var downloads = DownloadManager.shared
+    @Environment(\.downloadPrompter) private var prompter
+
+    private var downloadedItem: DownloadedCollectionItem? {
+        guard downloads.isCollectionDownloaded(playlist.id) else { return nil }
+        return downloads.library.playlists.first { $0.id == playlist.id }
+    }
+
+    var body: some View {
+        Menu {
+            if downloads.isCollectionDownloaded(playlist.id) {
+                if let item = downloadedItem {
+                    Text(DownloadsFormat.collectionDetail(item, waitingReason: downloads.waitingReason))
+                }
+                Button("Remove Download", systemImage: "trash", role: .destructive) {
+                    downloads.removeDownload(.collection(playlist.id))
+                }
+            } else {
+                Button("Download", systemImage: "arrow.down.circle", action: download)
+                    .disabled(!tracks().contains { downloads.downloadRefusalReason(for: $0) == nil })
+            }
+            Button(settingsTitle, systemImage: "gearshape", action: showSettings)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.tvBodyEmph)
+        }
+        .buttonStyle(TVGlassPillStyle(diameter: 76))
+        .accessibilityLabel("More")
+        .accessibilityIdentifier("collection.more")
+    }
+
+    private func download() {
+        let allTracks = tracks()
+        let descriptor = DownloadCollectionDescriptor(playlist: playlist)
+        prompter.request { confirmed in
+            await DownloadManager.shared.download(collection: descriptor, tracks: allTracks, confirmed: confirmed)
+        }
+    }
+}
+
+struct TVCollectionLinkStyle: ButtonStyle {
+    var cornerRadius: CGFloat = 999
+    var horizontalPadding: CGFloat = Space.snug
+    var verticalPadding: CGFloat = Space.hair
+
+    func makeBody(configuration: Configuration) -> some View {
+        Styled(
+            configuration: configuration,
+            cornerRadius: cornerRadius,
+            horizontalPadding: horizontalPadding,
+            verticalPadding: verticalPadding
+        )
+    }
+
+    private struct Styled: View {
+        let configuration: Configuration
+        let cornerRadius: CGFloat
+        let horizontalPadding: CGFloat
+        let verticalPadding: CGFloat
+        @Environment(\.isFocused) private var isFocused
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            configuration.label
+                .foregroundStyle(isFocused ? Color.scChromeFocusOn : Color.scTextPrimary)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.vertical, verticalPadding)
+                .background {
+                    shape.fill(isFocused ? Color.scChromeFocus : Color.clear)
+                }
+                .contentShape(shape)
+                .scaleEffect(isFocused ? 1.05 : 1, anchor: .leading)
+                .shadow(color: isFocused ? Color.scFocusShadow : .clear, radius: 14, y: 8)
+                .padding(.horizontal, -horizontalPadding)
+                .padding(.vertical, -verticalPadding)
+                .opacity(configuration.isPressed ? 0.85 : 1)
+                .focusEffectDisabled()
+                .animation(reduceMotion ? nil : Motion.focus, value: isFocused)
+        }
+    }
+}
+
+struct TVShelfHeaderLabel: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: Space.tight) {
+            Text(title)
+                .font(.tvHeadline)
+                .lineLimit(1)
+            Image(systemName: "chevron.right")
+                .font(.tvHeadline)
+                .imageScale(.small)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+extension CollectionHeroMetrics {
+    static let tv = CollectionHeroMetrics(
+        layout: .column,
+        backdrop: .artwork,
+        artworkSide: 480,
+        artworkCorner: Corner.card,
+        backdropHeight: 820,
+        backdropBlur: 60,
+        backdropFade: 360,
+        backdropPadsFade: false,
+        horizontalInset: 80,
+        topInset: 96,
+        heroSpacing: 64,
+        textSpacing: Space.tight,
+        rowSpacing: Space.hair,
+        listTopSpacing: SCBrowseMetrics.shelfGap,
+        bottomInset: Space.page,
+        titleFont: .tvTitle,
+        artistFont: .tvSubheadline,
+        metadataFont: .tvCallout,
+        descriptionFont: .tvCallout,
+        titleLines: 2,
+        descriptionLines: 2,
+        textMaxWidth: 540
+    )
+}
+
+extension SCTrackListMetrics {
+    static let tv = SCTrackListMetrics(
+        artworkSize: 64,
+        artworkCorner: 8,
+        numberWidth: 56,
+        minHeight: 80,
+        spacing: Space.base,
+        verticalPadding: 8,
+        horizontalPadding: Space.base,
+        titleFont: .tvBodyEmph,
+        subtitleFont: .tvCaption,
+        detailFont: .tvCaption,
+        numberFont: .tvCaption,
+        indicatorFont: .tvCalloutEmph,
+        durationMinWidth: 110,
+        invertsOnFocus: true,
+        primary: .scTextPrimary,
+        secondary: .scTextSecondary,
+        tertiary: .scTextTertiary,
+        focusedPrimary: .scChromeFocusOn,
+        focusedSecondary: Color.scChromeFocusOn.opacity(0.7)
+    )
+}
+
+struct TVCollectionPillStyle: ButtonStyle {
+    var isProminent = false
+    var diameter: CGFloat?
+
+    func makeBody(configuration: Configuration) -> some View {
+        Styled(configuration: configuration, isProminent: isProminent, diameter: diameter)
+    }
+
+    private struct Styled: View {
+        let configuration: Configuration
+        let isProminent: Bool
+        let diameter: CGFloat?
+        @Environment(\.isFocused) private var isFocused
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @Environment(\.collectionAccent) private var accent
+
+        private var restingFill: Color {
+            if isProminent, let accent { return accent.wash(for: .dark) }
+            return Color.white.opacity(isProminent ? 0.24 : 0.14)
+        }
+
+        var body: some View {
+            configuration.label
+                .frame(width: diameter, height: diameter)
+                .foregroundStyle(isFocused ? Color.scChromeFocusOn : Color.scTextPrimary)
+                .background {
+                    Capsule().fill(isFocused ? Color.scChromeFocus : restingFill)
+                }
+                .contentShape(Capsule())
+                .scaleEffect(isFocused ? 1.08 : 1)
+                .shadow(color: isFocused ? Color.scFocusShadow : .clear, radius: 18, y: 10)
+                .opacity(configuration.isPressed ? 0.85 : 1)
+                .focusEffectDisabled()
+                .animation(reduceMotion ? nil : Motion.focus, value: isFocused)
+        }
+    }
+}
+
+private struct TVCollectionArtistRow: View {
+    let user: User
+
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        CollectionArtistLabel(
+            user: user,
+            avatarSize: 96,
+            spacing: Space.base,
+            nameFont: .tvBodyEmph,
+            detailFont: .tvCaption
+        )
+        .foregroundStyle(isFocused ? Color.scChromeFocusOn : Color.scTextPrimary)
+        .padding(Space.base)
+        .frame(maxWidth: 1100, alignment: .leading)
+    }
+}
+
+struct TVCollectionRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Styled(configuration: configuration)
+    }
+
+    private struct Styled: View {
+        let configuration: Configuration
+        @Environment(\.isFocused) private var isFocused
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
+            configuration.label
+                .background { shape.fill(isFocused ? Color.scChromeFocus : Color.clear) }
+                .contentShape(shape)
+                .scaleEffect(isFocused ? 1.02 : 1)
+                .shadow(color: isFocused ? Color.scFocusShadow : .clear, radius: 18, y: 10)
+                .opacity(configuration.isPressed ? 0.85 : 1)
+                .focusEffectDisabled()
+                .animation(reduceMotion ? nil : Motion.focus, value: isFocused)
         }
     }
 }
@@ -171,8 +476,7 @@ struct TVDetailTrackList: View {
     var collectionId: String? = nil
     var showArtist = true
     var maximumCount: Int?
-    var onNearEnd: (() -> Void)?
-    var isLoadingMore = false
+    var paging: TVPaging?
 
     @EnvironmentObject private var playerService: PlayerService
 
@@ -180,84 +484,42 @@ struct TVDetailTrackList: View {
         maximumCount.map { Array(tracks.prefix($0)) } ?? tracks
     }
 
+    private func activity(for track: Track) -> SCTrackActivity {
+        guard playerService.currentTrack?.id == track.id else { return .none }
+        return playerService.isPlaying ? .playing : .paused
+    }
+
     var body: some View {
         LazyVStack(spacing: Space.hair) {
             ForEach(Array(visibleTracks.enumerated()), id: \.element.id) { index, track in
+                let item = SCTrackListItem(track: track, number: index + 1, showsArtist: showArtist)
                 Button {
+                    guard track.streamURL != nil else { return }
                     Task { await playerService.play(track, in: tracks, collectionId: collectionId) }
                 } label: {
-                    TVDetailTrackRow(track: track, number: index + 1, showArtist: showArtist)
+                    SCTrackListRow(
+                        item: item,
+                        leading: .artwork,
+                        activity: activity(for: track),
+                        metrics: .tv,
+                        crownUser: track.user
+                    )
                 }
-                .buttonStyle(SCPlainButtonStyle())
-                .focusEffectDisabled()
-                .disabled(track.streamURL == nil)
+                .buttonStyle(TVCollectionRowStyle())
+                .contextMenu { TVTrackMenuItems(track: track) }
+                .accessibilityLabel(item.accessibilityLabel)
+                .prewarmPlaybackOnFocus(track)
                 .onAppear {
-                    guard let onNearEnd, tracks.isNearEnd(track, lead: 6) else { return }
-                    onNearEnd()
+                    guard maximumCount == nil, tracks.isNearEnd(track, lead: 10) else { return }
+                    paging?.loadMore()
                 }
             }
 
-            if isLoadingMore {
-                LoadingMoreRow()
-                    .frame(maxWidth: .infinity)
+            if maximumCount == nil, let paging {
+                TVPagedFooter(paging: paging)
             }
         }
         .focusSection()
-    }
-}
-
-private struct TVDetailTrackRow: View {
-    let track: Track
-    let number: Int
-    let showArtist: Bool
-
-    @Environment(\.isFocused) private var isFocused
-
-    var body: some View {
-        HStack(spacing: Space.snug) {
-            Text("\(number)")
-                .font(.tvCaption)
-                .foregroundStyle(isFocused ? Color.black.opacity(0.55) : Color.scTextTertiary)
-                .monospacedDigit()
-                .frame(width: 42, alignment: .trailing)
-
-            VStack(alignment: .leading, spacing: Space.hair) {
-                Text(track.title)
-                    .font(.tvBodyEmph)
-                    .foregroundStyle(isFocused ? Color.black : Color.scTextPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                if showArtist {
-                    Text(track.user.displayName)
-                        .font(.tvCaption)
-                        .foregroundStyle(isFocused ? Color.black.opacity(0.62) : Color.scTextSecondary)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer(minLength: Space.base)
-
-            if track.streamURL == nil {
-                Image(systemName: "lock.fill")
-                    .font(.tvCaption)
-                    .foregroundStyle(isFocused ? Color.black.opacity(0.55) : Color.scTextTertiary)
-            } else {
-                Text(track.formattedDuration)
-                    .font(.tvCaption)
-                    .foregroundStyle(isFocused ? Color.black.opacity(0.55) : Color.scTextTertiary)
-                    .monospacedDigit()
-            }
-        }
-        .padding(.horizontal, Space.snug)
-        .frame(height: showArtist ? 88 : 76)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            isFocused ? Color.white : Color.white.opacity(number.isMultiple(of: 2) ? 0.035 : 0),
-            in: RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
-        )
-        .opacity(track.streamURL == nil ? 0.5 : 1)
-        .animation(.quickSpring, value: isFocused)
     }
 }
 
@@ -277,5 +539,6 @@ struct TVDetailStatusRow: View {
                 .foregroundStyle(Color.scTextSecondary)
         }
         .padding(.vertical, Space.roomy)
+        .accessibilityElement(children: .combine)
     }
 }

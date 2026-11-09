@@ -47,8 +47,6 @@ struct SCContentStyle: Sendable {
 
     var artworkCorner: CGFloat { cornerControl }
 
-    var rowArtworkCorner: CGFloat { (cornerControl * 0.65).rounded() }
-
     var progressBarHeight: CGFloat { max(2, (spaceTight * 0.5).rounded()) }
 
     static let tv = SCContentStyle(
@@ -65,7 +63,7 @@ struct SCContentStyle: Sendable {
         fontCaptionEmphasis: .system(size: 28, weight: .semibold),
         textPrimary: .white,
         textSecondary: .white.opacity(0.68),
-        textTertiary: .white.opacity(0.46),
+        textTertiary: .white.opacity(0.58),
         bgRaised: Color(white: 0.192),
         bgOverlay: Color(white: 0.255),
         separator: .white.opacity(0.14),
@@ -83,21 +81,29 @@ struct SCContentStyle: Sendable {
         iconStrokeWidth: 3.5
     )
 
+    private static func phoneFont(_ style: Font.TextStyle, size: CGFloat, weight: Font.Weight) -> Font {
+        #if os(iOS)
+        .system(style, weight: weight)
+        #else
+        .system(size: size, weight: weight)
+        #endif
+    }
+
     static let phone = SCContentStyle(
         cornerControl: 10, cornerCard: 13, cornerPanel: 23, cornerHero: 28,
         spaceHair: 4, spaceTight: 8, spaceSnug: 12, spaceBase: 16,
         spaceRoomy: 20, spaceSection: 32, spaceGutter: 20,
-        fontEyebrow: .system(size: 12, weight: .semibold),
-        fontTitle: .system(size: 22, weight: .bold),
-        fontHeadline: .system(size: 16, weight: .semibold),
-        fontSubheadline: .system(size: 14, weight: .medium),
-        fontBody: .system(size: 15, weight: .regular),
-        fontBodyEmphasis: .system(size: 15, weight: .semibold),
-        fontCaption: .system(size: 12, weight: .semibold),
-        fontCaptionEmphasis: .system(size: 12, weight: .bold),
+        fontEyebrow: phoneFont(.caption, size: 12, weight: .semibold),
+        fontTitle: phoneFont(.title2, size: 22, weight: .bold),
+        fontHeadline: phoneFont(.headline, size: 16, weight: .semibold),
+        fontSubheadline: phoneFont(.subheadline, size: 14, weight: .regular),
+        fontBody: phoneFont(.body, size: 15, weight: .regular),
+        fontBodyEmphasis: phoneFont(.body, size: 15, weight: .semibold),
+        fontCaption: phoneFont(.caption, size: 12, weight: .regular),
+        fontCaptionEmphasis: phoneFont(.caption, size: 12, weight: .semibold),
         textPrimary: .primary,
         textSecondary: .secondary,
-        textTertiary: Color.primary.opacity(0.46),
+        textTertiary: Color.primary.opacity(0.6),
         bgRaised: Color.primary.opacity(0.05),
         bgOverlay: Color.primary.opacity(0.09),
         separator: Color.primary.opacity(0.14),
@@ -117,7 +123,7 @@ struct SCContentStyle: Sendable {
 
     static var phoneSectionHeader: SCContentStyle {
         var style = SCContentStyle.phone
-        style.fontTitle = .system(size: 17, weight: .bold)
+        style.fontTitle = phoneFont(.title3, size: 17, weight: .bold)
         return style
     }
 
@@ -135,7 +141,7 @@ struct SCContentStyle: Sendable {
         fontCaptionEmphasis: .system(size: 11, weight: .semibold),
         textPrimary: .primary,
         textSecondary: .secondary,
-        textTertiary: Color.primary.opacity(0.38),
+        textTertiary: Color.primary.opacity(0.6),
         bgRaised: Color.primary.opacity(0.06),
         bgOverlay: Color.primary.opacity(0.10),
         separator: Color.primary.opacity(0.14),
@@ -167,7 +173,7 @@ struct SCContentStyle: Sendable {
         fontCaptionEmphasis: .system(size: 12, weight: .semibold),
         textPrimary: .white,
         textSecondary: .white.opacity(0.68),
-        textTertiary: .white.opacity(0.46),
+        textTertiary: .white.opacity(0.58),
         bgRaised: Color(red: 0.098, green: 0.098, blue: 0.106),
         bgOverlay: Color(red: 0.180, green: 0.180, blue: 0.188),
         separator: .white.opacity(0.16),
@@ -196,7 +202,7 @@ struct SCContentStyle: Sendable {
         style.spaceBase = 10
         style.textPrimary = .white
         style.textSecondary = .white.opacity(0.70)
-        style.textTertiary = .white.opacity(0.42)
+        style.textTertiary = .white.opacity(0.58)
         style.bgRaised = Color(white: 0.10)
         style.bgOverlay = Color(white: 0.16)
         style.separator = .white.opacity(0.22)
@@ -214,8 +220,6 @@ enum SCContentMotion {
     static let gentle = Animation.easeInOut(duration: 0.25)
 }
 
-/// One discovery vocabulary shared by phone, Mac, and TV. Each platform owns
-/// its layout and focus behavior, while choices and visual identity stay aligned.
 struct SearchVibe: Identifiable, Sendable {
     let id: String
     let title: String
@@ -249,51 +253,55 @@ struct SearchVibeArtwork: View {
     let vibe: SearchVibe
     var cornerRadius: CGFloat = 16
 
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var tint: SoundingArtRGB { SoundingArtRGB.genreTint(vibe.id) }
+
+    private var motif: SoundingArtMotif? {
+        let motifs: [SoundingArtMotif] = [.jack, .equaliser, .rings, .cone, .waves, .vinyl, .crossfader]
+        return SearchVibe.all.firstIndex { $0.id == vibe.id }.map { motifs[$0 % motifs.count] }
+    }
+
+    private var ground: Color {
+        Color(cgColor: SoundingArtTheme.ground(colorScheme == .dark ? .dark : .light, tint: tint).cgColor)
+    }
+
     var body: some View {
-        GeometryReader { proxy in
-            let edge = min(proxy.size.width, proxy.size.height)
-
-            ZStack(alignment: .topLeading) {
-                Color(red: 38 / 255, green: 38 / 255, blue: 38 / 255)
-
-                ForEach(0..<5, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: edge * 0.22, style: .continuous)
-                        .stroke(vibe.accent.opacity(0.88), lineWidth: 1.25)
-                        .frame(width: edge * 0.78, height: edge * 0.48)
-                        .offset(
-                            x: proxy.size.width * 0.18 + CGFloat(index) * 10,
-                            y: proxy.size.height * 0.43 + CGFloat(index) * 7
-                        )
-                }
-
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [vibe.accent, vibe.secondary],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: edge * 0.54, height: edge * 0.54)
-                    .overlay {
-                        Image(systemName: vibe.symbol)
-                            .font(.system(size: edge * 0.21, weight: .bold))
-                            .foregroundStyle(.black.opacity(0.72))
-                    }
-                    .offset(x: proxy.size.width * 0.43, y: proxy.size.height * 0.48)
-
-                Text(vibe.title)
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .padding(14)
+        SoundingArtworkView(seed: GeneratedArtworkIdentity.hash("vibe:" + vibe.id), subject: .genre, tint: tint, motif: motif)
+            #if os(tvOS)
+            .overlay(alignment: .topLeading) {
+                LinearGradient(
+                    stops: [.init(color: ground, location: 0), .init(color: ground.opacity(0.85), location: 0.45), .init(color: ground.opacity(0), location: 1)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 64)
+                .frame(maxWidth: .infinity)
             }
-        }
-        .background(Color(red: 38 / 255, green: 38 / 255, blue: 38 / 255))
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(vibe.accent.opacity(0.78), lineWidth: 1)
-        }
+            #endif
+            .overlay(alignment: .topLeading) { titleOverlay }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+}
+
+private extension SearchVibeArtwork {
+    @ViewBuilder
+    var titleOverlay: some View {
+        #if os(tvOS)
+        Text(vibe.title)
+            .font(.headline.weight(.bold))
+            .foregroundStyle(colorScheme == .dark ? Color.white : Color.black.opacity(0.86))
+            .lineLimit(2)
+            .padding(14)
+        #else
+        Text(vibe.title)
+            .font(.headline)
+            .foregroundStyle(.primary)
+            .lineLimit(2)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .glassEffect(.regular, in: .capsule)
+            .padding(10)
+        #endif
     }
 }

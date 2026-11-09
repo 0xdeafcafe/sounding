@@ -21,7 +21,7 @@ struct SCCommentRow: View {
             }
 
             SCArtworkResolver(url: comment.user.avatarURL) { image in
-                SCArtwork(image: image, identity: comment.user.username, style: style)
+                SCArtwork(image: image, identity: comment.user.id, style: style, subject: .person)
             }
             .frame(width: avatarSize, height: avatarSize)
             .clipShape(Circle())

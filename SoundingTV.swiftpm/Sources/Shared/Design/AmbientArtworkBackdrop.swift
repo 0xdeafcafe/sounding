@@ -33,11 +33,12 @@ struct AmbientArtworkBackdrop: View {
     var seed: AmbientArtworkSeed
     var isAnimated: Bool = true
     var intensity: Double = 1.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
-            if isAnimated {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            if isAnimated && !reduceMotion {
+                TimelineView(.animation(minimumInterval: animationInterval)) { context in
                     let t = context.date.timeIntervalSinceReferenceDate
                     layers(at: t)
                 }
@@ -48,6 +49,16 @@ struct AmbientArtworkBackdrop: View {
         .background(seed.resolvedColors.first ?? .black)
         .clipped()
         .animation(SCContentMotion.ambient, value: seed)
+    }
+
+    private var animationInterval: TimeInterval {
+        #if os(macOS)
+        // The mesh itself moves on multi-second curves. Eight refreshes per
+        // second looks continuous while avoiding a permanent 30 fps GPU load.
+        1.0 / 8.0
+        #else
+        1.0 / 12.0
+        #endif
     }
 
     @ViewBuilder

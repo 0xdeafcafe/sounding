@@ -15,7 +15,10 @@ struct TempoTerm: ScoringTerm {
 
     func evaluate(_ ctx: ScoringContext) -> TermResult {
         guard let a = ctx.outgoing.beatGrid, let b = ctx.incoming.beatGrid,
-              let relation = DJTempo.best(outgoing: a, incoming: b) else {
+              let relation = DJTempo.local(
+                ctx.outgoing, exit: ctx.plan.exit.seconds, overlap: ctx.plan.overlapSeconds,
+                ctx.incoming, entry: ctx.plan.entry.seconds
+              ) ?? DJTempo.best(outgoing: a, incoming: b) else {
             return .unmeasured("no measured tempo on one side — only a conservative transition is allowed")
         }
 
@@ -25,6 +28,8 @@ struct TempoTerm: ScoringTerm {
         let applied = ctx.plan.incomingRateRatio
         let leftover = DJTempo.leftover(relation, appliedRate: applied)
         let driftMs = DJTempo.driftMs(leftover: leftover, overlapSeconds: ctx.plan.overlapSeconds)
+            + DJTempo.curvatureDriftMs(a, from: ctx.plan.exit.seconds, seconds: ctx.plan.overlapSeconds)
+            + DJTempo.curvatureDriftMs(b, from: ctx.plan.entry.seconds, seconds: ctx.plan.overlapSeconds * applied)
         let correction = abs(applied - 1)
 
         let fromBPM = DJFormat.bpm((a.bpm * 10).rounded() / 10)
@@ -72,16 +77,12 @@ struct PhraseTerm: ScoringTerm {
         let downbeatsKnown = ctx.outgoing.provenance.contains(.measuredDownbeats)
             && ctx.incoming.provenance.contains(.measuredDownbeats)
 
-        let exitOffset = abs(ctx.outgoing.beatsFromPhraseBoundary(at: ctx.plan.exit.seconds))
-        let entryOffset = abs(ctx.incoming.beatsFromPhraseBoundary(at: ctx.plan.entry.seconds))
-
-        func fold(_ beats: Double, modulo m: Double) -> Double {
-            let r = beats.truncatingRemainder(dividingBy: m)
-            return min(abs(r), m - abs(r))
-        }
-
-        let mod4 = (fold(exitOffset, modulo: 4) + fold(entryOffset, modulo: 4)) / 2
-        let mod32 = (fold(exitOffset, modulo: 32) + fold(entryOffset, modulo: 32)) / 2
+        let offsets = DJMixRules.phraseOffsets(
+            exitBeats: ctx.outgoing.beatsFromPhraseBoundary(at: ctx.plan.exit.seconds),
+            entryBeats: ctx.incoming.beatsFromPhraseBoundary(at: ctx.plan.entry.seconds)
+        )
+        let mod4 = offsets.bar
+        let mod32 = offsets.phrase
 
         let mod4Cost = min(1, mod4 / 2.0)
         let mod32Cost = min(1, mod32 / 16.0)
@@ -90,7 +91,7 @@ struct PhraseTerm: ScoringTerm {
         let kappa = downbeatsKnown ? min(a.confidence, b.confidence) * 0.9 : 0.3
 
         let explanation: String
-        if mod4 < 0.15 && mod32 < 0.5 {
+        if mod4 < DJMixRules.phraseBeatTolerance && mod32 < DJMixRules.phraseBarTolerance {
             explanation = "both sides on phrase boundaries"
         } else if mod4 >= 0.5 {
             explanation = String(format: "%.1f beats off the bar — the backbeat would invert", mod4)
@@ -125,13 +126,43 @@ struct StructureTerm: ScoringTerm {
         }
     }
 
-    func evaluate(_ ctx: ScoringContext) -> TermResult {
+    static func moveCost(_ move: MixMove, exit: SectionKind, entry: SectionKind, base: Double) -> Double {
+        let lifts = entry == .drop
+        switch move.kind {
+        case .dropOnTheOne, .loopRoll, .fxBuild:
+            if lifts { return exit == .ambientOutro || exit == .ambientIntro ? 0.25 : 0.05 }
+            return entry == .intro || entry == .buildup || entry == .build ? 0.2 : max(0.3, base)
+        case .dropIn:
+            return entry == .buildup || entry == .build ? 0.05 : max(0.3, base)
+        case .breakdownExit:
+            return exit == .breakdown || exit == .cooldown ? (lifts ? 0.15 : 0.05) : max(0.3, base)
+        case .echoOut, .cut:
+            return min(base, 0.3)
+        case .jump:
+            return 0.1
+        case .blend, .tempoRamp, .bridge, .loopMix:
+            return base
+        }
+    }
+
+    static func blendExit(_ ctx: ScoringContext) -> SectionKind {
         let exit = ctx.plan.exit.kind
+        let kind = ctx.plan.move?.kind
+        guard kind == nil || kind == .blend || kind == .loopMix, ctx.plan.overlapSeconds > 0,
+              exit != .outro, exit != .ambientOutro, exit != .drop, exit != .buildup, exit != .build else { return exit }
+        let start = ctx.plan.exit.seconds
+        let end = start + ctx.plan.overlapSeconds
+        return ctx.outgoing.sections.first { ($0.kind == .outro || $0.kind == .ambientOutro) && $0.start > start && $0.start < end }?.kind ?? exit
+    }
+
+    func evaluate(_ ctx: ScoringContext) -> TermResult {
+        let exit = Self.blendExit(ctx)
         let entry = ctx.plan.entry.kind
         let measured = ctx.outgoing.provenance.contains(.measuredStructure)
             && ctx.incoming.provenance.contains(.measuredStructure)
 
-        let cost = Self.cost(exit: exit, entry: entry, templateId: ctx.plan.templateId)
+        let base = Self.cost(exit: exit, entry: entry, templateId: ctx.plan.templateId)
+        let cost = ctx.plan.move.map { Self.moveCost($0, exit: exit, entry: entry, base: base) } ?? base
         let kappa = measured ? 0.9 : (exit == .unknown && entry == .unknown ? 0 : 0.45)
 
         return TermResult(
@@ -155,6 +186,14 @@ struct HarmonicTerm: ScoringTerm {
         let steps = from.wheelSteps(to: to)
         let sameMode = from.mode == to.mode
         let profile = ctx.profile
+        if steps > 0 || !sameMode {
+            let map = DJSourceMap(DJPlanShape(ctx.plan), outgoing: ctx.outgoing, incoming: ctx.incoming)
+            if DJMixRules.percussiveOnly(ctx.outgoing, sourceRanges: map.outgoingOverlapRanges) == true
+                || DJMixRules.percussiveOnly(ctx.incoming, sourceRanges: map.incomingOverlapRanges) == true {
+                return TermResult(cost: 0, confidence: Self.evidenceDiscount, veto: false,
+                                  explanation: "\(from.label) → \(to.label), one side is only drums in the overlap")
+            }
+        }
 
         let cost: Double
         let note: String
@@ -250,41 +289,57 @@ struct SpectralClashTerm: ScoringTerm {
     let id = ScoringTermID.spectralClash
 
     func evaluate(_ ctx: ScoringContext) -> TermResult {
+        let vocals = vocalClash(ctx)
+        let bass = bassClash(ctx)
+        guard vocals != nil || bass != nil else { return .unmeasured(nil) }
+        let parts = [vocals, bass].compactMap { $0 }
+        return TermResult(
+            cost: parts.map(\.cost).max() ?? 0,
+            confidence: 0.85,
+            veto: false,
+            explanation: parts.map(\.note).joined(separator: "; ")
+        )
+    }
+
+    private func vocalClash(_ ctx: ScoringContext) -> (cost: Double, note: String)? {
         guard ctx.outgoing.provenance.contains(.measuredVocals),
               ctx.incoming.provenance.contains(.measuredVocals) else {
-            return .unmeasured(nil)
+            return nil
         }
 
-        let start = ctx.plan.exit.seconds
-        let end = start + ctx.plan.overlapSeconds
-        let entryStart = ctx.plan.entry.seconds
-
-        var overlapping = 0.0
-        for outRange in ctx.outgoing.vocalRanges {
-            let oLo = max(outRange.lowerBound, start)
-            let oHi = min(outRange.upperBound, end)
-            guard oHi > oLo else { continue }
-            for inRange in ctx.incoming.vocalRanges {
-                let iLo = inRange.lowerBound - entryStart + start
-                let iHi = inRange.upperBound - entryStart + start
-                overlapping += max(0, min(oHi, iHi) - max(oLo, iLo))
-            }
-        }
+        let map = DJSourceMap(DJPlanShape(ctx.plan), outgoing: ctx.outgoing, incoming: ctx.incoming)
+        let beat = ctx.outgoing.beatGrid?.beatPeriod ?? 0.5
+        let overlapping = DJPlanValidator.vocalOverlapSeconds(map, outgoing: ctx.outgoing, incoming: ctx.incoming, step: beat / 2, shape: DJPlanShape(ctx.plan))
 
         let barSeconds = ctx.outgoing.beatGrid?.barDuration ?? 2.0
         let bars = overlapping / max(0.1, barSeconds)
 
-        let cost: Double
-        let note: String
-        if bars < 0.25 {
-            cost = 0.0; note = "no vocal overlap"
-        } else if bars <= 1.0 {
-            cost = 0.2; note = "about a bar of vocal overlap"
-        } else {
-            cost = 0.9
-            note = String(format: "%.0f bars of vocal overlap", bars)
+        if bars < 0.25 { return (0.0, "no vocal overlap") }
+        if bars <= 1.0 { return (0.2, "about a bar of vocal overlap") }
+        return (0.9, String(format: "%.0f bars of vocal overlap", bars))
+    }
+
+    private func bassClash(_ ctx: ScoringContext) -> (cost: Double, note: String)? {
+        guard ctx.outgoing.provenance.contains(.measuredStems),
+              ctx.incoming.provenance.contains(.measuredStems) else {
+            return nil
         }
-        return TermResult(cost: cost, confidence: 0.85, veto: false, explanation: note)
+        let barSeconds = max(0.1, ctx.outgoing.beatGrid?.barDuration ?? 2.0)
+        let swapOut = ctx.plan.exit.seconds + ctx.plan.bassSwapAtSeconds
+        let swapIn = ctx.plan.entry.seconds + ctx.plan.bassSwapAtSeconds * ctx.plan.incomingRateRatio
+        let doubled = DJMixRules.vocalOverlapSeconds(
+            outgoing: ctx.outgoing.bassRanges, from: swapOut, length: max(ctx.plan.bassSwapSeconds, 0),
+            incoming: ctx.incoming.bassRanges, entry: swapIn
+        ) / barSeconds
+        if doubled > 1 {
+            return (0.6, String(format: "%.0f bars of double bass at the swap", doubled))
+        }
+        let outgoingHadBass = ctx.outgoing.bassRanges.contains { $0.overlaps((swapOut - barSeconds)...swapOut) }
+        let incomingHasBass = ctx.incoming.bassRanges.contains { $0.overlaps(swapIn...(swapIn + barSeconds)) }
+        if outgoingHadBass, !incomingHasBass {
+            return (0.3, "the bass drops out at the swap")
+        }
+        return (0.0, "bass swap lands on the incoming bass")
     }
 }
 

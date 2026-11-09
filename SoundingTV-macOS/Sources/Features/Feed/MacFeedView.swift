@@ -4,7 +4,6 @@ import AppKit
 struct MacFeedView: View {
     @EnvironmentObject private var credentials: SoundCloudCredentialSource
     @ObservedObject private var model: FeedViewModel
-    @ObservedObject private var player = PlayerService.shared
     private let showsHeader: Bool
 
     init(model: FeedViewModel, showsHeader: Bool = true) {
@@ -13,12 +12,10 @@ struct MacFeedView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if showsHeader { header }
-            content
-        }
-        .background(Color.black.opacity(0.001))
-        .task { await loadFeedIfNeeded() }
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.primary.opacity(0.001))
+            .task { await loadFeedIfNeeded() }
     }
 
     private enum MacFeedState: Equatable {
@@ -27,6 +24,7 @@ struct MacFeedView: View {
     }
 
     private var feedState: MacFeedState {
+        if !model.items.isEmpty { return .loaded }
         if !model.loadedOnce || (model.isLoading && model.items.isEmpty) {
             return .loading
         }
@@ -49,16 +47,6 @@ struct MacFeedView: View {
         await model.loadContent()
     }
 
-    private var header: some View {
-        MacPaneHeader(title: "Stream", subtitle: headerSubtitle)
-    }
-
-    private var headerSubtitle: String? {
-        guard case .loaded = feedState else { return nil }
-        let count = model.items.count
-        return "\(count) update\(count == 1 ? "" : "s") from people you follow"
-    }
-
     @ViewBuilder
     private var content: some View {
         if credentials.isSignedOut {
@@ -66,29 +54,25 @@ struct MacFeedView: View {
         } else {
             switch feedState {
             case .loading:
-                ProgressView()
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                MacLoadingView()
             case .error(let message):
-                SCEmptyState(
-                    kind: .error,
-                    title: "Couldn't Load Stream",
-                    message: message,
-                    actionTitle: "Try Again",
-                    action: { Task { await loadFeed() } },
-                    style: .mac
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ContentUnavailableView {
+                    Label("Couldn’t Load Following", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    Button("Try Again") { Task { await loadFeed() } }
+                }
+                .macFillsPane()
             case .empty:
-                SCEmptyState(
-                    icon: "dot.radiowaves.up.forward",
-                    title: "Nothing Here Yet",
-                    message: "Follow artists on SoundCloud and their uploads, playlists and reposts will show up here.",
-                    actionTitle: "Search SoundCloud",
-                    action: { MacRootSelection.shared.request(.search) },
-                    style: .mac
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ContentUnavailableView {
+                    Label("Nothing Here Yet", systemImage: "dot.radiowaves.up.forward")
+                } description: {
+                    Text("Follow artists on SoundCloud and their uploads, playlists and reposts will show up here.")
+                } actions: {
+                    Button("Search SoundCloud") { MacRootSelection.shared.request(.search) }
+                }
+                .macFillsPane()
             case .loaded:
                 list
             }
@@ -100,7 +84,7 @@ struct MacFeedView: View {
     private var list: some View {
         List {
             ForEach(Array(model.items.enumerated()), id: \.element.id) { index, activity in
-                FeedActivityRow(activity: activity, context: { model.items.compactMap(\.track) }, player: player)
+                FeedActivityRow(activity: activity, context: { model.items.compactMap(\.track) })
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(
                         top: SCContentStyle.mac.spaceHair,
@@ -108,44 +92,33 @@ struct MacFeedView: View {
                         bottom: SCContentStyle.mac.spaceHair,
                         trailing: SCContentStyle.mac.spaceGutter
                     ))
-                    .onAppear {
-                        guard model.items.isNearEnd(activity, lead: 8) else { return }
-                        Task { await model.loadMore() }
-                    }
+                    .onAppear { model.pager.loadMoreIfNeeded(after: activity, lead: 12) }
                     .onAppear {
                         let items = model.items
                         let lookahead = items[index..<min(index + Self.artworkLookahead, items.count)]
                         ArtworkCache.shared.prefetch(lookahead.compactMap { $0.track?.artworkURL ?? $0.playlist?.displayArtworkURL })
                     }
             }
-            if model.isLoadingMore {
-                HStack {
-                    Spacer()
-                    ProgressView().controlSize(.small)
-                    Spacer()
-                }
-                .padding(.vertical, 8)
+            MacPagedFooter(pager: model.pager, isInLazyContainer: true)
                 .listRowSeparator(.hidden)
-            }
         }
         .listStyle(.plain)
     }
 
     private var signedOutState: some View {
         MacSignedOutEmptyState(
-            title: "Stream Needs an Account",
+            title: "Following Needs an Account",
             message: "Sign in to see what the people you follow are posting. Home and Search work without an account.",
             browsableRoute: .home
         )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
 private struct FeedActivityRow: View {
     let activity: FeedActivity
     let context: () -> [Track]
-    @ObservedObject var player: PlayerService
-    @State private var artwork: NSImage?
+    private let player = PlayerService.shared
+    private let playback = PlaybackIndicatorStore.shared
     @State private var isHovering = false
 
     private let style = SCContentStyle.mac
@@ -156,7 +129,7 @@ private struct FeedActivityRow: View {
 
     private var isCurrent: Bool {
         guard let track = activity.track else { return false }
-        return player.currentTrack?.id == track.id
+        return playback.isCurrent(track.id)
     }
 
     private var title: String { activity.track?.title ?? activity.playlist?.title ?? "" }
@@ -170,117 +143,137 @@ private struct FeedActivityRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: style.spaceBase) {
-            artworkView
+        Button(action: primaryAction) {
+            HStack(alignment: .center, spacing: style.spaceBase) {
+                artworkView
 
-            VStack(alignment: .leading, spacing: style.spaceHair) {
-                if activity.isRepost {
-                    Label("Reposted by \(activity.actor.displayName)", systemImage: "arrow.2.squarepath")
-                        .font(style.fontCaptionEmphasis)
-                        .foregroundStyle(style.textSecondary)
-                }
-
-                Text(title)
-                    .font(style.fontHeadline)
-                    .foregroundStyle(isPlayableTrack ? style.textPrimary : style.textTertiary)
-                    .lineLimit(1)
-
-                HStack(spacing: style.spaceHair) {
-                    if isPlaylist {
-                        Image(systemName: "music.note.list")
-                            .font(.system(size: 10, weight: .semibold))
+                VStack(alignment: .leading, spacing: style.spaceHair) {
+                    if let promotedLabel = activity.promotedLabel {
+                        Text(promotedLabel)
+                            .font(style.fontCaptionEmphasis)
+                            .foregroundStyle(style.textSecondary)
+                    } else if activity.isRepost {
+                        Label("Reposted by \(activity.actor.displayName)", systemImage: "arrow.2.squarepath")
+                            .font(style.fontCaptionEmphasis)
+                            .foregroundStyle(style.textSecondary)
                     }
-                    Text(subtitle)
+
+                    Text(title)
+                        .font(style.fontHeadline)
+                        .foregroundStyle(isPlayableTrack ? style.textPrimary : style.textTertiary)
                         .lineLimit(1)
+
+                    HStack(spacing: style.spaceHair) {
+                        if isPlaylist {
+                            Image(systemName: "music.note.list")
+                                .font(.caption2.weight(.semibold))
+                                .accessibilityHidden(true)
+                        }
+                        Text(subtitle)
+                            .lineLimit(1)
+                    }
+                    .font(isPlaylist ? style.fontCaptionEmphasis : style.fontSubheadline)
+                    .foregroundStyle(style.textSecondary)
                 }
-                .font(isPlaylist ? style.fontCaptionEmphasis : style.fontSubheadline)
-                .foregroundStyle(style.textSecondary)
+
+                Spacer(minLength: style.spaceTight)
+
+                trailing
             }
-
-            Spacer(minLength: style.spaceTight)
-
-            trailing
+            .padding(.vertical, style.spaceSnug)
+            .padding(.horizontal, style.spaceSnug)
+            .opacity(isPlayableTrack ? 1 : 0.72)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, style.spaceSnug)
-        .padding(.horizontal, style.spaceSnug)
-        .opacity(isPlayableTrack ? 1 : 0.72)
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
         .macHoverRowHighlight(cornerRadius: style.cornerCard)
         .onHover { isHovering = $0 }
-        .onTapGesture(perform: primaryAction)
         .contextMenu { contextMenuItems }
-        .task(id: artworkURL) { await loadArtwork() }
+        .promotedImpression(activity)
         .help(isPlayableTrack ? "" : "No playable source for this track on this account.")
+        .accessibilityLabel(accessibilitySummary)
+        .modifier(FeedTrackAccessibility(track: activity.track, context: context, isCurrent: isCurrent))
+    }
+
+    private var accessibilitySummary: String {
+        var parts: [String] = []
+        if let promotedLabel = activity.promotedLabel {
+            parts.append(promotedLabel)
+        } else if activity.isRepost {
+            parts.append("Reposted by \(activity.actor.displayName)")
+        }
+        if let track = activity.track {
+            parts.append(macTrackAccessibilityLabel(track, isCurrent: isCurrent))
+        } else {
+            parts.append("\(title), playlist, \(subtitle)")
+        }
+        return parts.joined(separator: ", ")
     }
 
     @ViewBuilder
     private var artworkView: some View {
-        SCArtwork(image: artwork.map { Image(nsImage: $0) }, identity: title, isAvailable: isPlayableTrack, style: style, cornerRadius: style.cornerControl)
+        SCArtworkResolver(url: MacCollectionCover.artworkURLs(for: activity).first, variant: .standard) { artwork in
+            SCArtwork(image: artwork, identity: activity.track?.id ?? activity.playlist?.id ?? title, isAvailable: isPlayableTrack, style: style, cornerRadius: style.cornerControl)
+        }
             .frame(width: Self.artworkSize, height: Self.artworkSize)
             .kyleCrowned(user: activity.track?.user ?? activity.playlist?.user, context: title)
             .overlay {
-                if isHovering, activity.track != nil, isPlayableTrack, !(isCurrent && player.isPlaying) {
+                if isHovering, activity.track != nil, isPlayableTrack, !(isCurrent && playback.isPlaying) {
                     ZStack {
                         Color.black.opacity(0.4)
                         Image(systemName: "play.fill")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.body.weight(.bold))
                             .foregroundStyle(.white)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: style.cornerControl, style: .continuous))
                 }
             }
-    }
-
-    private var artworkURL: URL? { activity.track?.artworkURL ?? activity.playlist?.displayArtworkURL }
-
-    private func loadArtwork() async {
-        for url in MacCollectionCover.artworkURLs(for: activity).prefix(1) {
-            if let image = await ArtworkCache.shared.image(for: url, variant: .standard) {
-                artwork = image
-                return
-            }
-        }
-        artwork = nil
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
     private var trailing: some View {
-        if isPlaylist {
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(style.textTertiary)
-        } else if let track = activity.track {
-            if isCurrent, player.isLoading {
-                ProgressView().controlSize(.small)
-            } else if isCurrent, player.isPlaying {
-                Image(systemName: "waveform")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(style.spaceTight)
-                    .background(.black.opacity(0.45), in: Circle())
-            } else if track.streamURL != nil {
-                HStack(spacing: style.spaceHair) {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 10))
-                        .foregroundStyle(style.textTertiary)
-                    Text(track.formattedDuration)
-                        .font(style.fontCaptionEmphasis)
-                        .monospacedDigit()
-                        .foregroundStyle(style.textSecondary)
-                }
-            } else {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 12))
+        Group {
+            if isPlaylist {
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(style.textTertiary)
+            } else if let track = activity.track {
+                if isCurrent, playback.isLoading {
+                    ProgressView().controlSize(.small)
+                } else if isCurrent, playback.isPlaying {
+                    Image(systemName: "waveform")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(style.spaceTight)
+                        .background(.black.opacity(0.45), in: Circle())
+                } else if track.streamURL != nil {
+                    HStack(spacing: style.spaceHair) {
+                        Image(systemName: "waveform")
+                            .font(.caption2)
+                            .foregroundStyle(style.textTertiary)
+                        Text(SubscriptionService.shared.displayedDuration(for: track))
+                            .font(style.fontCaptionEmphasis)
+                            .monospacedDigit()
+                            .foregroundStyle(style.textSecondary)
+                    }
+                } else {
+                    Image(systemName: "lock.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(style.textTertiary)
+                }
             }
         }
+        .accessibilityHidden(true)
     }
 
     private func primaryAction() {
         if let track = activity.track {
             guard track.streamURL != nil else { return }
-            Task { await player.play(track, in: context()) }
+            PromotedTracking.shared.record(.play, for: activity)
+            Task { await MacPlayback.play(track, in: context()) }
         } else if let playlist = activity.playlist {
+            PromotedTracking.shared.record(.click, for: activity)
             MacRootSelection.shared.request(playlist: playlist)
         }
     }
@@ -292,6 +285,20 @@ private struct FeedActivityRow: View {
         } else if let playlist = activity.playlist {
             Button("Open on SoundCloud") { NSWorkspace.shared.open(playlist.permalinkURL) }
             Button("Copy SoundCloud Link") { copyToPasteboard(playlist.permalinkURL) }
+        }
+    }
+}
+
+private struct FeedTrackAccessibility: ViewModifier {
+    let track: Track?
+    let context: () -> [Track]
+    let isCurrent: Bool
+
+    func body(content: Content) -> some View {
+        if let track {
+            content.macTrackAccessibility(track: track, context: context(), isCurrent: isCurrent)
+        } else {
+            content
         }
     }
 }

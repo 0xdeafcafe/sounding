@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import UIKit
 
 struct RootView: View {
     @EnvironmentObject var authService: AuthenticationService
@@ -7,32 +8,65 @@ struct RootView: View {
     @EnvironmentObject var navigationState: NavigationState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("red.forbes.sounding.didSeeTVWelcome") private var didSeeWelcome = false
+    @AppStorage("red.forbes.sounding.tv.usesDeviceMusic") private var usesDeviceMusic = false
+    @ObservedObject private var remoteMusic = RemoteLocalMusic.shared
+    @AppStorage("red.forbes.sounding.tv.didAnswerMusicStep") private var didAnswerMusicStep = false
+    @State private var forcesStartScreen = RootView.debugForcesStartScreen
+    @State private var showsMusicStep = RootView.debugForcesMusicStep
 
     var body: some View {
         content
+            .tvTrackActionsHost()
+            .downloadRequestPrompts()
+            .soundCloudEntitlementAlert()
+            .listenTogether()
             .onChange(of: playerService.currentTrack?.largeArtworkURL) { _, url in
                 ArtworkColors.shared.update(for: url)
             }
-            .onChange(of: playerService.currentTrack?.id) { _, newId in
-                if newId != nil, let track = playerService.currentTrack {
-                    TopShelfPublisher.notePlayed(track)
-                }
-            }
             .onChange(of: playerService.explicitPlayRequest) { _, _ in
-                guard authService.isAuthenticated else { return }
-                navigationState.selectedTab = .nowPlaying
+                guard authService.isAuthenticated || usesDeviceMusic else { return }
+                navigationState.showNowPlaying()
             }
             .onChange(of: authService.needsSignIn, initial: true) { _, needsSignIn in
                 guard needsSignIn else { return }
-                playerService.clearQueue()
+                playerService.clearQueue(forgetSavedSession: false)
+            }
+            .onAppear { TopShelfPublisher.start() }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                TopShelfPublisher.flush()
             }
             .ambientScreen(isEnabled: authService.isAuthenticated)
+            .modifier(SameAccountLinking())
             .userActivity(
                 HandoffActivityType.nowPlaying,
                 isActive: authService.isAuthenticated && playerService.currentTrack != nil
             ) { activity in
                 configureNowPlayingActivity(activity)
             }
+    }
+
+    private static var debugForcesStartScreen: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["SOUNDING_TV_START_SCREEN"] == "1"
+        #else
+        false
+        #endif
+    }
+
+    private static var debugForcesMusicStep: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["SOUNDING_TV_MUSIC_STEP"] == "1"
+        #else
+        false
+        #endif
+    }
+
+    private static var debugSkipsMusicStep: Bool {
+        #if DEBUG
+        VisualFixtures.isEnabled || ProcessInfo.processInfo.environment["SOUNDING_TV_DISMISS_WELCOME"] == "1"
+        #else
+        false
+        #endif
     }
 
     private func configureNowPlayingActivity(_ activity: NSUserActivity) {
@@ -45,393 +79,136 @@ struct RootView: View {
             "trackId": track.id,
             "trackTitle": track.title,
             "artist": track.user.displayName,
+            "position": playerService.currentTime,
         ]
         activity.requiredUserInfoKeys = ["trackId"]
     }
 
+    private var showsTabs: Bool { !authService.needsSignIn || usesDeviceMusic }
+
+    private var landsInDeviceMusic: Bool {
+        remoteMusic.hasMusic && authService.needsSignIn && !usesDeviceMusic
+    }
+
+    private func startWithDeviceMusic() {
+        usesDeviceMusic = true
+        didSeeWelcome = true
+        navigationState.selectedTab = .library
+    }
+
+    private func useWithoutSoundCloud() {
+        forcesStartScreen = false
+        if didAnswerMusicStep {
+            startWithDeviceMusic()
+        } else {
+            showsMusicStep = true
+        }
+    }
+
+    private func answerMusicStep() {
+        didAnswerMusicStep = true
+        didSeeWelcome = true
+        showsMusicStep = false
+        if authService.needsSignIn { startWithDeviceMusic() }
+    }
+
     @ViewBuilder
     private var content: some View {
-        if !authService.needsSignIn {
-            if didSeeWelcome {
-                tabs
-                    .tabViewStyle(.sidebarAdaptable)
-                    .background(BrowseBackdrop())
-                    .tabViewSidebarHeader { SidebarHeader(user: authService.currentUser) }
-                    .toolbar {
-                        if playerService.currentTrack != nil,
-                           navigationState.selectedTab != .nowPlaying {
-                            ToolbarItem(placement: .topBarLeading) {
-                                NowPlayingToolbarStatus()
-                            }
-                        }
-                    }
-                    .animation(reduceMotion ? nil : Motion.settle, value: navigationState.selectedTab)
+        Group {
+            if showsMusicStep {
+                TVMusicStepView(onContinue: answerMusicStep)
+                    .transition(.push(from: .trailing))
+            } else if showsTabs, !forcesStartScreen {
+                signedInContent
             } else {
-                TVWelcomeView { didSeeWelcome = true }
-            }
-        } else {
-            QRCodeLoginView()
-        }
-    }
-
-    private var tabs: some View {
-        TabView(selection: $navigationState.selectedTab) {
-            Tab("Home", systemImage: NavigationState.Tab.home.icon, value: .home) {
-                HomeView()
-            }
-            .accessibilityIdentifier("sidebar.tab.home")
-            Tab("Following", systemImage: NavigationState.Tab.following.icon, value: .following) {
-                FeedView()
-            }
-            .accessibilityIdentifier("sidebar.tab.following")
-            Tab(value: NavigationState.Tab.search, role: .search) {
-                SearchView()
-            }
-            .accessibilityIdentifier("sidebar.tab.search")
-            Tab("Library", systemImage: NavigationState.Tab.library.icon, value: .library) {
-                LibraryView()
-            }
-            .accessibilityIdentifier("sidebar.tab.library")
-            Tab("Now Playing", systemImage: NavigationState.Tab.nowPlaying.icon, value: .nowPlaying) {
-                NowPlayingView()
-            }
-            .accessibilityIdentifier("sidebar.tab.nowPlaying")
-            Tab("Polyphony", systemImage: NavigationState.Tab.polyphony.icon, value: .polyphony) {
-                TVPolyphonyView()
-            }
-            .accessibilityIdentifier("sidebar.tab.polyphony")
-            Tab("Companion", systemImage: NavigationState.Tab.companion.icon, value: .companion) {
-                QRCodeLoginView(onClose: { navigationState.selectedTab = .home }, purpose: .companion)
-            }
-            .accessibilityIdentifier("sidebar.tab.companion")
-            Tab("Profile", systemImage: NavigationState.Tab.profile.icon, value: .profile) {
-                ProfileTabView()
-            }
-            .accessibilityIdentifier("sidebar.tab.profile")
-            Tab("Settings", systemImage: NavigationState.Tab.settings.icon, value: .settings) {
-                SettingsView()
-            }
-            .accessibilityIdentifier("sidebar.tab.settings")
-        }
-        .toolbarVisibility(.visible, for: .tabBar)
-    }
-}
-
-private struct TVWelcomeView: View {
-    let onContinue: () -> Void
-
-    @FocusState private var continueIsFocused: Bool
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                welcomeBackdrop
-
-                HStack(spacing: 88) {
-                    welcomeCopy
-                        .frame(maxWidth: 780, alignment: .leading)
-
-                    WelcomeArtworkStack()
-                        .frame(
-                            width: min(700, proxy.size.width * 0.40),
-                            height: min(760, proxy.size.height * 0.76)
-                        )
-                        .frame(maxWidth: .infinity)
-                }
-                .padding(.horizontal, 96)
-                .padding(.vertical, 64)
+                QRCodeLoginView(useWithoutSoundCloud: useWithoutSoundCloud)
             }
         }
-        .defaultFocus($continueIsFocused, true)
-    }
-
-    private var welcomeCopy: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Eyebrow(text: "SOUNDINGCLOUD ON TV", tint: .scAccent)
-
-            Text("Your sound.\nFill the room.")
-                .font(.tvDisplay)
-                .foregroundStyle(Color.scTextPrimary)
-                .tracking(-2.2)
-                .padding(.top, Space.snug)
-
-            Text("Your likes, playlists, and Stream are already here. Pick the first track, or let Auto DJ keep the night moving.")
-                .font(.tvBody)
-                .foregroundStyle(Color.scTextSecondary)
-                .lineSpacing(5)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 700, alignment: .leading)
-                .padding(.top, Space.base)
-
-            Button(action: onContinue) {
-                HStack(spacing: Space.snug) {
-                    Text("Start listening")
-                        .font(.tvBodyEmph)
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 25, weight: .bold))
-                }
-                .padding(.horizontal, Space.roomy)
-                .padding(.vertical, 18)
-            }
-            .buttonStyle(WelcomeActionButtonStyle())
-            .focused($continueIsFocused)
-            .padding(.top, Space.roomy)
-
-            HStack(spacing: Space.roomy) {
-                welcomeFeature(
-                    icon: "dot.radiowaves.up.forward",
-                    title: "Your Stream",
-                    detail: "Fresh from who you follow"
-                )
-                welcomeFeature(
-                    icon: "wand.and.stars",
-                    title: "Auto DJ",
-                    detail: "Continuous mixes, handled"
-                )
-                welcomeFeature(
-                    icon: "iphone.and.arrow.forward",
-                    title: "Companion",
-                    detail: "Control it from iPhone or Mac"
-                )
-            }
-            .padding(.top, 56)
+        .animation(reduceMotion ? nil : .smooth, value: showsMusicStep)
+        .fullScreenCover(isPresented: $navigationState.isSigningIn) {
+            QRCodeLoginView(onClose: { navigationState.isSigningIn = false })
         }
-        .frame(maxHeight: .infinity, alignment: .center)
-    }
-
-    private func welcomeFeature(icon: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(Color.scAccent)
-                .frame(width: 28, height: 28)
-
-            VStack(alignment: .leading, spacing: Space.hair) {
-                Text(title)
-                    .font(.tvCalloutEmph)
-                    .foregroundStyle(Color.scTextPrimary)
-                Text(detail)
-                    .font(.system(size: 23, weight: .regular))
-                    .foregroundStyle(Color.scTextTertiary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+        .onChange(of: authService.needsSignIn) { _, needsSignIn in
+            if !needsSignIn { navigationState.isSigningIn = false }
+        }
+        .onChange(of: authService.needsSignIn, initial: true) { _, needsSignIn in
+            let deviceTabs: [NavigationState.Tab] = [.library, .nowPlaying, .settings]
+            if needsSignIn, !deviceTabs.contains(navigationState.selectedTab) {
+                navigationState.selectedTab = .library
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var welcomeBackdrop: some View {
-        ZStack {
-            BrowseBackdrop()
-            RadialGradient(
-                colors: [Color.scAccent.opacity(0.20), .clear],
-                center: .topTrailing,
-                startRadius: 60,
-                endRadius: 980
-            )
-            LinearGradient(
-                colors: [.black.opacity(0.08), .black.opacity(0.34)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+        .onChange(of: landsInDeviceMusic, initial: true) { _, lands in
+            if lands, !forcesStartScreen { startWithDeviceMusic() }
         }
-        .ignoresSafeArea()
-    }
-}
-
-private struct WelcomeActionButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        FocusedButton(configuration: configuration)
-    }
-
-    private struct FocusedButton: View {
-        let configuration: Configuration
-        @Environment(\.isFocused) private var isFocused
-        @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-        var body: some View {
-            configuration.label
-                .foregroundStyle(isFocused ? Color.black : Color.white)
-                .background(
-                    isFocused ? Color.white : Color.white.opacity(0.12),
-                    in: Capsule()
-                )
-                .overlay {
-                    Capsule()
-                        .strokeBorder(Color.white.opacity(isFocused ? 0 : 0.18), lineWidth: 1)
-                }
-                .shadow(color: isFocused ? Color.black.opacity(0.35) : .clear, radius: 28, y: 12)
-                .scaleEffect(isFocused ? 1.06 : 1)
-                .opacity(configuration.isPressed ? 0.82 : 1)
-                .focusEffectDisabled()
-                .animation(reduceMotion ? nil : Motion.focus, value: isFocused)
-        }
-    }
-}
-
-private struct WelcomeArtworkStack: View {
-    var body: some View {
-        ZStack {
-            artworkCard(
-                identity: "SoundingCloud discovery",
-                glyph: .sparkles,
-                edge: 390
-            )
-            .rotationEffect(.degrees(-11))
-            .offset(x: -116, y: -76)
-            .opacity(0.62)
-
-            artworkCard(
-                identity: "SoundingCloud afterhours",
-                glyph: .headphones,
-                edge: 420
-            )
-            .rotationEffect(.degrees(10))
-            .offset(x: 122, y: 92)
-            .opacity(0.78)
-
-            ZStack(alignment: .bottom) {
-                artworkCard(
-                    identity: "SoundingCloud live set",
-                    glyph: .waveform,
-                    edge: 510
-                )
-
-                HStack(spacing: Space.snug) {
-                    ZStack {
-                        Circle().fill(Color.scAccent)
-                        Image(systemName: "wand.and.stars")
-                            .font(.system(size: 23, weight: .bold))
-                            .foregroundStyle(Color.scAccentOn)
-                    }
-                    .frame(width: 52, height: 52)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Eyebrow(text: "AUTO DJ READY", tint: .scAccent)
-                        Text("Takes it from here")
-                            .font(.tvCalloutEmph)
-                            .foregroundStyle(Color.scTextPrimary)
-                    }
-
-                    Spacer(minLength: 0)
-
-                    Image(systemName: "waveform")
-                        .font(.system(size: 31, weight: .semibold))
-                        .foregroundStyle(Color.scTextSecondary)
-                        .symbolEffect(.variableColor.iterative)
-                }
-                .padding(Space.snug)
-                .liquidGlass(
-                    in: RoundedRectangle(cornerRadius: Corner.card, style: .continuous),
-                    tint: .black.opacity(0.30)
-                )
-                .padding(Space.snug)
-            }
-            .frame(width: 510, height: 510)
-            .shadow(color: .black.opacity(0.46), radius: 44, y: 26)
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func artworkCard(
-        identity: String,
-        glyph: GeneratedArtworkGlyph,
-        edge: CGFloat
-    ) -> some View {
-        GeneratedArtworkCard(
-            identity: identity,
-            glyphOverride: glyph
-        )
-        .frame(width: edge, height: edge)
-        .overlay {
-            RoundedRectangle(cornerRadius: SCContentStyle.tv.cornerCard, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-        }
-    }
-}
-
-private struct NowPlayingToolbarStatus: View {
-    @EnvironmentObject private var player: PlayerService
-    @EnvironmentObject private var navigation: NavigationState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        if let track = player.currentTrack {
-            Button {
-                withAnimation(reduceMotion ? nil : Motion.settle) {
-                    navigation.selectedTab = .nowPlaying
-                }
-            } label: {
-                HStack(spacing: Space.tight) {
-                    ArtworkImage(url: track.artworkURL, variant: .standard)
-                        .frame(width: 42, height: 42)
-                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(track.title)
-                            .font(.tvCaption)
-                            .foregroundStyle(Color.scTextPrimary)
-                            .lineLimit(1)
-                        Text(track.user.displayName)
-                            .font(.system(size: 18, weight: .regular))
-                            .foregroundStyle(Color.scTextSecondary)
-                            .lineLimit(1)
-                    }
-                    .frame(width: 250, alignment: .leading)
-
-                    Image(systemName: player.isPlaying ? "waveform" : "pause.fill")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(Color.scAccent)
-                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.bordered)
-            .id(track.id)
-            .accessibilityLabel("Now Playing, \(track.title) by \(track.user.displayName)")
-            .accessibilityHint("Opens Now Playing")
-            .accessibilityIdentifier("nowPlayingToolbarStatus")
-        }
-    }
-}
-
-private struct SidebarHeader: View {
-    let user: User?
-
-    var body: some View {
-        HStack(spacing: Space.snug) {
-            avatar
-            Text(user?.displayName ?? "Guest")
-                .font(.tvBodyEmph)
-                .foregroundStyle(Color.scTextPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .layoutPriority(1)
-        }
-        .padding(.horizontal, Space.snug)
-        .padding(.vertical, Spacing.sm)
     }
 
     @ViewBuilder
-    private var avatar: some View {
-        ArtworkImage(url: user?.avatarURL) {
-            Circle()
-                .fill(Color.scBgRaised)
-                .overlay(
-                    Text(initials)
-                        .font(.tvCalloutEmph)
-                        .foregroundStyle(Color.scTextPrimary)
-                )
+    private var signedInContent: some View {
+        if didSeeWelcome || usesDeviceMusic || didAnswerMusicStep || Self.debugSkipsMusicStep {
+            tabs
+                .tabViewStyle(.tabBarOnly)
+                .background(BrowseBackdrop())
+                .animation(reduceMotion ? nil : Motion.settle, value: navigationState.selectedTab)
+        } else {
+            TVMusicStepView(onContinue: answerMusicStep)
+                .transition(.push(from: .trailing))
         }
-        .frame(width: 56, height: 56)
-        .clipShape(Circle())
-        .kyleCrowned(user: user, context: user?.displayName)
     }
 
-    private var initials: String {
-        let name = user?.displayName ?? "Guest"
-        let letters = name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init)
-        return letters.isEmpty ? "?" : letters.joined().uppercased()
+    @ViewBuilder
+    private var tabs: some View {
+        if !authService.needsSignIn {
+            TabView(selection: $navigationState.selectedTab) {
+                Tab("Home", systemImage: NavigationState.Tab.home.icon, value: .home) {
+                    HomeView()
+                }
+                .accessibilityIdentifier("sidebar.tab.home")
+                Tab(value: NavigationState.Tab.search, role: .search) {
+                    SearchView()
+                }
+                .accessibilityIdentifier("sidebar.tab.search")
+                libraryTab
+                Tab("Decks", systemImage: NavigationState.Tab.decks.icon, value: .decks) {
+                    DJModeView { navigationState.selectedTab = .home }
+                }
+                .accessibilityIdentifier("sidebar.tab.decks")
+                Tab("Stations", systemImage: NavigationState.Tab.stations.icon, value: .stations) {
+                    TVStationsView()
+                }
+                .accessibilityIdentifier("sidebar.tab.stations")
+                nowPlayingTab
+                settingsTab
+            }
+            .toolbarVisibility(.visible, for: .tabBar)
+        } else {
+            TabView(selection: $navigationState.selectedTab) {
+                libraryTab
+                nowPlayingTab
+                settingsTab
+            }
+            .toolbarVisibility(.visible, for: .tabBar)
+        }
+    }
+
+    private var libraryTab: some TabContent<NavigationState.Tab> {
+        Tab("Library", systemImage: NavigationState.Tab.library.icon, value: .library) {
+            LibraryView()
+        }
+        .accessibilityIdentifier("sidebar.tab.library")
+    }
+
+    private var nowPlayingTab: some TabContent<NavigationState.Tab> {
+        Tab("Now Playing", systemImage: NavigationState.Tab.nowPlaying.icon, value: .nowPlaying) {
+            NowPlayingView()
+        }
+        .accessibilityIdentifier("sidebar.tab.nowPlaying")
+    }
+
+    private var settingsTab: some TabContent<NavigationState.Tab> {
+        Tab("Settings", systemImage: NavigationState.Tab.settings.icon, value: .settings) {
+            SettingsView()
+        }
+        .accessibilityIdentifier("sidebar.tab.settings")
     }
 }
 
@@ -440,4 +217,105 @@ private struct SidebarHeader: View {
         .environmentObject(AuthenticationService.shared)
         .environmentObject(PlayerService.shared)
         .environmentObject(NavigationState())
+}
+
+private struct SameAccountLinking: ViewModifier {
+    @EnvironmentObject var authService: AuthenticationService
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var advertiser = SameAccountLinkAdvertiser.shared
+    @ObservedObject private var server = SameAccountLinkAdvertiser.shared.server
+    @ObservedObject private var nearby = SameAccountPhoneBrowser.shared
+    @State private var linkedBanner: String?
+    @State private var dismissedNearbyName: String?
+
+    private var accountKey: String {
+        "\(!authService.needsSignIn)-\(authService.currentUser?.id ?? "")-\(scenePhase != .background)"
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .bottom) {
+                if let banner = linkedBanner ?? nearbyHint {
+                    Label(banner, systemImage: DeviceClass.phone.symbolName)
+                        .font(.tvCaption)
+                        .foregroundStyle(Color.scTextPrimary)
+                        .padding(.horizontal, Space.base)
+                        .padding(.vertical, Space.snug)
+                        .glassEffect(.regular, in: Capsule())
+                        .padding(.bottom, Space.base)
+                        .allowsHitTesting(false)
+                        .focusable(false)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
+            }
+            .animation(.smooth, value: linkedBanner ?? nearbyHint)
+            .alert(
+                "Allow “\(server.linkApproval?.deviceName ?? "A nearby device")” to link to this Apple TV?",
+                isPresented: Binding(get: { server.linkApproval != nil }, set: { _ in }),
+                presenting: server.linkApproval
+            ) { _ in
+                Button("Allow") { server.approveLink() }
+                Button("Don't Allow", role: .cancel) { server.declineLink() }
+            } message: { approval in
+                Text("It's signed in to your SoundCloud account. Only allow it if it shows this code.\n\n\(Self.grouped(approval.code))")
+                    .monospacedDigit()
+                    .multilineTextAlignment(.center)
+            }
+            .onChange(of: accountKey, initial: true) { _, _ in update() }
+            .onChange(of: advertiser.isAdvertising) { _, _ in askPhonesToLink() }
+            .onChange(of: server.linkApproval != nil) { _, _ in askPhonesToLink() }
+            .onReceive(CompanionServer.shared.$devices) { devices in askPhonesToLink(devices) }
+            .onChange(of: nearby.nearbyName, initial: true) { _, name in
+                askPhonesToLink()
+                guard let name else {
+                    dismissedNearbyName = nil
+                    return
+                }
+                Task {
+                    try? await Task.sleep(for: .seconds(10))
+                    if nearby.nearbyName == name { dismissedNearbyName = name }
+                }
+            }
+            .onChange(of: advertiser.linkedName) { _, name in
+                guard let name else { return }
+                linkedBanner = "\(name) is linked"
+                Task {
+                    try? await Task.sleep(for: .seconds(4))
+                    linkedBanner = nil
+                }
+            }
+    }
+
+    private var nearbyHint: String? {
+        guard !authService.needsSignIn, server.linkApproval == nil, let name = nearby.nearbyName, name != dismissedNearbyName else { return nil }
+        return "\(name) is nearby. To link it, open Sounding › Devices on it."
+    }
+
+    private func update() {
+        let accountId = authService.needsSignIn ? nil : SameAccountLinkAdvertiser.currentAccountId
+        let active = scenePhase != .background
+        advertiser.update(accountId: accountId, isActive: active)
+        nearby.update(accountId: active ? accountId : nil, linkedDeviceIds: CompanionServer.shared.devices.compactMap(\.deviceId))
+        askPhonesToLink()
+    }
+
+    private func askPhonesToLink(_ devices: [LinkedDevice]? = nil) {
+        let companions = (devices ?? CompanionServer.shared.devices).filter { $0.deviceClass != .watch && $0.deviceClass != .tv }
+        NearbyLinkRequestPublisher.shared.update(NearbyLinkRequestPublisher.Context(
+            accountId: authService.needsSignIn ? nil : SameAccountLinkAdvertiser.currentAccountId,
+            isActive: scenePhase != .background,
+            isPairing: server.linkApproval != nil || !advertiser.isAdvertising,
+            seesUnlinkedPhone: nearby.nearbyName != nil,
+            linkedDeviceIds: companions.compactMap(\.deviceId),
+            linkedDeviceCount: companions.count
+        ))
+    }
+
+    private static func grouped(_ code: String) -> String {
+        let digits = code.filter(\.isNumber)
+        guard digits.count == 6 else { return code }
+        let split = digits.index(digits.startIndex, offsetBy: 3)
+        return "\(digits[..<split]) - \(digits[split...])"
+    }
 }

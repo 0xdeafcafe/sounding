@@ -21,77 +21,67 @@ struct WatchSearchView: View {
 
     var body: some View {
         List {
-            if trimmedQuery.isEmpty {
-                WatchEmptyState(
-                    systemImage: "magnifyingglass",
-                    title: "Search SoundCloud",
-                    message: "Find tracks, playlists and artists."
-                )
-            } else if isSearching, !hasResults {
-                WatchLoadingRow()
-            } else if !hasResults {
-                if searchFailed {
-                    WatchEmptyState(
-                        systemImage: "wifi.slash",
-                        title: "Couldn't Search",
-                        message: "Check your connection and try again."
-                    )
-                } else {
-                    WatchEmptyState(
-                        systemImage: "questionmark.circle",
-                        title: "No Results",
-                        message: "Nothing matched \"\(trimmedQuery)\"."
-                    )
-                }
-            } else {
-                if !tracks.isEmpty {
-                    Section {
-                        ForEach(tracks) { track in
-                            trackRow(track)
-                        }
-                    } header: {
-                        WatchSectionHeader(title: "Songs")
+            if !tracks.isEmpty {
+                Section("Tracks") {
+                    ForEach(tracks) { track in
+                        trackRow(track)
                     }
                 }
-                if !playlists.isEmpty {
-                    Section {
-                        ForEach(playlists) { playlist in
-                            NavigationLink {
-                                WatchPlaylistDetailView(playlist: playlist)
-                            } label: {
-                                WatchTrackRow(
-                                    title: playlist.title,
-                                    subtitle: playlist.user.displayName,
-                                    artworkURL: playlist.artworkURL
-                                )
-                            }
+            }
+            if !playlists.isEmpty {
+                Section("Playlists") {
+                    ForEach(playlists) { playlist in
+                        NavigationLink {
+                            WatchPlaylistDetailView(playlist: playlist)
+                        } label: {
+                            WatchTrackRow(
+                                title: playlist.title,
+                                subtitle: playlist.user.displayName,
+                                artIdentity: playlist.id,
+                                artworkURL: playlist.artworkURL
+                            )
                         }
-                    } header: {
-                        WatchSectionHeader(title: "Playlists")
                     }
                 }
-                if !users.isEmpty {
-                    Section {
-                        ForEach(users) { user in
-                            NavigationLink {
-                                WatchArtistDetailView(user: user)
-                            } label: {
-                                WatchTrackRow(
-                                    title: user.displayName,
-                                    subtitle: "\(user.formattedFollowers) followers",
-                                    artworkURL: user.largeAvatarURL ?? user.avatarURL
-                                )
-                            }
+            }
+            if !users.isEmpty {
+                Section("Artists") {
+                    ForEach(users) { user in
+                        NavigationLink {
+                            WatchArtistDetailView(user: user)
+                        } label: {
+                            WatchTrackRow(
+                                title: user.displayName,
+                                subtitle: "\(user.formattedFollowers) followers",
+                                artIdentity: user.id,
+                                artworkURL: user.largeAvatarURL ?? user.avatarURL,
+                                isCircular: true
+                            )
                         }
-                    } header: {
-                        WatchSectionHeader(title: "Artists")
                     }
                 }
             }
         }
+        .overlay {
+            if trimmedQuery.isEmpty {
+                ContentUnavailableView(
+                    "Search",
+                    systemImage: "magnifyingglass",
+                    description: Text("Tracks, playlists and artists.")
+                )
+            } else if isSearching, !hasResults {
+                WatchLoadingState(title: "Searching")
+            } else if !hasResults {
+                if searchFailed {
+                    WatchErrorState(title: "Couldn’t Search") { scheduleSearch(for: query) }
+                } else {
+                    ContentUnavailableView.search(text: trimmedQuery)
+                }
+            }
+        }
         .navigationTitle("Search")
-        .containerBackground(WatchStyle.style.accent.gradient.opacity(0.28), for: .navigation)
-        .searchable(text: $query, prompt: "Songs, playlists, artists")
+        .watchNavigationTint()
+        .searchable(text: $query, prompt: "Tracks, Playlists, Artists")
         .onChange(of: query) { _, newValue in
             scheduleSearch(for: newValue)
         }
@@ -107,18 +97,13 @@ struct WatchSearchView: View {
             WatchTrackRow(
                 title: track.title,
                 subtitle: track.user.displayName,
+                artIdentity: track.id,
                 artworkURL: track.artworkURL,
+                duration: track.duration,
                 isPlaying: link.nowPlaying.trackId == track.id
             )
         }
-        .swipeActions(edge: .trailing) {
-            Button {
-                link.enqueue(trackId: track.id, action: .playNext)
-            } label: {
-                Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
-            }
-            .tint(WatchStyle.style.accent)
-        }
+        .watchQueueActions(trackId: track.id)
     }
 
     private func scheduleSearch(for text: String) {

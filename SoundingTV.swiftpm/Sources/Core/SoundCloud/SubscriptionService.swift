@@ -10,8 +10,33 @@ final class SubscriptionService: ObservableObject {
         case free
         case go
         case goPlus
+        case dj
         case creatorPro
         case unknown
+
+        nonisolated var isAdFree: Bool { self == .go || self == .goPlus || self == .dj }
+
+        nonisolated var displayName: String {
+            switch self {
+            case .free: return "Free"
+            case .go: return "Go"
+            case .goPlus: return "Go+"
+            case .dj: return "DJ"
+            case .creatorPro: return "Artist"
+            case .unknown: return "Unknown"
+            }
+        }
+
+        nonisolated var planName: String? {
+            switch self {
+            case .free: "SoundCloud Free"
+            case .go: "SoundCloud Go"
+            case .goPlus: "SoundCloud Go+"
+            case .dj: "SoundCloud DJ"
+            case .creatorPro: "SoundCloud Artist"
+            case .unknown: nil
+            }
+        }
     }
 
     enum VerificationStatus: Equatable {
@@ -48,8 +73,8 @@ final class SubscriptionService: ObservableObject {
     }
 
     var statusDescription: String {
-        guard hasAuthenticatedSession else {
-            return "Sign in to check your SoundCloud plan. Existing downloads remain stored but unavailable."
+        guard hasAuthenticatedSession || authenticatedAccountID != nil else {
+            return "Sign in to check your SoundCloud plan. Existing downloads stay stored but unavailable."
         }
         guard authenticatedAccountID != nil else { return "Checking your SoundCloud plan…" }
         switch (tier, unknownReason) {
@@ -65,46 +90,30 @@ final class SubscriptionService: ObservableObject {
         case (.unknown, nil):
             return "Your plan is unconfirmed."
         case (.free, _):
-            return "SoundCloud says this account has no paid subscription."
-        case (.go, _):
-            return "SoundCloud Go. Offline downloads need Go+."
-        case (.goPlus, _):
+            return "SoundCloud Free. Go+ tracks play as previews."
+        case (.go, _), (.goPlus, _), (.dj, _):
+            let name = tier == .goPlus ? "SoundCloud Go+" : (tier == .dj ? "SoundCloud DJ" : "SoundCloud Go")
+            let suffix = tier == .go ? " Go+ tracks need Go+." : ""
             switch verification {
-            case .verified:
-                return "SoundCloud Go+."
+            case .verified, .verifiedNotSubscribed:
+                return name + "." + suffix
             case .unverifiable(let withinGrace):
                 return withinGrace
-                    ? "SoundCloud Go+, unconfirmed recently. Downloads still play."
-                    : "SoundCloud Go+, but it hasn't been confirmed in a while."
-            case .verifiedNotSubscribed:
-                return "SoundCloud Go+."
+                    ? "\(name), unconfirmed recently. Tracks still play."
+                    : "\(name), but it hasn't been confirmed in a while."
             }
         case (.creatorPro, _):
-            return "A SoundCloud creator plan (Next Pro / Artist Pro). "
-                + "Creator plans don't include Go+ offline downloads."
+            return "A SoundCloud artist plan. Go+ tracks play as previews."
         }
     }
 
-    var canDownload: Bool {
-        hasAuthenticatedSession && authenticatedAccountID != nil
-            && tier == .goPlus && verification == .verified
-    }
+    nonisolated static let gracePeriod: TimeInterval = 10 * 24 * 3600
 
-    var canPlayOffline: Bool {
-        guard hasAuthenticatedSession, authenticatedAccountID != nil else { return false }
-        switch verification {
-        case .verified:
-            return tier == .goPlus
-        case .unverifiable(let withinGrace):
-            return withinGrace && tier == .goPlus
-        case .verifiedNotSubscribed:
-            return false
-        }
-    }
+    nonisolated static let deletionDelay: TimeInterval = 7 * 24 * 3600
 
-    static let gracePeriod: TimeInterval = 10 * 24 * 3600
+    nonisolated static let offlineReconfirmLimit: TimeInterval = 30 * 24 * 3600
 
-    static let deletionDelay: TimeInterval = 7 * 24 * 3600
+    var lastConfirmedAt: Date? { lastVerifiedAt }
 
     private static let reverifyInterval: TimeInterval = 6 * 3600
 
@@ -136,21 +145,23 @@ final class SubscriptionService: ObservableObject {
     }
 
     private var cancellables = Set<AnyCancellable>()
-    private nonisolated(unsafe) var reverifyTask: Task<Void, Never>?
+    private let scheduler = WorkScheduler.shared
 
     private init() {
         applyClassification(latestAttempt: .notYetAttempted, reason: .neverChecked)
 
-        NotificationCenter.default.publisher(for: .sessionExpired)
-            .sink { [weak self] _ in
-                Task { @MainActor in self?.handleSessionEnded() }
-            }
-            .store(in: &cancellables)
-
-        NotificationCenter.default.publisher(for: .soundCloudAuthenticationChanged)
+        SoundCloudCredentialSource.shared.$state
+            .map(\.sessionHealth)
+            .removeDuplicates()
             .sink { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
+                    #if DEBUG
+                    if let user = SoundCloudCredentialSource.visualFixtureUser {
+                        self.applyVisualFixture(user)
+                        return
+                    }
+                    #endif
                     if self.hasAuthenticatedSession {
                         await self.verifyNow()
                     } else {
@@ -160,21 +171,24 @@ final class SubscriptionService: ObservableObject {
             }
             .store(in: &cancellables)
 
-        reverifyTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(Self.reverifyInterval))
-                guard !Task.isCancelled else { return }
-                await self?.verifyNow()
+        scheduler.registerPeriodic(
+            id: "account.subscription.reverify",
+            scope: "account",
+            initialDelay: .seconds(Self.reverifyInterval),
+            interval: .seconds(Self.reverifyInterval),
+            condition: {
+                SoundCloudGateway.shared.isApplicationForeground
+            }
+        ) { [weak self] in
+            guard let self else { return }
+            await SoundCloudRequestEnvironment.autonomous(lane: .metadata) {
+                await self.verifyNow()
             }
         }
 
         if SoundCloudAPI.credentials?.accessToken != nil {
             Task { [weak self] in await self?.verifyNow() }
         }
-    }
-
-    deinit {
-        reverifyTask?.cancel()
     }
 
     func verifyNow() async {
@@ -196,10 +210,38 @@ final class SubscriptionService: ObservableObject {
         }
     }
 
+    #if DEBUG
+    nonisolated static var fixtureTierOverride: String? {
+        ProcessInfo.processInfo.environment["SOUNDING_TV_FIXTURE_TIER"]
+    }
+
+    private func applyVisualFixture(_ user: User) {
+        switch Self.fixtureTierOverride {
+        case "signedOut":
+            authenticatedAccountID = nil
+            tier = .unknown
+            verification = .unverifiable(withinGrace: false)
+            unknownReason = .neverChecked
+        case let raw?:
+            authenticatedAccountID = user.id
+            let fixtureTier = Tier(rawValue: raw) ?? .goPlus
+            tier = fixtureTier
+            verification = fixtureTier.isAdFree ? .verified : .verifiedNotSubscribed
+            unknownReason = nil
+        case nil:
+            authenticatedAccountID = user.id
+            applyClassification(latestAttempt: .succeeded(.goPlus), reason: nil)
+        }
+    }
+    #endif
+
     func handleSessionEnded() {
-        // Keep the last verified entitlement as private cached state so a
-        // sign-out never destroys downloads or their ownership metadata.
-        // Access stays closed through hasAuthenticatedSession until sign-in.
+        #if DEBUG
+        if let user = SoundCloudCredentialSource.visualFixtureUser {
+            applyVisualFixture(user)
+            return
+        }
+        #endif
         persistedNotSubscribedSince = nil
         authenticatedAccountID = nil
         applyClassification(latestAttempt: .notYetAttempted, reason: .neverChecked)
@@ -244,7 +286,7 @@ final class SubscriptionService: ObservableObject {
         if case .succeeded(let freshTier) = latestAttempt, freshTier != .unknown {
             lastVerifiedTier = freshTier
             lastVerifiedAt = now
-            if freshTier == .goPlus {
+            if freshTier.isAdFree {
                 persistedNotSubscribedSince = nil
             } else if persistedNotSubscribedSince == nil {
                 persistedNotSubscribedSince = now
@@ -272,8 +314,8 @@ final class SubscriptionService: ObservableObject {
         gracePeriod: TimeInterval
     ) -> (tier: Tier, verification: VerificationStatus) {
         if case .succeeded(let freshTier) = latestAttempt, freshTier != .unknown {
-            return freshTier == .goPlus
-                ? (.goPlus, .verified)
+            return freshTier.isAdFree
+                ? (freshTier, .verified)
                 : (freshTier, .verifiedNotSubscribed)
         }
 
@@ -281,9 +323,9 @@ final class SubscriptionService: ObservableObject {
             return (.unknown, .unverifiable(withinGrace: false))
         }
 
-        if lastTier == .goPlus {
+        if lastTier.isAdFree {
             let withinGrace = now.timeIntervalSince(lastVerifiedAt) <= gracePeriod
-            return (.goPlus, .unverifiable(withinGrace: withinGrace))
+            return (lastTier, .unverifiable(withinGrace: withinGrace))
         }
 
         return (lastTier, .verifiedNotSubscribed)
@@ -296,6 +338,12 @@ final class SubscriptionService: ObservableObject {
     nonisolated static let freeProductIDs: Set<String> = ["free"]
 
     nonisolated static let creatorProductIDPrefix = "creator-"
+
+    nonisolated static let djProductIDs: Set<String> = ["consumer-dj", "consumer-dj-tier"]
+
+    nonisolated static func isDJProductID(_ id: String) -> Bool {
+        djProductIDs.contains(id)
+    }
 
     struct Resolution: Equatable {
         var tier: Tier
@@ -322,6 +370,7 @@ final class SubscriptionService: ObservableObject {
                 .compactMap { $0.product?.id }
         )
 
+        if consumerIDs.contains(where: isDJProductID) { return Resolution(.dj) }
         if !consumerIDs.isDisjoint(with: goPlusProductIDs) { return Resolution(.goPlus) }
         if !consumerIDs.isDisjoint(with: goProductIDs) { return Resolution(.go) }
 
@@ -370,5 +419,280 @@ final class SubscriptionService: ObservableObject {
         return raw.keys.sorted()
             .map { "\($0) = \(raw[$0]?.diagnosticDescription ?? "null")" }
             .joined(separator: "\n")
+    }
+}
+
+// MARK: - Entitlements
+
+enum SoundCloudFeature: Sendable, Equatable {
+    case playback
+    case monetizedTrack
+    case goPlusTrack
+    case downloads
+    case djGear
+}
+
+enum DJGearFeature: Sendable, CaseIterable {
+    case decks
+    case controllers
+    case prep
+    case usbExport
+}
+
+enum SoundCloudEntitlementError: LocalizedError, Equatable {
+    case signedOut(SoundCloudFeature)
+    case planUnconfirmed
+    case needsGo(SoundCloudFeature)
+    case needsGoPlus(SoundCloudFeature)
+    case ownMusicOnly
+    case previewOnly(needsGoPlus: Bool)
+
+    var errorDescription: String? {
+        switch self {
+        case .signedOut(.downloads): return "Sign in to SoundCloud to download."
+        case .signedOut: return "Sign in to SoundCloud to play tracks."
+        case .planUnconfirmed: return "Couldn\u{2019}t confirm your SoundCloud plan."
+        case .needsGo(.downloads): return "Downloads need SoundCloud Go or Go+."
+        case .needsGo: return "Playback needs SoundCloud Go or Go+."
+        case .needsGoPlus(.downloads): return "Downloading this track needs SoundCloud Go+."
+        case .needsGoPlus(.djGear): return "DJ decks need SoundCloud Go+ for SoundCloud tracks."
+        case .needsGoPlus: return "This track needs SoundCloud Go+."
+        case .ownMusicOnly: return "Export to USB works with your own music."
+        case .previewOnly(needsGoPlus: true): return "Full track needs SoundCloud Go+."
+        case .previewOnly(needsGoPlus: false): return "Full track needs SoundCloud Go or Go+."
+        }
+    }
+
+    var offersSubscription: Bool {
+        switch self {
+        case .needsGo, .needsGoPlus, .previewOnly: return true
+        case .signedOut, .planUnconfirmed, .ownMusicOnly: return false
+        }
+    }
+}
+
+enum SoundCloudPlaybackGrant: Sendable, Equatable {
+    case full
+    case preview
+    case denied(SoundCloudEntitlementError)
+}
+
+enum SoundCloudEntitlements {
+    static let subscribeURL = URL(string: "https://soundcloud.com/go")!
+
+    nonisolated static let monetizedTracksOpen = true
+
+    nonisolated static let requiresSignInForPlayback = true
+
+    nonisolated static func isOpenToEverySignedInAccount(_ feature: SoundCloudFeature) -> Bool {
+        switch feature {
+        case .playback, .downloads: return true
+        case .monetizedTrack: return monetizedTracksOpen
+        case .goPlusTrack, .djGear: return false
+        }
+    }
+
+    nonisolated static func allowedTiers(for feature: SoundCloudFeature) -> Set<SubscriptionService.Tier> {
+        switch feature {
+        case .playback, .monetizedTrack, .downloads: return [.go, .goPlus, .dj]
+        case .goPlusTrack, .djGear: return [.goPlus, .dj]
+        }
+    }
+
+    nonisolated static func evaluate(
+        _ feature: SoundCloudFeature,
+        signedIn: Bool,
+        tier: SubscriptionService.Tier,
+        verification: SubscriptionService.VerificationStatus,
+        requiresSignIn: Bool = requiresSignInForPlayback
+    ) -> SoundCloudEntitlementError? {
+        if !requiresSignIn {
+            switch feature {
+            case .playback:
+                return nil
+            case .goPlusTrack:
+                guard signedIn, tier != .unknown, !allowedTiers(for: feature).contains(tier) else { return nil }
+                return .needsGoPlus(feature)
+            case .downloads, .monetizedTrack, .djGear:
+                break
+            }
+        }
+        guard signedIn else { return .signedOut(feature) }
+        if isOpenToEverySignedInAccount(feature) { return nil }
+        guard tier != .unknown else { return .planUnconfirmed }
+        guard allowedTiers(for: feature).contains(tier) else {
+            return allowedTiers(for: feature).contains(.go) ? .needsGo(feature) : .needsGoPlus(feature)
+        }
+        if case .unverifiable(withinGrace: false) = verification { return .planUnconfirmed }
+        return nil
+    }
+
+    nonisolated static func isGoRestricted(_ track: Track) -> Bool {
+        guard !track.isLocal else { return false }
+        if track.requiresGoPlus || track.isSnipPolicy || track.isPreviewOnly { return true }
+        return track.isMonetized && !monetizedTracksOpen
+    }
+
+    nonisolated static func trackDenial(
+        for track: Track,
+        feature: SoundCloudFeature,
+        signedIn: Bool,
+        tier: SubscriptionService.Tier,
+        verification: SubscriptionService.VerificationStatus,
+        requiresSignIn: Bool = requiresSignInForPlayback
+    ) -> SoundCloudEntitlementError? {
+        guard !track.isLocal else { return nil }
+        return features(for: track, base: feature).lazy.compactMap {
+            evaluate($0, signedIn: signedIn, tier: tier, verification: verification, requiresSignIn: requiresSignIn)
+        }.first
+    }
+
+    nonisolated static func canDownload(
+        _ track: Track,
+        signedIn: Bool,
+        tier: SubscriptionService.Tier,
+        verification: SubscriptionService.VerificationStatus
+    ) -> Bool {
+        guard !track.isLocal, track.hasFullAudio else { return false }
+        return trackDenial(for: track, feature: .downloads, signedIn: signedIn, tier: tier, verification: verification) == nil
+    }
+
+    nonisolated static func djGearDenial(
+        _ feature: DJGearFeature,
+        isSoundCloudTrack: Bool,
+        signedIn: Bool,
+        tier: SubscriptionService.Tier,
+        verification: SubscriptionService.VerificationStatus,
+        personalUnlocked: Bool
+    ) -> SoundCloudEntitlementError? {
+        guard isSoundCloudTrack, !personalUnlocked else { return nil }
+        if feature == .usbExport { return .ownMusicOnly }
+        return evaluate(.djGear, signedIn: signedIn, tier: tier, verification: verification)
+    }
+
+    nonisolated static func playbackGrant(
+        for track: Track,
+        signedIn: Bool,
+        tier: SubscriptionService.Tier,
+        verification: SubscriptionService.VerificationStatus,
+        requiresSignIn: Bool = requiresSignInForPlayback
+    ) -> SoundCloudPlaybackGrant {
+        guard !track.isLocal else { return .full }
+        let fullDenial = trackDenial(
+            for: track, feature: .playback, signedIn: signedIn, tier: tier,
+            verification: verification, requiresSignIn: requiresSignIn
+        )
+        if let fullDenial {
+            return track.hasPreview ? .preview : .denied(fullDenial)
+        }
+        return track.isPreviewOnly ? .preview : .full
+    }
+
+    nonisolated static func blendableNext(
+        after current: Track?,
+        next: Track?,
+        grant: (Track) -> SoundCloudPlaybackGrant
+    ) -> Track? {
+        guard let next, grant(next) != .preview else { return nil }
+        if let current, grant(current) == .preview { return nil }
+        return next
+    }
+
+    nonisolated static func previewDenial(for track: Track, tier: SubscriptionService.Tier) -> SoundCloudEntitlementError {
+        let goUnlocksIt = track.isMonetized && !monetizedTracksOpen
+            && !track.requiresGoPlus && !track.isSnipPolicy && !tier.isAdFree
+        return .previewOnly(needsGoPlus: !goUnlocksIt)
+    }
+
+    nonisolated static func features(for track: Track, base: SoundCloudFeature) -> [SoundCloudFeature] {
+        var features = [base]
+        if base == .playback || base == .downloads, track.isMonetized { features.append(.monetizedTrack) }
+        if track.requiresGoPlus || track.isSnipPolicy { features.append(.goPlusTrack) }
+        return features
+    }
+}
+
+extension SubscriptionService {
+    var isSignedInForEntitlements: Bool {
+        authenticatedAccountID != nil
+    }
+
+    func denial(for feature: SoundCloudFeature) -> SoundCloudEntitlementError? {
+        SoundCloudEntitlements.evaluate(
+            feature,
+            signedIn: isSignedInForEntitlements || hasAuthenticatedSession,
+            tier: tier,
+            verification: verification
+        )
+    }
+
+    func denial(for track: Track, feature: SoundCloudFeature) -> SoundCloudEntitlementError? {
+        guard !track.isLocal else { return nil }
+        for each in SoundCloudEntitlements.features(for: track, base: feature) {
+            if let denial = denial(for: each) { return denial }
+        }
+        return nil
+    }
+
+    func djGearDenial(_ feature: DJGearFeature, isSoundCloudTrack: Bool, personalUnlocked: Bool) -> SoundCloudEntitlementError? {
+        SoundCloudEntitlements.djGearDenial(
+            feature,
+            isSoundCloudTrack: isSoundCloudTrack,
+            signedIn: isSignedInForEntitlements || hasAuthenticatedSession,
+            tier: tier,
+            verification: verification,
+            personalUnlocked: personalUnlocked
+        )
+    }
+
+    func requireEntitlement(for track: Track, feature: SoundCloudFeature) async throws {
+        guard !track.isLocal else { return }
+        await verifyIfNeverChecked()
+        if let denial = denial(for: track, feature: feature) { throw denial }
+    }
+
+    func playbackGrant(for track: Track) -> SoundCloudPlaybackGrant {
+        SoundCloudEntitlements.playbackGrant(
+            for: track,
+            signedIn: isSignedInForEntitlements || hasAuthenticatedSession,
+            tier: tier,
+            verification: verification
+        )
+    }
+
+    func playsAsPreview(_ track: Track) -> Bool {
+        playbackGrant(for: track) == .preview
+    }
+
+    func previewDenial(for track: Track) -> SoundCloudEntitlementError {
+        SoundCloudEntitlements.previewDenial(for: track, tier: tier)
+    }
+
+    func requirePlaybackGrant(for track: Track, allowsPreview: Bool) async throws -> SoundCloudPlaybackGrant {
+        guard !track.isLocal else { return .full }
+        await verifyIfNeverChecked()
+        switch playbackGrant(for: track) {
+        case .full:
+            return .full
+        case .preview:
+            guard allowsPreview else {
+                throw denial(for: track, feature: .playback) ?? previewDenial(for: track)
+            }
+            return .preview
+        case .denied(let denial):
+            throw denial
+        }
+    }
+
+    func displayedDuration(for track: Track) -> String {
+        guard playsAsPreview(track) else { return track.formattedDuration }
+        let seconds = Int(track.previewDuration > 0 ? track.previewDuration : track.duration)
+        return String(format: "Preview \u{00B7} %d:%02d", seconds / 60, seconds % 60)
+    }
+
+    private func verifyIfNeverChecked() async {
+        if tier == .unknown, hasAuthenticatedSession, unknownReason == .neverChecked || authenticatedAccountID == nil {
+            await verifyNow()
+        }
     }
 }

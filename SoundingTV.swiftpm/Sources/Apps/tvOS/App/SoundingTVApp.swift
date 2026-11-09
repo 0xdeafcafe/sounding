@@ -4,29 +4,49 @@ import UIKit
 @main
 struct SoundingTVApp: App {
     @UIApplicationDelegateAdaptor(SoundingTVAppDelegate.self) private var appDelegate
+    @StateObject private var runtime: AppRuntime
     @StateObject private var authService = AuthenticationService.shared
     @StateObject private var playerService = PlayerService.shared
-    @StateObject private var polyphony = PolyphonyController.shared
     @StateObject private var navigationState = NavigationState()
+    @State private var pendingTopShelfRoute: TopShelfStore.Route?
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        MemoryRelief.install()
+        SignInRequestPublisher.sweepLeftovers()
+        NearbyLinkRequestPublisher.sweepLeftovers()
+        AccountSignInAnnouncer.shared.install()
+        SoundingTips.configure()
         #if DEBUG
-        SoundCloudCredentialSource.shared.seedDevCredentialIfAvailable()
-        #endif
-        SoundCloudCredentialSource.shared.refreshFromStore()
-        SoundCloudAPI.credentials = AuthenticationService.shared
-        SessionSyncTarget.source = AuthenticationService.shared
-        PlayerService.installNowPlaying(MediaSessionNowPlayingBridge())
-        PlayerService.lifecycleObserver = PlayerLifecycleObserver.shared
-        #if DEBUG
-        if !VisualFixtures.isEnabled {
-            LikesSyncEngine.shared.activate()
+        if VisualFixtures.isEnabled {
+            SoundCloudCredentialSource.visualFixtureUser = VisualFixtures.currentUser
+            Task { await SoundCloudCredentialSource.shared.prepareStoreAtLaunch() }
         }
-        #else
-        LikesSyncEngine.shared.activate()
         #endif
-        LikesSyncLifecycleCoordinator.shared.install()
-        CueSyncForegroundNudge.install()
+        let account = AccountSystem(
+            credentials: AuthenticationService.shared,
+            sessionSource: AuthenticationService.shared
+        )
+        let runtime = AppRuntime(platform: RuntimePlatformServices(
+            deviceLabel: "Apple TV",
+            account: account,
+            lifecycleObserver: PlayerLifecycleObserver.shared,
+            nowPlaying: MediaSessionNowPlayingBridge(),
+            peerContentSource: CompanionServer.shared,
+            prepare: {
+                await SoundCloudCredentialSource.shared.establishSessionAtLaunch()
+                await SoundCloudCredentialSource.shared.purgeExpiredLockedDataIfNeeded()
+            },
+            integrations: [
+                RuntimeIntegrationAdapter(id: "companion", start: {
+                    CompanionServer.shared.startIfPaired()
+                }),
+                RuntimeIntegrationAdapter(id: "homeLighting", start: {
+                    HomeLightingDirector.shared.start()
+                }),
+            ]
+        ))
+        _runtime = StateObject(wrappedValue: runtime)
 
         #if DEBUG
         CrashRecorder.install()
@@ -37,7 +57,7 @@ struct SoundingTVApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if let destination = VisualFixtures.destination {
+                if let destination = VisualFixtures.destination ?? TVMockDestination.current {
                     TVVisualFixtureDestinationView(destination: destination)
                 } else if TrackMapDemo.isEnabled {
                     TrackMapDemoView()
@@ -49,86 +69,178 @@ struct SoundingTVApp: App {
                 #endif
             }
                 .environmentObject(authService)
+                .environmentObject(runtime)
                 .environmentObject(playerService)
-                .environmentObject(polyphony)
                 .environmentObject(navigationState)
-                .tint(.scAccent)
-                // tvOS artwork, focus treatments, and playback chrome are designed
-                // as one dark, cinema-style surface. Letting the system flip only
-                // some controls to light appearance produces illegible mixed states.
                 .preferredColorScheme(.dark)
+                .tint(Color.scAccent)
+                .likeFailureAlert()
                 .task {
                     #if DEBUG
                     guard !VisualFixtures.isEnabled else { return }
                     #endif
-                    PlayerService.peerContentSource = CompanionServer.shared
-                    await SoundCloudCredentialSource.shared.purgeExpiredLockedDataIfNeeded()
-                    CompanionServer.shared.startIfPaired()
+                    await runtime.start()
                 }
-                .task {
-                    #if DEBUG
-                    guard !VisualFixtures.isEnabled else { return }
-                    #endif
-                    CloudSyncCoordinator.shared.start()
-                    await CloudSyncCoordinator.shared.runOnce(
-                        analysisStore: AnalysisCache.shared,
-                        downloadManifestExportSource: LocalDownloadManifestSource(
-                            deviceId: DownloadManifestDeviceIdentity.deviceId(),
-                            deviceLabel: "Apple TV"
-                        )
-                    )
-                }
+                #if DEBUG
+                .task { await TVMockDestination.autoplayIfRequested() }
+                #endif
                 .onOpenURL { url in
-                    switch TopShelfStore.route(from: url) {
-                    case .track(let id):
-                        Task { await openTrack(id: id) }
-                    case .playlist(_, let firstTrackId):
-                        if let firstTrackId {
-                            Task { await openTrack(id: firstTrackId) }
-                        } else {
-                            navigationState.selectedTab = .home
-                        }
-                    case .home, .signIn:
-                        navigationState.selectedTab = .home
-                    case nil:
-                        break
+                    guard let route = TopShelfStore.route(from: url) else { return }
+                    openTopShelfRoute(route)
+                }
+                .onChange(of: authService.isAuthenticated) { _, isAuthenticated in
+                    guard isAuthenticated, let route = pendingTopShelfRoute else { return }
+                    pendingTopShelfRoute = nil
+                    openTopShelfRoute(route)
+                }
+                .onChange(of: scenePhase, initial: true) { _, phase in
+                    runtime.setActive(phase == .active)
+                    if phase == .active, SoundCloudCredentialSource.shared.canRetrySession {
+                        Task { await SoundCloudCredentialSource.shared.revalidate() }
                     }
                 }
         }
     }
 
+    // MARK: - Top Shelf
+
     @MainActor
-    private func openTrack(id: String) async {
-        guard authService.isAuthenticated else { return }
-        guard let track = try? await SoundCloudAPI.shared.getTrack(id: id) else { return }
+    private func openTopShelfRoute(_ route: TopShelfStore.Route) {
+        guard route.needsAccount else {
+            pendingTopShelfRoute = nil
+            navigationState.homeDestination = nil
+            navigationState.selectedTab = .home
+            return
+        }
+        guard authService.isAuthenticated else {
+            pendingTopShelfRoute = route
+            return
+        }
+        pendingTopShelfRoute = nil
+        Task { await executeTopShelfRoute(route) }
+    }
 
-        let recents = TopShelfStore.load()?
-            .section(titled: TopShelfStore.recentsTitle)?
-            .entries ?? []
-        let context = (try? await SoundCloudAPI.shared.getTracks(
-            ids: recents.map(\.id)
-        )) ?? []
+    @MainActor
+    private func executeTopShelfRoute(_ route: TopShelfStore.Route) async {
+        switch route {
+        case .track(let id, let shelf, let position):
+            await playTopShelfTrack(id: id, shelf: shelf, position: position)
 
-        await playerService.play(track, in: context.isEmpty ? [track] : context)
+        case .trackDetails(let id):
+            var resolved = await TopShelfTrackResolver.track(id: id)
+            if resolved == nil {
+                resolved = await fetchOnce({ try await SoundCloudAPI.shared.getTrack(id: id) })
+            }
+            guard let track = resolved else { return }
+            navigationState.selectedTab = .home
+            navigationState.homeDestination = .track(track)
+
+        case .playlist(let id, let play):
+            guard let playlist = await fetchOnce({ try await SoundCloudAPI.shared.getPlaylist(id: id) }) else { return }
+            if play {
+                await playPlaylist(playlist)
+            } else {
+                navigationState.selectedTab = .home
+                navigationState.homeDestination = .playlist(playlist)
+            }
+
+        case .mix(let urn):
+            guard let mix = await fetchOnce({ try await SoundCloudAPI.shared.getSystemPlaylist(urn: urn) }) else { return }
+            await waitForLaunchRestore()
+            navigationState.selectedTab = .nowPlaying
+            await HomeStations.play(mix)
+
+        case .home, .signIn:
+            navigationState.homeDestination = nil
+            navigationState.selectedTab = .home
+        }
+    }
+
+    @MainActor
+    private func fetchOnce<T>(_ operation: () async throws -> T) async -> T? {
+        if let value = try? await operation() { return value }
+        try? await Task.sleep(for: .seconds(2))
+        return try? await operation()
+    }
+
+    @MainActor
+    private func waitForLaunchRestore() async {
+        for _ in 0..<20 where !playerService.hasResolvedLaunchRestore {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+    }
+
+    @MainActor
+    private func playPlaylist(_ playlist: Playlist) async {
+        let ids = playlist.trackIDs ?? playlist.loadedTracks.map(\.id)
+        guard let tracks = await fetchOnce({ try await SoundCloudAPI.shared.getPlaylistTracks(playlist, ids: ids) }),
+              let first = tracks.first(where: { $0.streamURL != nil }) else { return }
+        await waitForLaunchRestore()
         navigationState.selectedTab = .nowPlaying
+        await playerService.play(first, in: tracks)
+    }
+
+    @MainActor
+    private func playTopShelfTrack(id: String, shelf: String?, position: TimeInterval?) async {
+        guard authService.isAuthenticated else { return }
+        let shelfIDs = TopShelfTrackResolver.shelfTrackIDs(containing: id, preferring: shelf)
+        var context = await TopShelfTrackResolver.tracks(ids: shelfIDs)
+        var resolved = context.first { $0.id == id }
+        if resolved == nil {
+            resolved = await fetchOnce({ try await SoundCloudAPI.shared.getTrack(id: id) })
+        }
+        guard let track = resolved else { return }
+
+        let missing = shelfIDs.filter { wanted in !context.contains { $0.id == wanted } }
+        if !missing.isEmpty, let fetched = try? await SoundCloudAPI.shared.getTracks(ids: missing) {
+            let byID = Dictionary((context + fetched).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            context = shelfIDs.compactMap { byID[$0] }
+        }
+        if !context.contains(where: { $0.id == track.id }) { context = [track] }
+
+        await waitForLaunchRestore()
+        navigationState.selectedTab = .nowPlaying
+        await playerService.play(track, in: context)
+        if let position, position >= 5 {
+            playerService.seek(to: position, expectedTrackID: track.id)
+        }
     }
 }
 
 @MainActor
-enum CueSyncForegroundNudge {
-    private static var token: NSObjectProtocol?
+enum TopShelfTrackResolver {
+    static func shelfTrackIDs(containing id: String, preferring kind: String?) -> [String] {
+        let sections = TopShelfStore.load()?.sections ?? []
+        let playable = sections.filter { $0.kind != TopShelfStore.mixesKind }
+        let section = playable.first { $0.kind == kind && $0.entries.contains { $0.trackID == id } }
+            ?? playable.first { $0.entries.contains { $0.trackID == id } }
+        let ids = section?.entries.map(\.trackID) ?? []
+        return ids.isEmpty ? [id] : ids
+    }
 
-    static func install() {
-        guard token == nil else { return }
-        token = NotificationCenter.default.addObserver(
-            forName: UIApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            Task { @MainActor in
-                CloudSyncCoordinator.shared.requestCueSync()
+    static func tracks(ids: [String]) async -> [Track] {
+        guard !ids.isEmpty else { return [] }
+        let wanted = Set(ids)
+        var byID: [String: Track] = [:]
+        for track in RecentlyPlayed.shared.tracks where wanted.contains(track.id) {
+            byID[track.id] = byID[track.id] ?? track
+        }
+        if byID.count < wanted.count {
+            for track in TopShelfPublisher.cachedRecentTracks() where wanted.contains(track.id) {
+                byID[track.id] = byID[track.id] ?? track
             }
         }
+        if byID.count < wanted.count {
+            let likes = await LikesSyncEngine.shared.indexedLikes(limit: TopShelfStore.maxEntriesPerSection).tracks
+            for track in likes where wanted.contains(track.id) {
+                byID[track.id] = byID[track.id] ?? track
+            }
+        }
+        return ids.compactMap { byID[$0] }
+    }
+
+    static func track(id: String) async -> Track? {
+        await tracks(ids: [id]).first
     }
 }
 
@@ -149,7 +261,31 @@ final class SoundingTVAppDelegate: NSObject, UIApplicationDelegate {
 
 @MainActor
 class NavigationState: ObservableObject {
-    @Published var selectedTab: Tab
+    @Published var selectedTab: Tab {
+        didSet { if selectedTab != .nowPlaying { tabBeforeNowPlaying = nil } }
+    }
+    @Published var tabBeforeNowPlaying: Tab?
+    @Published var homeDestination: HomeDestination? = nil
+    @Published var pendingSearchQuery: String?
+    @Published var isSigningIn = false
+    @Published var socialRequest: SocialSection?
+
+    func showProfile() {
+        socialRequest = .profile
+        selectedTab = .library
+    }
+
+    func showNowPlaying() {
+        guard selectedTab != .nowPlaying else { return }
+        let origin = selectedTab
+        selectedTab = .nowPlaying
+        tabBeforeNowPlaying = origin
+    }
+
+    func leaveNowPlaying() {
+        guard selectedTab == .nowPlaying, let origin = tabBeforeNowPlaying else { return }
+        selectedTab = origin
+    }
 
     init() {
         #if DEBUG
@@ -163,31 +299,56 @@ class NavigationState: ObservableObject {
             self.selectedTab = tab
             return
         }
+        if let raw, let section = Self.debugSocialSection(raw) {
+            self.selectedTab = .library
+            self.socialRequest = section
+            return
+        }
         #endif
         self.selectedTab = .home
     }
 
+    #if DEBUG
+    private static func debugSocialSection(_ raw: String) -> SocialSection? {
+        switch raw.lowercased() {
+        case "social", "following": return .following
+        case "followers": return .followers
+        case "profile": return .profile
+        case "feed", "activity": return .activity
+        default: return nil
+        }
+    }
+    #endif
+
+    enum HomeDestination: Identifiable, Hashable {
+        case track(Track)
+        case playlist(Playlist)
+
+        var id: String {
+            switch self {
+            case .track(let track):       return "track.\(track.id)"
+            case .playlist(let playlist): return "playlist.\(playlist.id)"
+            }
+        }
+    }
+
     enum Tab: String, CaseIterable {
         case home       = "Home"
-        case following  = "Following"
         case search     = "Search"
         case library    = "Library"
+        case decks      = "Decks"
+        case stations   = "Stations"
         case nowPlaying = "Now Playing"
-        case polyphony  = "Polyphony"
-        case companion  = "Companion"
-        case profile    = "Profile"
         case settings   = "Settings"
 
         var icon: String {
             switch self {
             case .home:       return "house.fill"
-            case .following:  return "person.2.fill"
             case .search:     return "magnifyingglass"
             case .library:    return "music.note.list"
+            case .decks:      return "opticaldisc"
+            case .stations:   return "dot.radiowaves.left.and.right"
             case .nowPlaying: return "waveform"
-            case .polyphony:  return "point.3.connected.trianglepath.dotted"
-            case .companion:  return "iphone.and.arrow.forward"
-            case .profile:    return "person.crop.circle.fill"
             case .settings:   return "gearshape.fill"
             }
         }

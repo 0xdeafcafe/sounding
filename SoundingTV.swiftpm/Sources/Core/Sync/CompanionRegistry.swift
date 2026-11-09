@@ -13,8 +13,6 @@ struct CompanionDeviceRecord: Sendable, Equatable, Codable {
     let lastSeenAtMillis: Int64
     let conditions: DeviceConditions
     let appVersion: String
-
-    var lastSeenAt: Date { Date(timeIntervalSince1970: Double(lastSeenAtMillis) / 1000) }
 }
 
 @MainActor
@@ -52,7 +50,7 @@ final class CompanionRegistry: ObservableObject {
     }
 
     func adopt(_ records: [CompanionDeviceRecord]) {
-        guard !records.isEmpty else { return }
+        guard !DeviceSessionStore.hasLocalSignOut, !records.isEmpty else { return }
         var byId = Dictionary(uniqueKeysWithValues: devices.map { ($0.deviceId, $0) })
         for record in records {
             if let existing = byId[record.deviceId], existing.lastSeenAtMillis > record.lastSeenAtMillis {
@@ -61,6 +59,11 @@ final class CompanionRegistry: ObservableObject {
             byId[record.deviceId] = record
         }
         devices = Self.filterStale(Array(byId.values))
+    }
+
+    func forgetAll() {
+        devices = []
+        UserDefaults.standard.removeObject(forKey: Self.defaultsKey)
     }
 
     @discardableResult
@@ -155,9 +158,10 @@ final class CompanionRegistry: ObservableObject {
             isLowPowerMode: isLowPowerMode
         )
         #elseif os(macOS)
+        let power = MacPowerSource.current()
         return DeviceConditions(
-            isPluggedIn: true,
-            batteryFraction: nil,
+            isPluggedIn: power?.isPluggedIn ?? true,
+            batteryFraction: power?.fraction,
             isOnWiFi: true,
             isLowPowerMode: isLowPowerMode
         )

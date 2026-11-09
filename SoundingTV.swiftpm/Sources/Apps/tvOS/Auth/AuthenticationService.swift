@@ -2,11 +2,6 @@ import Foundation
 import Combine
 import os
 
-/// tvOS-facing wrapper around the shared SoundCloud credential source.
-///
-/// This type keeps tvOS-specific behavior (clearing the player/queue on sign-out,
-/// presentation delays during QR login) while delegating all credential management
-/// to `SoundCloudCredentialSource`.
 @MainActor
 final class AuthenticationService: ObservableObject {
     static let shared = AuthenticationService()
@@ -15,15 +10,17 @@ final class AuthenticationService: ObservableObject {
     @Published private(set) var currentUser: User?
     @Published private(set) var sessionHealth: SoundCloudSessionHealth = .signedOut
 
-    /// An unverified credential is still a usable credential candidate. Keep
-    /// the app shell visible while its first request validates it; only a real
-    /// sign-out or unrecoverable rejection should replace the app with login.
-    var needsSignIn: Bool { sessionHealth.needsSignIn }
+    var needsSignIn: Bool { source.needsSignIn }
 
     private let source = SoundCloudCredentialSource.shared
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
+        #if DEBUG
+        if !VisualFixtures.isEnabled { source.resolveLaunchStateFromLocalStore() }
+        #else
+        source.resolveLaunchStateFromLocalStore()
+        #endif
         source.objectWillChange
             .sink { [weak self] _ in
                 Task { @MainActor in self?.sync() }
@@ -33,19 +30,44 @@ final class AuthenticationService: ObservableObject {
 
         source.sideEffects.requestSessionSync = { [weak self] in
             guard self != nil else { return }
-            CloudSyncCoordinator.shared.requestSessionSync()
+            SynchronizationCoordinator.shared.requestSessionSync()
         }
         source.sideEffects.wipeLocalIndexes = { [weak self] accountID in
             guard self != nil else { return }
             LikesSyncEngine.shared.handleSignOut()
             await LibraryCache.shared.clearAll()
+            await DownloadManager.shared.purgeCachedDownloads(accountID: accountID)
             if let accountID { AccountDataVault.forget(accountID: accountID) }
+        }
+        source.recoverySources = [
+            .synced(localSession: { SoundCloudCredentialSource.shared.currentSessionForSync() }),
+            Self.linkedCompanionSource,
+        ]
+    }
+
+    private static var linkedCompanionSource: SoundCloudSessionRenewal.Source {
+        SoundCloudSessionRenewal.Source(kind: .linkedPeer) { phase in
+            guard phase == .afterFailure,
+                  let offer = await CompanionServer.shared.requestAuthHandoffSession() else { return nil }
+            let provisional = StoredSession(
+                oauthToken: offer.oauthToken,
+                refreshToken: offer.refreshToken,
+                clientId: offer.clientId,
+                expiresAt: offer.expiresAtMillis.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+            )
+            guard provisional.canSelfRefresh else {
+                Log.auth.error("[AuthenticationService] companion offer missing refresh material")
+                return nil
+            }
+            return SoundCloudSessionRenewal.Candidate(session: provisional) {
+                SessionSyncBookkeeping.clearLocalSignOut()
+            }
         }
     }
 
     private func sync() {
         isAuthenticated = source.isAuthenticated
-        currentUser = source.currentUser
+        currentUser = source.accountUser
         sessionHealth = source.sessionHealth
     }
 
@@ -70,7 +92,6 @@ final class AuthenticationService: ObservableObject {
         source.didCompleteSignIn()
         _ = await source.waitForCurrentUser()
 
-        // Wait out the presentation delay so the sign-in UI doesn't flash.
         if clock.now < earliestCompletion {
             try? await Task.sleep(for: clock.now.duration(to: earliestCompletion))
         }
@@ -78,14 +99,19 @@ final class AuthenticationService: ObservableObject {
     }
 
     func logout() async {
-        // Authentication is a hard privacy boundary on a shared television.
-        // Never leave audio playing, media controls active, or track metadata
-        // visible behind the sign-in screen.
         PlayerService.shared.clearQueue()
         CompanionServer.shared.unpair()
         TopShelfPublisher.clear()
 
-        await source.signOut()
+        await source.signOutThisDevice(tokenIsShared: true)
+        sync()
+    }
+
+    func signOutKeepingLinks() async {
+        PlayerService.shared.clearQueue()
+        TopShelfPublisher.clear()
+        SessionSyncBookkeeping.recordLocalSignOut()
+        await source.signOutThisDevice(tokenIsShared: true)
         sync()
     }
 
@@ -93,60 +119,30 @@ final class AuthenticationService: ObservableObject {
         await source.waitForCurrentUser()
     }
 
-    func handleUnauthorized() async {
-        await source.handleUnauthorized()
+    func handleUnauthorized() async -> SoundCloudUnauthorizedDisposition {
+        let disposition = await source.handleUnauthorized()
         sync()
 
-        guard source.isSignedOut else { return }
-        PlayerService.shared.clearQueue()
-        CompanionServer.shared.unpair()
-        TopShelfPublisher.clear()
+        if source.isSignedOut {
+            PlayerService.shared.clearQueue(forgetSavedSession: false)
+            TopShelfPublisher.clear()
+        }
+        return disposition
     }
 
-    #if DEBUG
-    func _installDemoUser(_ user: User) {
-        isAuthenticated = true
-        currentUser = user
-    }
-    #endif
 }
 
 extension AuthenticationService: SoundCloudCredentialSourcing {
     var accessToken: String? { source.accessToken }
 
+    var holdsAuthenticatedRequests: Bool { source.holdsAuthenticatedRequests }
+
+    func waitForRenewal() async { await source.waitForRenewal() }
+
     func refreshAccessToken() async -> Bool {
-        if await source.refreshAccessToken() {
-            sync()
-            return true
-        }
-
-        // Local refresh failed (expired/rotated refresh token). Ask the paired
-        // companion to broker a brand-new device-specific session over the
-        // existing remote-control link. The companion signs in again and hands us
-        // a fresh token pair that belongs to this device, not to the companion.
-        if let offer = await CompanionServer.shared.requestAuthHandoffSession() {
-            let provisional = StoredSession(
-                oauthToken: offer.oauthToken,
-                refreshToken: offer.refreshToken,
-                clientId: offer.clientId,
-                expiresAt: offer.expiresAtMillis.map { Date(timeIntervalSince1970: Double($0) / 1000) }
-            )
-            guard provisional.canSelfRefresh else {
-                Log.auth.error("[AuthenticationService] companion offer missing refresh material")
-                sync()
-                return false
-            }
-            let refreshed = await DeviceSessionRefresher.shared.refresh(provisional)
-            let session = refreshed ?? provisional
-            DeviceSessionStore.save(session)
-            SessionSyncBookkeeping.clearLocalSignOut()
-            source.didCompleteSignIn()
-            sync()
-            return true
-        }
-
+        let renewed = await source.refreshAccessToken()
         sync()
-        return false
+        return renewed
     }
 
     func noteAuthenticatedRequestSucceeded() {

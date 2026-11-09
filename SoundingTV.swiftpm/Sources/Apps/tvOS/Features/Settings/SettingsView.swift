@@ -1,7 +1,7 @@
 import SwiftUI
 
 private enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
-    case subscription, playback, downloads, intelligence, devices, about
+    case subscription, playback, downloads, analysis, musicFolders, devices, homeLighting, about
 
     var id: String { rawValue }
 
@@ -10,8 +10,10 @@ private enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .subscription: return "Subscription"
         case .playback: return "Playback"
         case .downloads: return "Downloads"
-        case .intelligence: return "Music Intelligence"
-        case .devices: return "iPhone & Sync"
+        case .analysis: return "Music Analysis"
+        case .musicFolders: return "Music Folders"
+        case .devices: return "Remotes & Devices"
+        case .homeLighting: return "Home Lighting"
         case .about: return "About & Advanced"
         }
     }
@@ -21,33 +23,45 @@ private enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .subscription: return "SoundCloud plan and access"
         case .playback: return "Streaming, DJ and audio output"
         case .downloads: return "Offline music and storage"
-        case .intelligence: return "Tempo, key and waveform data"
-        case .devices: return "Pairing and shared preferences"
-        case .about: return "Version and diagnostics"
+        case .analysis: return "Tempo, key and genre"
+        case .musicFolders: return "Your own music from your Mac, iPhone, iPad and iCloud"
+        case .devices: return "iPhones and Macs linked to this Apple TV"
+        case .homeLighting: return "Lights that follow the music"
+        case .about: return "Version, screensaver, and reset"
         }
     }
 
+    var icon: SettingsIcon {
+        switch self {
+        case .subscription: return .subscription
+        case .playback: return .playback
+        case .downloads: return .downloads
+        case .analysis: return .analysis
+        case .musicFolders: return .musicFolders
+        case .devices: return .devices
+        case .homeLighting: return .homeLighting
+        case .about: return .about
+        }
+    }
 }
 
 struct SettingsView: View {
     @FocusState private var focus: SettingsCategory?
-    @State private var path: [SettingsCategory] = {
+    @State private var path: NavigationPath = {
+        var path = NavigationPath()
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["SOUNDING_TV_TV_SETTINGS"],
            let category = SettingsCategory(rawValue: raw) {
-            return [category]
+            path.append(category)
         }
         #endif
-        return []
+        return path
     }()
 
     var body: some View {
         NavigationStack(path: $path) {
             HStack(alignment: .center, spacing: 96) {
-                SettingsContext(
-                    title: "SoundingCloud",
-                    description: "Playback, downloads, devices, and everything else about this Apple TV."
-                )
+                SettingsContext(title: "Sounding", description: "Version \(appVersion)")
                 .frame(width: 560)
 
                 categoryList
@@ -55,13 +69,37 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, 96)
-            .padding(.vertical, 64)
+            .padding(.top, 40)
+            .padding(.bottom, 24)
             .background { BrowseBackdrop() }
             .navigationTitle("")
             .toolbarVisibility(.visible, for: .tabBar)
             .navigationDestination(for: SettingsCategory.self) { category in
                 SettingsDetailPage(category: category, onBack: popSettingsPage) {
                     detail(for: category)
+                }
+            }
+            .navigationDestination(for: DownloadsSettingsRoute.self) { route in
+                switch route {
+                case .downloadedMusic:
+                    SettingsDetailPage(
+                        title: "Downloaded Music",
+                        description: "Playlists, Likes and tracks on this Apple TV.",
+                        identifier: "downloadedMusic",
+                        onBack: popSettingsPage
+                    ) {
+                        DownloadedMusicView()
+                    }
+                }
+            }
+            .navigationDestination(for: DownloadedCollectionRoute.self) { route in
+                SettingsDetailPage(
+                    title: route.title,
+                    description: "Downloaded tracks in this collection.",
+                    identifier: "downloadedCollection",
+                    onBack: popSettingsPage
+                ) {
+                    DownloadedCollectionView(collectionID: route.id, title: route.title)
                 }
             }
             .defaultFocus($focus, .subscription)
@@ -83,13 +121,15 @@ struct SettingsView: View {
             Section {
                 categoryLink(.playback)
                 categoryLink(.downloads)
-                categoryLink(.intelligence)
+                categoryLink(.analysis)
+                categoryLink(.musicFolders)
             } header: {
                 SettingsSectionTitle("Listening")
             }
 
             Section {
                 categoryLink(.devices)
+                categoryLink(.homeLighting)
             } header: {
                 SettingsSectionTitle("Devices")
             }
@@ -101,7 +141,7 @@ struct SettingsView: View {
             }
         }
         .listStyle(.grouped)
-        .environment(\.defaultMinListRowHeight, 68)
+        .environment(\.defaultMinListRowHeight, 64)
         .scrollClipDisabled()
         .scrollIndicators(.hidden)
     }
@@ -112,16 +152,22 @@ struct SettingsView: View {
         case .subscription: SubscriptionSettings()
         case .playback: PlaybackSettings()
         case .downloads: DownloadsSettings()
-        case .intelligence: MusicIntelligenceSettings()
-        case .devices: DeviceSettings()
+        case .analysis: MusicAnalysisSettings()
+        case .musicFolders: MusicFoldersSettings()
+        case .devices: DevicesSettings()
+        case .homeLighting: HomeLightingSettingsView()
         case .about: AboutSettings()
         }
     }
 
     private func categoryLink(_ category: SettingsCategory) -> some View {
         NavigationLink(value: category) {
-            Text(category.title)
-                .font(.body.weight(.semibold))
+            Label {
+                Text(category.title)
+            } icon: {
+                Image(systemName: category.icon.symbol)
+                    .frame(width: 44)
+            }
         }
         .focused($focus, equals: category)
         .accessibilityIdentifier("settings.section.\(category.rawValue)")
@@ -136,16 +182,28 @@ struct SettingsView: View {
 private struct SettingsContext: View {
     let title: String
     let description: String
+    var symbol: String?
 
     var body: some View {
         VStack(spacing: Space.roomy) {
-            SettingsBrandArtwork()
-                .frame(width: 400, height: 400)
+            Group {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 220, weight: .regular))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Color.scTextPrimary)
+                        .accessibilityHidden(true)
+                } else {
+                    SettingsBrandArtwork()
+                }
+            }
+            .frame(width: 400, height: 400)
 
             VStack(spacing: Space.tight) {
                 Text(title)
                     .font(.title2.weight(.bold))
                     .foregroundStyle(Color.scTextPrimary)
+                    .accessibilityAddTraits(.isHeader)
                 Text(description)
                     .font(.callout)
                     .foregroundStyle(Color.scTextSecondary)
@@ -158,92 +216,78 @@ private struct SettingsContext: View {
 }
 
 private struct SettingsBrandArtwork: View {
-    private let barHeights: [CGFloat] = [84, 138, 210, 274, 210, 138, 84]
-
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 68, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.34, green: 0.12, blue: 0.04),
-                            Color(red: 0.12, green: 0.06, blue: 0.04),
-                            Color(red: 0.05, green: 0.05, blue: 0.06),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-
-            Circle()
-                .stroke(Color.scAccent.opacity(0.18), lineWidth: 3)
-                .frame(width: 310, height: 310)
-            Circle()
-                .stroke(Color.scAccent.opacity(0.28), lineWidth: 2)
-                .frame(width: 244, height: 244)
-
-            HStack(spacing: 13) {
-                ForEach(Array(barHeights.enumerated()), id: \.offset) { _, height in
-                    Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(red: 1.0, green: 0.55, blue: 0.12), Color.scAccent],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .frame(width: 27, height: height)
-                }
+        Image("SettingsBrandIcon")
+            .resizable()
+            .scaledToFit()
+            .clipShape(RoundedRectangle(cornerRadius: 68, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 68, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.13), lineWidth: 1)
             }
-            .shadow(color: Color.scAccent.opacity(0.35), radius: 28)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 68, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
-        }
-        .shadow(color: Color.scAccent.opacity(0.14), radius: 70, y: 28)
-        .accessibilityHidden(true)
+            .shadow(color: Color.black.opacity(0.35), radius: 48, y: 24)
+            .accessibilityHidden(true)
     }
 }
 
 private struct SettingsDetailPage<Content: View>: View {
-    let category: SettingsCategory
+    let title: String
+    let description: String
+    let identifier: String
+    let symbol: String?
     let onBack: () -> Void
     @ViewBuilder let content: () -> Content
 
+    init(category: SettingsCategory, onBack: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
+        self.init(
+            title: category.title,
+            description: category.description,
+            identifier: category.rawValue,
+            symbol: category.icon.symbol,
+            onBack: onBack,
+            content: content
+        )
+    }
+
+    init(
+        title: String,
+        description: String,
+        identifier: String,
+        symbol: String? = "arrow.down.circle.fill",
+        onBack: @escaping () -> Void,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self.description = description
+        self.identifier = identifier
+        self.symbol = symbol
+        self.onBack = onBack
+        self.content = content
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: 96) {
-            SettingsContext(title: category.title, description: category.description)
+            SettingsContext(title: title, description: description, symbol: symbol)
                 .frame(width: 560)
 
             content()
-                .id(category)
+                .id(identifier)
+                .tint(nil as Color?)
                 .listStyle(.grouped)
                 .environment(\.defaultMinListRowHeight, 68)
                 .scrollClipDisabled()
                 .scrollIndicators(.hidden)
                 .frame(maxWidth: 920)
-                .accessibilityIdentifier("settings.detail.\(category.rawValue)")
+                .focusSection()
+                .accessibilityIdentifier("settings.detail.\(identifier)")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 96)
         .padding(.vertical, 64)
         .background { BrowseBackdrop() }
-        .navigationTitle(category.title)
+        .navigationTitle("")
         .navigationBarBackButtonHidden(true)
         .toolbarVisibility(.hidden, for: .tabBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.backward")
-                        .font(.system(size: 24, weight: .bold))
-                        .frame(width: 64, height: 64)
-                        .contentShape(Circle())
-                }
-                .accessibilityLabel("Back to Settings")
-                .accessibilityIdentifier("settings.back")
-            }
-        }
         .onExitCommand(perform: onBack)
     }
 }
@@ -251,26 +295,51 @@ private struct SettingsDetailPage<Content: View>: View {
 private struct SubscriptionSettings: View {
     @ObservedObject private var subscription = SubscriptionService.shared
     @ObservedObject private var downloads = DownloadManager.shared
+    @ObservedObject private var credentials = SoundCloudCredentialSource.shared
     @State private var isChecking = false
+    @EnvironmentObject private var navigationState: NavigationState
+
+    private var isSignedOut: Bool {
+        credentials.sessionHealth.needsSignIn
+    }
+
+    private var hasAccountContext: Bool {
+        !isSignedOut && subscription.authenticatedAccountID != nil
+    }
+
+    private var planDisplay: String {
+        if isSignedOut { return "Unavailable" }
+        guard hasAccountContext else { return "Checking…" }
+        return subscription.tier.planName ?? tierDisplayName(subscription.tier)
+    }
+
+    private var statusDisplay: String {
+        if isSignedOut { return "Sign In Required" }
+        guard hasAccountContext else { return "Checking…" }
+        return verificationDisplay(subscription.verification)
+    }
 
     var body: some View {
         List {
             Section {
-                LabeledContent("Plan", value: tierDisplayName(subscription.tier))
-                LabeledContent("Status", value: verificationDisplay(subscription.verification))
+                SettingsReadOnlyRow("Plan", value: planDisplay)
+                SettingsReadOnlyRow("Status", value: statusDisplay)
+                if isSignedOut {
+                    Button("Sign In to SoundCloud") { navigationState.isSigningIn = true }
+                }
                 Button(isChecking ? "Checking…" : "Check Again") { check() }
-                    .disabled(isChecking)
+                    .disabled(isChecking || isSignedOut)
             } header: {
                 SettingsSectionTitle("Plan")
             } footer: {
-                Text(subscription.statusDescription)
+                Text(isSignedOut ? "Sign in to check your plan." : subscription.statusDescription)
                     .settingsFooterStyle()
             }
 
             if let deletionDate = downloads.scheduledDeletionDate {
                 Section {
                     Label {
-                        Text("Downloads will be deleted on \(deletionDate.formatted(date: .abbreviated, time: .shortened)) unless the subscription is renewed.")
+                        Text("Go+ downloads will be removed on \(deletionDate.formatted(date: .abbreviated, time: .shortened)) unless your plan is renewed.")
                     } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(Color.scDestructive)
@@ -280,17 +349,15 @@ private struct SubscriptionSettings: View {
                 }
             }
 
+            #if DEBUG
             if let raw = subscription.lastRawSubscriptionDescription {
                 Section {
-                    LabeledContent("SoundCloud Product", value: raw)
-                        .lineLimit(2)
+                    SettingsReadOnlyRow("SoundCloud Product", value: raw)
                 } header: {
                     SettingsSectionTitle("SoundCloud Details")
-                } footer: {
-                    Text("Useful when SoundCloud doesn't hand back a readable plan name.")
-                        .settingsFooterStyle()
                 }
             }
+            #endif
         }
         .settingsScreen(
             "Subscription",
@@ -312,92 +379,117 @@ private struct PlaybackSettings: View {
     @ObservedObject private var store = SettingsStore.shared
     @ObservedObject private var player = PlayerService.shared
 
+    static let energyPresets: [(name: String, value: Double)] = [
+        ("Chill", 0.15), ("Warm", 0.4), ("Lively", 0.65), ("Peak", 0.95)
+    ]
+
+    static let riserPresets: [(name: String, value: Double)] = [
+        ("Off", 0), ("Soft", 0.3), ("Medium", 0.5), ("Loud", 0.8)
+    ]
+
+    private var riserChoice: Binding<Double> {
+        Binding(
+            get: { Self.riserPresets.min { abs($0.value - store.djRiserLevel) < abs($1.value - store.djRiserLevel) }?.value ?? 0.5 },
+            set: { store.setDJRiserLevel($0) }
+        )
+    }
+
+    private var energyChoice: Binding<Double> {
+        Binding(
+            get: {
+                guard !store.djEnergyFollowsNight else { return -1 }
+                return Self.energyPresets.min { abs($0.value - store.djEnergyLevel) < abs($1.value - store.djEnergyLevel) }?.value ?? 0.65
+            },
+            set: { value in
+                if value < 0 {
+                    store.setDJEnergyFollowsNight(true)
+                } else {
+                    store.setDJEnergyFollowsNight(false)
+                    store.setDJEnergyLevel(value)
+                }
+            }
+        )
+    }
+
     var body: some View {
         List {
             Section {
-                Menu {
+                Picker("Streaming Quality", selection: store.streamingQualityCeilingBinding) {
                     ForEach(QualityCeiling.allCases) { quality in
-                        Button(qualityRowLabel(quality)) {
-                            store.setStreamingQualityCeiling(quality)
-                        }
+                        Text(qualityRowLabel(quality)).tag(quality)
                     }
-                } label: {
-                    SettingsChoiceRow(
-                        "Streaming Quality",
-                        value: qualityRowLabel(store.streamingQualityCeiling)
-                    )
                 }
-
-                Menu {
-                    ForEach(QualityCeiling.allCases) { quality in
-                        Button(qualityRowLabel(quality)) {
-                            store.setDownloadQualityCeiling(quality)
-                        }
-                    }
-                } label: {
-                    SettingsChoiceRow(
-                        "Download Quality",
-                        value: qualityRowLabel(store.downloadQualityCeiling)
-                    )
-                }
+                .pickerStyle(.navigationLink)
             } header: {
                 SettingsSectionTitle("Quality")
             } footer: {
-                Text("Higher quality uses more data while streaming and more storage when downloaded.")
+                Text("Higher quality uses more data and storage.")
                     .settingsFooterStyle()
             }
 
-            CollectionQualitySection()
-
             Section {
-                Button {
-                    store.setDJAutoMixEnabled(!store.djAutoMixEnabled)
-                } label: {
-                    SettingsChoiceRow(
-                        "DJ Auto-Mix",
-                        value: store.djAutoMixEnabled ? "On" : "Off",
-                        showsDisclosure: false
-                    )
-                }
+                Toggle("Auto Mix", isOn: store.djAutoMixEnabledBinding)
                 if store.djAutoMixEnabled {
-                    Menu {
+                    Picker("Style", selection: store.djDefaultProfileIdBinding) {
                         ForEach(DJProfile.all) { profile in
-                            Button(profile.displayName) {
-                                store.setDJDefaultProfileId(profile.id)
-                            }
+                            Text(profile.styleName).tag(profile.id)
                         }
+                    }
+                    .pickerStyle(.navigationLink)
+                    Picker("Blend", selection: store.djBlendBinding) {
+                        ForEach(DJBlendLength.allCases) { blend in
+                            Text(blend.displayName).tag(blend)
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
+                    Toggle("Keep Queue Order", isOn: store.djKeepQueueOrderBinding)
+                    Picker("Energy", selection: energyChoice) {
+                        Text("Follow the Night").tag(-1.0)
+                        ForEach(Self.energyPresets.indices, id: \.self) { index in
+                            Text(Self.energyPresets[index].name).tag(Self.energyPresets[index].value)
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
+                    Picker("Riser", selection: riserChoice) {
+                        ForEach(Self.riserPresets.indices, id: \.self) { index in
+                            Text(Self.riserPresets[index].name).tag(Self.riserPresets[index].value)
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
+                    .disabled(store.djDefaultProfileId == .wedding)
+                    NavigationLink {
+                        AutoMixMovesView().navigationTitle("Your Moves")
                     } label: {
-                        SettingsChoiceRow(
-                            "DJ Personality",
-                            value: DJProfile.profile(id: store.djDefaultProfileId)?.displayName ?? "Automatic"
-                        )
+                        Text("Your Moves")
                     }
                 }
             } header: {
                 SettingsSectionTitle("DJ")
             } footer: {
-                Text("Auto-Mix builds transitions from whatever track analysis it has.")
-                    .settingsFooterStyle()
+                if store.djAutoMixEnabled, let profile = DJProfile.profile(id: store.djDefaultProfileId) {
+                    Text(profile.adventureSummary)
+                        .settingsFooterStyle()
+                }
             }
 
             Section {
-                Menu {
+                Picker("Minimum Set Length", selection: store.setMinimumDurationSecondsBinding) {
                     ForEach(GeneratedLibraryCollections.setDurationPresets, id: \.self) { duration in
-                        Button(GeneratedLibraryCollections.durationLabel(duration)) {
-                            store.setSetMinimumDurationSeconds(duration)
-                        }
+                        Text(GeneratedLibraryCollections.durationLabel(duration)).tag(duration)
                     }
-                } label: {
-                    SettingsChoiceRow(
-                        "Minimum Set Length",
-                        value: GeneratedLibraryCollections.durationLabel(store.setMinimumDurationSeconds)
-                    )
                 }
+                .pickerStyle(.navigationLink)
+                LibrarySyncStatusRow()
             } header: {
                 SettingsSectionTitle("Library")
+            }
+
+            Section {
+                Toggle("Lyrics from LRCLIB", isOn: store.lyricsEnabledBinding)
+            } header: {
+                SettingsSectionTitle("Lyrics")
             } footer: {
-                Text("Sets use duration metadata from saved tracks. Adjusting this never downloads audio.")
-                    .settingsFooterStyle()
+                Text("Sends the track's title, artist and length to lrclib.net to find lyrics.")
             }
 
             Section {
@@ -406,15 +498,12 @@ private struct PlaybackSettings: View {
                 SettingsReadOnlyRow("Spatial Audio", value: "Stereo widened")
             } header: {
                 SettingsSectionTitle("Audio Output")
-            } footer: {
-                Text("Stereo is adapted to the current output. SoundCloud doesn't provide Dolby Atmos masters.")
-                    .settingsFooterStyle()
             }
 
         }
         .settingsScreen(
             "Playback",
-            subtitle: "Quality, Auto-Mix, and audio output."
+            subtitle: "Quality, Auto Mix, and audio output."
         )
     }
 
@@ -425,8 +514,6 @@ private struct PlaybackSettings: View {
     }
 }
 
-/// A read-only setting still needs to participate in the tvOS focus engine so
-/// users can continue through a section with the remote.
 private struct SettingsReadOnlyRow: View {
     let title: String
     let value: String
@@ -437,296 +524,180 @@ private struct SettingsReadOnlyRow: View {
     }
 
     var body: some View {
-        SettingsChoiceRow(title, value: value, showsDisclosure: false)
-            .focusable()
-            .accessibilityElement(children: .combine)
+        Button(action: {}) {
+            LabeledContent(title) {
+                Text(value)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityRemoveTraits(.isButton)
+        .accessibilityAddTraits(.isStaticText)
     }
 }
 
-/// tvOS's stock Toggle and navigation-link Picker reserve different trailing
-/// space. Keeping their value column in one row component makes a Settings
-/// section scan as a clean table rather than a collection of unrelated cards.
+/// The value column shared by rows that need a custom label.
 private struct SettingsChoiceRow: View {
     let title: String
     let value: String
-    var showsDisclosure = true
 
-    init(_ title: String, value: String, showsDisclosure: Bool = true) {
+    init(_ title: String, value: String) {
         self.title = title
         self.value = value
-        self.showsDisclosure = showsDisclosure
     }
 
     var body: some View {
-        HStack(spacing: Space.tight) {
-            Text(title)
-                .lineLimit(1)
-            Spacer(minLength: Space.tight)
+        LabeledContent(title) {
             Text(value)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(width: 240, alignment: .trailing)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .opacity(showsDisclosure ? 1 : 0)
-                .frame(width: 18)
-        }
-        .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-}
-
-private struct CollectionQualitySection: View {
-    @ObservedObject private var store = SettingsStore.shared
-    @ObservedObject private var overrideStore = CollectionQualityOverrideStore.shared
-
-    private enum LoadState {
-        case idle, loading, signedOut, failed, loaded([Playlist])
-    }
-
-    @State private var state: LoadState = .idle
-
-    @ViewBuilder
-    var body: some View {
-        Group {
-            if case .loaded(let playlists) = state, !playlists.isEmpty {
-                Section {
-                ForEach(playlists) { playlist in
-                    row(playlist)
-                }
-                } header: {
-                    SettingsSectionTitle("Quality by Collection")
-                } footer: {
-                    Text("Overrides the default quality for individual playlists.")
-                        .settingsFooterStyle()
-                }
-            }
-        }
-        .task { await load() }
-    }
-
-    private func row(_ playlist: Playlist) -> some View {
-        let kind = CollectionKind.classify(playlist: playlist)
-        let selection = Binding<QualityCeiling?>(
-            get: { overrideStore.override(for: playlist.id) },
-            set: { overrideStore.setOverride($0, for: playlist.id) }
-        )
-        let effective = selection.wrappedValue ?? store.downloadQualityCeiling
-        return Picker(selection: selection) {
-            Text("Use Default").tag(QualityCeiling?.none)
-            ForEach(QualityCeiling.allCases) { level in
-                Text(qualityRowLabel(level)).tag(QualityCeiling?.some(level))
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(playlist.title).lineLimit(1)
-                Text("\(kind.displayName) · ~\(byteString(QualitySizeEstimator.estimatedBytes(for: playlist, ceiling: effective)))")
-                    .font(.tvCaption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .pickerStyle(.navigationLink)
-    }
-
-    private func load() async {
-        guard case .idle = state else { return }
-        state = .loading
-        guard let user = AuthenticationService.shared.currentUser else {
-            state = .signedOut
-            return
-        }
-        do {
-            let page = try await SoundCloudAPI.shared.getUserPlaylists(userId: user.id, limit: 50)
-            state = .loaded(page.collection)
-        } catch {
-            state = .failed
         }
     }
 }
 
-private struct MusicIntelligenceSettings: View {
-    @State private var snapshot: AnalysisDataSnapshot?
-    @State private var showingClearAnalysisConfirmation = false
-    @State private var showingClearLibraryConfirmation = false
+private struct MusicFoldersSettings: View {
+    @ObservedObject private var music = RemoteLocalMusic.shared
 
     var body: some View {
         List {
             Section {
-                LabeledContent("Tracks Analysed", value: count(\.analysedTrackCount))
-                LabeledContent("Results Stored", value: count(\.resultCount))
-                LabeledContent("From Other Devices", value: count(\.syncedResultCount))
-                LabeledContent("Analysis Data", value: usageText)
-            } header: {
-                SettingsSectionTitle("Analysis")
+                if music.devices.isEmpty {
+                    SettingsReadOnlyRow("Sources", value: "None")
+                } else {
+                    ForEach(music.devices) { device in
+                        SettingsReadOnlyRow(device.isCloud ? "iCloud" : device.name, value: LocalMusicFormatTV.trackCount(device.catalog?.tracks.count ?? 0))
+                    }
+                }
             } footer: {
-                Text("Genre and waveforms are worked out here. Tempo and key arrive from a synced iPhone or Mac. Old results are dropped automatically when space runs short.")
+                Text("Apple TV plays music from the folders on your Mac, iPhone or iPad over your home network while Sounding is open there, and from iCloud when Upload to iCloud is on. Choose folders in Sounding on those devices, in Settings › Music Folders.")
+                    .settingsFooterStyle()
+            }
+        }
+        .settingsScreen("Music Folders", subtitle: "Your own music.")
+    }
+}
+
+private enum LocalMusicFormatTV {
+    static func trackCount(_ count: Int) -> String {
+        count == 1 ? "1 track" : "\(count) tracks"
+    }
+}
+
+private struct MusicAnalysisSettings: View {
+    @ObservedObject private var store = SettingsStore.shared
+    @State private var storageUsedBytes: Int64?
+    @State private var showingClearConfirmation = false
+
+    var body: some View {
+        List {
+            Section {
+                Toggle("Analyse Music on This Device", isOn: store.analyseMusicOnDeviceBinding)
+            } footer: {
+                Text("Finds tempo, key and genre for music you play or download.")
                     .settingsFooterStyle()
             }
 
-            Section {
-                LabeledContent("Tempo & Key", value: count(\.tempoKeyCount))
-                LabeledContent("Genre", value: count(\.genreCount))
-                LabeledContent("Waveforms", value: count(\.waveformCount))
-            } header: {
-                SettingsSectionTitle("Results by Kind")
-            }
+            AnalysisLibraryStatusSection()
 
             Section {
-                LabeledContent("Library Cache", value: libraryText)
-            } footer: {
-                Text("An offline copy of your library so it opens instantly. Clearing it re-downloads the listings next time. The space the file reserved gets reused, not handed back.")
-                    .settingsFooterStyle()
+                SettingsReadOnlyRow("Storage Used", value: storageUsedText)
             }
 
             Section {
                 Button("Clear Analysis Data", role: .destructive) {
-                    showingClearAnalysisConfirmation = true
+                    showingClearConfirmation = true
                 }
-                Button("Clear Library Cache", role: .destructive) {
-                    showingClearLibraryConfirmation = true
-                }
-            } footer: {
-                Text("Clearing never interrupts playback. Analysis is rebuilt automatically the next time it's needed.")
-                    .settingsFooterStyle()
+                .disabled(storageUsedBytes == 0)
             }
         }
-        .settingsScreen(
-            "Music Intelligence",
-            subtitle: "Stored tempo, key, genre, and waveform data."
-        )
+        .settingsScreen("Music Analysis", subtitle: "Tempo, key and genre.")
         .task { await refresh() }
-        .confirmationDialog("Clear Analysis Data", isPresented: $showingClearAnalysisConfirmation) {
+        .confirmationDialog("Clear Analysis Data", isPresented: $showingClearConfirmation) {
             Button("Clear Analysis Data", role: .destructive) {
                 Task {
-                    await AnalysisDataUsage.clearAnalysisData()
+                    await AutomaticAnalysisScheduler.shared.clearAnalysisData()
                     await refresh()
                 }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every stored tempo, key, genre and waveform result on this Apple TV goes, including anything synced from other devices. Playback keeps going. Analysis is rebuilt when it's needed.")
+            Text("Tempo, key and genre results on this Apple TV are removed. Your corrections are kept.")
         }
-        .confirmationDialog("Clear Library Cache", isPresented: $showingClearLibraryConfirmation) {
-            Button("Clear Library Cache", role: .destructive) {
-                Task {
-                    await AnalysisDataUsage.clearLibraryCache()
-                    await refresh()
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("The offline copy of your library is emptied, then re-downloads the next time the library opens.")
-        }
+    }
+
+    private var storageUsedText: String {
+        guard let storageUsedBytes else { return "–" }
+        return cacheByteString(storageUsedBytes)
     }
 
     private func refresh() async {
-        snapshot = await AnalysisDataUsage.snapshot()
-    }
-
-    private func count(_ keyPath: KeyPath<AnalysisDataSnapshot, Int>) -> String {
-        guard let snapshot else { return "–" }
-        let value = snapshot[keyPath: keyPath]
-        return snapshot.isTruncated ? "\(value)+" : "\(value)"
-    }
-
-    private var usageText: String {
-        guard let snapshot else { return "–" }
-        return "\(cacheByteString(snapshot.usedBytes)) of \(cacheByteString(snapshot.maxBytes))"
-    }
-
-    private var libraryText: String {
-        guard let snapshot else { return "–" }
-        return cacheByteString(snapshot.libraryDiskBytes)
+        storageUsedBytes = await AnalysisDataUsage.storageUsedBytes()
     }
 }
 
 private struct DownloadsSettings: View {
-    @ObservedObject private var store = SettingsStore.shared
-    @ObservedObject private var subscription = SubscriptionService.shared
     @ObservedObject private var downloads = DownloadManager.shared
 
+    @State private var cacheUsage: CacheUsage?
+    @State private var isClearingCache = false
+    @State private var showingRedownloadConfirmation = false
     @State private var showingRemoveAllConfirmation = false
-    @State private var remoteDownloads: [String: [DownloadManifestSyncRecord]] = [:]
-    @State private var transferringDeviceIDs: Set<String> = []
 
     var body: some View {
+        let redownload = downloads.redownloadEstimate()
         List {
             Section {
-                LabeledContent("Storage Used",
-                               value: "\(byteString(downloads.usedBytes)) of \(byteString(store.downloadStorageCapBytes))")
-                if downloads.usedBytes > 0 {
-                    ProgressView(value: storageFraction)
-                        .tint(storageFraction > 0.92 ? Color.scWarning : Color.scAccent)
+                SettingsReadOnlyRow("Storage", value: "\(DownloadsFormat.bytes(downloads.storageUsed)) used by downloads")
+                NavigationLink(value: DownloadsSettingsRoute.downloadedMusic) {
+                    SettingsChoiceRow("Downloaded Music", value: downloadedSummary)
                 }
-                Picker("Storage Limit", selection: store.downloadStorageCapBytesBinding) {
-                    ForEach(Self.capChoices, id: \.self) { Text(byteString($0)).tag($0) }
-                }
-                .pickerStyle(.navigationLink)
             } header: {
                 SettingsSectionTitle("Storage")
+            }
+
+            Section {
+                SettingsReadOnlyRow("Optimise Storage", value: "Always On")
+                Picker("Minimum Storage", selection: Binding(
+                    get: { downloads.optimiseStorageMinimumBytes },
+                    set: { downloads.setOptimiseStorageMinimumBytes($0) }
+                )) {
+                    ForEach(OptimiseStoragePolicy.minimumChoices, id: \.self) { bytes in
+                        Text(DownloadsFormat.minimumStorage(bytes)).tag(bytes)
+                    }
+                }
+                .pickerStyle(.navigationLink)
             } footer: {
-                Text("Once you hit this limit, predictive downloads go oldest-first. Pinned tracks never go. The limit stays on this Apple TV.")
+                Text("When storage is low, downloads you haven't played recently are removed.")
                     .settingsFooterStyle()
             }
 
             Section {
-                if remoteDownloads.isEmpty {
-                    Text("No downloads have synced from another device yet.")
-                } else {
-                    ForEach(remoteDownloads.keys.sorted(), id: \.self) { deviceID in
-                        if let records = remoteDownloads[deviceID], let first = records.first {
-                            Button {
-                                Task { await copy(records, from: deviceID) }
-                            } label: {
-                                LabeledContent(
-                                    first.deviceLabel,
-                                    value: transferringDeviceIDs.contains(deviceID)
-                                        ? "Copying…"
-                                        : "Copy \(records.count)"
-                                )
-                            }
-                            .disabled(transferringDeviceIDs.contains(deviceID))
-                        }
+                Picker("Download Quality", selection: Binding(
+                    get: { downloads.quality },
+                    set: { downloads.setQuality($0) }
+                )) {
+                    ForEach(QualityCeiling.allCases) { quality in
+                        Text(qualityRowLabel(quality)).tag(quality)
                     }
                 }
-            } header: {
-                SettingsSectionTitle("Other Devices")
+                .pickerStyle(.navigationLink)
+                if redownload.trackCount > 0 {
+                    Button("Re-download at New Quality (≈ \(redownload.sizeLabel))") {
+                        showingRedownloadConfirmation = true
+                    }
+                }
             } footer: {
-                Text("Copy uses the authenticated local companion link while the source device is awake, then encrypts the audio for this Apple TV.")
+                Text("Applies to new downloads.")
                     .settingsFooterStyle()
             }
 
-            if downloads.entries.isEmpty {
-                Section {
-                    LabeledContent("Offline Downloads", value: "Track availability")
-                } footer: {
-                    Text("Downloads are available when a track exposes a usable source.")
-                        .settingsFooterStyle()
-                }
+            Section {
+                SettingsReadOnlyRow("Artwork", value: cacheUsage.map { DownloadsFormat.bytes($0.artworkBytes) } ?? "–")
+                Button("Clear Artwork") { clearArtwork() }
+                    .disabled(isClearingCache || (cacheUsage?.artworkBytes ?? 0) == 0)
             }
 
             Section {
-                if downloads.entries.isEmpty {
-                    Text("No downloads on this Apple TV yet.")
-                } else {
-                    ForEach(sortedEntries, id: \.track.id) { entry in
-                        DownloadEntryRow(
-                            entry: entry,
-                            state: downloads.state(for: entry.track.id),
-                            onPause: { downloads.pause(trackId: entry.track.id) },
-                            onResume: { downloads.resume(trackId: entry.track.id) },
-                            onCancel: { downloads.cancel(trackId: entry.track.id) }
-                        )
-                    }
-                }
-            } header: {
-                SettingsSectionTitle("Downloaded")
-            } footer: {
-                if !downloads.entries.isEmpty {
-                    Text("A pin means you asked for it. A sparkle means it came down ahead of you.")
-                        .settingsFooterStyle()
-                }
+                SettingsReadOnlyRow("Cache", value: cacheUsage.map { DownloadsFormat.bytes($0.totalBytes) } ?? "–")
+                Button("Clear Cache") { clearCache() }
+                    .disabled(isClearingCache || (cacheUsage?.totalBytes ?? 0) == 0)
             }
 
             if !downloads.entries.isEmpty {
@@ -741,179 +712,135 @@ private struct DownloadsSettings: View {
             "Downloads",
             subtitle: "Offline music and storage on this Apple TV."
         )
-        .task {
-            remoteDownloads = await RemoteDownloadManifestStore.shared.manifestsByDevice(
-                excluding: DownloadManifestDeviceIdentity.deviceId()
-            )
-        }
-        .confirmationDialog("Remove All Downloads", isPresented: $showingRemoveAllConfirmation) {
-            Button("Remove All Downloads", role: .destructive) { removeAll() }
+        .task { await refreshCache() }
+        .confirmationDialog("Re-download at New Quality", isPresented: $showingRedownloadConfirmation) {
+            Button("Re-download \(DownloadsFormat.trackCount(redownload.trackCount))") {
+                downloads.redownloadAtCurrentQuality(confirmed: true)
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every downloaded track goes from this Apple TV. This can't be undone.")
+            Text("About \(redownload.sizeLabel) will download again at \(downloads.quality.displayName) quality.")
+        }
+        .confirmationDialog("Remove All Downloads", isPresented: $showingRemoveAllConfirmation) {
+            Button("Remove All Downloads", role: .destructive) { downloads.removeAll() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every download is deleted from this Apple TV.")
         }
     }
 
-    private var storageFraction: Double {
-        let cap = store.downloadStorageCapBytes
-        guard cap > 0 else { return 0 }
-        return min(1, Double(downloads.usedBytes) / Double(cap))
+    private var downloadedSummary: String {
+        let count = downloads.entries.values.filter(\.isDownloaded).count
+        return count == 0 ? "None" : DownloadsFormat.trackCount(count)
     }
 
-    private var sortedEntries: [DownloadEntry] {
-        downloads.entries.values.sorted { $0.addedAt > $1.addedAt }
+    private func refreshCache() async {
+        cacheUsage = await CacheUsage.measure()
     }
 
-    private static let capChoices: [Int64] = (1...100).map { Int64($0) * 1_000_000_000 }
-
-    private func removeAll() {
-        for trackId in downloads.entries.keys {
-            downloads.cancel(trackId: trackId)
+    private func clearArtwork() {
+        isClearingCache = true
+        Task {
+            await CacheUsage.clearArtwork()
+            await refreshCache()
+            isClearingCache = false
         }
     }
 
-    private func copy(_ records: [DownloadManifestSyncRecord], from deviceID: String) async {
-        transferringDeviceIDs.insert(deviceID)
-        defer { transferringDeviceIDs.remove(deviceID) }
-        for record in records where !Task.isCancelled {
-            _ = await downloads.downloadFromPeer(
-                trackId: record.trackId,
-                sourceDeviceId: deviceID,
-                provider: CompanionServer.shared,
-                pinned: record.isPinned
+    private func clearCache() {
+        isClearingCache = true
+        Task {
+            await CacheUsage.clearCaches()
+            await refreshCache()
+            isClearingCache = false
+        }
+    }
+}
+
+private enum DownloadsSettingsRoute: Hashable {
+    case downloadedMusic
+}
+
+private struct DevicesSettings: View {
+    @ObservedObject private var server = CompanionServer.shared
+
+    @State private var isAddingDevice = Self.debugStartsAddingDevice
+    @State private var deviceToForget: LinkedDevice?
+    @State private var isConfirmingForgetAll = false
+
+    var body: some View {
+        content
+            .settingsScreen(
+                "Remotes & Devices",
+                subtitle: "iPhones and Macs linked to this Apple TV."
             )
-        }
-    }
-}
-
-private struct DownloadEntryRow: View {
-    let entry: DownloadEntry
-    let state: DownloadState
-    let onPause: () -> Void
-    let onResume: () -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        Button(action: primaryAction) {
-            LabeledContent {
-                Text(stateText)
-            } label: {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.track.title).lineLimit(1)
-                        Text(entry.track.user.displayName)
-                            .font(.tvCaption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                } icon: {
-                    Image(systemName: entry.isEffectivelyPinned ? "pin.fill" : "sparkles")
-                }
+            .fullScreenCover(isPresented: $isAddingDevice) {
+                QRCodeLoginView(onClose: { isAddingDevice = false }, purpose: .companion)
             }
-        }
+            .confirmationDialog(
+                deviceToForget.map { "Forget \($0.displayName)?" } ?? "Forget Device?",
+                isPresented: Binding(
+                    get: { deviceToForget != nil },
+                    set: { if !$0 { deviceToForget = nil } }
+                ),
+                presenting: deviceToForget
+            ) { device in
+                Button("Forget Device", role: .destructive) { server.forget(device) }
+                Button("Cancel", role: .cancel) {}
+            } message: { device in
+                Text("\(device.displayName) can't control this Apple TV until it's added again.")
+            }
+            .confirmationDialog("Forget All Devices", isPresented: $isConfirmingForgetAll) {
+                Button("Forget All Devices", role: .destructive) { server.unpair() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Linked iPhones and Macs lose access to this Apple TV until they're added again.")
+            }
     }
 
-    private func primaryAction() {
-        switch state {
-        case .downloading, .queued: onPause()
-        case .paused, .failed: onResume()
-        case .downloaded, .notDownloaded: onCancel()
-        }
-    }
-
-    private var stateText: String {
-        switch state {
-        case .notDownloaded: return "Remove"
-        case .queued: return "Queued"
-        case .downloading(let progress): return "\(Int(progress * 100))%"
-        case .paused: return "Paused · Resume"
-        case .downloaded: return "Downloaded · Remove"
-        case .failed: return "Failed · Retry"
-        }
-    }
-}
-
-private struct DeviceSettings: View {
-    @EnvironmentObject private var navigationState: NavigationState
-    @ObservedObject private var remote = CompanionServer.shared
-    @ObservedObject private var store = SettingsStore.shared
-    @State private var showingUnpairConfirmation = false
-    @State private var showingHelp = false
-
-    var body: some View {
+    @ViewBuilder
+    private var content: some View {
         List {
             Section {
-                syncedRow("Streaming Quality", value: store.streamingQualityCeiling.displayName, key: SettingKeys.StreamingQualityCeiling.self)
-                syncedRow("Download Quality", value: store.downloadQualityCeiling.displayName, key: SettingKeys.DownloadQualityCeiling.self)
-                syncedRow("DJ Auto-Mix", value: store.djAutoMixEnabled ? "On" : "Off", key: SettingKeys.DJAutoMixEnabled.self)
-                syncedRow(
-                    "DJ Personality",
-                    value: DJProfile.profile(id: store.djDefaultProfileId)?.displayName ?? "Automatic",
-                    key: SettingKeys.DJDefaultProfileId.self
-                )
-                syncedRow(
-                    "Transition Length",
-                    value: formatSeconds(store.djTransitionLengthSeconds),
-                    key: SettingKeys.DJTransitionLengthSeconds.self
-                )
+                ForEach(server.devices) { device in
+                    Button {
+                        deviceToForget = device
+                    } label: {
+                        LabeledContent(device.displayName) {
+                            Text(server.connectedSessionIds.contains(device.sessionId) ? "Connected" : "Not Connected")
+                        }
+                    }
+                    .accessibilityHint("Forget this device")
+                }
+                Button {
+                    isAddingDevice = true
+                } label: {
+                    SettingsChoiceRow("Add Device…", value: "")
+                }
+                .accessibilityIdentifier("settings.devices.add")
             } header: {
-                SettingsSectionTitle("Shared Settings")
+                SettingsSectionTitle("Devices")
             } footer: {
-                Text("Shared preferences are changed in SoundingCloud Settings on your iPhone. What's in force shows here.")
+                Text(server.devices.isEmpty ? "Link an iPhone or Mac to play music on this Apple TV and control it." : "Linked iPhones and Macs can play music on this Apple TV and control it.")
                     .settingsFooterStyle()
             }
 
-            Section {
-                LabeledContent("Queue Control", value: pairingStatus(remote))
-                if let error = remote.lastError {
-                    LabeledContent("Last Error", value: error)
-                }
-            } header: {
-                SettingsSectionTitle("Companion Connection")
-            }
-
-            Section {
-                Button("Open Companion Pairing") {
-                    navigationState.selectedTab = .companion
-                }
-                Button(showingHelp ? "Hide Pairing Steps" : "Show Pairing Steps") {
-                    showingHelp.toggle()
-                }
-                if showingHelp {
-                    Text("""
-                    1. Open SoundingCloud on a nearby companion device.
-                    2. Choose this Apple TV, or scan the code on the Companion screen.
-                    3. Compare the six-digit code on both screens.
-                    4. A paired companion reconnects on its own on the same network.
-                    """)
-                }
-            }
-
-            if remote.isLinked {
+            if server.devices.count > 1 {
                 Section {
-                    Button("Forget Companion", role: .destructive) {
-                        showingUnpairConfirmation = true
+                    Button("Forget All Devices", role: .destructive) {
+                        isConfirmingForgetAll = true
                     }
-                } footer: {
-                    Text("That companion won't be able to control this Apple TV any more.")
-                        .settingsFooterStyle()
                 }
             }
-        }
-        .settingsScreen(
-            "Devices & Sync",
-            subtitle: "Pair a controller, manage queue control, and review shared preferences."
-        )
-        .confirmationDialog("Forget Companion", isPresented: $showingUnpairConfirmation) {
-            Button("Forget Companion", role: .destructive) { remote.unpair() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This companion won't be able to control the queue any more. You can pair again from the Companion screen.")
         }
     }
 
-    private func syncedRow<K: SettingDefinition>(_ title: String, value: String, key: K.Type) -> some View {
-        LabeledContent(title, value: "\(value) · \(store.effectiveScope(key) == .synced ? "iPhone" : "This TV")")
+    private static var debugStartsAddingDevice: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["SOUNDING_TV_TV_PAIRING"] == "1"
+        #else
+        return false
+        #endif
     }
 }
 
@@ -922,8 +849,7 @@ private struct AboutSettings: View {
     @ObservedObject private var player = PlayerService.shared
 
     @State private var showingResetConfirmation = false
-    #if DEBUG
-    #endif
+    @State private var showingSource = false
 
     var body: some View {
         List {
@@ -932,50 +858,65 @@ private struct AboutSettings: View {
                     ForEach(timeoutChoices, id: \.self) { Text(formatSeconds($0)).tag($0) }
                 }
                 .pickerStyle(.navigationLink)
+                Toggle("Sync Settings with iCloud", isOn: store.syncSettingsWithICloudBinding)
             } header: {
                 SettingsSectionTitle("General")
             } footer: {
-                Text("How long this Apple TV sits idle before ambient mode takes over. Stays on this Apple TV.")
+                Text("Settings follow your Apple ID to your other devices. Recent searches and other SoundCloud account settings are cleared from this device when you sign out of SoundCloud.")
                     .settingsFooterStyle()
             }
 
             Section {
-                LabeledContent("Version", value: appVersion)
-                LabeledContent("Build", value: appBuild)
-                LabeledContent("Source", value: "github.com/0xdeafcafe/sounding-tv")
+                SettingsReadOnlyRow("Version", value: appVersion)
+                SettingsReadOnlyRow("Build", value: appBuild)
+                #if DEBUG
+                Button {
+                    showingSource = true
+                } label: {
+                    SettingsChoiceRow("Source", value: "GitHub")
+                }
+                .accessibilityHint("Shows a scannable link to the source repository")
+                #endif
             } header: {
                 SettingsSectionTitle("About")
             }
 
+            if NetworkActivityLog.isVisible {
+                Section {
+                    NavigationLink("Network Activity") { NetworkActivityView() }
+                } header: {
+                    SettingsSectionTitle("Advanced")
+                }
+            }
+
+            #if DEBUG
             Section {
-                LabeledContent("Playback Stalls", value: "\(player.observedStalls)")
-                LabeledContent("Mix Engine", value: mixEngineDisplay)
+                SettingsReadOnlyRow("Playback Stalls", value: "\(player.observedStalls)")
+                SettingsReadOnlyRow("Mix Engine", value: mixEngineDisplay)
             } header: {
                 SettingsSectionTitle("Diagnostics")
-            } footer: {
-                Text("Stalls counted since launch. A rising number usually means the network, not the app.")
-                    .settingsFooterStyle()
             }
+            #endif
 
             Section {
                 Button("Reset All Settings", role: .destructive) {
                     showingResetConfirmation = true
                 }
-            } footer: {
-                Text("Quality, DJ defaults and the screensaver timeout go back to how they started. Anything pinned to this Apple TV is unpinned too.")
-                    .settingsFooterStyle()
             }
 
         }
         .settingsScreen(
             "About & Advanced",
-            subtitle: "Version, diagnostics, and device-only options."
+            subtitle: "Version, screensaver, and reset."
         )
+        .sheet(isPresented: $showingSource) {
+            SourceRepositoryView()
+        }
         .confirmationDialog("Reset All Settings", isPresented: $showingResetConfirmation) {
             Button("Reset All Settings", role: .destructive) { resetAllSettings() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Streaming and download quality, DJ defaults, and the screensaver timeout go back to how they started on this Apple TV. Synced settings pinned to this TV are unpinned too.")
+            Text("Quality, Auto Mix and screensaver settings return to their defaults.")
         }
     }
 
@@ -985,6 +926,7 @@ private struct AboutSettings: View {
                by: 15).map { $0 }
     }
 
+    #if DEBUG
     private var mixEngineDisplay: String {
         switch player.mixEngineState {
         case .off: return "Off"
@@ -993,11 +935,11 @@ private struct AboutSettings: View {
         case .unavailable(let reason): return "Unavailable · \(reason)"
         }
     }
+    #endif
 
     private func resetAllSettings() {
         store.setStreamingQualityCeiling(SettingKeys.StreamingQualityCeiling.defaultValue)
         store.setDownloadQualityCeiling(SettingKeys.DownloadQualityCeiling.defaultValue)
-        store.setDownloadStorageCapBytes(SettingKeys.DownloadStorageCapBytes.defaultValue)
         store.setDJAutoMixEnabled(SettingKeys.DJAutoMixEnabled.defaultValue)
         store.setDJDefaultProfileId(SettingKeys.DJDefaultProfileId.defaultValue)
         store.setDJTransitionLengthSeconds(SettingKeys.DJTransitionLengthSeconds.defaultValue)
@@ -1011,7 +953,66 @@ private struct AboutSettings: View {
 
 }
 
-private struct SettingsSectionTitle: View {
+private struct SourceRepositoryView: View {
+    private static let repository = "https://github.com/0xdeafcafe/sounding-tv"
+
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var closeFocused: Bool
+    @State private var matrix: QRMatrix?
+
+    var body: some View {
+        VStack(spacing: Space.roomy) {
+            HStack {
+                VStack(alignment: .leading, spacing: Space.tight) {
+                    Text("Open Source")
+                        .font(.tvTitle)
+                        .foregroundStyle(Color.scTextPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                    Text("Scan with your phone to visit Sounding on GitHub.")
+                        .font(.tvBody)
+                        .foregroundStyle(Color.scTextSecondary)
+                }
+                Spacer()
+                PanelCloseButton { dismiss() }
+                    .focused($closeFocused)
+            }
+
+            Spacer()
+
+            RoundedRectangle(cornerRadius: CornerRadius.xl, style: .continuous)
+                .fill(Color.white)
+                .frame(width: 430, height: 430)
+                .shadow(color: Color.black.opacity(0.48), radius: 42, y: 18)
+                .overlay {
+                    if let matrix {
+                        QRCodeView(matrix: matrix, markColor: Color(white: 0.22))
+                            .frame(width: 390, height: 390)
+                    } else {
+                        ProgressView()
+                            .tint(Color.black.opacity(0.45))
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(matrix == nil ? "Preparing QR code" : "QR code linking to \(Self.repository)")
+
+            Text(Self.repository)
+                .font(.tvSubheadline)
+                .foregroundStyle(Color.scTextSecondary)
+
+            Spacer()
+        }
+        .padding(Space.page)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.scBackground.ignoresSafeArea())
+        .defaultFocus($closeFocused, true)
+        .onExitCommand { dismiss() }
+        .task {
+            matrix = QRCodeGenerator.matrix(for: Self.repository)
+        }
+    }
+}
+
+struct SettingsSectionTitle: View {
     private let title: String
 
     init(_ title: String) {
@@ -1020,18 +1021,10 @@ private struct SettingsSectionTitle: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 22, weight: .semibold))
-            // List headers apply their own secondary emphasis on tvOS.
-            .foregroundStyle(Color.scTextPrimary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.bottom, Space.tight)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Color.white.opacity(0.16))
-                    .frame(height: 1)
-            }
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(.secondary)
             .textCase(nil)
-            .padding(.top, Space.tight)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -1043,9 +1036,8 @@ private extension View {
     }
 
     func settingsFooterStyle() -> some View {
-        font(.system(size: 21, weight: .regular))
-            .foregroundStyle(Color.scTextTertiary)
-            .lineSpacing(3)
+        font(.caption)
+            .foregroundStyle(.secondary)
     }
 }
 
@@ -1054,7 +1046,8 @@ private func tierDisplayName(_ tier: SubscriptionService.Tier) -> String {
     case .free: return "Free"
     case .go: return "Go"
     case .goPlus: return "Go+"
-    case .creatorPro: return "Creator"
+    case .dj: return "DJ"
+    case .creatorPro: return "Artist"
     case .unknown: return "Unknown"
     }
 }
@@ -1067,25 +1060,12 @@ private func verificationDisplay(_ verification: SubscriptionService.Verificatio
     }
 }
 
-@MainActor
-private func pairingStatus(_ remote: CompanionServer) -> String {
-    guard remote.isLinked else { return "No companion paired" }
-    return remote.isPhoneConnected ? "Paired · Connected" : "Paired · Not connected"
-}
-
 private var appVersion: String {
     Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
 }
 
 private var appBuild: String {
     Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-}
-
-private func byteString(_ bytes: Int64) -> String {
-    let formatter = ByteCountFormatter()
-    formatter.countStyle = .file
-    formatter.allowedUnits = [.useGB, .useMB]
-    return formatter.string(fromByteCount: bytes)
 }
 
 private func cacheByteString(_ bytes: Int64) -> String {

@@ -2,34 +2,49 @@ import Foundation
 import Combine
 import Observation
 
+/// Analysis-only remains of the original transition service: it measures BPM,
+/// key, and energy for upcoming queue tracks and caches the results. The
+/// parallel bars/techniques planner it used to run is gone — the single plan
+/// currency is PhantomDJEngine.Plan, produced by DJSessionDirector.
+///
+/// `transition(from:to:)` survives only as a compatibility projection for the
+/// tvOS readouts that still speak the old vocabulary; PlayerService installs
+/// a provider that derives the answer from the adaptive plan.
 @MainActor
 final class DJTransitionService: ObservableObject {
-    static let shared = DJTransitionService()
+    static let shared = DJTransitionService(sourceResolver: .shared)
 
     weak var delegate: DJTransitionServiceDelegate?
+
+    /// Projects the single plan model into the legacy readout vocabulary.
+    var planProvider: ((Track, Track) -> TransitionPlan?)?
 
     @Published var isEnabled: Bool = false {
         didSet {
             guard isEnabled != oldValue else { return }
+            guard !isSyncingFromCanonicalState else { return }
             delegate?.djTransitionServiceDidChangeEnabled(isEnabled)
             if isEnabled { primeFromCurrentPlayer() }
         }
     }
+    private var isSyncingFromCanonicalState = false
     @Published private(set) var states: [String: AnalysisState] = [:]
-    @Published private(set) var transitions: [TransitionKey: TransitionPlan] = [:]
+
+    func syncEnabledFromCanonicalState(_ enabled: Bool) {
+        guard isEnabled != enabled else { return }
+        isSyncingFromCanonicalState = true
+        isEnabled = enabled
+        isSyncingFromCanonicalState = false
+    }
 
     private let cacheURL: URL
+    private let sourceResolver: PlaybackSourceResolver
     private var pendingAnalysisTasks: [String: Task<Void, Never>] = [:]
-    private var pendingTransitionTasks: [TransitionKey: Task<Void, Never>] = [:]
 
-    private init() {
-        let dir = (try? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        cacheURL = dir.appendingPathComponent("dj-cache.json")
+    private init(sourceResolver: PlaybackSourceResolver) {
+        self.sourceResolver = sourceResolver
+        cacheURL = AppDataDirectory.file("dj-cache-v2.json")
+        try? FileManager.default.removeItem(at: AppDataDirectory.file("dj-cache.json"))
         loadCache()
     }
 
@@ -40,7 +55,7 @@ final class DJTransitionService: ObservableObject {
     }
 
     func transition(from: Track, to: Track) -> TransitionPlan? {
-        transitions[TransitionKey(fromId: from.id, toId: to.id)]
+        planProvider?(from, to)
     }
 
     func analyzeUpcoming(in queue: [Track], from currentIndex: Int) {
@@ -52,9 +67,6 @@ final class DJTransitionService: ObservableObject {
 
         for i in start..<end {
             scheduleAnalysis(of: queue[i])
-        }
-        for i in start..<(end - 1) {
-            scheduleTransition(from: queue[i], to: queue[i + 1])
         }
     }
 
@@ -69,8 +81,9 @@ final class DJTransitionService: ObservableObject {
 
         states[track.id] = .analyzing
         let task = Task { [weak self] in
-            let analysis = await Self.runAnalysis(for: track)
-            guard let self, !Task.isCancelled else { return }
+            guard let self else { return }
+            let analysis = await self.runAnalysis(for: track)
+            guard !Task.isCancelled else { return }
             self.states[track.id] = .analyzed(analysis)
             self.pendingAnalysisTasks[track.id] = nil
             self.saveCache()
@@ -78,16 +91,35 @@ final class DJTransitionService: ObservableObject {
         pendingAnalysisTasks[track.id] = task
     }
 
-    private static func runAnalysis(for track: Track) async -> TrackAnalysis {
+    private func runAnalysis(for track: Track) async -> TrackAnalysis {
+        // The shared analysis database is synced through CloudKit, so a result
+        // measured earlier by this TV, an iPhone, or a Mac should win over
+        // fetching and decoding the first minute again.
+        if let cached = await AnalysisSummaryStore.summaries(for: [track])[track.id],
+           cached.bpm != nil || cached.key != nil {
+            return TrackAnalysis(
+                trackId: track.id,
+                bpm: cached.bpm,
+                key: cached.key?.label,
+                energy: 0.5,
+                intro: 0,
+                outro: max(0, track.duration - 16),
+                isEstimated: false
+            )
+        }
         do {
-            let url = try await SoundCloudAPI.shared.getStreamURL(for: track)
+            let url = try await sourceResolver.decodedAudioURL(
+                for: track,
+                collectionID: nil
+            )
+            defer { TemporaryPlaintextFile(url: url).release() }
             return try await AudioAnalyzer.analyze(
                 streamURL: url,
                 duration: track.duration,
                 trackId: track.id
             )
         } catch {
-            return synthesizeAnalysis(for: track)
+            return Self.synthesizeAnalysis(for: track)
         }
     }
 
@@ -106,140 +138,11 @@ final class DJTransitionService: ObservableObject {
         )
     }
 
-    private func scheduleTransition(from a: Track, to b: Track) {
-        let key = TransitionKey(fromId: a.id, toId: b.id)
-        if transitions[key] != nil { return }
-        if pendingTransitionTasks[key] != nil { return }
-
-        let task = Task { [weak self] in
-            while !Task.isCancelled {
-                if let self,
-                   case .analyzed(let aA) = self.states[a.id],
-                   case .analyzed(let bA) = self.states[b.id] {
-                    let plan = Self.computeTransition(from: aA, to: bA)
-                    self.transitions[key] = plan
-                    self.pendingTransitionTasks[key] = nil
-                    self.saveCache()
-                    return
-                }
-                try? await Task.sleep(nanoseconds: 400_000_000)
-            }
-        }
-        pendingTransitionTasks[key] = task
-    }
-
-    private static func computeTransition(from a: TrackAnalysis, to b: TrackAnalysis) -> TransitionPlan {
-        let bpmA = a.bpm ?? 0
-        let bpmB = b.bpm ?? 0
-        let bpmDelta = abs(bpmA - bpmB)
-        let energyDelta = a.energy - b.energy           // signed: + means cool-down
-        let energyDeltaAbs = abs(energyDelta)
-        let keysCompatible = areKeysCompatible(a.key, b.key)
-
-        var steps: [TransitionStep] = []
-        var primary: TransitionTechnique = .quickCut
-        var confidence: Double = 0.5
-
-        if bpmDelta < 4, energyDeltaAbs < 0.20, keysCompatible {
-            steps = [
-                TransitionStep(technique: .phraseAlign, bars: 0),
-                TransitionStep(technique: .beatMatch,   bars: 4),
-                TransitionStep(technique: .bassSwap,    bars: 4),
-            ]
-            primary = .beatMatch
-            confidence = 0.95
-        } else if bpmDelta < 6, energyDeltaAbs < 0.35 {
-            let sweep: TransitionTechnique = a.energy >= b.energy ? .lowpassSweep : .highpassSweep
-            steps = [
-                TransitionStep(technique: .beatMatch, bars: 4),
-                TransitionStep(technique: sweep,      bars: 4),
-                TransitionStep(technique: .bassSwap,  bars: 2),
-            ]
-            primary = sweep
-            confidence = 0.82 - Double(bpmDelta) * 0.02 - energyDeltaAbs * 0.1
-        } else if energyDelta < -0.30, bpmDelta < 8 {
-            steps = [
-                TransitionStep(technique: .beatMatch,     bars: 2),
-                TransitionStep(technique: .highpassSweep, bars: 2),
-                TransitionStep(technique: .quickCut,      bars: 0),
-            ]
-            primary = .highpassSweep
-            confidence = 0.72
-        } else if energyDelta > 0.30, bpmDelta < 8 {
-            steps = [
-                TransitionStep(technique: .loopOut,      bars: 2),
-                TransitionStep(technique: .echoOut,      bars: 2),
-                TransitionStep(technique: .lowpassSweep, bars: 2),
-            ]
-            primary = .echoOut
-            confidence = 0.66
-        } else if bpmDelta >= 8, bpmDelta < 16 {
-            steps = [
-                TransitionStep(technique: .beatMatch,    bars: 2),
-                TransitionStep(technique: .lowpassSweep, bars: 4),
-                TransitionStep(technique: .loopOut,      bars: 2),
-            ]
-            primary = .lowpassSweep
-            confidence = 0.55
-        } else if bpmDelta >= 16 {
-            steps = [
-                TransitionStep(technique: .loopOut,  bars: 4),
-                TransitionStep(technique: .echoOut,  bars: 2),
-                TransitionStep(technique: .quickCut, bars: 0),
-            ]
-            primary = .loopOut
-            confidence = 0.50
-        } else {
-            steps = [
-                TransitionStep(technique: .lowpassSweep, bars: 2),
-                TransitionStep(technique: .quickCut,     bars: 0),
-            ]
-            primary = .quickCut
-            confidence = 0.38
-        }
-
-        if !keysCompatible { confidence -= 0.10 }
-        confidence = max(0.20, min(0.99, confidence))
-
-        let totalBars = steps.reduce(0) { $0 + $1.bars }
-        return TransitionPlan(
-            fromTrackId: a.trackId,
-            toTrackId: b.trackId,
-            primaryTechnique: primary,
-            confidence: confidence,
-            totalBars: totalBars,
-            steps: steps
-        )
-    }
-
-    private static func areKeysCompatible(_ keyA: String?, _ keyB: String?) -> Bool {
-        guard let keyA, let keyB else { return true }
-        if keyA == keyB { return true }
-
-        let names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
-        func parse(_ k: String) -> (root: Int, minor: Bool)? {
-            let isMinor = k.hasSuffix("m")
-            let root = isMinor ? String(k.dropLast()) : k
-            guard let idx = names.firstIndex(of: root) else { return nil }
-            return (idx, isMinor)
-        }
-        guard let pa = parse(keyA), let pb = parse(keyB) else { return false }
-
-        let interval = (pa.root - pb.root + 12) % 12
-        if [0, 5, 7].contains(interval) { return true }
-        if interval == 3, pa.minor != pb.minor { return true }
-        if interval == 9, pa.minor != pb.minor { return true }
-        return false
-    }
-
     private func loadCache() {
         guard let data = try? Data(contentsOf: cacheURL),
               let decoded = try? JSONDecoder().decode(CachePayload.self, from: data) else { return }
         for analysis in decoded.analyses {
             states[analysis.trackId] = .analyzed(analysis)
-        }
-        for plan in decoded.transitions {
-            transitions[TransitionKey(fromId: plan.fromTrackId, toId: plan.toTrackId)] = plan
         }
     }
 
@@ -247,16 +150,12 @@ final class DJTransitionService: ObservableObject {
         let analyses: [TrackAnalysis] = states.values.compactMap {
             if case .analyzed(let a) = $0 { return a } else { return nil }
         }
-        let payload = CachePayload(
-            analyses: analyses,
-            transitions: Array(transitions.values)
-        )
+        let payload = CachePayload(analyses: analyses)
         guard let data = try? JSONEncoder().encode(payload) else { return }
         try? data.write(to: cacheURL, options: .atomic)
     }
 
     private struct CachePayload: Codable {
         let analyses: [TrackAnalysis]
-        let transitions: [TransitionPlan]
     }
 }

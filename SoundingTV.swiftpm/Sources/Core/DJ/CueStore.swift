@@ -1,4 +1,9 @@
 import Foundation
+
+@MainActor
+protocol CueSynchronizationReceiving: AnyObject, Sendable {
+    func noteCueMutation()
+}
 import SQLite3
 
 enum CueWriterIdentity {
@@ -20,13 +25,12 @@ actor CueStore {
 
     private(set) var isDurable: Bool
 
-    private nonisolated(unsafe) let db: OpaquePointer?
-    private let writerId: String
+    nonisolated(unsafe) let db: OpaquePointer?
+    let writerId: String
+    private weak var synchronizationSink: (any CueSynchronizationReceiving)?
 
     static func defaultDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return base.appendingPathComponent("CuePoints", isDirectory: true)
+        AppDataDirectory.folder("CuePoints")
     }
 
     init(directory: URL, writerId: String? = nil) {
@@ -46,13 +50,16 @@ actor CueStore {
 
         Self.createSchema(db)
         Self.migrateSchemaIfNeeded(db)
+        Self.createPrepSchema(db)
     }
 
     deinit {
         if let db { sqlite3_close(db) }
     }
 
-    var localWriterId: String { writerId }
+    func connectSynchronization(to sink: any CueSynchronizationReceiving) {
+        synchronizationSink = sink
+    }
 
     func cues(forTrack trackId: String) -> [CuePoint] {
         rows(sql: "SELECT * FROM cue WHERE track_id = ? AND is_deleted = 0;", bindings: [.text(trackId)])
@@ -83,10 +90,19 @@ actor CueStore {
     }
 
     func sheet(for input: CueSuggester.Input) -> CueSheet {
-        CueResolution.resolve(
+        let prepGrid = prep(forTrack: input.trackId)?.grid?.value.beatGrid(durationSeconds: input.duration, confidence: 0.9)
+        let effective = CueSuggester.Input(
+            trackId: input.trackId,
+            duration: input.duration,
+            envelope: input.envelope,
+            beatGrid: prepGrid ?? input.beatGrid,
+            sections: input.sections
+        )
+        return CueResolution.resolve(
             trackId: input.trackId,
             userCues: cues(forTrack: input.trackId),
-            suggestions: CueSuggester.suggest(input),
+            suggestions: CueSuggester.suggest(effective)
+                + listeningSuggestions(forTrack: input.trackId, grid: effective.beatGrid, duration: input.duration),
             dismissedIds: dismissedSuggestionIds(forTrack: input.trackId)
         )
     }
@@ -101,8 +117,11 @@ actor CueStore {
         return stamped
     }
 
-    private nonisolated func notifyLocalChange() {
-        Task { @MainActor in CueSyncTarget.localChangeCommitted() }
+    func notifyLocalChange() {
+        guard let synchronizationSink else { return }
+        Task { @MainActor [weak synchronizationSink] in
+            synchronizationSink?.noteCueMutation()
+        }
     }
 
     @discardableResult
@@ -149,6 +168,41 @@ actor CueStore {
             CuePoint(trackId: trackId, kind: .loop, positionMillis: startMillis, endMillis: endMillis, label: label, createdAtMillis: now),
             now: now
         )
+    }
+
+    @discardableResult
+    func setHotLoop(
+        trackId: String,
+        index: Int,
+        startMillis: Int64,
+        endMillis: Int64,
+        label: String = "",
+        now: Int64 = CueTime.nowMillis()
+    ) -> CuePoint {
+        upsert(
+            CuePoint(
+                trackId: trackId,
+                kind: .loop,
+                positionMillis: startMillis,
+                endMillis: endMillis,
+                hotCueIndex: index,
+                label: label,
+                createdAtMillis: existing(id: CuePoint.slotId(trackId: trackId, kind: .loop, hotCueIndex: index))?.createdAtMillis ?? now
+            ),
+            now: now
+        )
+    }
+
+    func cue(id: String) -> CuePoint? {
+        existing(id: id)
+    }
+
+    func restore(_ cue: CuePoint, now: Int64 = CueTime.nowMillis()) {
+        var stamped = cue
+        stamped.updatedAtMillis = now
+        stamped.writerId = writerId
+        write(stamped)
+        notifyLocalChange()
     }
 
     @discardableResult
@@ -208,10 +262,6 @@ actor CueStore {
         cue.writerId = writerId
         write(cue)
         notifyLocalChange()
-    }
-
-    func deleteAll(forTrack trackId: String, now: Int64 = CueTime.nowMillis()) {
-        for cue in cues(forTrack: trackId) { delete(cueId: cue.id, now: now) }
     }
 
     @discardableResult
@@ -325,13 +375,13 @@ actor CueStore {
         return lhs.id < rhs.id
     }
 
-    private enum Binding {
+    enum Binding {
         case text(String)
         case int(Int64)
         case nullInt(Int64?)
     }
 
-    private func bind(_ stmt: OpaquePointer?, _ bindings: [Binding]) {
+    func bind(_ stmt: OpaquePointer?, _ bindings: [Binding]) {
         for (offset, binding) in bindings.enumerated() {
             let index = Int32(offset + 1)
             switch binding {
@@ -345,7 +395,7 @@ actor CueStore {
         }
     }
 
-    private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     private static func openDatabase(path: String) -> OpaquePointer? {
         var handle: OpaquePointer?
@@ -377,7 +427,8 @@ actor CueStore {
             is_deleted            INTEGER NOT NULL DEFAULT 0,
             promoted_from_name    TEXT,
             promoted_from_version INTEGER,
-            writer_id             TEXT NOT NULL
+            writer_id             TEXT NOT NULL,
+            origin                TEXT
         );
         """, nil, nil, nil)
         sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS cue_track_idx ON cue(track_id, is_deleted);", nil, nil, nil)
@@ -402,7 +453,7 @@ actor CueStore {
     private static func migrateSchemaIfNeeded(_ db: OpaquePointer?) {
         guard let db else { return }
         let existing = Set(tableInfoColumnNames(db, table: "cue"))
-        let additions: [(name: String, ddl: String)] = []
+        let additions: [(name: String, ddl: String)] = [("origin", "TEXT")]
         for column in additions where !existing.contains(column.name) {
             sqlite3_exec(db, "ALTER TABLE cue ADD COLUMN \(column.name) \(column.ddl);", nil, nil, nil)
         }
@@ -447,6 +498,7 @@ actor CueStore {
         let hotCueIndex: Int? = sqlite3_column_type(stmt, 5) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(stmt, 5))
         let promotedName: String? = sqlite3_column_text(stmt, 11).map { String(cString: $0) }
         let promotedVersion: Int? = sqlite3_column_type(stmt, 12) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(stmt, 12))
+        let origin = sqlite3_column_text(stmt, 14).flatMap { CueOrigin(rawValue: String(cString: $0)) } ?? .user
 
         return CuePoint(
             id: String(cString: idPtr),
@@ -461,7 +513,8 @@ actor CueStore {
             updatedAtMillis: sqlite3_column_int64(stmt, 9),
             isDeleted: sqlite3_column_int64(stmt, 10) != 0,
             promotedFrom: promotedName.flatMap { name in promotedVersion.map { CueSuggesterIdentity(name: name, version: $0) } },
-            writerId: String(cString: writerPtr)
+            writerId: String(cString: writerPtr),
+            origin: origin
         )
     }
 
@@ -471,8 +524,8 @@ actor CueStore {
         INSERT INTO cue (
             cue_id, track_id, kind, position_millis, end_millis, hot_cue_index,
             label, color_rgb, created_at_millis, updated_at_millis, is_deleted,
-            promoted_from_name, promoted_from_version, writer_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            promoted_from_name, promoted_from_version, writer_id, origin
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(cue_id) DO UPDATE SET
             position_millis = excluded.position_millis,
             end_millis = excluded.end_millis,
@@ -483,7 +536,8 @@ actor CueStore {
             is_deleted = excluded.is_deleted,
             promoted_from_name = excluded.promoted_from_name,
             promoted_from_version = excluded.promoted_from_version,
-            writer_id = excluded.writer_id;
+            writer_id = excluded.writer_id,
+            origin = excluded.origin;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
@@ -505,6 +559,7 @@ actor CueStore {
             sqlite3_bind_null(stmt, 13)
         }
         _ = cue.writerId.withCString { sqlite3_bind_text(stmt, 14, $0, -1, Self.sqliteTransient) }
+        _ = cue.origin.rawValue.withCString { sqlite3_bind_text(stmt, 15, $0, -1, Self.sqliteTransient) }
 
         sqlite3_step(stmt)
     }

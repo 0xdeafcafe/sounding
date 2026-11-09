@@ -1,4 +1,5 @@
 import Foundation
+import XCTest
 @testable import SoundingTV
 
 #if DEBUG
@@ -39,11 +40,13 @@ enum SettingsSelfTest {
 
         expect("never synced locally", local: nil, remote: rev(0, 1000, "peer"), wins: true)
 
-        expect("higher revision wins", local: rev(1, 5000, "me"), remote: rev(2, 1000, "peer"), wins: true)
-        expect("lower revision loses", local: rev(3, 1000, "me"), remote: rev(2, 9000, "peer"), wins: false)
+        expect("later timestamp wins", local: rev(1, 1000, "me"), remote: rev(1, 2000, "peer"), wins: true)
+        expect("earlier timestamp loses", local: rev(1, 5000, "me"), remote: rev(1, 2000, "peer"), wins: false)
+        expect("later timestamp wins with fewer edits", local: rev(3, 1000, "me"), remote: rev(2, 9000, "peer"), wins: true)
+        expect("earlier timestamp loses with more edits", local: rev(1, 5000, "me"), remote: rev(4, 1000, "peer"), wins: false)
 
-        expect("equal revision, later timestamp wins", local: rev(1, 1000, "me"), remote: rev(1, 2000, "peer"), wins: true)
-        expect("equal revision, earlier timestamp loses", local: rev(1, 5000, "me"), remote: rev(1, 2000, "peer"), wins: false)
+        expect("equal timestamp, higher revision wins", local: rev(1, 1000, "me"), remote: rev(2, 1000, "peer"), wins: true)
+        expect("equal timestamp, lower revision loses", local: rev(3, 1000, "me"), remote: rev(2, 1000, "peer"), wins: false)
 
         expect("exact tie, higher writerId wins", local: rev(1, 1000, "aaa"), remote: rev(1, 1000, "bbb"), wins: true)
         expect("exact tie, lower writerId loses", local: rev(1, 1000, "bbb"), remote: rev(1, 1000, "aaa"), wins: false)
@@ -78,6 +81,12 @@ enum SettingsSelfTest {
     }
 
     private static func scenarioCases(_ report: inout Report) {
+        check(
+            "two-deck Auto Mix is opt-in for ordinary playback",
+            SettingKeys.DJAutoMixEnabled.defaultValue == false,
+            &report
+        )
+
         let tvRevisions: [String: SettingRevision] = [
             "djAutoMixEnabled": rev(1, 5000, "tv"),
         ]
@@ -148,6 +157,46 @@ enum SettingsSelfTest {
         } else {
             report.failures.append(name)
         }
+    }
+}
+
+final class SettingsTests: XCTestCase {
+    func testSettingsMergeBattery() {
+        let report = SettingsSelfTest.run()
+        XCTAssertTrue(report.failures.isEmpty, report.summary)
+    }
+
+    func testAnalysisSettingDefaultsOnWithoutLegacyRules() {
+        XCTAssertTrue(AnalysisSettingMigration.analyseOnDevice(legacyRules: nil))
+        XCTAssertTrue(SettingKeys.AnalyseMusicOnDevice.defaultValue)
+        XCTAssertEqual(SettingKeys.AnalyseMusicOnDevice.defaultScope, .deviceLocal)
+    }
+
+    func testAnalysisSettingMigratesFromLegacyRules() throws {
+        let decoder = JSONDecoder()
+        let off = try decoder.decode(
+            AnalysisSettingMigration.LegacyRules.self,
+            from: Data(#"{"likedTracks":false,"yourPlaylists":false}"#.utf8)
+        )
+        let likedOnly = try decoder.decode(
+            AnalysisSettingMigration.LegacyRules.self,
+            from: Data(#"{"likedTracks":true,"yourPlaylists":false}"#.utf8)
+        )
+        let playlistsOnly = AnalysisSettingMigration.LegacyRules(likedTracks: false, yourPlaylists: true)
+        XCTAssertFalse(AnalysisSettingMigration.analyseOnDevice(legacyRules: off))
+        XCTAssertTrue(AnalysisSettingMigration.analyseOnDevice(legacyRules: likedOnly))
+        XCTAssertTrue(AnalysisSettingMigration.analyseOnDevice(legacyRules: playlistsOnly))
+    }
+
+    func testCollectionPolicyIgnoresLegacyIntelligenceLevel() throws {
+        let legacy = Data(#"{"automaticDownloads":true,"intelligence":"off","djMode":"autoDJ"}"#.utf8)
+        let policy = try JSONDecoder().decode(CollectionPolicy.self, from: legacy)
+        XCTAssertTrue(policy.legacyAutomaticDownloads)
+        XCTAssertEqual(policy.djMode, .autoDJ)
+        let reencoded = try JSONEncoder().encode(policy)
+        let object = try JSONSerialization.jsonObject(with: reencoded) as? [String: Any]
+        XCTAssertNil(object?["intelligence"])
+        XCTAssertNil(object?["automaticDownloads"])
     }
 }
 #endif

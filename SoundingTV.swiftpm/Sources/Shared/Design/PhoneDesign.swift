@@ -24,8 +24,6 @@ extension Color {
     #endif
 
 
-    static let scAccentWarm = Color(red: 1.00, green: 0.51, blue: 0.15)
-
     static let scDestructive = Color(red: 1.00, green: 0.31, blue: 0.27)
     static let scDestructiveOn = Color(red: 0.10, green: 0.00, blue: 0.00)
 
@@ -34,12 +32,6 @@ extension Color {
 
     static let scWarning = Color(red: 1.00, green: 0.69, blue: 0.13)
     static let scWarningOn = Color(red: 0.10, green: 0.06, blue: 0.00)
-
-    static let scAccentGradient = LinearGradient(
-        colors: [scAccent, scAccentWarm],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
 
     static let scBackgroundGradient = LinearGradient(
         colors: [scBgBase, scBgRaised],
@@ -86,6 +78,17 @@ enum Radius {
 }
 
 extension Font {
+    #if os(iOS)
+    static let scDisplay  = Font.system(.largeTitle, weight: .bold)
+    static let scTitle    = Font.system(.title2, weight: .bold)
+    static let scSection  = Font.headline
+    static let scTitle2   = Font.system(.title3, weight: .bold)
+    static let scHeadline = Font.headline
+    static let scBody     = Font.body
+    static let scSubhead  = Font.subheadline
+    static let scCaption  = Font.system(.caption, weight: .semibold)
+    static let scNumeric  = Font.caption.monospacedDigit()
+    #else
     static let scDisplay  = Font.system(size: 34, weight: .heavy)
     static let scTitle    = Font.system(size: 22, weight: .bold)
     static let scSection  = Font.system(size: 17, weight: .bold)
@@ -95,6 +98,7 @@ extension Font {
     static let scSubhead  = Font.system(size: 14, weight: .medium)
     static let scCaption  = Font.system(size: 12, weight: .semibold)
     static let scNumeric  = Font.system(size: 12, weight: .medium)
+    #endif
 }
 
 enum Motion {
@@ -117,38 +121,7 @@ extension View {
     }
 }
 
-enum PhoneNowPlaying {
-    static let pageInset: CGFloat = Space.roomy
-    static let cueRail: CGFloat = 22
-}
-
-private struct ScCard: ViewModifier {
-    var cornerRadius: CGFloat = Corner.panel
-    var padding: CGFloat = Space.base
-
-    func body(content: Content) -> some View {
-        content
-            .padding(padding)
-            .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.scBgRaised)
-            )
-    }
-}
-
 extension View {
-    func scCard(cornerRadius: CGFloat = Corner.panel, padding: CGFloat = Space.base) -> some View {
-        modifier(ScCard(cornerRadius: cornerRadius, padding: padding))
-    }
-}
-
-extension View {
-    func scGlassCapsule(height: CGFloat = 36) -> some View {
-        self
-            .padding(.horizontal, Space.tight)
-            .frame(height: height)
-            .glassEffect(.regular, in: Capsule())
-    }
 }
 
 struct ScScreenHeader<Trailing: View>: View {
@@ -175,13 +148,14 @@ extension ScScreenHeader where Trailing == EmptyView {
 }
 
 struct ScMediaRow<Artwork: View, Trailing: View>: View {
-    static var separatorInset: CGFloat { artworkSize + Space.snug }
     static var artworkSize: CGFloat { 48 }
 
     var title: String
     var subtitle: String
     @ViewBuilder var artwork: () -> Artwork
     @ViewBuilder var trailing: () -> Trailing
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(spacing: Space.snug) {
@@ -194,11 +168,11 @@ struct ScMediaRow<Artwork: View, Trailing: View>: View {
                 Text(title)
                     .font(.scBody)
                     .foregroundStyle(Color.scTextPrimary)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 1)
                 Text(subtitle)
                     .font(.scSubhead)
                     .foregroundStyle(Color.scTextSecondary)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 1)
             }
 
             Spacer(minLength: Space.tight)
@@ -218,38 +192,29 @@ extension ScMediaRow where Trailing == EmptyView {
 }
 
 extension View {
-    func scGroupedCard() -> some View {
-        self
-            .background(
-                RoundedRectangle(cornerRadius: Corner.panel, style: .continuous)
-                    .fill(Color.scBgOverlay)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: Corner.panel, style: .continuous))
-    }
 }
 
-struct ScRowDivider: View {
-    var leading: CGFloat = Space.base
-
-    var body: some View {
-        Rectangle()
-            .fill(Color.scSeparator)
-            .frame(height: 0.5)
-            .padding(.leading, leading)
-    }
-}
-
-struct ScFootnote: View {
-    var text: String
-
-    init(_ text: String) {
-        self.text = text
-    }
-
-    var body: some View {
-        Text(text)
+private struct ScTransientBannerModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
             .font(.scSubhead)
-            .foregroundStyle(Color.scTextTertiary)
-            .padding(.horizontal, Space.base)
+            .foregroundStyle(Color.scTextPrimary)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .glassEffect(
+                .regular.tint(Color.scBgBase.opacity(0.78)),
+                in: Capsule(style: .continuous)
+            )
+            .overlay {
+                Capsule(style: .continuous)
+                    .strokeBorder(Color.scSeparator, lineWidth: 0.5)
+            }
+            .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
+    }
+}
+
+extension View {
+    func scTransientBanner() -> some View {
+        modifier(ScTransientBannerModifier())
     }
 }

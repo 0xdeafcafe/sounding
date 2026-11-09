@@ -2,82 +2,57 @@ import SwiftUI
 
 struct WatchTrackInfoView: View {
     @EnvironmentObject private var link: WatchLinkClient
-
-    @State private var track: Track?
-    @State private var isLoading = false
-    @State private var loadFailed = false
+    @ObservedObject private var details = WatchNowPlayingDetails.shared
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
+        let track = details.track
+        let isLoading = details.isLoading
+        let loadFailed = details.didFail
+
         List {
             Section {
-                HStack(spacing: WatchStyle.style.spaceTight) {
-                    WatchArtwork(url: track?.artworkURL ?? link.nowPlaying.artworkURL, size: 48, corner: 10)
+                HStack(spacing: 8) {
+                    WatchArtwork(url: track?.artworkURL ?? link.nowPlaying.artworkURL, size: 48, corner: 10, identity: track?.id ?? link.nowPlaying.title)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(track?.title ?? link.nowPlaying.title)
-                            .font(WatchStyle.style.fontBodyEmphasis)
-                            .foregroundStyle(WatchStyle.style.textPrimary)
+                            .font(.headline)
                             .lineLimit(2)
                         Text(track?.user.displayName ?? link.nowPlaying.artist)
-                            .font(WatchStyle.style.fontCaption)
-                            .foregroundStyle(WatchStyle.style.textSecondary)
-                            .lineLimit(1)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                     }
                     Spacer(minLength: 0)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isHeader)
             }
 
             if isLoading, track == nil {
-                WatchLoadingRow()
+                WatchLoadingState()
             } else if let track {
                 Section {
-                    Label(SCStatFormat.relativeDate(track.createdAt), systemImage: "calendar")
+                    LabeledContent("Posted", value: SCStatFormat.relativeDate(track.createdAt))
                     if let playbackCount = track.playbackCount {
-                        Label("\(SCStatFormat.compactCount(playbackCount)) plays", systemImage: "play.fill")
+                        LabeledContent("Plays", value: SCStatFormat.compactCount(playbackCount))
                     }
-                    Label("\(SCStatFormat.compactCount(track.likeCount)) likes", systemImage: "heart.fill")
+                    LabeledContent("Likes", value: SCStatFormat.compactCount(track.likeCount))
                 }
-                .font(WatchStyle.style.fontCaption)
-                .foregroundStyle(WatchStyle.style.textSecondary)
 
                 if let description = track.description, !description.isEmpty {
-                    Section {
+                    Section("Description") {
                         Text(description)
-                            .font(WatchStyle.style.fontCaption)
-                            .foregroundStyle(WatchStyle.style.textSecondary)
-                            .lineLimit(3)
-                    } header: {
-                        WatchSectionHeader(title: "Description")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 6)
                     }
                 }
             } else if loadFailed {
-                Section {
-                    Text("No details for this track.")
-                        .font(WatchStyle.style.fontCaption)
-                        .foregroundStyle(WatchStyle.style.textTertiary)
-                }
+                ContentUnavailableView("No Details", systemImage: "info.circle", description: Text("Couldn’t load this track."))
             }
         }
-        .navigationTitle("About")
-        .containerBackground(WatchStyle.style.accent.gradient.opacity(0.22), for: .navigation)
-        .task(id: link.nowPlaying.trackId) { await load() }
-    }
-
-    private func load() async {
-        guard let trackId = link.nowPlaying.trackId else {
-            track = nil
-            loadFailed = false
-            return
-        }
-        // Reload when the playing track changes, even if we already cached one.
-        guard track == nil || track?.id != trackId else { return }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            track = try await SoundCloudAPI.shared.getTrack(id: trackId)
-            loadFailed = false
-        } catch {
-            track = nil
-            loadFailed = true
-        }
+        .watchNowPlayingScreen("About")
+        .task(id: link.nowPlaying.trackId) { details.load(trackId: link.nowPlaying.trackId) }
     }
 }

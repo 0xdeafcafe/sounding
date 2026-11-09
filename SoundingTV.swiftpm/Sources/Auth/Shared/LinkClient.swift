@@ -35,7 +35,19 @@ final class LinkClient: ObservableObject {
         }
     }
 
-    @Published private(set) var state: State = .idle
+    @Published private(set) var state: State = .idle {
+        didSet {
+            guard state != oldValue else { return }
+            Self.transfers.send(Transfer(sessionId: sessionId, state: state))
+        }
+    }
+
+    struct Transfer: Equatable {
+        let sessionId: String
+        let state: State
+    }
+
+    static let transfers = PassthroughSubject<Transfer, Never>()
 
     private nonisolated(unsafe) var browser: NWBrowser?
     private nonisolated(unsafe) var connection: NWConnection?
@@ -63,7 +75,28 @@ final class LinkClient: ObservableObject {
         stop()
     }
 
+    private var retry = LinkRetryPolicy()
+
+    static var fixtureSession: StoredSession? {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["SOUNDING_TV_LINK_FIXTURE_TOKEN"] == "1" else { return nil }
+        return StoredSession(
+            oauthToken: BonjourConstants.fixtureLinkToken,
+            refreshToken: "fixture-refresh",
+            clientId: "fixture-client",
+            expiresAt: Date().addingTimeInterval(3600)
+        )
+        #else
+        return nil
+        #endif
+    }
+
     func startDiscovery() {
+        retry = LinkRetryPolicy()
+        beginDiscovery()
+    }
+
+    private func beginDiscovery() {
         stop()
         state = .discovering
 
@@ -93,16 +126,17 @@ final class LinkClient: ObservableObject {
         browser?.start(queue: .main)
 
         discoveryTimeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(30))
+            try? await Task.sleep(for: .seconds(LinkStep.findingTV.timeout))
             guard !Task.isCancelled, let self, self.state == .discovering else { return }
-            self.state = .failed("Could not find Apple TV. Make sure both devices are on the same Wi-Fi network.")
+            Log.link.error("[LinkClient] discovery timed out after 30 s")
+            self.state = .failed(LinkStep.findingTV.timedOutMessage(peer: self.peerClass.displayName))
             self.stop()
         }
     }
 
     func sendToken(_ token: String, refreshToken: String?, clientId: String?, expiresAt: Date?) {
         guard connection != nil else {
-            state = .failed("Not connected to Apple TV")
+            state = .failed("Not connected to your \(peerClass.displayName)")
             return
         }
 
@@ -121,7 +155,7 @@ final class LinkClient: ObservableObject {
         }
 
         Task { @MainActor [weak self] in
-            let renewed = await DeviceSessionRefresher.shared.refreshIfNeeded(session)
+            let renewed = await DeviceSessionRefresher.shared.refreshIfNeeded(session, trigger: "link handoff")
             guard let self, self.state == .sending else { return }
             self.transmit(renewed)
         }
@@ -136,7 +170,7 @@ final class LinkClient: ObservableObject {
             }
 
             guard let connection = self.connection else {
-                self.state = .failed("Not connected to Apple TV")
+                self.state = .failed("Not connected to your \(self.peerClass.displayName)")
                 return
             }
 
@@ -149,10 +183,14 @@ final class LinkClient: ObservableObject {
                 secret: self.sessionSecret
             )
 
-            let message = TokenTransferMessage.tokenTransfer(sessionId: self.sessionId, payload: payload)
+            let message = TokenTransferMessage.tokenTransfer(
+                sessionId: self.sessionId,
+                payload: payload,
+                peer: LinkPeerIdentity.local(sessionId: self.sessionId, secret: self.sessionSecret)
+            )
 
             guard let data = try? message.framed() else {
-                self.state = .failed("Failed to encode token")
+                self.state = .failed("Couldn't prepare the sign-in. Try again.")
                 return
             }
 
@@ -160,8 +198,8 @@ final class LinkClient: ObservableObject {
             connection.send(content: data, completion: .contentProcessed { [weak self] error in
                 Task { @MainActor in
                     if let error = error {
-                        Log.link.error("[LinkClient] Send failed: \(error.localizedDescription, privacy: .public)")
-                        self?.state = .failed("Failed to send: \(error.localizedDescription)")
+                        Log.link.error("[LinkClient] Send failed: \(String(describing: error), privacy: .public)")
+                        self?.state = .failed(LinkFailureCopy.message(for: error, peer: self?.peerClass ?? .tv))
                     } else {
                         Log.link.info("[LinkClient] Send completed, awaiting ack")
                         self?.receiveAcknowledgment()
@@ -175,11 +213,10 @@ final class LinkClient: ObservableObject {
     private func startHandshakeTimeout() {
         handshakeTimeout?.cancel()
         handshakeTimeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(15))
+            try? await Task.sleep(for: .seconds(LinkStep.securing.timeout))
             guard !Task.isCancelled, let self, !self.connectionSecured else { return }
-            self.failHandshake(
-                "Couldn't securely verify this Apple TV. Make sure it's on the same Wi-Fi network and running the latest version of SoundingTV, then try again."
-            )
+            Log.link.error("[LinkClient] TLS-PSK not ready within \(LinkStep.securing.timeout, privacy: .public) s")
+            self.failHandshake(LinkStep.securing.timedOutMessage(peer: self.peerClass.displayName))
         }
     }
 
@@ -204,7 +241,8 @@ final class LinkClient: ObservableObject {
         ackTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(15))
             guard !Task.isCancelled, let self, self.state == .sending else { return }
-            self.state = .failed("Apple TV did not acknowledge the token. Try again.")
+            Log.link.error("[LinkClient] no ack within 15 s")
+            self.state = .failed(LinkStep.waitingForTV.timedOutMessage(peer: self.peerClass.displayName))
         }
     }
 
@@ -228,25 +266,31 @@ final class LinkClient: ObservableObject {
     private func handleBrowserState(_ browserState: NWBrowser.State) {
         switch browserState {
         case .failed(let error):
-            state = .failed("Discovery failed: \(error.localizedDescription)")
+            Log.link.error("[LinkClient] browser failed: \(String(describing: error), privacy: .public)")
+            state = .failed(LinkFailureCopy.message(for: error, peer: peerClass))
             stop()
+        case .waiting(let error):
+            Log.link.error("[LinkClient] browser waiting: \(String(describing: error), privacy: .public)")
+            if LinkFailureCopy.isLocalNetworkDenied(error) {
+                state = .failed(LinkFailureCopy.message(for: error, peer: peerClass))
+                stop()
+            }
         default:
             break
         }
     }
 
     private func handleBrowseResults(_ results: Set<NWBrowser.Result>) {
-        let sessionPrefix = String(sessionId.prefix(8))
-
+        guard connection == nil, state == .discovering else { return }
+        let expected = BonjourConstants.linkServiceName(sessionId: sessionId)
         for result in results {
-            if case .service(let name, _, _, _) = result.endpoint {
-                if name.hasPrefix(BonjourConstants.serviceName), name.contains(sessionPrefix) {
-                    discoveryTimeout?.cancel()
-                    connectToService(result.endpoint)
-                    return
-                }
-            }
+            guard case .service(let name, _, _, _) = result.endpoint, name == expected else { continue }
+            Log.link.info("[LinkClient] found \(name, privacy: .public); opening TLS-PSK")
+            discoveryTimeout?.cancel()
+            connectToService(result.endpoint)
+            return
         }
+        Log.link.debug("[LinkClient] \(results.count, privacy: .public) services seen, none is \(expected, privacy: .public)")
     }
 
     private func connectToService(_ endpoint: NWEndpoint) {
@@ -275,8 +319,21 @@ final class LinkClient: ObservableObject {
             handshakeTimeout?.cancel()
             connectionSecured = true
         case .failed(let error):
-            state = .failed("Couldn't establish a secure connection with this Apple TV: \(error.localizedDescription)")
-            connection = nil
+            Log.link.error("[LinkClient] TLS-PSK connection failed: \(String(describing: error), privacy: .public)")
+            if !LinkFailureCopy.isLocalNetworkDenied(error), let delay = retry.nextDelay() {
+                Log.link.info("[LinkClient] retrying in \(delay, privacy: .public) s (attempt \(self.retry.attempts, privacy: .public)/\(LinkRetryPolicy.maximumAttempts, privacy: .public))")
+                stop()
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(delay))
+                    guard let self, self.state == .connecting else { return }
+                    self.beginDiscovery()
+                }
+                return
+            }
+            state = .failed(LinkFailureCopy.message(for: error, peer: peerClass))
+            stop()
+        case .waiting(let error):
+            Log.link.error("[LinkClient] TLS-PSK connection waiting: \(String(describing: error), privacy: .public)")
         case .cancelled:
             connection = nil
         default:
@@ -291,12 +348,14 @@ final class LinkClient: ObservableObject {
                 Log.link.debug("[LinkClient] receive callback: bytes=\(data?.count ?? 0, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
 
                 if let error = error {
-                    self.state = .failed("Error receiving acknowledgment: \(error.localizedDescription)")
+                    Log.link.error("[LinkClient] ack receive failed: \(String(describing: error), privacy: .public)")
+                    self.state = .failed(LinkFailureCopy.message(for: error, peer: self.peerClass))
                     return
                 }
 
                 guard let data, !data.isEmpty else {
-                    self.state = .failed("Invalid response from Apple TV")
+                    Log.link.error("[LinkClient] connection closed before the ack")
+                    self.state = .failed(LinkFailureCopy.droppedMessage(peer: self.peerClass))
                     return
                 }
 
@@ -335,193 +394,13 @@ final class LinkClient: ObservableObject {
                     )
                     self.stop()
                 case .error:
-                    self.state = .failed(message.error ?? "Apple TV rejected the token")
+                    Log.link.error("[LinkClient] peer answered error: \(message.error ?? "nil", privacy: .public)")
+                    self.state = .failed("\(self.peerClass.displayName) couldn't use this sign-in. Try again.")
+                    self.stop()
                 default:
                     break
                 }
             }
-        }
-    }
-}
-
-enum LinkedCompanionStore {
-    private static let service = "red.forbes.sounding.phone"
-    private static let account = "paired_tv"
-
-    private static let sharedAccessGroup = "6Z49PF6642.red.forbes.sounding.shared"
-
-    private static let legacyAccessGroup = "6Z49PF6642.red.forbes.sounding"
-
-    struct LinkRecord: Codable, Equatable {
-        var sessionId: String
-        var secretBase64: String
-        var pairedAt: Date
-        var deviceClass: DeviceClass?
-        var displayName: String?
-
-        var secret: Data? { Data(base64Encoded: secretBase64) }
-        var peerClass: DeviceClass { deviceClass ?? .tv }
-        var peerName: String { displayName ?? peerClass.displayName }
-    }
-
-    static func load() -> LinkRecord? {
-        if let link = load(accessGroup: sharedAccessGroup) {
-            return link
-        }
-
-        guard let legacy = load(accessGroup: legacyAccessGroup), let secret = legacy.secret else {
-            return nil
-        }
-
-        save(sessionId: legacy.sessionId, secret: secret)
-        deleteLegacy()
-        return legacy
-    }
-
-    private static func load(accessGroup: String) -> LinkRecord? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecAttrAccessGroup as String: accessGroup,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data,
-              let link = try? JSONDecoder().decode(LinkRecord.self, from: data),
-              link.secret != nil else {
-            return nil
-        }
-        return link
-    }
-
-    static func save(sessionId: String, secret: Data, deviceClass: DeviceClass = .tv, displayName: String? = nil) {
-        let link = LinkRecord(
-            sessionId: sessionId,
-            secretBase64: secret.base64EncodedString(),
-            pairedAt: Date(),
-            deviceClass: deviceClass,
-            displayName: displayName
-        )
-        guard let data = try? JSONEncoder().encode(link) else { return }
-
-        clear(notify: false)
-
-        let attributes: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecAttrAccessGroup as String: sharedAccessGroup,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-        ]
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            Log.link.error("[LinkedCompanionStore] save failed: \(status, privacy: .public)")
-            return
-        }
-        if let offer = LinkOfferStore.fetchLatest(), offer.sessionId == sessionId {
-            LinkOfferStore.discard(offer)
-        }
-        NotificationCenter.default.post(name: .pairedTVDidChange, object: nil)
-    }
-
-    static func clear() {
-        clear(notify: true)
-    }
-
-    private static func clear(notify: Bool) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecAttrAccessGroup as String: sharedAccessGroup,
-        ]
-        SecItemDelete(query as CFDictionary)
-        if notify {
-            NotificationCenter.default.post(name: .pairedTVDidChange, object: nil)
-        }
-    }
-
-    private static func deleteLegacy() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecAttrAccessGroup as String: legacyAccessGroup,
-        ]
-        SecItemDelete(query as CFDictionary)
-    }
-}
-
-extension Notification.Name {
-    static let pairedTVDidChange = Notification.Name("red.forbes.sounding.paired-tv-did-change")
-}
-
-enum LinkOfferStore {
-    private static let service = "red.forbes.sounding.pairing-offer"
-    private static let account = "pairing_offer"
-    private static let sharedAccessGroup = "6Z49PF6642.red.forbes.sounding.shared"
-
-    static func fetchLatest() -> LinkOffer? {
-        if let shared = fetch(accessGroup: sharedAccessGroup) {
-            return validate(shared)
-        }
-        // Read the old app-private item once so an in-flight link from a
-        // previous build is not lost during the shared-keychain migration.
-        guard let legacy = fetch(accessGroup: nil) else { return nil }
-        return validate(legacy)
-    }
-
-    private static func fetch(accessGroup: String?) -> LinkOffer? {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
-
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess,
-              let data = item as? Data,
-              let offer = try? JSONDecoder().decode(LinkOffer.self, from: data) else {
-            if status != errSecSuccess && status != errSecItemNotFound {
-                Log.link.error("[LinkOfferStore] fetch failed: \(status, privacy: .public)")
-            }
-            return nil
-        }
-        return offer
-    }
-
-    private static func validate(_ offer: LinkOffer) -> LinkOffer? {
-        guard !offer.isExpired else {
-            discard(offer)
-            return nil
-        }
-        return offer
-    }
-
-    static func discard(_ offer: LinkOffer) {
-        delete(accessGroup: sharedAccessGroup)
-        delete(accessGroup: nil)
-    }
-
-    private static func delete(accessGroup: String?) {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
-        let status = SecItemDelete(query as CFDictionary)
-        if status != errSecSuccess && status != errSecItemNotFound {
-            Log.link.error("[LinkOfferStore] delete failed: \(status, privacy: .public)")
         }
     }
 }
@@ -550,20 +429,6 @@ final class CompanionLinker: ObservableObject {
     @Published private(set) var state: State = .idle
 
     private var client: LinkClient?
-
-    func authorize(offer: LinkOffer, session: StoredSession) async {
-        guard let secret = offer.secret else {
-            state = .failed("The TV's authorization request could not be verified.")
-            return
-        }
-        await authorize(
-            sessionId: offer.sessionId,
-            secret: secret,
-            tvName: offer.tvName,
-            session: session
-        )
-        if case .completed = state { LinkOfferStore.discard(offer) }
-    }
 
     func authorize(
         sessionId: String,
@@ -658,31 +523,35 @@ final class LinkOfferBrowser: ObservableObject {
         let commitment: Data?
         let sessionIdPrefix: String
         let endpoint: NWEndpoint
+        var rendezvous: String? = nil
+        var accountHint: LinkAccountHint.Advert? = nil
+
+        var isSignedIn: Bool { accountHint != nil }
 
         var displayIdentity: String {
-            "\(claimedName) (\(kind.displayName))"
+            claimedName.localizedCaseInsensitiveContains(kind.displayName)
+                ? claimedName
+                : "\(claimedName) (\(kind.displayName))"
         }
     }
 
     @Published private(set) var offer: Offer?
+    @Published private(set) var offers: [Offer] = []
+    @Published private(set) var localNetworkDenied = false
 
+    private var firstSeen: [String: Date] = [:]
     private nonisolated(unsafe) var browser: NWBrowser?
-    private nonisolated(unsafe) var pairingObserver: NSObjectProtocol?
+    private var pairingSubscription: AnyCancellable?
+    private let allowsRelinking: Bool
 
-    init() {
-        pairingObserver = NotificationCenter.default.addObserver(
-            forName: .pairedTVDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.pairingDidChange() }
-        }
+    init(allowsRelinking: Bool = false) {
+        self.allowsRelinking = allowsRelinking
+        pairingSubscription = LinkedCompanionStore.changes
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.pairingDidChange() }
     }
 
     deinit {
-        if let pairingObserver {
-            NotificationCenter.default.removeObserver(pairingObserver)
-        }
         stop()
     }
 
@@ -693,20 +562,27 @@ final class LinkOfferBrowser: ObservableObject {
         parameters.includePeerToPeer = true
 
         let newBrowser = NWBrowser(
-            for: .bonjour(type: BonjourConstants.serviceType, domain: BonjourConstants.serviceDomain),
+            for: .bonjourWithTXTRecord(type: BonjourConstants.serviceType, domain: BonjourConstants.serviceDomain),
             using: parameters
         )
         newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in self?.handleResults(results) }
         }
-        newBrowser.stateUpdateHandler = { state in
+        newBrowser.stateUpdateHandler = { [weak self] state in
+            Task { @MainActor in
+                switch state {
+                case .ready: self?.localNetworkDenied = false
+                case .failed(let error), .waiting(let error): self?.localNetworkDenied = LinkFailureCopy.isLocalNetworkDenied(error)
+                default: break
+                }
+            }
             switch state {
             case .ready:
                 Log.link.info("[LinkOfferBrowser] ready")
             case .failed(let error):
                 Log.link.error("[LinkOfferBrowser] failed: \(error.localizedDescription, privacy: .public)")
             case .waiting(let error):
-                Log.link.info("[LinkOfferBrowser] waiting: \(error.localizedDescription, privacy: .public)")
+                Log.link.error("[LinkOfferBrowser] waiting: \(String(describing: error), privacy: .public)")
             default:
                 break
             }
@@ -720,19 +596,38 @@ final class LinkOfferBrowser: ObservableObject {
         browser = nil
     }
 
+    func startIfNeeded() {
+        guard browser == nil else { return }
+        start()
+    }
+
+    func suspend() {
+        stop()
+        offer = nil
+        offers = []
+    }
+
     private func handleResults(_ results: Set<NWBrowser.Result>) {
-        guard LinkedCompanionStore.load() == nil else {
+        let linked = LinkedCompanionStore.loadAll()
+        guard allowsRelinking || linked.isEmpty else {
             offer = nil
+            offers = []
             return
         }
+        let pairedPrefixes = Set(linked.map(\.servicePrefix))
 
+        var found: [Offer] = []
         for result in results {
             guard case .service(let name, _, _, _) = result.endpoint,
                   name.hasPrefix(BonjourConstants.linkOfferServiceName + "-") else { continue }
 
             let decoded: (name: String, kind: DeviceClass, commitment: Data)?
+            var rendezvous: String?
+            var accountHint: LinkAccountHint.Advert?
             if case .bonjour(let record) = result.metadata {
                 decoded = LinkOfferTXT.decode(record)
+                rendezvous = LinkOfferTXT.rendezvous(record)
+                accountHint = LinkAccountHint.decode(record)
             } else {
                 decoded = nil
             }
@@ -741,37 +636,61 @@ final class LinkOfferBrowser: ObservableObject {
                 ? String(name.dropFirst(BonjourConstants.linkOfferServiceName.count + 1))
                 : name
 
-            // The auth offer and the remote-control link intentionally use
-            // the same session. Bonjour can briefly retain an offer after the
-            // TV has completed sign-in, so never surface that completed
-            // session as a fresh request.
-            if let pairedSession = LinkedCompanionStore.load()?.sessionId,
-               String(pairedSession.prefix(8)) == prefix {
+            if pairedPrefixes.contains(prefix) {
                 Log.link.debug("[LinkOfferBrowser] ignoring completed link offer \(name, privacy: .public)")
                 continue
             }
 
-            offer = Offer(
+            found.append(Offer(
                 claimedName: decoded?.name ?? "Nearby Apple TV",
                 kind: decoded?.kind ?? .tv,
                 commitment: decoded?.commitment,
                 sessionIdPrefix: prefix,
-                endpoint: result.endpoint
-            )
-            Log.link.info("[LinkOfferBrowser] found \(name, privacy: .public); TXT record present=\(decoded != nil, privacy: .public)")
-            return
+                endpoint: result.endpoint,
+                rendezvous: rendezvous,
+                accountHint: accountHint
+            ))
+            Log.link.info("[LinkOfferBrowser] found \(name, privacy: .public); TXT=\(decoded != nil, privacy: .public) signedIn=\(accountHint != nil, privacy: .public)")
         }
 
-        offer = nil
+        found.sort { $0.sessionIdPrefix < $1.sessionIdPrefix }
+        let now = Date()
+        let live = Set(found.map(\.sessionIdPrefix))
+        firstSeen = firstSeen.filter { live.contains($0.key) }
+        for prefix in live where firstSeen[prefix] == nil { firstSeen[prefix] = now }
+        offers = found
+        offer = found.first
+    }
+
+    var distinctOffers: [Offer] {
+        var freshest: [String: Offer] = [:]
+        for offer in offers {
+            let key = SameAccountLinkOffer.identity(name: offer.claimedName, kind: offer.kind)
+            guard let current = freshest[key] else {
+                freshest[key] = offer
+                continue
+            }
+            if seenAt(offer) > seenAt(current) { freshest[key] = offer }
+        }
+        var emitted: Set<String> = []
+        return offers.compactMap { offer in
+            let key = SameAccountLinkOffer.identity(name: offer.claimedName, kind: offer.kind)
+            guard let pick = freshest[key], pick.sessionIdPrefix == offer.sessionIdPrefix,
+                  emitted.insert(key).inserted else { return nil }
+            return pick
+        }
+    }
+
+    private func seenAt(_ offer: Offer) -> Date {
+        firstSeen[offer.sessionIdPrefix] ?? .distantPast
     }
 
     private func pairingDidChange() {
-        if LinkedCompanionStore.load() != nil {
-            offer = nil
+        offer = nil
+        offers = []
+        if !LinkedCompanionStore.loadAll().isEmpty, !allowsRelinking {
             stop()
         } else {
-            // A forgotten television may already be present in NWBrowser's
-            // cached result set, so restart to surface it without relaunching.
             start()
         }
     }
@@ -804,8 +723,14 @@ final class LinkConfirmationHandshake: ObservableObject {
     private var sharedSecret: SharedSecret?
     private var transportKey: SymmetricKey?
     private var verifiedTVPublicKey: Data?
+    private var ownerKeys: [String: LinkOwnerKey] = [:]
+    private var ownerKey: LinkOwnerKey?
+    private var ownerTranscript: LinkOwnerProof.Transcript?
+
+    @Published private(set) var isOwnerVerified = false
 
     private let offer: LinkOfferBrowser.Offer
+    private let localName = String(LinkPeerIdentity.localName.prefix(LinkPeerIdentity.maximumNameLength))
 
     init(offer: LinkOfferBrowser.Offer) {
         self.offer = offer
@@ -816,8 +741,20 @@ final class LinkConfirmationHandshake: ObservableObject {
     func start() {
         stop()
         state = .connecting
+        isOwnerVerified = false
+        ownerKey = nil
+        ownerTranscript = nil
 
-        ephemeralKey = Curve25519.KeyAgreement.PrivateKey()
+        let key = Curve25519.KeyAgreement.PrivateKey()
+        ephemeralKey = key
+        let sameAccount = SameAccountLinkModel.accountId.map { offer.accountHint?.matches(accountId: $0) == true } ?? false
+        ownerKeys = sameAccount
+            ? LinkOwnerProof.tags(
+                for: LinkOwnerKeyStore.usableKeys(),
+                sessionId: offer.sessionIdPrefix,
+                initiatorKey: key.publicKey.rawRepresentation.base64EncodedString()
+            )
+            : [:]
 
         let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true
@@ -843,7 +780,8 @@ final class LinkConfirmationHandshake: ObservableObject {
             connectTimeout?.cancel()
             sendHello()
         case .failed(let error):
-            state = .failed("Couldn't reach that device: \(error.localizedDescription)")
+            Log.link.error("[LinkConfirmationHandshake] connection failed: \(String(describing: error), privacy: .public)")
+            state = .failed(LinkFailureCopy.message(for: error, peer: offer.kind))
             stopNetworking()
         case .cancelled:
             break
@@ -855,7 +793,10 @@ final class LinkConfirmationHandshake: ObservableObject {
     private func sendHello() {
         guard let ephemeralKey else { return }
         let hello = LinkConfirmationHelloPayload(
-            ephemeralPublicKeyBase64: ephemeralKey.publicKey.rawRepresentation.base64EncodedString()
+            ephemeralPublicKeyBase64: ephemeralKey.publicKey.rawRepresentation.base64EncodedString(),
+            deviceName: localName,
+            deviceClass: DeviceClass.current.rawValue,
+            ownerKeyTags: ownerKeys.isEmpty ? nil : ownerKeys.keys.sorted()
         )
         guard let data = try? TokenTransferMessage.numericComparisonHello(
             sessionId: offer.sessionIdPrefix, payload: hello
@@ -869,7 +810,8 @@ final class LinkConfirmationHandshake: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 if let error {
-                    self.state = .failed("Couldn't send: \(error.localizedDescription)")
+                    Log.link.error("[LinkConfirmationHandshake] send failed: \(String(describing: error), privacy: .public)")
+                    self.state = .failed(LinkFailureCopy.message(for: error, peer: self.offer.kind))
                     self.stopNetworking()
                 } else {
                     self.receive()
@@ -894,8 +836,14 @@ final class LinkConfirmationHandshake: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 if let error {
-                    self.state = .failed("Connection lost: \(error.localizedDescription)")
-                    self.stopNetworking()
+                    switch self.state {
+                    case .connecting, .awaitingComparison, .confirming:
+                        Log.link.error("[LinkConfirmationHandshake] receive failed: \(String(describing: error), privacy: .public)")
+                        self.state = .failed(LinkFailureCopy.droppedMessage(peer: self.offer.kind))
+                        self.stopNetworking()
+                    default:
+                        break
+                    }
                     return
                 }
                 if let data, !data.isEmpty {
@@ -905,7 +853,13 @@ final class LinkConfirmationHandshake: ObservableObject {
                     }
                 }
                 if isComplete {
-                    self.connection?.cancel()
+                    switch self.state {
+                    case .connecting, .awaitingComparison, .confirming:
+                        self.state = .failed("\(self.claimedName) stopped responding. Open its sign-in screen and try again.")
+                        self.stopNetworking()
+                    default:
+                        self.connection?.cancel()
+                    }
                 } else {
                     self.receive()
                 }
@@ -947,9 +901,17 @@ final class LinkConfirmationHandshake: ObservableObject {
                 sharedSecret: secret,
                 publicKeyA: ephemeralKey.publicKey.rawRepresentation,
                 publicKeyB: tvPublicKeyRaw,
-                sessionId: offer.sessionIdPrefix
+                sessionId: offer.sessionIdPrefix,
+                peerName: localName
             )
             state = .awaitingComparison(code: code)
+            if let owner = verifiedOwner(ack, tvPublicKey: tvPublicKeyRaw, commitNonce: commitNonce) {
+                ownerKey = owner.key
+                ownerTranscript = owner.transcript
+                isOwnerVerified = true
+                Log.link.info("[LinkConfirmationHandshake] same owner verified; linking without a code")
+                confirm()
+            }
 
         case .numericComparisonCredentials:
             credentialsTimeout?.cancel()
@@ -988,11 +950,18 @@ final class LinkConfirmationHandshake: ObservableObject {
             sharedSecret: sharedSecret,
             publicKeyA: ephemeralKey.publicKey.rawRepresentation,
             publicKeyB: verifiedTVPublicKey,
-            sessionId: offer.sessionIdPrefix
+            sessionId: offer.sessionIdPrefix,
+            peerName: localName
         )
         state = .confirming
 
-        guard let data = try? TokenTransferMessage.numericComparisonConfirm(sessionId: offer.sessionIdPrefix).framed() else {
+        let ownerProof = ownerKey.flatMap { key in
+            ownerTranscript.flatMap { LinkOwnerProof.sign(.initiator, key: key.material, transcript: $0) }
+        }
+        guard let data = try? TokenTransferMessage.numericComparisonConfirm(
+            sessionId: offer.sessionIdPrefix,
+            ownerProof: ownerProof
+        ).framed() else {
             state = .failed("Couldn't confirm.")
             stopNetworking()
             return
@@ -1000,11 +969,34 @@ final class LinkConfirmationHandshake: ObservableObject {
         connection?.send(content: data, completion: .contentProcessed { _ in })
 
         credentialsTimeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(15))
+            try? await Task.sleep(for: .seconds(BonjourConstants.linkApprovalTimeout))
             guard !Task.isCancelled, let self, self.state == .confirming else { return }
             self.state = .failed("That device didn't finish signing you in. Try again.")
             self.stopNetworking()
         }
+    }
+
+    private func verifiedOwner(
+        _ ack: LinkConfirmationHelloAckPayload,
+        tvPublicKey: Data,
+        commitNonce: Data
+    ) -> (key: LinkOwnerKey, transcript: LinkOwnerProof.Transcript)? {
+        guard let tag = ack.ownerKeyTag, let key = ownerKeys[tag], let ephemeralKey,
+              let accountId = SameAccountLinkModel.accountId, !accountId.isEmpty else { return nil }
+        let transcript = LinkOwnerProof.Transcript(
+            sessionId: offer.sessionIdPrefix,
+            initiatorKey: ephemeralKey.publicKey.rawRepresentation.base64EncodedString(),
+            responderKey: tvPublicKey.base64EncodedString(),
+            commitNonce: commitNonce.base64EncodedString(),
+            initiatorName: localName,
+            initiatorClass: DeviceClass.current.rawValue,
+            accountId: accountId
+        )
+        guard LinkOwnerProof.verify(ack.ownerProof, role: .responder, key: key.material, transcript: transcript) else {
+            Log.link.info("[LinkConfirmationHandshake] same-owner proof didn't verify; comparing codes instead")
+            return nil
+        }
+        return (key, transcript)
     }
 
     func decline() {
@@ -1029,5 +1021,181 @@ final class LinkConfirmationHandshake: ObservableObject {
         credentialsTimeout = nil
         connection?.cancel()
         connection = nil
+    }
+}
+
+enum LinkFailureCopy {
+    static func isLocalNetworkDenied(_ error: NWError) -> Bool {
+        switch error {
+        case .dns(let code): return code == -65570
+        case .posix(let code): return code == .EPERM || code == .EACCES
+        default: return false
+        }
+    }
+
+    static func message(for error: NWError, peer: DeviceClass) -> String {
+        if isLocalNetworkDenied(error) {
+            return "Sounding can't use the local network. Turn on Local Network for Sounding in Settings › Privacy & Security, then try again."
+        }
+        switch error {
+        case .tls:
+            return "Couldn't verify this \(peer.displayName). Open Sounding on it, choose Add a Device again, then try again."
+        case .posix(let code) where code == .ECONNREFUSED || code == .ETIMEDOUT || code == .EHOSTUNREACH || code == .ENETUNREACH:
+            return "Couldn't reach your \(peer.displayName). Check it's on the same Wi-Fi network, then try again."
+        default:
+            return droppedMessage(peer: peer)
+        }
+    }
+
+    static func droppedMessage(peer: DeviceClass) -> String {
+        "The connection to your \(peer.displayName) dropped. Keep both devices on the same Wi-Fi network and try again."
+    }
+}
+
+
+@MainActor
+final class SameAccountLinkModel: ObservableObject {
+    @Published private(set) var offer = SameAccountLinkOffer()
+
+    private let browser: LinkOfferBrowser
+    private var subscriptions: Set<AnyCancellable> = []
+    private var presence: NWListener?
+    private var presenceKey: String?
+    private var isForeground = false
+
+    init(browser: LinkOfferBrowser) {
+        self.browser = browser
+        browser.$offers
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] offers in self?.observe(offers) }
+            .store(in: &subscriptions)
+        LinkClient.transfers
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] transfer in self?.track(transfer) }
+            .store(in: &subscriptions)
+    }
+
+    static var accountId: String? {
+        #if DEBUG
+        if let forced = ProcessInfo.processInfo.environment["SOUNDING_TV_LINK_ACCOUNT"], !forced.isEmpty { return forced }
+        #endif
+        return SoundCloudCredentialSource.shared.currentUser?.id
+    }
+
+    static func linkedIdentities() -> Set<String> {
+        Set(LinkedCompanionStore.loadAll().map { SameAccountLinkOffer.identity(name: $0.peerName, kind: $0.peerClass) })
+    }
+
+    var suggestedOffer: LinkOfferBrowser.Offer? {
+        guard let candidate = offer.suggestion else { return nil }
+        return browser.offers.first { $0.sessionIdPrefix == candidate.sessionIdPrefix }
+    }
+
+    func setForeground(_ foreground: Bool) {
+        isForeground = foreground
+        updatePresence()
+    }
+
+    func accept() -> LinkOfferBrowser.Offer? {
+        let offer = suggestedOffer
+        guard self.offer.accept(now: .now) != nil else { return nil }
+        Log.link.info("[SameAccountLink] user chose Link")
+        return offer
+    }
+
+    func dismiss() {
+        offer.dismiss()
+        updatePresence()
+    }
+
+    func retry() {
+        offer.retry()
+    }
+
+    func handshakeEnded(succeeded: Bool) {
+        guard !succeeded else { return }
+        if case .linking = offer.phase { offer.finish(succeeded: false) }
+        offer.retry()
+    }
+
+    func transferFailed(message: String) {
+        if case .linking = offer.phase { offer.finish(succeeded: false, message: message) }
+    }
+
+    private func observe(_ offers: [LinkOfferBrowser.Offer]) {
+        let candidates = SameAccountLinkOffer.candidates(
+            from: offers.map { SameAccountLinkOffer.Advertised(sessionIdPrefix: $0.sessionIdPrefix, name: $0.claimedName, kind: $0.kind, accountHint: $0.accountHint) },
+            accountId: Self.accountId,
+            deviceId: LinkPeerIdentity.localDeviceId(),
+            linked: Self.linkedIdentities()
+        )
+        let before = offer.suggestion
+        offer.observe(candidates, now: .now)
+        if offer.suggestion != before {
+            Log.link.info("[SameAccountLink] suggestion: \(self.offer.suggestion?.name ?? "none", privacy: .public) of \(candidates.count, privacy: .public) same-account TVs")
+        }
+        updatePresence()
+    }
+
+    private func track(_ transfer: LinkClient.Transfer) {
+        guard case .linking(let candidate, _) = offer.phase,
+              transfer.sessionId.hasPrefix(candidate.sessionIdPrefix) else { return }
+        switch transfer.state {
+        case .completed:
+            offer.finish(succeeded: true)
+        case .failed(let message), .rejected(let message):
+            offer.finish(succeeded: false, message: message)
+        default:
+            break
+        }
+    }
+
+    private func updatePresence() {
+        let wanted = isForeground && offer.suggestion != nil ? Self.accountId : nil
+        guard wanted != presenceKey else { return }
+        presence?.cancel()
+        presence = nil
+        presenceKey = wanted
+        guard let accountId = wanted,
+              let salt = LinkAccountHint.makeSalt(),
+              let advert = LinkAccountHint.advert(accountId: accountId, linkedDeviceIds: [LinkPeerIdentity.localDeviceId()], salt: salt) else { return }
+        do {
+            let parameters = NWParameters.tcp
+            parameters.includePeerToPeer = true
+            let listener = try NWListener(using: parameters)
+            var entries = advert.entries
+            entries[LinkAccountHint.nameKey] = String(LinkPeerIdentity.localName.prefix(LinkPeerIdentity.maximumNameLength))
+            let suffix = salt.prefix(4).map { String(format: "%02x", $0) }.joined()
+            listener.service = NWListener.Service(
+                name: "\(BonjourConstants.nearbyServiceName)-\(suffix)",
+                type: BonjourConstants.serviceType,
+                txtRecord: NWTXTRecord(entries)
+            )
+            listener.newConnectionHandler = { $0.cancel() }
+            listener.start(queue: .main)
+            presence = listener
+            Log.link.info("[SameAccountLink] advertising presence to same-account TVs")
+        } catch {
+            Log.link.error("[SameAccountLink] presence listener: \(String(describing: error), privacy: .public)")
+        }
+    }
+}
+
+extension LinkConfirmationHandshake {
+    var instruction: String {
+        switch state {
+        case .awaitingComparison: return "Make sure this matches the code on \(claimedName)."
+        case .confirming where isOwnerVerified: return "Linking \(claimedName)…"
+        case .confirming:         return "On \(claimedName), choose Allow to finish."
+        case .failed:             return "Couldn't reach \(claimedName). Make sure it's still showing its code."
+        default:                  return "Connecting to \(claimedName)…"
+        }
+    }
+
+    nonisolated static func codeGroups(_ code: String) -> [String] {
+        let digits = code.filter(\.isNumber)
+        guard digits.count == 6 else { return [code] }
+        let midpoint = digits.index(digits.startIndex, offsetBy: 3)
+        return [String(digits[..<midpoint]), String(digits[midpoint...])]
     }
 }

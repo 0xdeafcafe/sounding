@@ -61,3 +61,5 @@ __pycache__/
 dev-credentials*
 *.devtoken
 .soundingcloud-dev-token
+
+Config/Secrets.xcconfig

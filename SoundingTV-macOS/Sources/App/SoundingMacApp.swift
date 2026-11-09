@@ -1,17 +1,52 @@
 import SwiftUI
 import AppKit
+import Combine
 import os
 import UserNotifications
 
+@MainActor
+private final class MacActivityPollingCoordinator: ObservableObject {
+    private let scheduler = WorkScheduler.shared
+    private var accountID: String?
+
+    func start(accountID: String) {
+        guard self.accountID != accountID else { return }
+        self.accountID = accountID
+        scheduler.registerPeriodic(
+            id: "activity.notifications",
+            scope: "activity",
+            interval: .seconds(15 * 60)
+        ) { [weak self] in
+            guard let self, let accountID = self.accountID else { return }
+            let events = await SoundCloudActivityPoller.shared.poll(accountID: accountID)
+            await MacActivityNotificationDelivery.deliver(events)
+        }
+    }
+
+    func stop() {
+        accountID = nil
+        scheduler.cancelPeriodic(id: "activity.notifications")
+    }
+}
+
 @main
 struct SoundingMacApp: App {
+    @NSApplicationDelegateAdaptor(MacOutsideAlertsAppDelegate.self) private var outsideAlertsDelegate
+    @StateObject private var runtime: AppRuntime
     @StateObject private var credentials = SoundCloudCredentialSource.shared
-    @StateObject private var midi = MIDIControllerHub.shared
-    @StateObject private var tvCompanion = CompanionClient()
-    @StateObject private var polyphony = PolyphonyController.shared
+    @StateObject private var midi = DJControllerHub.shared
+    @StateObject private var tvCompanion: CompanionClient
+    @StateObject private var outputRouter: OutputRouter
+    @StateObject private var activityPolling = MacActivityPollingCoordinator()
     @State private var authHandoffRequest: AuthHandoffRequest?
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        #if DEBUG
+        if MacSetAnalysis.isRequested { MacSetAnalysis.runAndExit() }
+        #endif
+        MemoryRelief.install()
+        SoundingTips.configure()
         #if DEBUG
         if ProcessInfo.processInfo.environment["SOUNDING_TV_MAC_WINDOW_SIZE"] != nil {
             let defaults = UserDefaults.standard
@@ -23,90 +58,170 @@ struct SoundingMacApp: App {
         }
         #endif
         SoundCloudCredentialSource.install()
-        SoundCloudCredentialSource.shared.sideEffects = .init(
-            requestSessionSync: { CloudSyncCoordinator.shared.requestSessionSync() },
-            wipeLocalIndexes: { accountID in
-                LikesSyncEngine.shared.handleSignOut()
-                await LibraryCache.shared.clearAll()
-                if let accountID { AccountDataVault.forget(accountID: accountID) }
-            },
-            clearWebSession: {}
+        AccountSignInAnnouncer.shared.install()
+        UNUserNotificationCenter.current().delegate = MacActivityNotificationDelegate.shared
+        MacOutsideAlerts.install()
+        let playback = PlaybackSystem()
+        let synchronization = SynchronizationSystem()
+        let downloads = DownloadSystem()
+        let catalog = CatalogSystem()
+        CompanionAppBootstrap.configureSoundCloudSession(
+            synchronization: synchronization,
+            downloads: downloads,
+            catalog: catalog,
+            clearSurfaces: { SoundingSnapshotPublisher.shared.clear() },
+            clearWebSession: { await MacSoundCloudWebsiteData.clear() },
+            webStore: { MacSoundCloudWebsiteData.persistentStore }
         )
         MacAudioSessionCoordinator.install()
-        PlayerService.installNowPlaying(MediaSessionNowPlayingBridge())
-        PlayerService.lifecycleObserver = PlayerLifecycleObserver.shared
-        LikesSyncEngine.shared.activate()
-        LikesSyncLifecycleCoordinator.shared.install()
-
-        MacSyncCoordinator.install()
-        MacSyncCoordinator.shared.start()
-        MacSyncCoordinator.shared.startPeriodicSync()
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["SOUNDING_TV_MIDITEST"] == "1" {
-            let failures = DDJ400MappingSelfTest.run()
-            if failures.isEmpty {
-                Log.dj.info("MIDITEST DDJ400MappingSelfTest: all checks passed.")
-            } else {
-                Log.dj.error("MIDITEST DDJ400MappingSelfTest: \(failures.count, privacy: .public) failure(s):")
-                for failure in failures { Log.dj.error("  - \(failure, privacy: .public)") }
-            }
-        }
-        #endif
+        let companion = CompanionAppBootstrap.companionClient(synchronization: synchronization, downloads: downloads, catalog: catalog)
+        let runtime = AppRuntime(platform: RuntimePlatformServices(
+            deviceLabel: "Mac",
+            account: CompanionAppBootstrap.account,
+            lifecycleObserver: PlayerLifecycleObserver.shared,
+            nowPlaying: MediaSessionNowPlayingBridge(),
+            peerContentSource: companion,
+            prepare: { await CompanionAppBootstrap.prepareSession() },
+            integrations: [
+                RuntimeIntegrationAdapter(id: "spotlight", start: {
+                    SpotlightIndexingService.shared.start(player: playback.player)
+                }),
+                RuntimeIntegrationAdapter(id: "surfaces", start: {
+                    SoundingSnapshotPublisher.shared.start(player: playback.player)
+                }),
+                RuntimeIntegrationAdapter(id: "midi", start: {
+                    MacDeckControlSurface.shared.start()
+                }),
+                RuntimeIntegrationAdapter(
+                    id: "companion",
+                    start: { companion.connect() },
+                    setActive: { active in
+                        companion.setActive(active)
+                    }
+                ),
+            ]
+        ), playback: playback, synchronization: synchronization, downloads: downloads, catalog: catalog)
+        _runtime = StateObject(wrappedValue: runtime)
+        _tvCompanion = StateObject(wrappedValue: companion)
+        let outputRouter = OutputRouter(client: companion)
+        _outputRouter = StateObject(wrappedValue: outputRouter)
+        MacPlaybackTimeline.shared.attach(output: outputRouter)
+        MacNowPlayingModel.shared.attach(output: outputRouter)
+        MacPlaybackTarget.router = outputRouter
+        IntentPlayback.sink = outputRouter
+        PartyScenes.outputRouter = outputRouter
     }
 
+    #if DEBUG
+    private struct MacDebugForceActive: ViewModifier {
+        func body(content: Content) -> some View {
+            if ProcessInfo.processInfo.environment["SOUNDING_TV_MAC_FORCE_ACTIVE"] == "1" {
+                content.environment(\.controlActiveState, .key)
+            } else {
+                content
+            }
+        }
+    }
+
+    private struct MacDebugColorScheme: ViewModifier {
+        func body(content: Content) -> some View {
+            if let scheme = SoundingMacApp.debugColorScheme {
+                content.preferredColorScheme(scheme)
+            } else {
+                content
+            }
+        }
+    }
+
+    private static var debugColorScheme: ColorScheme? {
+        switch ProcessInfo.processInfo.environment["SOUNDING_TV_MAC_APPEARANCE"]?.lowercased() {
+        case "dark": return .dark
+        case "light": return .light
+        default: return nil
+        }
+    }
+    #endif
+
     var body: some Scene {
-        Window("SoundingCloud", id: "main") {
+        Window("Sounding", id: "main") {
             MacRootView()
                 .environmentObject(credentials)
+                .environmentObject(runtime)
                 .environmentObject(midi)
                 .environmentObject(tvCompanion)
-                .environmentObject(polyphony)
+                .environmentObject(outputRouter)
+                .environment(\.outputRouter, outputRouter)
+                .tint(Color.scAccent)
+                #if DEBUG
+                .modifier(MacDebugColorScheme())
+                .modifier(MacDebugForceActive())
+                #endif
                 .frame(minWidth: 1040, idealWidth: 1360, minHeight: 640, idealHeight: 820)
-                .background(MacWindowChrome(musicWindow: .main).frame(width: 0, height: 0))
+                .background(MacWindowChrome(configuresMainWindow: true).frame(width: 0, height: 0))
                 .background(MacMessageWindowBridge())
+                .modifier(MacOutsideAlertsOpener())
+                .modifier(ContinueFromHandoff())
+                .onOpenURL { url in
+                    _ = WidgetLinkRouter.handle(url)
+                }
+                .onReceive(SoundingPageLinkRouter.shared.$pending.compactMap { $0 }) { request in
+                    switch SoundingPageLinkRouter.shared.take(request) {
+                    case .artist(let user): MacRootSelection.shared.request(artist: user)
+                    case .playlist(let playlist): MacRootSelection.shared.request(playlist: playlist)
+                    case .track(let track): BehindTheTrackPresenter.shared.present(track)
+                    case nil: break
+                    }
+                }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    guard let url = activity.webpageURL else { return }
+                    _ = WidgetLinkRouter.handle(url)
+                }
+                .playlistFolderPrompts()
                 .task {
-                    MacMusicWindowCoordinator.shared.request(.main)
-                    credentials.refreshFromStore()
-                    if !credentials.isSignedOut { await credentials.revalidate() }
-                    await credentials.purgeExpiredLockedDataIfNeeded()
-                    midi.start()
-                    MIDIMixerBridge.shared.start()
-                    PlayerService.remoteOutput = tvCompanion
-                    PlayerService.peerContentSource = tvCompanion
-                    tvCompanion.connect()
+                    #if DEBUG
+                    if VisualFixtures.isEnabled { return }
+                    #endif
+                    await runtime.start()
                     #if DEBUG
                     if ProcessInfo.processInfo.environment["SOUNDING_TV_MIXAUDIOTEST"] == "1" {
                         await MacMixAudioSelfTest.run()
                     }
                     #endif
                 }
-                .task(id: credentials.currentUser?.id) {
-                    guard let user = await credentials.waitForCurrentUser() else { return }
-                    await MacActivityNotificationDelivery.prepare()
-                    while !Task.isCancelled {
-                        let events = await SoundCloudActivityPoller.shared.poll(accountID: user.id)
-                        await MacActivityNotificationDelivery.deliver(events)
-                        do {
-                            try await Task.sleep(for: .seconds(5 * 60))
-                        } catch {
-                            return
-                        }
+                .onChange(of: scenePhase, initial: true) { _, phase in
+                    runtime.setActive(phase == .active)
+                    MacTVLinking.shared.setForeground(phase == .active)
+                    if phase == .active, credentials.canRetrySession {
+                        Task { await credentials.revalidate() }
                     }
                 }
-                .task {
-                    for await notification in NotificationCenter.default.notifications(named: .companionClientAuthHandoffRequest, object: tvCompanion) {
-                        guard let userInfo = notification.userInfo,
-                              let sessionId = userInfo[CompanionClientAuthHandoffRequestSessionIdKey] as? String,
-                              let secretBase64 = userInfo[CompanionClientAuthHandoffRequestSecretKey] as? String,
-                              let secret = Data(base64Encoded: secretBase64) else { continue }
-                        let peerClass = userInfo["peerClass"] as? DeviceClass ?? .tv
-                        let peerName = userInfo["peerName"] as? String
-                        authHandoffRequest = AuthHandoffRequest(
-                            sessionId: sessionId,
-                            secret: secret,
-                            peerName: peerName,
-                            peerClass: peerClass
-                        )
+                .scoutPriming()
+                .task(id: credentials.currentUser?.id ?? "signed-out") {
+                    guard await credentials.waitForCurrentUser() != nil else {
+                        ScoutMacSchedule.stop()
+                        return
+                    }
+                    ScoutMacSchedule.start()
+                }
+                .task(id: "\(credentials.currentUser?.id ?? "signed-out")|\(scenePhase == .active)") {
+                    guard scenePhase == .active else {
+                        activityPolling.stop()
+                        return
+                    }
+                    guard let user = await credentials.waitForCurrentUser() else {
+                        activityPolling.stop()
+                        return
+                    }
+                    await MacActivityNotificationDelivery.prepare()
+                    activityPolling.start(accountID: user.id)
+                }
+                .onReceive(tvCompanion.$authHandoffRequest.compactMap { $0 }) { request in
+                    Task {
+                        if let session = await SilentWebReauthorizer.authorize(using: MacSoundCloudWebsiteData.persistentStore) {
+                            tvCompanion.sendAuthHandoffSession(session)
+                        } else {
+                            authHandoffRequest = request
+                        }
                     }
                 }
                 .sheet(item: $authHandoffRequest) { request in
@@ -116,51 +231,58 @@ struct SoundingMacApp: App {
                     ) {
                         authHandoffRequest = nil
                     }
-                    .frame(minWidth: 720, minHeight: 620)
                 }
         }
         .windowResizability(.contentMinSize)
         .commands {
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .newItem) {
+                Button("New Playlist…") {
+                    MacRootSelection.shared.requestNewPlaylist()
+                }
+                .keyboardShortcut("n", modifiers: .command)
+                Button("New Playlist Folder…") {
+                    PlaylistFolderPrompter.shared.newFolder()
+                }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+            }
             SidebarCommands()
             SoundingViewCommands()
             LibraryCommands()
             TransportCommands()
             DecksCommands()
             MessagingCommands()
+            MacPrepCommands()
+            MacRekordboxImportCommands()
         }
 
-        Window("Mini Player", id: "mini-player") {
-            MacMiniPlayerView()
-                .background(MacWindowChrome(musicWindow: .miniPlayer).frame(width: 0, height: 0))
-                .onAppear { MacMusicWindowCoordinator.shared.request(.miniPlayer) }
-        }
-        .windowResizability(.contentSize)
-        .defaultSize(width: 300, height: 168)
-        .defaultPosition(.bottomTrailing)
-        .commands {
-            TransportCommands()
-        }
-
-        Window("Messages", id: "messages") {
-            MacMessagesView()
-                .environmentObject(credentials)
-                .frame(minWidth: 860, idealWidth: 1040, minHeight: 560, idealHeight: 700)
-        }
-        .defaultSize(width: 1040, height: 700)
 
         Settings {
             MacSettingsView()
                 .environmentObject(credentials)
+                .environmentObject(runtime)
                 .environmentObject(midi)
                 .environmentObject(tvCompanion)
-                .environmentObject(polyphony)
-                .tint(.scAccent)
+                .environmentObject(outputRouter)
+                .tint(Color.scAccent)
+                #if DEBUG
+                .modifier(MacDebugColorScheme())
+                #endif
         }
         .windowResizability(.contentSize)
 
-        MenuBarExtra("SoundingCloud", systemImage: "waveform.circle.fill") {
+        Window("Prep", id: MacPrepCommands.windowID) {
+            MacPrepView()
+                .tint(Color.scAccent)
+                #if DEBUG
+                .modifier(MacDebugColorScheme())
+                #endif
+        }
+        .defaultSize(width: 1180, height: 760)
+
+        MenuBarExtra("Sounding", systemImage: "waveform.circle.fill") {
             MacMenuBarPlayerView()
+                .environmentObject(runtime)
+                .tint(Color.scAccent)
         }
         .menuBarExtraStyle(.window)
     }
@@ -175,6 +297,7 @@ private enum MacActivityNotificationDelivery {
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .notDetermined else { return }
         _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        await MacOutsideAlerts.refresh()
     }
 
     static func deliver(_ events: [SoundCloudInboxEvent]) async {
@@ -209,25 +332,53 @@ private final class MacActivityNotificationDelegate: NSObject, UNUserNotificatio
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+        let userInfo = notification.request.content.userInfo
+        if let signIn = AccountSignIn(remoteNotification: userInfo) {
+            return await MacOutsideAlerts.presentation(for: signIn)
+        }
+        if let request = SignInRequest(remoteNotification: userInfo) {
+            return request.isExpired() ? [] : [.banner, .list, .sound]
+        }
+        if let link = NearbyLinkRequest(remoteNotification: userInfo) {
+            return await MacOutsideAlerts.presentation(for: link)
+        }
+        return [.banner, .sound]
     }
 
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        let userInfo = response.notification.request.content.userInfo
+        let action = OutsideAlerts.response(for: response.actionIdentifier)
+        if let signIn = AccountSignIn(remoteNotification: userInfo) {
+            await MacOutsideAlerts.open(signIn, action: action)
+            return
+        }
+        if let request = SignInRequest(remoteNotification: userInfo) {
+            await MacOutsideAlerts.open(request, action: action)
+            return
+        }
+        if let link = NearbyLinkRequest(remoteNotification: userInfo) {
+            await MacOutsideAlerts.open(link, action: action)
+            return
+        }
+        if let target = ScoutNotifications.target(from: userInfo) {
+            await ScoutNotifications.open(kind: target.kind, id: target.id)
+            return
+        }
         guard let raw = response.notification.request.content.userInfo["destination"] as? String,
               let url = URL(string: raw), !raw.isEmpty else { return }
         _ = await MainActor.run { NSWorkspace.shared.open(url) }
     }
 }
 
-private struct MacMenuBarPlayerView: View {
+struct MacMenuBarPlayerView: View {
     @ObservedObject private var player = PlayerService.shared
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
 
-    private var track: Track? { player.currentTrack }
+    private var track: Track? { MacNowPlayingModel.shared.track }
+    private var timeline: MacPlaybackTimeline { .shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -235,7 +386,7 @@ private struct MacMenuBarPlayerView: View {
                 HStack(spacing: 10) {
                     ArtworkThumbnail(
                         url: track.artworkURL,
-                        identity: track.title,
+                        identity: track.id,
                         size: 44,
                         cornerRadius: 6,
                         isAvailable: track.streamURL != nil,
@@ -244,73 +395,81 @@ private struct MacMenuBarPlayerView: View {
                     )
                     VStack(alignment: .leading, spacing: 2) {
                         Text(track.title)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
                         Text(track.user.displayName)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                            .foregroundStyle(MacSecondaryStyle())
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
                 }
 
-                ProgressView(value: player.duration > 0 ? player.currentTime / player.duration : 0)
-                    .tint(.primary)
+                MacLiveClock { position in
+                    let duration = max(1, timeline.anchor.duration)
+                    ProgressView(value: min(1, position / duration))
+                        .tint(.primary)
+                        .accessibilityLabel("Playback position")
+                        .accessibilityValue("\(macFormatTime(position)) of \(macFormatTime(duration))")
+                }
 
                 HStack(spacing: 28) {
                     Spacer(minLength: 0)
                     Button {
-                        Task { await InstantReplay.previous(player) }
+                        if let remote = MacPlaybackTarget.output {
+                            remote.previous()
+                        } else {
+                            Task { await InstantReplay.previous(player) }
+                        }
                     } label: {
                         Image(systemName: "backward.fill")
                     }
+                    .accessibilityLabel("Previous")
+                    .help("Previous")
                     Button {
-                        player.togglePlayPause()
+                        timeline.togglePlayPause()
                     } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 17, weight: .semibold))
+                        Image(systemName: timeline.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.title3)
                     }
+                    .accessibilityLabel(timeline.isPlaying ? "Pause" : "Play")
+                    .help(timeline.isPlaying ? "Pause" : "Play")
                     Button {
-                        Task { await player.playNext() }
+                        if let remote = MacPlaybackTarget.output {
+                            remote.next()
+                        } else {
+                            Task { await player.playNext() }
+                        }
                     } label: {
                         Image(systemName: "forward.fill")
                     }
+                    .accessibilityLabel("Next")
+                    .help("Next")
                     Spacer(minLength: 0)
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.callout.weight(.semibold))
                 .padding(.vertical, 2)
             } else {
-                HStack {
-                    Spacer(minLength: 0)
-                    VStack(spacing: 6) {
-                        Image(systemName: "waveform.circle.fill")
-                            .font(.system(size: 22))
-                            .foregroundStyle(.secondary)
-                        Text("Nothing Playing")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 8)
-                    Spacer(minLength: 0)
-                }
+                ContentUnavailableView("Nothing Playing", systemImage: "waveform.circle")
+                    .frame(maxWidth: .infinity)
             }
 
             Divider()
 
-            Button("Open SoundingCloud") {
+            Button("Open Sounding") {
                 NSApp.activate(ignoringOtherApps: true)
-                MacMusicWindowCoordinator.shared.request(.main)
                 openWindow(id: "main")
-                dismissWindow(id: "mini-player")
             }
             .buttonStyle(.plain)
+            .font(.body)
 
-            Button("Quit SoundingCloud") {
+            Button("Quit Sounding") {
                 NSApp.terminate(nil)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .font(.body)
+            .foregroundStyle(MacSecondaryStyle())
         }
         .padding(14)
         .frame(width: 260)
@@ -319,7 +478,6 @@ private struct MacMenuBarPlayerView: View {
 
 struct TransportCommands: Commands {
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some Commands {
         CommandMenu("Playback") {
@@ -327,6 +485,8 @@ struct TransportCommands: Commands {
                 let controller = MacConsoleController.shared
                 if controller.isConsoleActive {
                     controller.togglePlayPause(controller.focusedDeck)
+                } else if let remote = MacPlaybackTarget.output {
+                    remote.togglePlayPause()
                 } else {
                     PlayerService.shared.togglePlayPause()
                 }
@@ -336,36 +496,91 @@ struct TransportCommands: Commands {
             .keyboardShortcut(.space, modifiers: [])
             Button {
                 guard !MacConsoleController.shared.isConsoleActive else { return }
-                Task { await PlayerService.shared.playNext() }
+                if let remote = MacPlaybackTarget.output {
+                    remote.next()
+                } else {
+                    Task { await PlayerService.shared.playNext() }
+                }
             } label: {
                 Label("Next Track", systemImage: "forward.fill")
             }
             .keyboardShortcut(.rightArrow, modifiers: [.command])
             Button {
                 guard !MacConsoleController.shared.isConsoleActive else { return }
-                Task { await InstantReplay.previous(PlayerService.shared) }
+                if let remote = MacPlaybackTarget.output {
+                    remote.previous()
+                } else {
+                    Task { await InstantReplay.previous(PlayerService.shared) }
+                }
             } label: {
                 Label("Previous Track", systemImage: "backward.fill")
             }
             .keyboardShortcut(.leftArrow, modifiers: [.command])
+            Button {
+                guard !MacConsoleController.shared.isConsoleActive else { return }
+                if let remote = MacPlaybackTarget.output {
+                    remote.seek(toSeconds: max(0, remote.telemetry.estimatedPosition() - 15))
+                    return
+                }
+                let player = PlayerService.shared
+                player.seek(to: max(0, player.currentTime - 15))
+            } label: {
+                Label("Skip Back 15 Seconds", systemImage: "gobackward.15")
+            }
+            .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+            Button {
+                guard !MacConsoleController.shared.isConsoleActive else { return }
+                if let remote = MacPlaybackTarget.output {
+                    let duration = remote.telemetry.playback?.durationSeconds ?? 0
+                    remote.seek(toSeconds: min(duration, remote.telemetry.estimatedPosition() + 15))
+                    return
+                }
+                let player = PlayerService.shared
+                player.seek(to: min(player.duration, player.currentTime + 15))
+            } label: {
+                Label("Skip Forward 15 Seconds", systemImage: "goforward.15")
+            }
+            .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
             Divider()
             Button {
-                MacMusicWindowCoordinator.shared.request(.miniPlayer)
-                openWindow(id: "mini-player")
-                dismissWindow(id: "main")
+                MacPlayback.toggleShuffle()
             } label: {
-                Label("Mini Player", systemImage: "pip")
+                Label(MacPlayback.isShuffleEnabled ? "Shuffle Off" : "Shuffle On", systemImage: "shuffle")
             }
-            .keyboardShortcut("m", modifiers: [.command, .shift])
+            .keyboardShortcut("s", modifiers: [.command, .shift])
             Button {
-                MacMusicWindowCoordinator.shared.request(.main)
+                MacPlayback.cycleRepeatMode()
+            } label: {
+                Label("Cycle Repeat", systemImage: "repeat")
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button {
+                guard let track = MacNowPlayingModel.shared.track else { return }
+                Task { await MacTrackEngagement.shared.toggleLike(track) }
+            } label: {
+                Label(
+                    MacNowPlayingModel.shared.track.map { MacTrackEngagement.shared.isLiked($0) } == true ? "Unlike" : "Like",
+                    systemImage: "heart"
+                )
+            }
+            .keyboardShortcut("l", modifiers: [.command])
+            .disabled(MacNowPlayingModel.shared.track?.supportsSoundCloudActions != true)
+            Divider()
+            Button {
                 openWindow(id: "main")
-                dismissWindow(id: "mini-player")
-                MacNowPlayingPresentation.shared.present()
+                MacNowPlayingPresentation.shared.toggle()
             } label: {
                 Label("Now Playing", systemImage: "music.note.house")
             }
             .keyboardShortcut("n", modifiers: [.command, .shift])
+            Button {
+                openWindow(id: "main")
+                MacNowPlayingPresentation.shared.present(.comments)
+            } label: {
+                Label("Timed Comments", systemImage: "quote.bubble")
+            }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+            .disabled(MacNowPlayingModel.shared.track?.supportsSoundCloudActions == false)
             Divider()
             Button {
                 MacRootSelection.shared.request(.console)
@@ -377,12 +592,28 @@ struct TransportCommands: Commands {
     }
 }
 
-struct SoundingViewCommands: Commands {
-    @AppStorage("mac.library.showsArtwork") private var showsArtwork = true
-    @AppStorage("mac.library.compactRows") private var usesCompactRows = true
+@MainActor
+final class MacFindFocus: ObservableObject {
+    static let shared = MacFindFocus()
+    @Published private(set) var request = 0
+    private init() {}
+    func requestFocus() { request &+= 1 }
+}
 
+struct SoundingViewCommands: Commands {
     var body: some Commands {
+        CommandGroup(after: .textEditing) {
+            Button("Find") { MacFindFocus.shared.requestFocus() }
+                .keyboardShortcut("f", modifiers: .command)
+        }
         CommandGroup(after: .sidebar) {
+            Button {
+                MacHistoryRoute.shared.open()
+            } label: {
+                Label("History", systemImage: "clock.arrow.circlepath")
+            }
+            .keyboardShortcut("y", modifiers: .command)
+
             Button {
                 MacRootSelection.shared.toggleQueue()
             } label: {
@@ -390,15 +621,39 @@ struct SoundingViewCommands: Commands {
             }
             .keyboardShortcut("u", modifiers: [.command, .shift])
 
-            Toggle(isOn: $showsArtwork) {
-                Label("Show Artwork in Track Lists", systemImage: "photo")
+            Button {
+                MacLibraryCommandPreferences.toggleArtwork()
+            } label: {
+                Label("Toggle Artwork in Track Lists", systemImage: "photo")
             }
 
-            Toggle(isOn: $usesCompactRows) {
-                Label("Use Compact Track Rows", systemImage: "rectangle.compress.vertical")
+            Button {
+                MacLibraryCommandPreferences.toggleCompactRows()
+            } label: {
+                Label("Toggle Compact Track Rows", systemImage: "rectangle.compress.vertical")
             }
-            .disabled(showsArtwork)
         }
+    }
+}
+
+private enum MacLibraryCommandPreferences {
+    private static let artworkKey = "mac.library.showsArtwork"
+    private static let compactRowsKey = "mac.library.compactRows"
+
+    static func toggleArtwork(defaults: UserDefaults = .standard) {
+        defaults.set(!value(for: artworkKey, defaultValue: true, defaults: defaults), forKey: artworkKey)
+    }
+
+    static func toggleCompactRows(defaults: UserDefaults = .standard) {
+        defaults.set(!value(for: compactRowsKey, defaultValue: true, defaults: defaults), forKey: compactRowsKey)
+    }
+
+    private static func value(
+        for key: String,
+        defaultValue: Bool,
+        defaults: UserDefaults
+    ) -> Bool {
+        defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
     }
 }
 
@@ -406,11 +661,21 @@ struct LibraryCommands: Commands {
     var body: some Commands {
         CommandMenu("Library") {
             destination("Likes", systemImage: "heart", section: .likes, shortcut: "1")
-            destination("Artists", systemImage: "person.2", section: .artists, shortcut: "2")
+            destination("Artists", systemImage: "music.microphone", section: .artists, shortcut: "2")
             destination("All Playlists", systemImage: "square.stack.3d.up", section: .playlists, shortcut: "3")
             Divider()
-            destination("Music Intelligence", systemImage: "waveform.badge.magnifyingglass", section: .intelligence)
             destination("Search SoundCloud", systemImage: "magnifyingglass", section: .search, shortcut: "f")
+            Button {
+                IdentifySongPresenter.shared.listen()
+            } label: {
+                Label("Identify Song", systemImage: "shazam.logo")
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+            Button {
+                IdentifySongPresenter.shared.showHistory()
+            } label: {
+                Label("Recently Identified", systemImage: "clock")
+            }
         }
     }
 
@@ -440,10 +705,6 @@ struct LibraryCommands: Commands {
 
 // MARK: - SoundCloud messages
 
-extension Notification.Name {
-    static let presentSoundCloudMessages = Notification.Name("presentSoundCloudMessages")
-}
-
 @MainActor
 final class MacMessageComposer: ObservableObject {
     static let shared = MacMessageComposer()
@@ -458,14 +719,12 @@ final class MacMessageComposer: ObservableObject {
         sharedTrack = track
         recipient = nil
         revision += 1
-        NotificationCenter.default.post(name: .presentSoundCloudMessages, object: nil)
     }
 
     func present(user: User) {
         sharedTrack = nil
         recipient = user
         revision += 1
-        NotificationCenter.default.post(name: .presentSoundCloudMessages, object: nil)
     }
 
     func consumeSharedTrack() -> Track? {
@@ -481,13 +740,15 @@ final class MacMessageComposer: ObservableObject {
 
 private struct MacMessageWindowBridge: View {
     @Environment(\.openWindow) private var openWindow
+    @ObservedObject private var composer = MacMessageComposer.shared
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            .onReceive(NotificationCenter.default.publisher(for: .presentSoundCloudMessages)) { _ in
-                openWindow(id: "messages")
+            .onChange(of: composer.revision) { _, _ in
+                openWindow(id: "main")
                 NSApp.activate(ignoringOtherApps: true)
+                MacRootSelection.shared.request(.messages)
             }
     }
 }
@@ -498,8 +759,9 @@ struct MessagingCommands: Commands {
     var body: some Commands {
         CommandMenu("Social") {
             Button {
-                openWindow(id: "messages")
+                openWindow(id: "main")
                 NSApp.activate(ignoringOtherApps: true)
+                MacRootSelection.shared.request(.messages)
             } label: {
                 Label("Messages", systemImage: "bubble.left.and.bubble.right")
             }
@@ -519,9 +781,34 @@ private final class MacMessagesModel: ObservableObject {
     @Published private(set) var userResults: [User] = []
     @Published private(set) var isSearchingUsers = false
 
+    private static let loadFailureMessage = "Couldn’t reach SoundCloud. Check your connection and try again."
+
     private let api = SoundCloudAPI.shared
     private var searchTask: Task<Void, Never>?
     private var cacheAccountID: String?
+    private var pagerObservation: AnyCancellable?
+
+    let pager = Paginator<SoundCloudConversation>(soundCloudSource: PagedSource(
+        first: { PagedChunk(items: []) },
+        next: { cursor in
+            guard case .url(let url) = cursor else { return PagedChunk(items: []) }
+            let page = try await SoundCloudAPI.shared.getPage(SoundCloudConversation.self, from: url)
+            return PagedChunk(items: page.collection, next: page.nextHref.map(PagedCursor.url))
+        }
+    ))
+
+    init() {
+        pager.onAppend = { [weak self] fresh in self?.absorbConversations(fresh) }
+        pagerObservation = pager.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+
+    private func absorbConversations(_ fresh: [SoundCloudConversation]) {
+        let known = Set(conversations.map(\.id))
+        let additions = fresh.filter { !known.contains($0.id) }
+        guard !additions.isEmpty else { return }
+        conversations = (conversations + additions).sorted(by: Self.isNewer)
+        Task { await persistCache() }
+    }
 
     var selectedConversation: SoundCloudConversation? {
         conversations.first(where: { $0.id == selectedID })
@@ -544,6 +831,7 @@ private final class MacMessagesModel: ObservableObject {
         do {
             let page = try await api.getConversations(limit: 50)
             conversations = page.collection.sorted(by: Self.isNewer)
+            pager.prime(items: conversations, cursor: page.nextHref.map(PagedCursor.url))
             await persistCache()
             requiresWebInbox = false
             if selectedID == nil { selectedID = conversations.first?.id }
@@ -552,7 +840,7 @@ private final class MacMessagesModel: ObservableObject {
             requiresWebInbox = true
             errorMessage = SoundCloudMessagingError.unavailable.localizedDescription
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.loadFailureMessage
         }
     }
 
@@ -564,11 +852,8 @@ private final class MacMessagesModel: ObservableObject {
         } catch SoundCloudMessagingError.unavailable {
             requiresWebInbox = true
         } catch {
-            // The list response from some SoundCloud deployments already
-            // contains the entire thread. Preserve it if the detail route is
-            // not separately available.
             if selectedConversation?.messages.isEmpty != false {
-                errorMessage = error.localizedDescription
+                errorMessage = Self.loadFailureMessage
             }
         }
     }
@@ -607,7 +892,7 @@ private final class MacMessagesModel: ObservableObject {
             errorMessage = SoundCloudMessagingError.unavailable.localizedDescription
             return false
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = "Your message wasn’t sent. Try again."
             return false
         }
     }
@@ -632,8 +917,6 @@ private final class MacMessagesModel: ObservableObject {
             isSearchingUsers = false
         }
     }
-
-    func clearError() { errorMessage = nil }
 
     private func replace(_ conversation: SoundCloudConversation) {
         if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
@@ -692,8 +975,6 @@ struct MacMessagesView: View {
     @ObservedObject private var composer = MacMessageComposer.shared
     @State private var draft = ""
     @State private var showsNewMessage = false
-    @State private var showsAuthentication = false
-    @State private var isReauthentication = false
     @State private var initialRecipient: User?
 
     var body: some View {
@@ -701,20 +982,32 @@ struct MacMessagesView: View {
             if !credentials.hasConfirmedAccount {
                 messagesGate
             } else {
-                HSplitView {
+                HStack(spacing: 0) {
                     conversationList
-                        // Messages is also hosted in the main window, where
-                        // the detail column can be substantially narrower
-                        // than the standalone Messages window. Keep the
-                        // list flexible so it cannot force the detail pane
-                        // underneath the parent's clipping boundary.
-                        .frame(minWidth: 190, idealWidth: 260, maxWidth: 300)
+                        .frame(width: 260)
+                    Divider()
                     conversationDetail
                         .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+                .toolbar {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Button { showsNewMessage = true } label: {
+                            Image(systemName: "square.and.pencil")
+                        }
+                        .help("New Message")
+                        .accessibilityLabel("New Message")
+                        .disabled(!credentials.canPerformAccountMutations)
+                        Button { Task { await model.load() } } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .help("Refresh")
+                        .accessibilityLabel("Refresh")
+                    }
+                }
             }
         }
+        .navigationTitle("Messages")
         .background(Color(nsColor: .windowBackgroundColor))
         .task(id: credentials.accessToken) {
             let accountID = credentials.currentUser?.id ?? SubscriptionService.shared.authenticatedAccountID
@@ -739,117 +1032,66 @@ struct MacMessagesView: View {
                 initialRecipient = nil
             }
         }
-        .sheet(isPresented: $showsAuthentication) {
-            MacSoundCloudSignInView(
-                peerName: nil,
-                forHandoff: false,
-                isReauthentication: isReauthentication
-            ) {
-                showsAuthentication = false
-                isReauthentication = false
-                Task { await model.load() }
-            }
-            .frame(minWidth: 720, minHeight: 620)
-        }
     }
 
     @ViewBuilder
     private var messagesGate: some View {
-        VStack(spacing: 0) {
-            MacPaneHeader(title: "Messages")
-            if credentials.isSessionRejected {
-                SCEmptyState(
-                    kind: .error,
-                    title: "Sign-In Expired",
-                    message: "Sign in again with SoundCloud to access messages.",
-                    actionTitle: "Reauthenticate",
-                    action: {
-                        isReauthentication = true
-                        showsAuthentication = true
-                    },
-                    style: .mac
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.top, 40)
-            } else if credentials.isSignedOut {
-                MacSignedOutEmptyState(
-                    icon: "bubble.left.and.bubble.right",
-                    title: "Messages Need an Account",
-                    message: "Sign in on this Mac to view SoundCloud messages. Home and Search still work in guest mode.",
-                    browsableRoute: .home
-                )
-            } else {
-                ProgressView("Checking sign-in…")
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 48)
-            }
-            Spacer(minLength: 0)
+        if credentials.isSessionRejected {
+            MacAccountRecoveryEmptyState(sectionName: "Messages")
+        } else if credentials.isSignedOut {
+            MacSignedOutEmptyState(
+                icon: "bubble.left.and.bubble.right",
+                title: "Messages Need an Account",
+                message: "Sign in on this Mac to see your SoundCloud messages. Home and Search work without an account.",
+                browsableRoute: .home
+            )
+        } else {
+            MacLoadingView()
         }
     }
 
+    @ViewBuilder
     private var conversationList: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Messages").font(.title2.bold())
-                    Text("SoundCloud direct messages")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button { showsNewMessage = true } label: {
-                    Image(systemName: "square.and.pencil")
-                }
-                .buttonStyle(.borderless)
-                .help("New message")
-                .disabled(!credentials.canPerformAccountMutations)
-                Button { Task { await model.load() } } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .help("Refresh messages")
-            }
-            .padding(16)
-
-            Divider()
-
-            if model.isLoading && model.conversations.isEmpty {
-                Spacer()
-                ProgressView("Loading messages…")
-                Spacer()
-            } else if model.conversations.isEmpty {
-                Spacer()
-                ContentUnavailableView(
+        if model.isLoading && model.conversations.isEmpty {
+            MacLoadingView()
+        } else if model.conversations.isEmpty {
+            ContentUnavailableView {
+                Label(
                     model.requiresWebInbox
                         ? "Continue on SoundCloud"
-                        : (model.errorMessage == nil ? "No messages yet" : "Messages unavailable"),
-                    systemImage: model.requiresWebInbox ? "safari" : "bubble.left",
-                    description: Text(model.errorMessage ?? "Start a conversation with an artist or listener.")
+                        : (model.errorMessage == nil ? "No Messages" : "Messages Unavailable"),
+                    systemImage: model.requiresWebInbox ? "safari" : "bubble.left"
                 )
+            } description: {
+                Text(model.errorMessage ?? "Start a conversation with an artist or listener.")
+            } actions: {
                 if model.requiresWebInbox {
-                    Button("Open web inbox") { openWebInbox() }
+                    Button("Open Web Inbox") { openWebInbox() }
                         .buttonStyle(.borderedProminent)
                 } else if model.errorMessage != nil {
-                    HStack(spacing: 10) {
-                        Button("Try again") { Task { await model.load() } }
-                            .buttonStyle(.borderedProminent)
-                        Button("Open Account Settings") { openSettings() }
-                            .buttonStyle(.bordered)
-                    }
+                    Button("Try Again") { Task { await model.load() } }
+                        .buttonStyle(.borderedProminent)
+                    Button("Account Settings") { openSettings() }
+                        .buttonStyle(.bordered)
                 }
-                Spacer()
-            } else {
-                List(model.conversations, selection: $model.selectedID) { conversation in
+            }
+            .macFillsPane()
+        } else {
+            List {
+                ForEach(model.conversations) { conversation in
                     MacConversationRow(
                         conversation: conversation,
                         currentUserID: credentials.currentUser?.id
                     )
-                    .tag(conversation.id)
+                    .macSelectableRow(conversation.id, selection: $model.selectedID)
+                    .onAppear { model.pager.loadMoreIfNeeded(after: conversation, lead: 8) }
                 }
-                .listStyle(.sidebar)
+                MacPagedFooter(pager: model.pager, isInLazyContainer: true)
+                    .listRowSeparator(.hidden)
             }
+            .listStyle(.sidebar)
+            .macListKeyboardSelection(ids: model.conversations.map(\.id), selection: $model.selectedID)
         }
-        .background(.ultraThinMaterial)
     }
 
     @ViewBuilder
@@ -876,8 +1118,9 @@ struct MacMessagesView: View {
                 Text("Your recent SoundCloud conversations appear here.")
             } actions: {
                 Button("New Message") { showsNewMessage = true }
-                if model.requiresWebInbox { Button("Open web inbox") { openWebInbox() } }
+                if model.requiresWebInbox { Button("Open Web Inbox") { openWebInbox() } }
             }
+            .macFillsPane()
         }
     }
 
@@ -910,28 +1153,26 @@ private struct MacConversationRow: View {
     var body: some View {
         HStack(spacing: 10) {
             MacMessageAvatar(user: counterpart, size: 38)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack {
-                    Text(counterpart?.username ?? "Conversation")
-                        .font(.system(size: 13, weight: conversation.unreadCount > 0 ? .bold : .semibold))
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    if conversation.unreadCount > 0 {
-                        Text("\(conversation.unreadCount)")
-                            .font(.caption2.bold())
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.scAccent, in: Capsule())
-                    }
-                }
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(counterpart?.username ?? "Conversation")
+                    .font(.body)
+                    .fontWeight(conversation.unreadCount > 0 ? .bold : .regular)
+                    .lineLimit(1)
                 Text(conversation.latestMessage?.body ?? "No preview")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.subheadline)
+                    .foregroundStyle(MacSecondaryStyle())
                     .lineLimit(1)
             }
+            Spacer(minLength: 6)
+            if conversation.unreadCount > 0 {
+                Text(conversation.unreadCount, format: .number)
+                    .monospacedDigit()
+                    .foregroundStyle(MacSecondaryStyle())
+            }
         }
-        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(conversation.unreadCount > 0 ? "\(conversation.unreadCount) unread" : "")
     }
 }
 
@@ -945,6 +1186,7 @@ private struct MacConversationDetail: View {
     let allowsSending: Bool
     let onSend: (SoundCloudMessageParticipant) async -> Void
     let onOpenWeb: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var counterpart: SoundCloudMessageParticipant? {
         conversation.participants.first(where: { $0.id != currentUserID })
@@ -955,20 +1197,21 @@ private struct MacConversationDetail: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 MacMessageAvatar(user: counterpart, size: 36)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(counterpart?.username ?? "Conversation").font(.headline)
                     if let profileURL = counterpart?.profileURL {
                         Link("View profile on SoundCloud", destination: profileURL)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MacSecondaryStyle())
                     }
                 }
                 Spacer()
-                Button("Open web inbox", action: onOpenWeb)
-                    .buttonStyle(.borderless)
+                Button("Open Web Inbox", action: onOpenWeb)
+                    .buttonStyle(.link)
             }
             .padding(14)
-            .background(.thinMaterial)
+            .background(.bar)
 
             Divider()
 
@@ -990,55 +1233,49 @@ private struct MacConversationDetail: View {
                 }
                 .onChange(of: conversation.messages.count) { _, _ in
                     if let last = conversation.messages.last {
-                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(last.id, anchor: .bottom) }
                     }
                 }
             }
 
             if let errorMessage {
                 HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                    Text(errorMessage)
+                    Label(errorMessage, systemImage: "exclamationmark.triangle")
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Spacer()
-                    if requiresWebInbox { Button("Continue on web", action: onOpenWeb) }
+                    if requiresWebInbox { Button("Continue on Web", action: onOpenWeb) }
                 }
-                .font(.caption)
-                .foregroundStyle(.orange)
+                .font(.callout)
+                .foregroundStyle(MacSecondaryStyle())
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(Color.orange.opacity(0.08))
+                .background(.bar)
             }
 
             Divider()
 
-            HStack(alignment: .bottom, spacing: 10) {
-                TextField("Message…", text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField("Message", text: $draft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
                     .lineLimit(1...6)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .onSubmit { send() }
                     .disabled(!allowsSending)
-                Button(action: send) {
-                    if isSending {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(.white)
+                if isSending {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button { send() } label: {
+                        Image(systemName: "arrow.up.circle.fill")
                     }
+                    .buttonStyle(.borderless)
+                    .controlSize(.large)
+                    .foregroundStyle(Color.scAccent)
+                    .accessibilityLabel("Send")
+                    .disabled(!allowsSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || counterpart == nil)
                 }
-                .buttonStyle(.plain)
-                .frame(width: 34, height: 34)
-                .background(Color.scAccent, in: Circle())
-                .disabled(!allowsSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending || counterpart == nil)
             }
-            .padding(14)
-            .background(.ultraThinMaterial)
+            .padding(12)
+            .background(.bar)
         }
     }
 
@@ -1057,14 +1294,15 @@ private struct MacMessageBubble: View {
             if isOutgoing { Spacer(minLength: 24) }
             VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 4) {
                 Text(message.body)
-                    .font(.system(size: 13))
+                    .font(.body)
+                    .accessibilityLabel("\(isOutgoing ? "You" : (message.sender?.username ?? "Them")): \(message.body)")
                     .textSelection(.enabled)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
-                    .foregroundStyle(isOutgoing ? .white : .primary)
+                    .foregroundStyle(isOutgoing ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                     .background(
-                        isOutgoing ? Color.scAccent : Color(nsColor: .controlBackgroundColor),
-                        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        isOutgoing ? AnyShapeStyle(Color.scAccent) : AnyShapeStyle(.fill.tertiary),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                     )
                 if message.createdAt != .distantPast {
                     Text(message.createdAt.formatted(date: .omitted, time: .shortened))
@@ -1082,15 +1320,12 @@ private struct MacMessageAvatar: View {
     let size: CGFloat
 
     var body: some View {
-        AsyncImage(url: user?.avatarURL) { image in
-            image.resizable().scaledToFill()
-        } placeholder: {
-            Image(systemName: "person.fill")
-                .resizable()
-                .scaledToFit()
-                .padding(size * 0.24)
-                .foregroundStyle(.secondary)
-                .background(Color.secondary.opacity(0.12))
+        SCArtworkResolver(url: user?.avatarURL, variant: .thumbnail) { image in
+            if let image {
+                image.resizable().scaledToFill()
+            } else {
+                SoundingArtworkView(identity: user?.id ?? "SoundCloud", subject: .person)
+            }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
@@ -1107,92 +1342,108 @@ private struct MacNewMessageSheet: View {
     @State private var recipient: User?
     @State private var draft = ""
 
+    private var canSend: Bool {
+        recipient != nil
+            && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !model.isSending
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("New Message").font(.title2.bold())
-                Spacer()
-                Button("Cancel", action: onDone).buttonStyle(.borderless)
-            }
-
-            if let recipient {
-                HStack(spacing: 10) {
-                    ArtworkThumbnail(
-                        url: recipient.avatarURL,
-                        identity: recipient.username,
-                        size: 38,
-                        cornerRadius: 19,
-                        isAvailable: true,
-                        crownUser: recipient,
-                        crownContext: recipient.username
-                    )
-                    Text(recipient.username).font(.headline)
-                    Spacer()
-                    Button("Change") { self.recipient = nil }
-                        .buttonStyle(.borderless)
-                }
-            } else {
-                TextField("Find an artist or listener", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: query) { _, value in model.searchUsers(value) }
-
-                if model.isSearchingUsers { ProgressView().controlSize(.small) }
-
-                List(model.userResults) { user in
-                    Button {
-                        recipient = user
-                    } label: {
+        NavigationStack {
+            Form {
+                Section("To") {
+                    if let recipient {
                         HStack(spacing: 10) {
                             ArtworkThumbnail(
-                                url: user.avatarURL,
-                                identity: user.username,
-                                size: 34,
-                                cornerRadius: 17,
+                                url: recipient.avatarURL,
+                                identity: recipient.id,
+                                size: 38,
+                                cornerRadius: 19,
                                 isAvailable: true,
-                                crownUser: user,
-                                crownContext: user.username
+                                crownUser: recipient,
+                                crownContext: recipient.username
                             )
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(user.username).foregroundStyle(.primary)
-                                Text("@\(user.permalink)").font(.caption).foregroundStyle(.secondary)
+                            Text(recipient.username).font(.headline)
+                            Spacer()
+                            Button("Change") { self.recipient = nil }
+                                .buttonStyle(.link)
+                        }
+                    } else {
+                        TextField("Find an artist or listener", text: $query)
+                            .labelsHidden()
+                            .onChange(of: query) { _, value in model.searchUsers(value) }
+
+                        if model.isSearchingUsers { ProgressView().controlSize(.small) }
+
+                        ForEach(model.userResults.prefix(8)) { user in
+                            Button {
+                                recipient = user
+                            } label: {
+                                HStack(spacing: 10) {
+                                    ArtworkThumbnail(
+                                        url: user.avatarURL,
+                                        identity: user.id,
+                                        size: 34,
+                                        cornerRadius: 17,
+                                        isAvailable: true,
+                                        crownUser: user,
+                                        crownContext: user.username
+                                    )
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(user.username).foregroundStyle(.primary)
+                                        Text("@\(user.permalink)")
+                                            .font(.caption)
+                                            .foregroundStyle(MacSecondaryStyle())
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                Section("Message") {
+                    TextField("Message", text: $draft, axis: .vertical)
+                        .labelsHidden()
+                        .lineLimit(4...10)
+                }
+
+                if let error = model.errorMessage {
+                    Section {
+                        Text(error).foregroundStyle(MacSecondaryStyle())
+                        if model.requiresWebInbox {
+                            Button("Continue on SoundCloud") {
+                                NSWorkspace.shared.open(SoundCloudAPI.webInboxURL)
                             }
                         }
                     }
-                    .buttonStyle(.plain)
                 }
-                .listStyle(.plain)
             }
-
-            TextField("Message…", text: $draft, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(4...10)
-
-            if let error = model.errorMessage {
-                Text(error).font(.caption).foregroundStyle(.orange)
-            }
-
-            HStack {
-                if model.requiresWebInbox {
-                    Button("Continue on SoundCloud") {
-                        NSWorkspace.shared.open(SoundCloudAPI.webInboxURL)
-                    }
+            .formStyle(.grouped)
+            .navigationTitle("New Message")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onDone)
                 }
-                Spacer()
-                Button("Send") {
-                    guard let recipient else { return }
-                    Task {
-                        if await model.startConversation(draft, with: recipient) { onDone() }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send") {
+                        guard let recipient else { return }
+                        Task {
+                            if await model.startConversation(draft, with: recipient) { onDone() }
+                        }
                     }
+                    .disabled(!canSend)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(recipient == nil || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isSending)
             }
         }
-        .padding(20)
-        .frame(width: 520, height: 560)
+        .frame(minWidth: 520, minHeight: 560)
         .onAppear {
             draft = initialDraft
             recipient = initialRecipient
         }
     }
 }
+
+extension OutputRouter: IntentPlaybackSink {}

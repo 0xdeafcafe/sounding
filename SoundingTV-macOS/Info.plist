@@ -2,10 +2,53 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Sounding Playlist</string>
+			<key>UTTypeIdentifier</key>
+			<string>red.forbes.sounding.playlist-reference</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Sounding Track</string>
+			<key>UTTypeIdentifier</key>
+			<string>red.forbes.sounding.track</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Sounding Local Track</string>
+			<key>UTTypeIdentifier</key>
+			<string>red.forbes.sounding.local-track</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Sounding Collection</string>
+			<key>UTTypeIdentifier</key>
+			<string>red.forbes.sounding.collection</string>
+		</dict>
+	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>SoundingCloud</string>
+	<string>Sounding</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconName</key>
@@ -15,28 +58,48 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>SoundingCloud</string>
+	<string>Sounding</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>red.forbes.sounding.widget</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>soundingtv</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.music</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_soundingtv._tcp</string>
-		<string>_polyphony._tcp</string>
+		<string>_sonos._tcp</string>
 	</array>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Sounding listens only when you ask: to name a song playing around you with Shazam, or to hear your Apple TV’s chime when you sign it in. No audio is kept.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Connect to Apple TV and nearby Polyphony sessions, share cue points and analysis, and hand playback between your devices.</string>
+	<string>Connect to Apple TV, Sonos speakers and DJ players, share cue points and analysis, and hand playback between your devices.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>red.forbes.sounding.pairing</string>
 		<string>red.forbes.sounding.nowplaying</string>
+		<string>red.forbes.sounding.playing</string>
 	</array>
+	<key>NSSupportsGroupActivities</key>
+	<true/>
 </dict>
 </plist>

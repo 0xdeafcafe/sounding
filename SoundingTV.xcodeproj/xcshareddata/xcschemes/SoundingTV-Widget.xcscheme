@@ -16,7 +16,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "684C5BD0DDDFAEC0ED69075F"
+               BlueprintIdentifier = "EC9BE0C6A179564DF342D0FB"
                BuildableName = "SoundingTV-Widget.appex"
                BlueprintName = "SoundingTV-Widget"
                ReferencedContainer = "container:SoundingTV.xcodeproj">
@@ -33,7 +33,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "684C5BD0DDDFAEC0ED69075F"
+            BlueprintIdentifier = "EC9BE0C6A179564DF342D0FB"
             BuildableName = "SoundingTV-Widget.appex"
             BlueprintName = "SoundingTV-Widget"
             ReferencedContainer = "container:SoundingTV.xcodeproj">
@@ -59,7 +59,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "684C5BD0DDDFAEC0ED69075F"
+            BlueprintIdentifier = "EC9BE0C6A179564DF342D0FB"
             BuildableName = "SoundingTV-Widget.appex"
             BlueprintName = "SoundingTV-Widget"
             ReferencedContainer = "container:SoundingTV.xcodeproj">
@@ -78,7 +78,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "684C5BD0DDDFAEC0ED69075F"
+            BlueprintIdentifier = "EC9BE0C6A179564DF342D0FB"
             BuildableName = "SoundingTV-Widget.appex"
             BlueprintName = "SoundingTV-Widget"
             ReferencedContainer = "container:SoundingTV.xcodeproj">

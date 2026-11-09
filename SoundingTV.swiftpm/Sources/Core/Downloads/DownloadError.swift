@@ -10,6 +10,7 @@ enum DownloadError: LocalizedError, Equatable {
     case unsupportedContainer
     case notEntitled
     case previewOnly
+    case entitlement(SoundCloudEntitlementError)
     case trafficStopped(statusCode: Int, until: Date)
 
     var errorDescription: String? {
@@ -21,7 +22,8 @@ enum DownloadError: LocalizedError, Equatable {
         case .byteRangeSegments: return "This stream's segment format isn't supported for downloads."
         case .playlistTooDeep: return "This stream's playlist nests too deeply."
         case .unsupportedContainer: return "This track's audio format isn't supported for downloads."
-        case .notEntitled: return "Downloads require SoundCloud Go+."
+        case .notEntitled: return "This track can\u{2019}t be downloaded."
+        case .entitlement(let denial): return denial.errorDescription
         case .previewOnly: return "Only a preview is available for this track."
         case .trafficStopped(let statusCode, let until):
             return "SoundCloud returned HTTP \(statusCode). Downloads are paused until \(until.formatted(date: .abbreviated, time: .shortened))."

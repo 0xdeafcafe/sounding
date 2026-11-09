@@ -3,7 +3,6 @@ import Foundation
 @MainActor
 private enum TrackActionsClient {
     static let baseURL = "https://api-v2.soundcloud.com"
-    static let session = URLSession.shared
 
     static let decoder: JSONDecoder = {
         let formatter = DateFormatter()
@@ -14,14 +13,6 @@ private enum TrackActionsClient {
         return decoder
     }()
 
-    static let userAgent: String = {
-        let v = ProcessInfo.processInfo.operatingSystemVersion
-        let osVersion = "\(v.majorVersion)_\(v.minorVersion)"
-        let shortVersion = "\(v.majorVersion).\(v.minorVersion)"
-        return "Mozilla/5.0 (iPhone; CPU iPhone OS \(osVersion) like Mac OS X)"
-            + " AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(shortVersion) Mobile/15E148 Safari/604.1"
-    }()
-
     static func buildURL(_ path: String, queryItems: [URLQueryItem] = []) -> URL? {
         var components = URLComponents(string: "\(baseURL)/\(path)")
         components?.queryItems = queryItems.isEmpty ? nil : queryItems
@@ -29,47 +20,45 @@ private enum TrackActionsClient {
     }
 
     static func authorizedRequest(_ url: URL, method: String = "GET") -> URLRequest {
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.addValue("application/json", forHTTPHeaderField: "Accept")
-        request.addValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.addValue("https://soundcloud.com", forHTTPHeaderField: "Origin")
-        request.addValue("https://soundcloud.com/", forHTTPHeaderField: "Referer")
-        if let token = SoundCloudAPI.credentials?.accessToken {
-            request.addValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
-        }
-        return request
+        SoundCloudAPI.shared.authorizedRequest(url, method: method)
     }
 
     static func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        try SoundCloudAPI.shared.enforceTrafficSafety()
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.networkError(NSError(domain: "TrackActionsClient", code: 0))
+        if let url = request.url {
+            try await SoundCloudAPI.shared.admitAuthenticatedRequest(url, method: request.httpMethod ?? "GET")
         }
+        let (data, http) = try await SoundCloudGateway.shared.data(
+            for: request,
+            context: .init(lane: .metadata, coalesces: request.httpMethod == "GET")
+        )
         if SoundCloudAPI.isBotChallenge(response: http, data: data) {
-            let until = SoundCloudAPI.shared.recordTrafficBlock(statusCode: http.statusCode, response: http)
-            throw APIError.temporarilyBlocked(until: until, statusCode: http.statusCode)
+            try SoundCloudAPI.shared.enforceTrafficSafety()
         }
-        if http.statusCode == 403 || http.statusCode == 429 {
-            let until = SoundCloudAPI.shared.recordTrafficBlock(statusCode: http.statusCode, response: http)
-            throw APIError.temporarilyBlocked(until: until, statusCode: http.statusCode)
-        }
+        if http.statusCode == 403 { throw APIError.forbidden }
+        if http.statusCode == 429 { throw APIError.rateLimited(resetAt: SoundCloudAPI.rateLimitResetDate(from: data)) }
         return (data, http)
     }
 
     static func get<T: Decodable>(_ url: URL, allowRefresh: Bool = true) async throws -> T {
+        #if DEBUG
+        if SoundCloudRequestEnvironment.debugCaller == nil, SoundCloudRequestLedger.shared.isEnabled {
+            return try await SoundCloudRequestEnvironment.$debugCaller.withValue(SoundCloudRequestLedger.caller()) {
+                try await get(url, allowRefresh: allowRefresh)
+            }
+        }
+        #endif
+        try await SoundCloudAPI.shared.admitAuthenticatedRequest(url)
+        let sentToken = SoundCloudAPI.credentials?.accessToken
         let (data, http) = try await send(authorizedRequest(url))
         switch http.statusCode {
         case 200..<300:
             do { return try decoder.decode(T.self, from: data) }
             catch { throw APIError.decodingError(error) }
         case 401:
-            if allowRefresh, await SoundCloudAPI.credentials?.refreshAccessToken() == true {
+            if allowRefresh, await SoundCloudAPI.shared.refreshCredentialsAfterUnauthorized(sentWith: sentToken) {
                 return try await get(url, allowRefresh: false)
             }
-            await SoundCloudAPI.credentials?.handleUnauthorized()
-            throw APIError.unauthorized
+            throw await SoundCloudAPI.unauthorizedError()
         case 404:
             throw APIError.notFound
         default:
@@ -160,12 +149,18 @@ extension SoundCloudAPI {
     }
 
     func addTrack(_ trackId: String, toPlaylist playlistId: String) async throws {
+        try await addTracks([trackId], toPlaylist: playlistId)
+    }
+
+    func addTracks(_ trackIds: [String], toPlaylist playlistId: String) async throws {
         guard let getURL = TrackActionsClient.buildURL("playlists/\(playlistId)") else {
             throw APIError.invalidURL
         }
         let existing: PlaylistTrackIDs = try await TrackActionsClient.get(getURL)
 
-        guard !existing.trackIDs.contains(trackId) else { return }
+        var seen = Set(existing.trackIDs)
+        let additions = trackIds.filter { seen.insert($0).inserted }
+        guard !additions.isEmpty else { return }
 
         guard let patchURL = TrackActionsClient.buildURL("playlists/\(playlistId)") else {
             throw APIError.invalidURL
@@ -173,7 +168,7 @@ extension SoundCloudAPI {
         var request = TrackActionsClient.authorizedRequest(patchURL, method: "PATCH")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let newTrackIDs = existing.trackIDs + [trackId]
+        let newTrackIDs = existing.trackIDs + additions
         let body: [String: Any] = [
             "tracks": newTrackIDs.compactMap { Int($0) }.map { ["id": $0] }
         ]
@@ -215,9 +210,244 @@ extension SoundCloudAPI {
     }
 }
 
-extension Track {
+extension SoundCloudAPI {
+    func createPlaylist(title: String, description: String? = nil, sharing: String = "private", trackIds: [String]) async throws -> PlaylistSummary {
+        guard sharing == "public" || sharing == "private",
+              let url = TrackActionsClient.buildURL("playlists") else {
+            throw APIError.invalidURL
+        }
+        var request = TrackActionsClient.authorizedRequest(url, method: "POST")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        var playlist: [String: Any] = [
+            "title": title,
+            "sharing": sharing,
+            "tracks": trackIds.compactMap { Int($0) }.map { ["id": $0] },
+        ]
+        if let description, !description.isEmpty { playlist["description"] = description }
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["playlist": playlist])
 
-    var shareText: String {
-        "\(title) by \(user.displayName)\n\(permalinkURL.absoluteString)"
+        let (data, http) = try await TrackActionsClient.send(request)
+        switch http.statusCode {
+        case 200..<300:
+            do { return try TrackActionsClient.decoder.decode(PlaylistSummary.self, from: data) }
+            catch { throw APIError.decodingError(error) }
+        case 401: throw APIError.unauthorized
+        case 404: throw APIError.notFound
+        default: throw APIError.serverError(http.statusCode)
+        }
+    }
+}
+
+extension SoundCloudAPI {
+    func updatePlaylist(
+        id playlistId: String,
+        title: String? = nil,
+        description: String? = nil,
+        sharing: String? = nil,
+        trackIDs: [String]? = nil
+    ) async throws -> Playlist? {
+        if let sharing, sharing != "public", sharing != "private" { throw APIError.invalidURL }
+        guard let url = TrackActionsClient.buildURL("playlists/\(playlistId)") else {
+            throw APIError.invalidURL
+        }
+        var fields: [String: Any] = [:]
+        if let title { fields["title"] = title }
+        if let description { fields["description"] = description }
+        if let sharing { fields["sharing"] = sharing }
+        if let trackIDs { fields["tracks"] = trackIDs.compactMap { Int($0) }.map { ["id": $0] } }
+        guard !fields.isEmpty else { return nil }
+        var request = TrackActionsClient.authorizedRequest(url, method: "PUT")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["playlist": fields])
+
+        let (data, http) = try await TrackActionsClient.send(request)
+        switch http.statusCode {
+        case 200..<300: return try? TrackActionsClient.decoder.decode(Playlist.self, from: data)
+        case 401: throw APIError.unauthorized
+        case 404: throw APIError.notFound
+        default: throw APIError.serverError(http.statusCode)
+        }
+    }
+
+    func deletePlaylist(id playlistId: String) async throws {
+        guard let url = TrackActionsClient.buildURL("playlists/\(playlistId)") else {
+            throw APIError.invalidURL
+        }
+        let request = TrackActionsClient.authorizedRequest(url, method: "DELETE")
+        let (_, http) = try await TrackActionsClient.send(request)
+        switch http.statusCode {
+        case 200..<300, 404: return
+        case 401: throw APIError.unauthorized
+        default: throw APIError.serverError(http.statusCode)
+        }
+    }
+}
+
+@MainActor
+enum PlaylistCreation {
+    static func create(title: String, description: String?, isPrivate: Bool, trackIds: [String] = []) async throws -> Playlist {
+        guard let owner = await SoundCloudAPI.credentials?.waitForCurrentUser() else {
+            throw APIError.unauthorized
+        }
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDescription = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sharing = isPrivate ? "private" : "public"
+        let hook = SoundCloudAPI.libraryActionHook
+        let placeholder = Playlist.local(
+            id: String(-Int(Date().timeIntervalSince1970)),
+            title: trimmedTitle,
+            description: trimmedDescription,
+            sharing: sharing,
+            trackCount: trackIds.count,
+            owner: owner
+        )
+        let pendingToken = placeholder.flatMap { hook?.begin(.createPlaylist($0)) }
+        let summary: PlaylistSummary
+        do {
+            summary = try await SoundCloudAPI.shared.createPlaylist(
+                title: trimmedTitle,
+                description: trimmedDescription,
+                sharing: sharing,
+                trackIds: trackIds
+            )
+        } catch {
+            if let pendingToken { hook?.finish(pendingToken, succeeded: false) }
+            throw error
+        }
+        if let pendingToken { hook?.finish(pendingToken, succeeded: false) }
+        let created = (try? await SoundCloudAPI.shared.getPlaylist(id: summary.id))
+            ?? Playlist.local(
+                id: summary.id,
+                title: summary.title,
+                description: trimmedDescription,
+                sharing: sharing,
+                trackCount: summary.trackCount,
+                owner: owner,
+                permalinkURL: summary.permalinkURL
+            )
+        guard let created else { throw APIError.notFound }
+        if let token = hook?.begin(.createPlaylist(created)) {
+            hook?.finish(token, succeeded: true)
+        }
+        return created
+    }
+}
+
+extension PlaylistSummary {
+    init(_ playlist: Playlist) {
+        id = playlist.id
+        title = playlist.title
+        artworkURL = playlist.artworkURL
+        trackCount = playlist.trackCount
+        permalinkURL = playlist.permalinkURL
+        isAlbum = playlist.isAlbum
+    }
+}
+
+@MainActor
+enum PlaylistWriter {
+    static func myPlaylists() async throws -> [PlaylistSummary] {
+        #if DEBUG
+        if fixtureSeed != nil {
+            try await Task.sleep(for: .milliseconds(250))
+            return fixturePlaylists
+        }
+        #endif
+        return try await SoundCloudAPI.shared.getMyPlaylists().collection
+    }
+
+    static func add(_ trackId: String, to playlist: PlaylistSummary) async throws {
+        #if DEBUG
+        if fixtureSeed != nil {
+            try await fakeWrite()
+            return
+        }
+        #endif
+        try await SoundCloudAPI.shared.addTrack(trackId, toPlaylist: playlist.id)
+    }
+
+    static func create(title: String, containing trackId: String) async throws -> PlaylistSummary {
+        #if DEBUG
+        if fixtureSeed != nil {
+            try await fakeWrite()
+            let made = fixturePlaylist(id: 9_000 + fixtureCreated.count, title: title, count: 1)
+            fixtureCreated.insert(made, at: 0)
+            return made
+        }
+        #endif
+        return try await SoundCloudAPI.shared.createPlaylist(title: title, trackIds: [trackId])
+    }
+
+    #if DEBUG
+    static var fixtureSeed: [(id: Int, title: String, count: Int)]?
+    private static var fixtureCreated: [PlaylistSummary] = []
+
+    private static var fixturePlaylists: [PlaylistSummary] {
+        fixtureCreated + (fixtureSeed ?? []).map { fixturePlaylist(id: $0.id, title: $0.title, count: $0.count) }
+    }
+
+    private static func fixturePlaylist(id: Int, title: String, count: Int) -> PlaylistSummary {
+        let json = try? JSONSerialization.data(withJSONObject: ["id": id, "title": title, "track_count": count])
+        return try! JSONDecoder().decode(PlaylistSummary.self, from: json ?? Data())
+    }
+
+    private static func fakeWrite() async throws {
+        try await Task.sleep(for: .milliseconds(700))
+        if ProcessInfo.processInfo.environment["SOUNDING_TV_PLAYLIST_WRITE_FAIL"] == "1" {
+            throw APIError.serverError(500)
+        }
+    }
+    #endif
+}
+
+extension Playlist {
+    static func local(
+        id: String,
+        title: String,
+        description: String?,
+        sharing: String,
+        trackCount: Int,
+        owner: User,
+        permalinkURL: URL? = nil
+    ) -> Playlist? {
+        guard let numericID = Int(id),
+              let ownerData = try? Playlist.localEncoder().encode(owner),
+              let ownerJSON = try? JSONSerialization.jsonObject(with: ownerData),
+              let createdData = try? Playlist.localEncoder().encode([Date()]),
+              let createdJSON = (try? JSONSerialization.jsonObject(with: createdData)) as? [Any],
+              let createdAt = createdJSON.first else { return nil }
+        var json: [String: Any] = [
+            "id": numericID,
+            "title": title,
+            "permalink_url": (permalinkURL ?? owner.permalinkURL).absoluteString,
+            "track_count": trackCount,
+            "created_at": createdAt,
+            "sharing": sharing,
+            "is_album": false,
+            "user": ownerJSON,
+            "tracks": [Any](),
+        ]
+        if let description, !description.isEmpty { json["description"] = description }
+        guard let data = try? JSONSerialization.data(withJSONObject: json) else { return nil }
+        return try? Playlist.localDecoder().decode(Playlist.self, from: data)
+    }
+
+    private static func localFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        return formatter
+    }
+
+    private static func localEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .formatted(localFormatter())
+        return encoder
+    }
+
+    private static func localDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .formatted(localFormatter())
+        return decoder
     }
 }

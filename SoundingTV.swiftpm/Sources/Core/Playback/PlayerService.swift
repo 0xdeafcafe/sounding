@@ -1,15 +1,17 @@
 import Foundation
 import AVFoundation
+#if os(iOS)
+import UIKit
+#endif
 import Observation
 import Combine
 import Accelerate
 import MusicUnderstanding
-import Network
 import os
 
 @MainActor
 protocol PlatformLifecycleObserver: AnyObject {
-    func observeWillResignActive(handler: @escaping @MainActor () -> Void) -> AnyCancellable
+    func observeSessionCheckpoints(handler: @escaping @MainActor () -> Void) -> AnyCancellable
 }
 
 
@@ -22,50 +24,67 @@ enum IncomingDeckState: Equatable {
     var isReady: Bool { self == .ready }
 }
 
-/// A tiny cache of already-resolved CDN endpoints. It deliberately lives
-/// outside DownloadManager: an exhausted offline-download allowance must not
-/// turn a normal stream into a fresh API round-trip every time the app opens.
-/// The audio itself remains AVFoundation-managed and is never counted against
-/// the user's offline-download budget.
-private enum StreamResolutionDiskCache {
-    private struct Entry: Codable {
-        let url: URL
-        let fetchedAt: Date
+/// A deliberately narrow, Observation-native projection for list rows and
+/// cards. PlayerService also publishes elapsed time, so observing it directly
+/// makes an otherwise static collection redraw twice a second during playback.
+@MainActor
+@Observable
+final class PlaybackIndicatorStore {
+    static let shared = PlaybackIndicatorStore()
+
+    private(set) var trackID: String?
+    private(set) var isPlaying = false
+    private(set) var isLoading = false
+
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
+
+    private init(player: PlayerService = .shared) {
+        player.$currentTrack
+            .map { $0?.id }
+            .removeDuplicates()
+            .sink { [weak self] in self?.trackID = $0 }
+            .store(in: &cancellables)
+        player.$isPlaying
+            .removeDuplicates()
+            .sink { [weak self] in self?.isPlaying = $0 }
+            .store(in: &cancellables)
+        player.$isLoading
+            .removeDuplicates()
+            .sink { [weak self] in self?.isLoading = $0 }
+            .store(in: &cancellables)
     }
 
-    private static let defaultsKey = "red.forbes.sounding.streaming.resolvedURLs.v1"
-    private static let maximumEntries = 24
-    private static let ttl: TimeInterval = 240
+    func isCurrent(_ trackID: String) -> Bool { self.trackID == trackID }
+}
 
-    static func url(for key: String) -> URL? {
-        var entries = load()
-        let now = Date()
-        entries = entries.filter { now.timeIntervalSince($0.value.fetchedAt) < ttl }
-        persist(entries)
-        return entries[key]?.url
-    }
+/// Queue-only projection used by queue surfaces that do not display elapsed
+/// time. Keeping it separate from PlaybackIndicatorStore also means a play /
+/// pause transition does not rebuild every queue row.
+@MainActor
+@Observable
+final class PlaybackQueueStore {
+    static let shared = PlaybackQueueStore()
 
-    static func store(_ url: URL, for key: String) {
-        var entries = load()
-        entries[key] = Entry(url: url, fetchedAt: Date())
-        if entries.count > maximumEntries {
-            for key in entries.sorted(by: { $0.value.fetchedAt < $1.value.fetchedAt })
-                .prefix(entries.count - maximumEntries).map(\.key) {
-                entries[key] = nil
-            }
-        }
-        persist(entries)
-    }
+    private(set) var queue: [Track] = []
+    private(set) var currentIndex = 0
+    private(set) var currentArtworkURL: URL?
 
-    private static func load() -> [String: Entry] {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
-              let entries = try? JSONDecoder().decode([String: Entry].self, from: data) else { return [:] }
-        return entries
-    }
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
-    private static func persist(_ entries: [String: Entry]) {
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+    private init(player: PlayerService = .shared) {
+        player.$queue
+            .removeDuplicates { $0.map(\.id) == $1.map(\.id) }
+            .sink { [weak self] in self?.queue = $0 }
+            .store(in: &cancellables)
+        player.$currentIndex
+            .removeDuplicates()
+            .sink { [weak self] in self?.currentIndex = $0 }
+            .store(in: &cancellables)
+        player.$currentTrack
+            .map { $0?.artworkURL }
+            .removeDuplicates()
+            .sink { [weak self] in self?.currentArtworkURL = $0 }
+            .store(in: &cancellables)
     }
 }
 
@@ -88,51 +107,106 @@ struct AudioOutputRoute: Equatable {
     static let unknown = AudioOutputRoute()
 }
 
+enum DJTransitionPlanningPolicy {
+    static func shouldPlan(
+        isEnabled: Bool,
+        sessionIsEnabled: Bool,
+        hasCurrentTrack: Bool,
+        hasUpcomingTrack: Bool
+    ) -> Bool {
+        isEnabled && sessionIsEnabled && hasCurrentTrack && hasUpcomingTrack
+    }
+
+    static func startsInMixEngine(
+        sessionIsEnabled: Bool,
+        exclusiveElsewhere: Bool,
+        trackDuration: TimeInterval,
+        isLoadedOnDeck: Bool,
+        fellBackToAVPlayer: Bool
+    ) -> Bool {
+        guard sessionIsEnabled, !exclusiveElsewhere, !fellBackToAVPlayer else { return false }
+        return isLoadedOnDeck || CollectionKind.classify(trackDurationSeconds: trackDuration) != .set
+    }
+}
+
 
 @MainActor
 final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
-    static let shared = PlayerService()
+    static let shared = PlayerService(
+        sourceResolver: .shared,
+        transitionService: .shared,
+        downloads: .shared,
+        api: .shared,
+        cues: .shared
+    )
 
-    static var remoteOutput: (any CompanionOutputTarget)?
+    let sourceResolver: PlaybackSourceResolver
+    let transitionService: DJTransitionService
+    let downloads: DownloadManager
+    private let api: SoundCloudAPI
+    let cues: CueStore
 
-    static var peerContentSource: (any PeerContentSessionProvider)?
+    private(set) var peerContentSource: (any PeerContentSessionProvider)?
+    private(set) var nowPlaying: any SystemNowPlayingBridge = MediaPlayerNowPlayingBridge()
+    private var systemRemoteHandlers: SystemTransportHandlers?
+    private weak var lifecycleObserver: (any PlatformLifecycleObserver)?
 
-    static private(set) var nowPlaying: any SystemNowPlayingBridge = MediaPlayerNowPlayingBridge()
-
-    private static weak var activeInstance: PlayerService?
-
-    static weak var lifecycleObserver: (any PlatformLifecycleObserver)? {
-        didSet { activeInstance?.observeAppLifecycle() }
-    }
-
-    static func installNowPlaying(_ bridge: any SystemNowPlayingBridge) {
-        guard bridge !== nowPlaying else { return }
-        nowPlaying.deactivate()
-        nowPlaying = bridge
-        activeInstance?.activateNowPlayingBridge()
-    }
-
-    @Published private(set) var currentTrack: Track?
-    @Published private(set) var queue: [Track] = [] {
-        didSet {
-            refreshStreamPrefetch()
-            notifyDownloadManagerOfQueueChange()
-            persistSessionState(force: true)
+    /// Platform integrations enter playback once, through the process runtime.
+    /// Features can no longer replace global static hooks while audio is live.
+    func configurePlatform(
+        nowPlaying bridge: (any SystemNowPlayingBridge)? = nil,
+        lifecycleObserver: (any PlatformLifecycleObserver)? = nil
+    ) {
+        if let bridge, bridge !== nowPlaying {
+            nowPlaying.deactivate()
+            nowPlaying = bridge
+            if let systemRemoteHandlers {
+                nowPlaying.activate(handlers: systemRemoteHandlers)
+            } else {
+                activateNowPlayingBridge()
+            }
         }
+        self.lifecycleObserver = lifecycleObserver
+        observeAppLifecycle()
+    }
+
+    func connectNearbyPlayback(peerContentSource: (any PeerContentSessionProvider)?) {
+        self.peerContentSource = peerContentSource
+    }
+
+    @Published private(set) var currentTrack: Track? {
+        didSet {
+            PlayHistoryRecorder.shared.attach(to: self)
+            if oldValue?.id != currentTrack?.id {
+                ListeningRecorder.shared.noteTrackStarted(currentTrack?.id)
+                if let id = currentTrack?.id { PlayedTrackLog.shared.note(id) }
+                playingNext.prune(queue: queue.map(\.id), currentIndex: currentIndex)
+                persistSessionState(force: true)
+            }
+        }
+    }
+    @Published private(set) var playingNext = PlayingNextQueue()
+    @Published private(set) var queue: [Track] = [] {
+        didSet { queueStateDidChange() }
     }
     @Published private(set) var currentIndex: Int = 0 {
-        didSet {
-            refreshStreamPrefetch()
-            notifyDownloadManagerOfQueueChange()
-            persistSessionState(force: true)
-        }
+        didSet { queueStateDidChange() }
     }
     @Published private(set) var isPlaying = false
-    @Published private(set) var currentTime: TimeInterval = 0
-    @Published private(set) var duration: TimeInterval = 0
+    /// Per-tick playback position/duration live here so observing PlayerService
+    /// does not invalidate every view twice a second. Progress UI observes the
+    /// clock; imperative readers use the computed properties below.
+    let clock = PlaybackClock()
+    var currentTime: TimeInterval { clock.currentTime }
+    var duration: TimeInterval { clock.duration }
     @Published private(set) var isLoading = false
     @Published private(set) var loadingState: PlaybackLoadingState = .idle
+    @Published private(set) var mediaOrigin: PlaybackMediaOrigin?
     @Published private(set) var playbackErrorMessage: String?
+    @Published private(set) var hasResolvedLaunchRestore = false
+    @Published var entitlementPrompt: SoundCloudEntitlementError?
+    @Published private(set) var isPlayingSoundCloudPreview = false
+    private var hasShownPreviewEndedPrompt = false
     /// Increments only for a user-selected track, never for automatic queue
     /// advancement. Shells use this to present Now Playing at the right time.
     @Published private(set) var explicitPlayRequest: UInt64 = 0
@@ -140,33 +214,29 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         didSet { persistSessionState(force: true) }
     }
     @Published var repeatMode: RepeatMode = .off {
-        didSet {
-            refreshStreamPrefetch()
-            notifyDownloadManagerOfQueueChange()
-            persistSessionState(force: true)
-        }
+        didSet { queueStateDidChange() }
     }
-    @Published private(set) var outputTarget: PlaybackOutput = .thisDevice
     @Published private(set) var outputRoute: AudioOutputRoute = .unknown
     @Published private(set) var activeCollectionId: String?
+    @Published private(set) var queueSource: PlaybackQueueSource?
+    @Published private(set) var volume: Double = PlayerService.storedVolume()
+    private var loudnessGain: Double = 1
+    var streamLoudnessGain: Double { loudnessGain }
+    private var sleepFadeGain: Double = 1
 
-    @Published private(set) var mixEngineState: MixEngineState = .off
-    @Published private(set) var incomingDeck: IncomingDeckState = .idle
-    @Published private(set) var mixWindow: MixWindow?
-    @Published private(set) var isAutoMixEnabled = true
+    // The Decks session state below is driven by DJSessionDirector; the
+    // published properties stay here so existing observers see the exact
+    // same values at the same times.
+    @Published var mixEngineState: MixEngineState = .off
+    @Published var incomingDeck: IncomingDeckState = .idle
+    @Published var mixWindow: MixWindow?
+    @Published var isAutoMixEnabled = false
     @Published private(set) var isExternalManualDeckControlActive = false
 
     @Published var djProfile: DJProfile? {
         didSet {
             guard djProfile != oldValue else { return }
-            for task in phantomPlanTasks.values { task.cancel() }
-            phantomPlanTasks.removeAll()
-            phantomPlanCache.removeAll()
-            if djProfile != nil {
-                refreshPhantomPlan()
-            } else {
-                phantomActivity = .idle
-            }
+            djDirector.profileDidChange()
         }
     }
 
@@ -174,9 +244,20 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         get { djProfile != nil }
         set { djProfile = newValue ? (djProfile ?? defaultDJProfile) : nil }
     }
-    @Published private(set) var phantomActivity: PhantomActivity = .idle
+    @Published var phantomActivity: PhantomActivity = .idle
 
-    @Published private(set) var liveDeck: MixEngine.Deck = .a
+    @Published var liveDeck: MixEngine.Deck = .a
+
+    /// The single value-type read model for the Decks session, mirrored from
+    /// the director so consoles can observe it through the player they
+    /// already know. See DJSessionSnapshot.swift.
+    @Published private(set) var djSessionSnapshot: DJSessionSnapshot?
+
+    /// Owns the Decks session: lifecycle, deck arming/preload, plan cache,
+    /// adaptive replanning, stage scheduling, mix-window and fallback policy.
+    /// PlayerService keeps the playback plumbing and forwards its public DJ
+    /// API to the director with unchanged signatures.
+    lazy var djDirector: DJSessionDirector = DJSessionDirector(host: self)
 
     var isMixEngineLive: Bool { mixEngineState == .live }
 
@@ -186,7 +267,13 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     }
 
     func localAudioURL(for track: Track) -> URL? {
-        if let downloaded = DownloadManager.shared.localFileURL(for: track) { return downloaded }
+        for deck in MixEngine.Deck.allCases where MixEngine.shared[deck].trackId == track.id {
+            if let url = MixEngine.shared.localFileURL(for: deck) { return url }
+        }
+        return nil
+    }
+
+    func preparedLocalAudioURL(for track: Track) async -> URL? {
         for deck in MixEngine.Deck.allCases where MixEngine.shared[deck].trackId == track.id {
             if let url = MixEngine.shared.localFileURL(for: deck) { return url }
         }
@@ -194,6 +281,55 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     }
 
     private var externalManualResume: (track: Track, position: TimeInterval, wasPlaying: Bool)?
+    private var parkedPlayback: (trackID: String, player: AVPlayer, origin: PlaybackMediaOrigin)?
+
+    private struct PreviewSession {
+        let track: Track?
+        let position: TimeInterval
+        let wasPlaying: Bool
+        let queue: [Track]
+        let originalQueue: [Track]
+        let currentIndex: Int
+    }
+    private var previewSession: PreviewSession?
+
+    /// Auditions audio through the same transport, source resolver, cache, and
+    /// AVPlayer as ordinary playback. The original queue session is restored
+    /// by `endPreviewPlayback`; callers never create a second audio renderer.
+    func beginPreviewPlayback(of track: Track, at position: TimeInterval = 0) async {
+        if previewSession == nil {
+            previewSession = PreviewSession(
+                track: currentTrack,
+                position: currentTime,
+                wasPlaying: playbackRequested || isPlaying,
+                queue: queue,
+                originalQueue: originalQueue,
+                currentIndex: currentIndex
+            )
+        }
+        await loadAndPlay(track: track, startPosition: max(0, position))
+    }
+
+    func endPreviewPlayback(resumeOriginal: Bool = true) async {
+        guard let preview = previewSession else { return }
+
+        // Keep persistence suppressed until the original queue and selection
+        // are coherent again. loadAndPlay will publish the restored snapshot.
+        originalQueue = preview.originalQueue
+        queue = preview.queue
+        currentIndex = preview.currentIndex
+        previewSession = nil
+
+        guard let track = preview.track else {
+            clearQueue()
+            return
+        }
+        await loadAndPlay(
+            track: track,
+            startPosition: preview.position,
+            transportIntent: resumeOriginal && preview.wasPlaying ? .play : .pause
+        )
+    }
 
     /// Gives a full manual console exclusive ownership of the audio engine.
     /// This prevents the background director and a human from writing the
@@ -206,11 +342,8 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         }
         isExternalManualDeckControlActive = true
         isAutoMixEnabled = false
-        endMixSession()
+        djDirector.endMixSession()
         teardownAVPlayer()
-        isPlaying = false
-        isLoading = false
-        loadingState = .idle
     }
 
     /// Restores the ordinary queue after the manual console releases the
@@ -227,142 +360,279 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         guard let resume else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.loadAndPlay(track: resume.track)
-            self.seek(to: resume.position)
-            if !resume.wasPlaying { self.pause() }
+            await self.loadAndPlay(
+                track: resume.track,
+                startPosition: resume.position,
+                transportIntent: resume.wasPlaying ? .play : .pause
+            )
         }
     }
 
-    private var player: AVPlayer?
-    private var synchronizationRateTask: Task<Void, Never>?
+    private var player: AVPlayer? {
+        didSet { if player !== oldValue { avPlayerDidChange.send(player) } }
+    }
+    let avPlayerDidChange = PassthroughSubject<AVPlayer?, Never>()
+    let seekEvents = PassthroughSubject<TimeInterval, Never>()
+    /// The director reads the live playhead and pauses/resumes the AVPlayer
+    /// during deck takeover; ownership of the player itself stays here.
+    var avPlayer: AVPlayer? { player }
+    private var playbackPipeline = PlaybackPipeline()
+    var playbackRequested: Bool { playbackPipeline.wantsPlayback }
+    private var playbackLoadTiming: (token: PlaybackPipeline.Token, startedAt: Date)?
+    private var bufferingWatchdogTask: Task<Void, Never>?
+    private var recoveringToken: PlaybackPipeline.Token?
+    private var cacheableStream: (trackID: String, url: URL, transcoding: Transcoding?)?
 
     @Published private(set) var observedStalls = 0
     private var timeObserver: Any?
+    /// Fires once, at a small time offset, to move the pipeline from buffering
+    /// to playing as soon as the playhead actually advances. This prevents the
+    /// UI from starting its wall-clock animation before audio is audible.
+    private var playbackStartObserver: Any?
+    /// Set for the duration of an AVPlayer seek so the periodic time observer
+    /// does not clamp the published position back up to the pre-seek playhead.
+    private var seekInFlight = false
+    private var seekGeneration: UInt64 = 0
+    private var queuedSeekTarget: TimeInterval?
+    private var seekStartedAt: Date?
     private var cancellables = Set<AnyCancellable>()
     private var originalQueue: [Track] = []
     private var activeDJStartConfiguration: DJStartConfiguration?
     private var goodMatchDiscoveryTask: Task<Void, Never>?
 
-    private var loadGeneration = 0
+    enum LoadTransportIntent {
+        case play
+        case pause
+        case preserve
+    }
+
+    private static let maximumMediaRecoveryAttempts = 1
+
+    enum MixTransportPhase {
+        case buffering
+        case playing
+        case paused
+    }
+
+    func publishMixEngineTransport(_ phase: MixTransportPhase, trackID: String) {
+        let target: PlaybackPipeline.Phase
+        switch phase {
+        case .buffering: target = .buffering(trackID: trackID)
+        case .playing: target = .playing(trackID: trackID)
+        case .paused: target = .paused(trackID: trackID)
+        }
+        guard playbackPipeline.phase != target else { return }
+        playbackPipeline.transitionCurrent(to: target)
+        syncPublishedPlaybackState()
+    }
+
+    var currentTrackBelongsInMixEngine: Bool {
+        currentTrack.map(startsInMixEngine) ?? false
+    }
+
+    private func startsInMixEngine(_ track: Track) -> Bool {
+        guard !playsAsSoundCloudPreview(track) else { return false }
+        return djDirector.ownsTrackStart(
+            track,
+            exclusiveElsewhere: previewSession != nil || isExternalManualDeckControlActive
+        )
+    }
+
+    /// The deck handoff commits the queue position and current track together,
+    /// like an automatic queue advance.
+    func adoptIncomingTrack(_ track: Track, at index: Int) {
+        if parkedPlayback?.trackID != track.id { discardParkedPlayback() }
+        currentIndex = queue.firstIndex(of: track) ?? min(max(0, index), max(0, queue.count - 1))
+        currentTrack = track
+    }
+
+    private func syncPublishedPlaybackState() {
+        isPlaying = playbackPipeline.isPlaying
+        isLoading = playbackPipeline.isLoading
+        loadingState = playbackPipeline.loadingState
+        if isPlaying || !playbackPipeline.wantsPlayback { endTrackChangeBackgroundTask() }
+    }
+
+    #if os(iOS)
+    private var trackChangeBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+
+    private func beginTrackChangeBackgroundTask() {
+        guard trackChangeBackgroundTask == .invalid,
+              UIApplication.shared.applicationState != .active else { return }
+        trackChangeBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "track-change") { [weak self] in
+            self?.endTrackChangeBackgroundTask()
+        }
+    }
+
+    private func endTrackChangeBackgroundTask() {
+        guard trackChangeBackgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(trackChangeBackgroundTask)
+        trackChangeBackgroundTask = .invalid
+    }
+    #else
+    private func beginTrackChangeBackgroundTask() {}
+    private func endTrackChangeBackgroundTask() {}
+    #endif
+
+    @discardableResult
+    private func transitionPlayback(
+        to phase: PlaybackPipeline.Phase,
+        for token: PlaybackPipeline.Token
+    ) -> Bool {
+        guard playbackPipeline.transition(phase, for: token) else { return false }
+        syncPublishedPlaybackState()
+        return true
+    }
+
+    private func transitionToPlayingIfBuffering(trackID: String, token: PlaybackPipeline.Token) {
+        guard case .buffering = playbackPipeline.phase else { return }
+        syncClockFromPlayer()
+        _ = transitionPlayback(to: .playing(trackID: trackID), for: token)
+        removePlaybackStartObserver()
+        if let seekStartedAt, Date().timeIntervalSince(seekStartedAt) < 15 {
+            Log.player.notice(
+                "[Player] playing again \(Int(Date().timeIntervalSince(seekStartedAt) * 1_000), privacy: .public) ms after a seek"
+            )
+        }
+        seekStartedAt = nil
+    }
+
+    private func installPlaybackStartObserver(
+        player: AVPlayer,
+        playerItem: AVPlayerItem,
+        track: Track,
+        token: PlaybackPipeline.Token
+    ) {
+        guard case .buffering = playbackPipeline.phase else { return }
+        removePlaybackStartObserver()
+        let current = player.currentTime().seconds
+        let start = current.isFinite ? max(0, current) : 0
+        let threshold = CMTime(seconds: start + 0.05, preferredTimescale: 600)
+        playbackStartObserver = player.addBoundaryTimeObserver(
+            forTimes: [NSValue(time: threshold)],
+            queue: .main
+        ) { [weak self] in
+            Task { @MainActor in
+                guard let self,
+                      self.playbackPipeline.accepts(token),
+                      self.player?.currentItem === playerItem else { return }
+                self.transitionToPlayingIfBuffering(trackID: track.id, token: token)
+            }
+        }
+    }
+
+    private func removePlaybackStartObserver() {
+        if let observer = playbackStartObserver, let player {
+            player.removeTimeObserver(observer)
+        }
+        playbackStartObserver = nil
+    }
 
     private var peerContentClient: PeerContentClient?
     private var peerContentDelegate: PeerContentAssetLoaderDelegate?
 
-    private var prefetchedStreams: [String: (url: URL, fetchedAt: Date)] = [:]
-    private var prefetchingTrackIds: Set<String> = []
-    private var prefetchTasks: [String: Task<Void, Never>] = [:]
-    private static let prefetchTTLSeconds: TimeInterval = 300
-    private static let prefetchLookahead = 2
-
-    /// Warm standby items for the next upcoming tracks. Each sits paused in
-    /// its own player so AVFoundation opens the CDN connection and buffers a
-    /// little before the track is ever played.
-    private struct StandbyItem {
-        let asset: AVURLAsset
-        let item: AVPlayerItem
-        let player: AVPlayer
-    }
-    private var standbyItems: [String: StandbyItem] = [:]
-    private static let standbyLimit = 2
-
-    /// Whether the current network path is good enough for speculative work
-    /// (WiFi/Ethernet, or cellular without Low Data Mode). `isExpensive` is
-    /// deliberately ignored so good cellular still counts. Warm-up is assumed
-    /// fine until the first path update says otherwise.
-    private var isOnGoodNetwork = true
-    private nonisolated(unsafe) var pathMonitor: NWPathMonitor?
-    private let pathMonitorQueue = DispatchQueue(label: "red.forbes.sounding.playerservice.path")
     private var warmDebounceTask: Task<Void, Never>?
+    private var queueSideEffectsSuspended = false
+    private var pendingCollectionPolicy: (tracks: [Track], collectionId: String)?
+    private var persistFlushTask: Task<Void, Never>?
 
-    /// Stall circuit breaker: after a playback stall, aggressive warm-up
-    /// (standby players, start-on-first-buffer) is suspended until this
-    /// timestamp. Pure timestamp comparison — it resets itself.
-    private var stallCircuitOpenUntil: Date?
-
-    /// Whether speculative byte-buffering work is allowed right now: the
-    /// network path is good and no recent stall has tripped the breaker.
-    private var canWarmAggressively: Bool {
-        isOnGoodNetwork && stallCircuitOpenUntil.map { Date() < $0 } != true
+    /// One resolved, validated player item is kept for the focused or next
+    /// track. Do not call `AVPlayer.preroll` for speculative playback: the
+    /// 27.0 AVFoundation runtimes can raise an Objective-C exception from that
+    /// API, which Swift cannot catch, and cancelling rapid hover/focus prerolls
+    /// has also produced invalid-object crashes on macOS. Loading the asset and
+    /// constructing its item still moves authentication, manifest inspection,
+    /// and item setup ahead of the play press without creating a second player.
+    private struct PreparedPlayback {
+        let trackID: String
+        let url: URL
+        let item: AVPlayerItem
+        let preparedAt: Date
     }
+
+    private var preparedPlayback: PreparedPlayback?
+    private var preparedPlaybackTask: Task<Void, Never>?
+    private var preparedPlaybackGeneration: UInt64 = 0
+    private var nextPrewarmRefreshTrackID: String?
 
     private var djModeRequested = false
-    private var autoMixSettingEnabled = false
+    var autoMixSettingEnabled = false
     private var collectionAutoMixRequested = false
     private var activeCollectionPolicy: CollectionPolicy?
-    private var djSessionEnabled: Bool { djModeRequested || autoMixSettingEnabled || collectionAutoMixRequested }
-    private var mixEngineTouched = false
-    private var armedTrackId: String?
-    private var armingTrackId: String?
-    private var incomingTrackId: String?
-    private var armTask: Task<Void, Never>?
-    private var incomingTask: Task<Void, Never>?
-    private var mixTask: Task<Void, Never>?
-    private var transitionStageTasks: [Task<Void, Never>] = []
-    private var mixEngineObserver: AnyCancellable?
-    private var mixEngineErrorObserver: AnyCancellable?
-    private var isCrossfading = false
-    private var deckEndHandled = false
-    private var lastNowPlayingSecond = -1
-    private var lastMixEngineTransportUpdate = Date.distantPast
-    private static let mixEngineTransportUpdateInterval: TimeInterval = 0.5
 
+    var autoMixExplicitQueueOrders: [DJQueueOrderPolicy?] {
+        [activeCollectionPolicy?.queueOrder, activeDJStartConfiguration?.queueOrder]
+    }
+    var djSessionEnabled: Bool {
+        (djModeRequested || autoMixSettingEnabled || collectionAutoMixRequested) && !isMixingSuspendedForGroupSession
+    }
+    private(set) var isMixingSuspendedForGroupSession = false
+
+    func setMixingSuspendedForGroupSession(_ suspended: Bool) {
+        guard suspended != isMixingSuspendedForGroupSession else { return }
+        let before = djSessionEnabled
+        isMixingSuspendedForGroupSession = suspended
+        applySessionEnabledTransition(from: before, primeAnalysis: !suspended)
+        objectWillChange.send()
+    }
+    @Published private(set) var requiresMixEngineOutput = false
+
+    func setRequiresMixEngineOutput(_ required: Bool) async {
+        guard required != requiresMixEngineOutput else { return }
+        requiresMixEngineOutput = required
+        player?.volume = required ? 0 : Float(loudnessGain * volume * sleepFadeGain)
+        guard required, let track = currentTrack, !isMixEngineLive else { return }
+        await loadAndPlay(track: track, startPosition: currentTime, transportIntent: playbackRequested ? .play : .pause)
+    }
     private var sessionCancellables = Set<AnyCancellable>()
     private var lifecycleCancellable: AnyCancellable?
     private var wasPlayingBeforeInterruption = false
-
-    private var phantomPlanCache: [String: PhantomDJEngine.Plan] = [:]
-    private var phantomPlanTasks: [String: Task<Void, Never>] = [:]
-    private var phantomCutAnnounced = false
-    private var recentTemplates: [TransitionTemplateID] = []
-    private var lastPlannerAnalysisStates: [String: AnalysisState] = [:]
-    private static let transitionSchedulingLead: TimeInterval = 0.8
 
     private var isRestoringSession = false
     private var lastPersistedAt: Date = .distantPast
     private var pendingRestore: (track: Track, position: TimeInterval)?
     private var restoreTask: Task<Void, Never>?
+    private var sessionAccountID: String?
+    private var restoreLedger: PlaybackRestoreLedger?
+    private var restoredOriginalIds: [String]?
     private var defaultDJSourceTask: Task<Void, Never>?
 
-    private init() {
+    init(
+        sourceResolver: PlaybackSourceResolver,
+        transitionService: DJTransitionService,
+        downloads: DownloadManager,
+        api: SoundCloudAPI,
+        cues: CueStore
+    ) {
+        self.sourceResolver = sourceResolver
+        self.transitionService = transitionService
+        self.downloads = downloads
+        self.api = api
+        self.cues = cues
         #if DEBUG
         setvbuf(stdout, nil, _IONBF, 0)
         #endif
-        DJTransitionService.shared.delegate = self
+        transitionService.delegate = self
+        // Force the lazy director into existence before the settings observer
+        // can assign djProfile (its didSet forwards to the director), and give
+        // the legacy readouts their plan projection from the single plan model.
+        _ = djDirector
+        transitionService.planProvider = { [weak self] from, to in
+            self?.djDirector.legacyTransitionProjection(from: from, to: to)
+        }
+        djDirector.$snapshot
+            .removeDuplicates()
+            .assign(to: &$djSessionSnapshot)
         setupAudioSession()
-        Self.activeInstance = self
         activateNowPlayingBridge()
         observeAudioSessionNotifications()
         observeAppLifecycle()
         observeAuthenticatedAccount()
         observeAutoMixSetting()
-        observeDJAnalysisForPlanning()
-        startPathMonitor()
+        observeTrackTrims()
         #if DEBUG
         installAutoplayDebugHook()
         #endif
-    }
-
-    deinit {
-        pathMonitor?.cancel()
-    }
-
-    private func startPathMonitor() {
-        let monitor = NWPathMonitor()
-        monitor.pathUpdateHandler = { [weak self] path in
-            let isGood = path.status == .satisfied && !path.isConstrained
-            Task { @MainActor in
-                guard let self else { return }
-                let wasGood = self.isOnGoodNetwork
-                self.isOnGoodNetwork = isGood
-                if wasGood, !isGood {
-                    // Standby players hold buffered bytes and CDN connections
-                    // we no longer want on a constrained path.
-                    self.standbyItems.removeAll()
-                }
-            }
-        }
-        pathMonitor = monitor
-        monitor.start(queue: pathMonitorQueue)
     }
 
     private func setupAudioSession() {
@@ -396,8 +666,8 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         }
         #endif
 
-        NotificationCenter.default.publisher(for: .audioOutputRouteDidChange)
-            .sink { [weak self] note in self?.handleRouteChange(note) }
+        PlatformAudioSession.routeChanges
+            .sink { [weak self] change in self?.handleRouteChange(change) }
             .store(in: &sessionCancellables)
     }
 
@@ -406,7 +676,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     private func handleSessionDidBecomeInactive(_ note: Notification) {
         guard let context = note.userInfo?[AVAudioSession.deactivationContextKey] as? AVAudioSession.DeactivationContext,
               context.source == .system else { return }
-        wasPlayingBeforeInterruption = isPlaying
+        wasPlayingBeforeInterruption = wasPlayingBeforeInterruption || playbackRequested || isPlaying
         pause()
     }
 
@@ -422,76 +692,100 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     }
 
     private func handleLegacyInterruption(_ note: Notification) {
-        guard let rawType = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
-        switch type {
-        case .began:
-            wasPlayingBeforeInterruption = isPlaying
+        // The enum wrappers are deprecated in SDK 27 even though iOS 26.5
+        // still needs the legacy notification. Read the stable notification
+        // payload values directly so the current SDK path remains warning-free.
+        guard let rawType = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt else { return }
+        switch rawType {
+        case 1: // AVAudioSessionInterruptionTypeBegan
+            wasPlayingBeforeInterruption = wasPlayingBeforeInterruption || playbackRequested || isPlaying
             pause()
-        case .ended:
+        case 0: // AVAudioSessionInterruptionTypeEnded
             let shouldResume = wasPlayingBeforeInterruption
             wasPlayingBeforeInterruption = false
             guard shouldResume else { return }
-            let options: AVAudioSession.InterruptionOptions = {
-                if let raw = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt {
-                    return AVAudioSession.InterruptionOptions(rawValue: raw)
-                }
-                return []
-            }()
-            guard options.contains(.shouldResume) else { return }
+            let rawOptions = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            guard rawOptions & 1 != 0 else { return } // AVAudioSessionInterruptionOptionShouldResume
             PlatformAudioSession.activatePlayback()
             play()
-        @unknown default:
+        default:
             break
         }
     }
     #endif
 
-    private func handleRouteChange(_ note: Notification) {
+    private func handleRouteChange(_ change: AudioOutputRouteChange) {
         refreshOutputRoute()
-
-        #if canImport(UIKit)
-        guard let info = (note.object as? Notification)?.userInfo ?? note.userInfo,
-              let reasonValue = info[AVAudioSessionRouteChangeReasonKey] as? UInt,
-              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
-        guard reason == .oldDeviceUnavailable else { return }
-        pause()
-        #else
-        #endif
+        if change.shouldPausePlayback { pause() }
     }
 
     private func observeAppLifecycle() {
         lifecycleCancellable?.cancel()
         lifecycleCancellable = nil
-        guard let observer = Self.lifecycleObserver else { return }
-        lifecycleCancellable = observer.observeWillResignActive { [weak self] in
-            self?.persistSessionState(force: true)
+        guard let observer = lifecycleObserver else { return }
+        lifecycleCancellable = observer.observeSessionCheckpoints { [weak self] in
+            self?.syncClockFromPlayer()
+            self?.writeSessionState()
         }
     }
 
     private func activateNowPlayingBridge() {
         #if DEBUG
-        print("[NowPlaying] activating bridge: \(type(of: Self.nowPlaying))")
+        print("[NowPlaying] activating bridge: \(type(of: nowPlaying))")
         #endif
-        Self.nowPlaying.activate(handlers: SystemTransportHandlers(
+        nowPlaying.activate(handlers: SystemTransportHandlers(
             play: { [weak self] in self?.play() },
             pause: { [weak self] in self?.pause() },
             togglePlayPause: { [weak self] in self?.togglePlayPause() },
             next: { [weak self] in await self?.playNext() },
             previous: { [weak self] in await self?.playPrevious() },
-            seek: { [weak self] time in self?.seek(to: time) }
+            seek: { [weak self] time in
+                guard let self else { return }
+                let timeline = self.trimTimeline
+                self.seek(to: timeline.isTrimmed ? timeline.position(atElapsed: time) : time)
+            }
         ))
         updateNowPlayingMetadata()
     }
 
-    private func updateNowPlayingMetadata() {
+    private func refreshRemoteTransportAvailability() {
+        guard systemRemoteHandlers == nil else { return }
+        nowPlaying.publishTransportAvailability(hasNext: nextQueueIndex() != nil)
+    }
+
+    var isSystemNowPlayingRouted: Bool { systemRemoteHandlers != nil }
+
+    func routeSystemNowPlaying(to handlers: SystemTransportHandlers?) {
+        let wasRouted = systemRemoteHandlers != nil
+        systemRemoteHandlers = handlers
+        if let handlers {
+            nowPlaying.activate(handlers: handlers)
+        } else if wasRouted {
+            activateNowPlayingBridge()
+        }
+    }
+
+    func publishRoutedNowPlaying(_ item: SystemNowPlayingItem?) {
+        guard systemRemoteHandlers != nil else { return }
+        nowPlaying.publishNowPlaying(item)
+    }
+
+    func publishRoutedPlayback(_ playback: SystemPlaybackStatus, hasNext: Bool) {
+        guard systemRemoteHandlers != nil else { return }
+        nowPlaying.publishTransportAvailability(hasNext: hasNext)
+        nowPlaying.publishPlayback(playback)
+    }
+
+    func updateNowPlayingMetadata() {
+        guard systemRemoteHandlers == nil else { return }
         guard let track = currentTrack else {
-            Self.nowPlaying.publishNowPlaying(nil)
+            nowPlaying.publishNowPlaying(nil)
             return
         }
+        refreshRemoteTransportAvailability()
 
         let hasQueuePosition = currentIndex >= 0 && currentIndex < queue.count
-        Self.nowPlaying.publishNowPlaying(SystemNowPlayingItem(
+        nowPlaying.publishNowPlaying(SystemNowPlayingItem(
             trackId: track.id,
             title: track.title,
             artist: track.user.displayName,
@@ -502,15 +796,79 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         updateNowPlayingProgress()
     }
 
-    private func updateNowPlayingProgress() {
-        Self.nowPlaying.publishPlayback(SystemPlaybackStatus(
-            elapsed: currentTime,
-            duration: duration,
+    func updateNowPlayingProgress() {
+        guard systemRemoteHandlers == nil else { return }
+        let timeline = trimTimeline
+        nowPlaying.publishPlayback(SystemPlaybackStatus(
+            elapsed: timeline.isTrimmed ? timeline.elapsed(at: currentTime) : currentTime,
+            duration: timeline.isTrimmed ? timeline.length : duration,
             isPlaying: isPlaying
         ))
     }
 
+    // MARK: - Start and end times
+
+    var trimTimeline: TrackTrimTimeline {
+        TrackTrimTimeline(
+            range: TrackTrimStore.shared.effectiveRange(for: currentTrack?.id ?? "", duration: duration),
+            duration: duration
+        )
+    }
+
+    private func observeTrackTrims() {
+        TrackTrimStore.shared.$trims
+            .map { [weak self] trims in self?.currentTrack.flatMap { trims[$0.id] } }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.applyTrimToCurrentPlayback() }
+            }
+            .store(in: &sessionCancellables)
+    }
+
+    private func applyTrimToCurrentPlayback() {
+        guard let track = currentTrack else { return }
+        if let item = player?.currentItem {
+            applyTrim(to: item, track: track)
+        }
+        let timeline = trimTimeline
+        if timeline.isTrimmed, !timeline.range.contains(currentTime) {
+            seek(to: timeline.clamped(currentTime), expectedTrackID: track.id, intent: .user)
+        }
+        updateNowPlayingProgress()
+    }
+
+    private func applyTrim(to item: AVPlayerItem, track: Track) {
+        let range = TrackTrimStore.shared.effectiveRange(for: track)
+        if track.duration > 0, range.upperBound < track.duration - 0.05 {
+            item.forwardPlaybackEndTime = CMTime(seconds: range.upperBound, preferredTimescale: 600)
+        } else {
+            item.forwardPlaybackEndTime = .invalid
+        }
+    }
+
     #if DEBUG
+    private var isVisualFixtureInstalled = false
+
+    /// Installs deterministic UI-only playback state without resolving or
+    /// starting audio. Screenshot and resize checks can therefore exercise the
+    /// real Now Playing hierarchy while remaining offline and side-effect free.
+    func installVisualFixture(track: Track, queue fixtureQueue: [Track], position: TimeInterval, playingNextCount: Int = 0) {
+        isVisualFixtureInstalled = true
+        player?.pause()
+        player = nil
+        originalQueue = fixtureQueue
+        queue = fixtureQueue
+        currentIndex = fixtureQueue.firstIndex(of: track) ?? 0
+        currentTrack = track
+        playingNext = PlayingNextQueue(leading: playingNextCount, in: fixtureQueue.map(\.id), currentIndex: currentIndex)
+        clock.duration = max(track.duration, 0)
+        clock.currentTime = min(max(0, position), clock.duration)
+        playbackPipeline.begin(trackID: track.id, intent: .pause)
+        syncPublishedPlaybackState()
+        playbackErrorMessage = nil
+    }
+
     private func installAutoplayDebugHook() {
         let env = ProcessInfo.processInfo.environment
         guard env["SOUNDING_TV_AUTOPLAY"] == "1",
@@ -538,9 +896,15 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     }
     #endif
 
-    func play(_ track: Track, in context: [Track], collectionId: String? = nil) async {
+    func play(_ track: Track, in context: [Track], collectionId: String? = nil, source: PlaybackQueueSource? = nil) async {
         explicitPlayRequest &+= 1
         playbackErrorMessage = nil
+        restoreTask?.cancel()
+        restoreTask = nil
+        restoreLedger = nil
+        restoredOriginalIds = nil
+        if let source { PlaybackQueueSourceDirectory.note(source) }
+        queueSource = source ?? PlaybackQueueSourceDirectory.source(for: collectionId)
         applyCollectionPolicyForPlayback(collectionId: collectionId, tracks: context)
 
         var tracks = filteredDJContext(context, preserving: track)
@@ -553,7 +917,9 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         }
 
         originalQueue = tracks
+        playingNext.removeAll()
 
+        queueSideEffectsSuspended = true
         if isShuffleEnabled {
             var shuffled = tracks
             shuffled.remove(at: index)
@@ -565,6 +931,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             queue = tracks
             currentIndex = index
         }
+        queueSideEffectsSuspended = false
 
         await loadAndPlay(track: track)
         if activeDJStartConfiguration?.sourceStrategy == .goodMatches, djSessionEnabled {
@@ -590,11 +957,20 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
 
         applySessionEnabledTransition(from: wasEnabled, primeAnalysis: collectionAutoMixRequested)
         if let collectionId {
-            DownloadManager.shared.applyCollectionPolicy(tracks: tracks, collectionId: collectionId)
+            pendingCollectionPolicy = (tracks, collectionId)
+        } else {
+            pendingCollectionPolicy = nil
         }
     }
 
-    private func filteredDJContext(_ context: [Track], preserving selected: Track) -> [Track] {
+    private func queueStateDidChange() {
+        guard !queueSideEffectsSuspended else { return }
+        refreshRemoteTransportAvailability()
+        prunePlaybackPreparation()
+        persistSessionState(force: true)
+    }
+
+    private func djContextEligibility() -> ((Track) -> Bool)? {
         let setHandling: DJSetHandling?
         if let configuration = activeDJStartConfiguration {
             setHandling = configuration.setHandling
@@ -603,8 +979,8 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         } else {
             setHandling = nil
         }
-        guard let setHandling else { return context }
-        let eligible: (Track) -> Bool = { track in
+        guard let setHandling else { return nil }
+        return { track in
             let isSet = CollectionKind.classify(trackDurationSeconds: track.duration) == .set
             switch setHandling {
             case .include:  return true
@@ -612,140 +988,267 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             case .onlySets: return isSet
             }
         }
+    }
+
+    private func filteredDJContext(_ context: [Track], preserving selected: Track) -> [Track] {
+        guard let eligible = djContextEligibility() else { return context }
         var filtered = context.filter(eligible)
         if !filtered.contains(selected) { filtered.insert(selected, at: 0) }
         return filtered
     }
 
-    private func loadAndPlay(track: Track, startPosition: TimeInterval = 0) async {
-        endMixSession()
+    func loadAndPlay(
+        track: Track,
+        startPosition: TimeInterval = 0,
+        transportIntent: LoadTransportIntent = .play,
+        skipLocalFile: Bool = false,
+        bypassStreamCache: Bool = false,
+        mediaRecoveryAttempt: Int = 0
+    ) async {
+        djDirector.noteTrackStart(track)
+        let ownedByEngine = mediaRecoveryAttempt == 0 && !skipLocalFile && startsInMixEngine(track)
+        let streamsFirst = ownedByEngine && djDirector.startsOnStreamFirst(track)
+        let startsInEngine = ownedByEngine && !streamsFirst
+        if ownedByEngine {
+            djDirector.resetForEngineStart(keeping: track)
+            if streamsFirst { djDirector.beginStreamingStart(track) }
+        } else {
+            djDirector.endMixSession()
+            if let reason = djDirector.fallbackReason(for: track) {
+                mixEngineState = .unavailable(reason)
+            }
+        }
+        let intent: PlaybackPipeline.Intent
+        switch transportIntent {
+        case .play: intent = .play
+        case .pause: intent = .pause
+        case .preserve:
+            guard playbackRequested else { return }
+            intent = playbackPipeline.intent
+        }
+        let token = playbackPipeline.begin(trackID: track.id, intent: intent)
+        playbackLoadTiming = intent == .play ? (token, Date()) : nil
+        syncPublishedPlaybackState()
+        if intent == .play { beginTrackChangeBackgroundTask() }
+        mediaOrigin = nil
+        PlatformAudioSession.activatePlayback()
+
+        // A newly selected track must not inherit the previous player's live
+        // UI clock while its stream is still being resolved and buffered.
+        bufferingWatchdogTask?.cancel()
+        bufferingWatchdogTask = nil
+        nextPrewarmRefreshTrackID = nil
+        if let observer = timeObserver, let player {
+            player.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+        removePlaybackStartObserver()
+        cancellables.removeAll()
+        if startsInEngine, currentTrack?.id == track.id {
+            parkAVPlayer(trackID: track.id)
+        } else if parkedPlayback?.trackID != track.id {
+            discardParkedPlayback()
+        }
+        player?.pause()
+        player?.replaceCurrentItem(with: nil)
 
         // If a pending restore exists for the same track, use its latest
         // position (which may have been updated by seek(to:) after play() was
         // called) and then consume it.
-        let resolvedStartPosition = if let pending = pendingRestore, pending.track.id == track.id {
+        let requestedStartPosition = if let pending = pendingRestore, pending.track.id == track.id {
             pending.position
         } else {
             startPosition
         }
+        let resolvedStartPosition = TrackTrimTimeline(
+            range: TrackTrimStore.shared.effectiveRange(for: track),
+            duration: track.duration
+        ).clamped(PlaybackTimelinePolicy.clampedPosition(requestedStartPosition, duration: track.duration))
         pendingRestore = nil
 
-        loadGeneration &+= 1
-        let issued = loadGeneration
-
-        isLoading = true
+        playbackErrorMessage = nil
         currentTrack = track
-        duration = track.duration
-        // Queue mutations happen before currentTrack is assigned, so their
-        // persistence hooks cannot yet save a valid snapshot. Save once more
-        // here so even an immediate process crash can restore this selection.
-        persistSessionState(force: true)
-
-        if activeCollectionPolicy?.resolvedIntelligence != .off {
-            Self.scheduleTier1Analysis(for: track)
-        }
-        applyLoudnessNormalization(for: track)
-        DownloadManager.shared.markPlayed(trackId: track.id)
+        let playsPreview = playsAsSoundCloudPreview(track)
+        isPlayingSoundCloudPreview = playsPreview
+        clock.duration = playsPreview && track.previewDuration > 0 ? track.previewDuration : track.duration
+        clock.currentTime = max(0, resolvedStartPosition)
 
         teardownPeerContent()
 
-        // A completed local download starts instantly and needs no stream
-        // resolution, so prefer it over peer content and network streaming.
-        if let localURL = DownloadManager.shared.localFileURL(for: track) {
-            await playStream(asset: AVURLAsset(url: localURL), startPosition: resolvedStartPosition)
+        Task { @MainActor [weak self] in
+            guard let self, self.playbackPipeline.accepts(token) else { return }
+            self.queueStateDidChange()
+            if let policy = self.pendingCollectionPolicy {
+                self.pendingCollectionPolicy = nil
+                self.downloads.applyCollectionPolicy(tracks: policy.tracks, collectionId: policy.collectionId)
+            }
+            if self.previewSession == nil {
+                AutomaticAnalysisScheduler.shared.schedule(track, trigger: .played)
+            }
+            self.applyLoudnessNormalization(for: track)
+            if self.previewSession == nil {
+                self.downloads.markPlayed(trackId: track.id)
+            }
+        }
+
+        if startsInEngine {
+            teardownAVPlayer(invalidatePipeline: false, keepingParked: true)
+            _ = transitionPlayback(
+                to: playbackRequested ? .buffering(trackID: track.id) : .paused(trackID: track.id),
+                for: token
+            )
+            updateNowPlayingMetadata()
+            djDirector.startTrackInEngine(track, at: resolvedStartPosition) { [weak self] in
+                self?.playbackPipeline.accepts(token) ?? false
+            }
             return
         }
 
-        if let peer = await tryPeerContent(for: track) {
-            guard issued == loadGeneration else {
-                teardownPeerContent()
-                return
-            }
-            peerContentClient = peer.client
-            peerContentDelegate = peer.delegate
-            await playStream(asset: peer.asset, startPosition: resolvedStartPosition)
+        if mediaRecoveryAttempt == 0, !skipLocalFile, !bypassStreamCache,
+           let parked = await unparkAVPlayer(trackID: track.id) {
+            guard playbackPipeline.accepts(token) else { return }
+            await playStream(
+                asset: parked.asset,
+                track: track,
+                startPosition: resolvedStartPosition,
+                token: token,
+                source: parked.origin,
+                mediaRecoveryAttempt: mediaRecoveryAttempt,
+                preparedItem: parked.item
+            )
             return
         }
+        discardParkedPlayback()
 
         do {
-            let prefetched = consumePrefetchedStreamURL(for: track)
-            let streamURL: URL
-            if let prefetched {
-                streamURL = prefetched
-            } else {
-                loadingState = .resolvingStream
-                streamURL = try await Self.resolveStreamURL(for: track, collectionId: activeCollectionId)
-            }
-            guard issued == loadGeneration else { return }
-            // Only reuse a standby warmed from the URL we will actually play;
-            // a standby built from a stale URL is worse than a fresh asset.
-            // Reuse the entire standby player rather than moving its item to a
-            // different player. That preserves AVFoundation's pre-roll buffer
-            // without risking the "item belongs to another player" exception.
-            let standby = consumeStandbyItem(for: track, matching: streamURL)
-            if let standby {
-                await playStream(
-                    asset: standby.asset,
-                    startPosition: resolvedStartPosition,
-                    preparedItem: standby.item,
-                    preparedPlayer: standby.player
+            let resolutionStartedAt = Date()
+            let prepared = bypassStreamCache ? nil : consumePreparedPlayback(for: track)
+            let prefetched = bypassStreamCache ? nil : prepared?.url
+            let resolved = try await sourceResolver.playbackSource(
+                for: track,
+                collectionID: activeCollectionId,
+                skipLocalFile: skipLocalFile,
+                prefetchedNetworkURL: prefetched,
+                useResolutionCache: !bypassStreamCache,
+                allowsPreview: allowsSoundCloudPreviews
+            )
+            guard playbackPipeline.accepts(token) else { return }
+            cacheableStream = resolved.origin == .networkStream
+                ? (
+                    track.id,
+                    resolved.url,
+                    sourceResolver.transcoding(for: track, collectionID: activeCollectionId, purpose: .streaming)
                 )
-            } else {
-                await playStream(asset: AVURLAsset(url: streamURL), startPosition: resolvedStartPosition)
-            }
+                : nil
+            let resolutionMilliseconds = Int(Date().timeIntervalSince(resolutionStartedAt) * 1_000)
+            Log.player.notice(
+                "[Player] source resolved for \(track.id, privacy: .public) in \(resolutionMilliseconds, privacy: .public) ms"
+            )
+            await playStream(
+                asset: resolved.makeAsset(),
+                track: track,
+                startPosition: resolvedStartPosition,
+                token: token,
+                source: resolved.origin,
+                mediaRecoveryAttempt: mediaRecoveryAttempt,
+                preparedItem: resolved.origin == .networkStream ? prepared?.item : nil
+            )
         } catch {
-            guard issued == loadGeneration else { return }
+            guard playbackPipeline.accepts(token) else { return }
+            // Paired-device content is the resilience path, not a toll on
+            // every tap. Try it only when ordinary stream resolution fails so
+            // a sleeping companion can never add its connect/probe timeout to
+            // healthy SoundCloud playback.
+            if !Self.isCancellation(error), !(error is SoundCloudEntitlementError),
+               let peer = await tryPeerContent(for: track) {
+                guard playbackPipeline.accepts(token) else {
+                    peer.client.disconnect()
+                    return
+                }
+                peerContentClient = peer.client
+                peerContentDelegate = peer.delegate
+                await playStream(
+                    asset: peer.asset,
+                    track: track,
+                    startPosition: resolvedStartPosition,
+                    token: token,
+                    source: .peerStream,
+                    mediaRecoveryAttempt: mediaRecoveryAttempt
+                )
+                return
+            }
+            guard playbackPipeline.accepts(token) else { return }
             if !Self.isCancellation(error) {
                 Log.player.error("Failed to get stream URL: \(error.localizedDescription, privacy: .public)")
             }
-            teardownAVPlayer()
+            finishPlaybackFailure(error, token: token)
             teardownPeerContent()
-            isLoading = false
-            loadingState = .idle
-            playbackErrorMessage = Self.describePlaybackFailure(error)
         }
     }
 
     private static func describePlaybackFailure(_ error: Error) -> String {
-        if let apiError = error as? APIError {
-            return apiError.errorDescription ?? "This track could not be played."
+        let offline = "No connection. Downloaded tracks still play offline."
+        let generic = "This track couldn't be played."
+        func describe(_ urlError: URLError) -> String {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed, .internationalRoamingOff:
+                return offline
+            case .timedOut:
+                return "The stream didn't start in time. Tap play to try again."
+            default:
+                return generic
+            }
         }
-        return error.localizedDescription.isEmpty
-            ? "This track could not be played."
-            : error.localizedDescription
+        if let urlError = error as? URLError { return describe(urlError) }
+        if let apiError = error as? APIError {
+            switch apiError {
+            case .noStreamURL:
+                return "This track is a preview or isn't available to stream. Full playback may need SoundCloud Go+."
+            case .unauthorized:
+                return "SoundCloud needs you to sign in again before this can play."
+            case .forbidden:
+                return "SoundCloud won't play this track here. It may be region-locked or need Go+."
+            case .notFound:
+                return "This track is no longer available."
+            case .networkError(let underlying):
+                if let urlError = underlying as? URLError { return describe(urlError) }
+                return generic
+            case .serverError, .decodingError, .invalidURL:
+                return generic
+            case .rateLimited, .temporarilyBlocked:
+                return apiError.errorDescription ?? generic
+            }
+        }
+        if let known = error as? LocalizedError, let description = known.errorDescription, !description.isEmpty {
+            return description
+        }
+        return generic
     }
 
-    static func resolveStreamURL(for track: Track, collectionId: String? = nil) async throws -> URL {
-        let transcoding = streamingTranscoding(for: track, collectionId: collectionId)
-        let cacheKey = "\(track.id)|\(transcoding?.url.absoluteString ?? track.streamURL?.absoluteString ?? "default")"
-        if let cached = StreamResolutionDiskCache.url(for: cacheKey) { return cached }
-
-        let resolved = try await SoundCloudAPI.shared.getStreamURL(for: track, transcoding: transcoding)
-        StreamResolutionDiskCache.store(resolved, for: cacheKey)
-        return resolved
-    }
-
-    static func streamingTranscoding(for track: Track, collectionId: String? = nil) -> Transcoding? {
-        let ceiling = CollectionQualityOverrideStore.shared.effectiveCeiling(
-            for: collectionId ?? track.id,
-            default: SettingsStore.shared.streamingQualityCeiling
+    private func resolveStreamURL(
+        for track: Track,
+        collectionId: String? = nil,
+        useCache: Bool = true
+    ) async throws -> URL {
+        try await sourceResolver.networkURL(
+            for: track,
+            collectionID: collectionId,
+            purpose: .streaming,
+            useResolutionCache: useCache
         )
-        return ceiling.bestTranscoding(among: track.transcodings)
     }
 
     private func tryPeerContent(
         for track: Track
     ) async -> (asset: AVURLAsset, client: PeerContentClient, delegate: PeerContentAssetLoaderDelegate)? {
-        guard let provider = Self.peerContentSource,
+        guard let provider = peerContentSource,
               let (endpoint, sessionId, secret) = provider.peerContentEndpoint else { return nil }
         guard let source = DownloadSourceSelection.choose(from: track.transcodings) else { return nil }
+        guard let accountCredential = PeerContentAccountCredential.current() else { return nil }
 
-        let client = PeerContentClient()
+        let client = PeerContentClient(accountCredential: accountCredential)
 
         let connected = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            // Remote-library playback is an opportunistic fast path. It must
-            // never make the normal streaming path feel broken when a paired
-            // device has gone to sleep or moved off the local network.
             client.connect(to: endpoint, sessionId: sessionId, secret: secret, timeout: 0.45) { result in
                 continuation.resume(returning: (try? result.get()) != nil)
             }
@@ -778,133 +1281,142 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         peerContentDelegate = nil
     }
 
-    private func refreshStreamPrefetch() {
-        let desired = upcomingTracksForPredictiveDownload(limit: Self.prefetchLookahead)
-        var keepIds = Set(desired.map(\.id))
-        if queue.indices.contains(currentIndex) { keepIds.insert(queue[currentIndex].id) }
-
-        // Cancel in-flight prefetches that no longer match the upcoming queue.
-        let cancelledIds = prefetchTasks.keys.filter { !keepIds.contains($0) }
-        for trackId in cancelledIds {
-            prefetchTasks[trackId]?.cancel()
-            prefetchTasks[trackId] = nil
-            prefetchingTrackIds.remove(trackId)
-        }
-
-        if queue.isEmpty {
-            prefetchedStreams.removeAll()
-        } else {
-            // Expire stale entries; fresh ones stay so a just-started track can
-            // still consume the URL that was prefetched while it was upcoming.
-            let now = Date()
-            prefetchedStreams = prefetchedStreams.filter {
-                now.timeIntervalSince($0.value.fetchedAt) < Self.prefetchTTLSeconds
-            }
-        }
-
-        for track in desired {
-            startStreamPrefetch(for: track)
-        }
-
-        refreshStandbyItems()
+    private func prunePlaybackPreparation() {
+        guard let preparedPlayback else { return }
+        let remainsRelevant = queue.contains(where: { $0.id == preparedPlayback.trackID })
+            || currentTrack?.id == preparedPlayback.trackID
+        if !remainsRelevant { discardPreparedPlayback() }
     }
 
-    /// Starts a stream URL resolve for a track unless a fresh URL is already
-    /// cached or a resolve is already in flight.
-    private func startStreamPrefetch(for track: Track) {
-        if let cached = prefetchedStreams[track.id],
-           Date().timeIntervalSince(cached.fetchedAt) < Self.prefetchTTLSeconds { return }
-        guard prefetchingTrackIds.insert(track.id).inserted else { return }
-
-        prefetchTasks[track.id] = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                self.prefetchingTrackIds.remove(track.id)
-                self.prefetchTasks[track.id] = nil
-            }
-            do {
-                let url = try await Self.resolveStreamURL(for: track, collectionId: activeCollectionId)
-                try Task.checkCancellation()
-                self.prefetchedStreams[track.id] = (url, Date())
-                self.refreshStandbyItems()
-            } catch {}
-        }
+    private func prefetchNextStreamAfterPlaybackStarts() {
+        guard let next = upcomingTracksForPredictiveDownload(limit: 1).first,
+              next.id != currentTrack?.id,
+              next.streamURL != nil,
+              !downloads.isLocallyAvailable(next),
+              !PlayedAudioCache.shared.contains(next) else { return }
+        startPlaybackPrewarm(for: next)
     }
 
-    /// Warms the resolved stream URL for a track the user is likely to play
-    /// (e.g. focused in a list), so a subsequent tap skips the blocking
-    /// resolve. Fire-and-forget, deduped, non-blocking. Debounced so rapid
-    /// focus-scrubbing only warms the row the user settles on. A URL resolve
-    /// is a cheap API call, so it stays ungated by network quality.
-    func warmStreamURL(for track: Track) {
+    private func refreshNextStreamPrewarmNearEnd(at position: TimeInterval, trackID: String) {
+        guard previewSession == nil,
+              nextPrewarmRefreshTrackID != trackID,
+              duration > 0,
+              trimTimeline.range.upperBound - position <= PlaybackPrewarmingPolicy.nextTrackRefreshLead else { return }
+        nextPrewarmRefreshTrackID = trackID
+        prefetchNextStreamAfterPlaybackStarts()
+    }
+
+    /// Prepares a track the user is likely to play (for example one focused in
+    /// a list). Resolution, asset validation, and AVPlayerItem creation all
+    /// stay transport-owned; views only report intent. The debounce keeps fast
+    /// pointer/focus navigation from opening speculative streams.
+    func preparePlayback(for track: Track, immediate: Bool = false) {
         warmDebounceTask?.cancel()
         warmDebounceTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(nanoseconds: 300_000_000) } catch { return }
+            if !immediate {
+                #if os(tvOS)
+                do { try await Task.sleep(nanoseconds: 120_000_000) } catch { return }
+                #else
+                do { try await Task.sleep(nanoseconds: 180_000_000) } catch { return }
+                #endif
+            }
             guard !Task.isCancelled, let self else { return }
             guard track.streamURL != nil else { return }
-            guard DownloadManager.shared.localFileURL(for: track) == nil else { return }
-            self.startStreamPrefetch(for: track)
+            guard !self.downloads.isLocallyAvailable(track), !PlayedAudioCache.shared.contains(track) else { return }
+            if !immediate {
+                let now = Date()
+                if let last = self.lastSpeculativePrewarmAt,
+                   now.timeIntervalSince(last) < PlaybackPrewarmingPolicy.speculativeSpacing { return }
+                self.lastSpeculativePrewarmAt = now
+            }
+            self.startPlaybackPrewarm(for: track)
         }
     }
 
-    /// Keeps a paused AVPlayerItem warm for the next upcoming tracks so the
-    /// CDN connection and first buffer are ready before they are played.
-    private func refreshStandbyItems() {
-        let desired = upcomingTracksForPredictiveDownload(limit: Self.standbyLimit)
-        var keepIds = Set(desired.map(\.id))
-        // Keep the current index too: playNext sets currentIndex before
-        // loadAndPlay consumes the standby, so it is no longer "upcoming".
-        if queue.indices.contains(currentIndex) { keepIds.insert(queue[currentIndex].id) }
+    private var lastSpeculativePrewarmAt: Date?
 
-        // Tear down standby items that no longer match the upcoming queue, or
-        // whose source URL left the prefetch cache (expired or consumed).
-        let staleIds = standbyItems.keys.filter { !keepIds.contains($0) || prefetchedStreams[$0] == nil }
-        for trackId in staleIds {
-            standbyItems[trackId] = nil
+    private func startPlaybackPrewarm(for track: Track) {
+        guard !startsInMixEngine(track) || djDirector.startsOnStreamFirst(track) else { return }
+        if let preparedPlayback,
+           PlaybackPrewarmingPolicy.isFresh(
+               preparedTrackID: preparedPlayback.trackID,
+               expectedTrackID: track.id,
+               preparedAt: preparedPlayback.preparedAt
+           ) {
+            return
         }
 
-        // Peer-served playback resolves through its own loader; don't double-warm.
-        guard Self.peerContentSource?.peerContentEndpoint == nil else { return }
+        discardPreparedPlayback()
+        let generation = preparedPlaybackGeneration
+        preparedPlaybackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.preparedPlaybackGeneration == generation {
+                    self.preparedPlaybackTask = nil
+                }
+            }
 
-        #if os(tvOS)
-        // tvOS 27 currently raises an Objective-C exception from AVPlayer's
-        // preroll/cancelPendingPrerolls path when speculative players are
-        // refreshed as playback begins. URL resolution above remains cached;
-        // avoid constructing hidden players until AVFoundation makes this
-        // operation safe again on TV.
-        #else
-        // Standby players download real bytes; skip on constrained networks
-        // and while the stall circuit breaker is open (URL prefetching above
-        // is a cheap API call and stays ungated).
-        guard canWarmAggressively else { return }
+            do {
+                let startedAt = Date()
+                let url = try await self.resolveStreamURL(
+                    for: track,
+                    collectionId: self.activeCollectionId
+                )
+                try Task.checkCancellation()
+                guard self.preparedPlaybackGeneration == generation else { return }
 
-        for track in desired {
-            guard standbyItems[track.id] == nil else { continue }
-            // A completed local download starts instantly and needs no warm-up.
-            guard DownloadManager.shared.localFileURL(for: track) == nil else { continue }
-            guard let cached = prefetchedStreams[track.id],
-                  Date().timeIntervalSince(cached.fetchedAt) < Self.prefetchTTLSeconds else { continue }
+                let asset = AVURLAsset(url: url)
+                let isPlayable = try await asset.load(.isPlayable)
+                try Task.checkCancellation()
+                guard isPlayable,
+                      self.preparedPlaybackGeneration == generation else { return }
 
-            let asset = AVURLAsset(url: cached.url)
-            let item = AVPlayerItem(asset: asset)
-            item.preferredForwardBufferDuration = 6
-            let player = AVPlayer(playerItem: item)
-            player.automaticallyWaitsToMinimizeStalling = false
-            standbyItems[track.id] = StandbyItem(asset: asset, item: item, player: player)
-            // Constructing a paused AVPlayer does not request media. Pre-roll is
-            // what actually opens the CDN connection and fills the first buffer.
-            player.preroll(atRate: 1) { _ in }
+                let item = AVPlayerItem(asset: asset)
+                item.allowedAudioSpatializationFormats = .monoStereoAndMultichannel
+                item.preferredForwardBufferDuration = PlaybackPrewarmingPolicy.preferredForwardBufferDuration
+
+                self.preparedPlayback = PreparedPlayback(
+                    trackID: track.id,
+                    url: url,
+                    item: item,
+                    preparedAt: Date()
+                )
+                let preparationMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
+                Log.player.notice(
+                    "[Player] prewarm prepared \(track.id, privacy: .public) in \(preparationMilliseconds, privacy: .public) ms"
+                )
+            } catch {
+                guard !Task.isCancelled, self.preparedPlaybackGeneration == generation else { return }
+                Log.player.debug(
+                    "[Player] prewarm skipped \(track.id, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
-        #endif
     }
 
-    /// Removes and returns the standby item for a track, but only if it was
-    /// warmed from the given stream URL; a standby built from a stale URL is
-    /// torn down and discarded.
-    private func consumeStandbyItem(for track: Track, matching url: URL) -> StandbyItem? {
-        guard let standby = standbyItems.removeValue(forKey: track.id) else { return nil }
-        guard standby.asset.url == url else { return nil }
-        return standby
+    private func consumePreparedPlayback(for track: Track) -> PreparedPlayback? {
+        guard let prepared = preparedPlayback,
+              PlaybackPrewarmingPolicy.isFresh(
+                  preparedTrackID: prepared.trackID,
+                  expectedTrackID: track.id,
+                  preparedAt: prepared.preparedAt
+              ) else {
+            if preparedPlayback != nil { discardPreparedPlayback() }
+            return nil
+        }
+
+        preparedPlaybackGeneration &+= 1
+        preparedPlaybackTask?.cancel()
+        preparedPlaybackTask = nil
+        preparedPlayback = nil
+        return prepared
+    }
+
+    private func discardPreparedPlayback() {
+        preparedPlaybackGeneration &+= 1
+        preparedPlaybackTask?.cancel()
+        preparedPlaybackTask = nil
+        preparedPlayback = nil
     }
 
     private func upcomingTracksForPredictiveDownload(limit: Int) -> [Track] {
@@ -923,51 +1435,56 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         return result
     }
 
-    private func notifyDownloadManagerOfQueueChange() {
-        let upcoming = upcomingTracksForPredictiveDownload(limit: 5)
-        DownloadManager.shared.queueDidChange(upcoming: upcoming, isLocalPlaybackTarget: outputTarget == .thisDevice)
-    }
-
-    private func consumePrefetchedStreamURL(for track: Track) -> URL? {
-        guard let cached = prefetchedStreams.removeValue(forKey: track.id) else { return nil }
-        guard Date().timeIntervalSince(cached.fetchedAt) < Self.prefetchTTLSeconds else { return nil }
-        return cached.url
-    }
-
     private func playStream(
         asset: AVURLAsset,
+        track: Track,
         startPosition: TimeInterval = 0,
-        preparedItem: AVPlayerItem? = nil,
-        preparedPlayer: AVPlayer? = nil
+        token: PlaybackPipeline.Token,
+        source: PlaybackMediaOrigin,
+        mediaRecoveryAttempt: Int,
+        preparedItem: AVPlayerItem? = nil
     ) async {
+        guard playbackPipeline.accepts(token) else { return }
+        mediaOrigin = source
         let previousPlayer = player
         if let observer = timeObserver, let previousPlayer {
             previousPlayer.removeTimeObserver(observer)
             timeObserver = nil
         }
+        removePlaybackStartObserver()
+        cancelSeeks()
 
         cancellables.removeAll()
 
         let playerItem = preparedItem ?? AVPlayerItem(asset: asset)
-        loadingState = .buffering
+        _ = transitionPlayback(
+            to: playbackRequested ? .buffering(trackID: track.id) : .paused(trackID: track.id),
+            for: token
+        )
 
         playerItem.allowedAudioSpatializationFormats = .monoStereoAndMultichannel
+        applyTrim(to: playerItem, track: track)
+        // Zero delegates buffering policy to AVFoundation. Forcing a 60-second
+        // buffer after startup and bypassing stall minimization caused the
+        // exact start/stop behaviour this player is meant to avoid.
+        playerItem.preferredForwardBufferDuration = source == .networkStream
+            ? InstantPlayTuning.networkStartupForwardBuffer
+            : 0
 
-        playerItem.preferredForwardBufferDuration = 0
-
-        playerItem.publisher(for: \.isPlaybackLikelyToKeepUp)
-            .filter { $0 }
-            .first()
-            .sink { [weak playerItem] _ in
-                playerItem?.preferredForwardBufferDuration = 60
-            }
-            .store(in: &cancellables)
-
-        playerItem.publisher(for: \.isPlaybackLikelyToKeepUp)
-            .sink { [weak self, weak playerItem] keepingUp in
+        playerItem.publisher(for: \.status, options: [.initial, .new])
+            .removeDuplicates()
+            .sink { [weak self, weak playerItem] status in
+                guard status == .failed else { return }
                 Task { @MainActor in
-                    guard let self, let playerItem, self.player?.currentItem === playerItem else { return }
-                    self.loadingState = keepingUp ? .playing : .buffering
+                    guard let self, let playerItem else { return }
+                    self.recoverMediaPlayback(
+                        track: track,
+                        item: playerItem,
+                        token: token,
+                        source: source,
+                        attempt: mediaRecoveryAttempt,
+                        error: playerItem.error
+                    )
                 }
             }
             .store(in: &cancellables)
@@ -978,14 +1495,35 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
                     guard let self else { return }
                     self.observedStalls += 1
                     Log.player.error("[Player] stall #\(self.observedStalls, privacy: .public)")
-                    // Trip the stall circuit breaker: suspend standby warm-up
-                    // and aggressive start for 60s, and drop any warm players
-                    // already holding buffered bytes.
-                    self.stallCircuitOpenUntil = Date().addingTimeInterval(60)
-                    self.standbyItems.removeAll()
+                    self.scheduleBufferingWatchdog(
+                        track: track,
+                        item: playerItem,
+                        token: token,
+                        source: source,
+                        attempt: mediaRecoveryAttempt
+                    )
                 }
             }
             .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(
+            for: AVPlayerItem.failedToPlayToEndTimeNotification,
+            object: playerItem
+        )
+        .sink { [weak self, weak playerItem] note in
+            Task { @MainActor in
+                guard let self, let playerItem else { return }
+                self.recoverMediaPlayback(
+                    track: track,
+                    item: playerItem,
+                    token: token,
+                    source: source,
+                    attempt: mediaRecoveryAttempt,
+                    error: note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+                )
+            }
+        }
+        .store(in: &cancellables)
 
         NotificationCenter.default.publisher(for: AVPlayerItem.didPlayToEndTimeNotification, object: playerItem)
             .sink { [weak self] _ in
@@ -995,21 +1533,93 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             }
             .store(in: &cancellables)
 
-        if let preparedPlayer, preparedPlayer.currentItem === playerItem {
-            if previousPlayer !== preparedPlayer {
-                previousPlayer?.pause()
-                previousPlayer?.replaceCurrentItem(with: nil)
-            }
-            player = preparedPlayer
-        } else if let previousPlayer {
-            previousPlayer.replaceCurrentItem(with: playerItem)
+        if let previousPlayer {
+            if previousPlayer.currentItem !== playerItem { previousPlayer.replaceCurrentItem(with: playerItem) }
             player = previousPlayer
         } else {
             player = AVPlayer(playerItem: playerItem)
         }
-        // Re-evaluate this for every track because network conditions and the
-        // stall circuit breaker may have changed since the player was created.
-        player?.automaticallyWaitsToMinimizeStalling = !canWarmAggressively
+        player?.volume = Float(loudnessGain * volume * sleepFadeGain)
+
+        if let activePlayer = player {
+            activePlayer.publisher(for: \.timeControlStatus)
+                .removeDuplicates()
+                .sink { [weak self, weak activePlayer] status in
+                    Task { @MainActor in
+                        guard let self, let activePlayer,
+                              self.player === activePlayer,
+                              self.playbackPipeline.accepts(token),
+                              activePlayer.currentItem === playerItem,
+                              activePlayer.timeControlStatus == status else { return }
+                        switch status {
+                        case .playing:
+                            self.bufferingWatchdogTask?.cancel()
+                            self.bufferingWatchdogTask = nil
+                            activePlayer.automaticallyWaitsToMinimizeStalling = true
+                            // Do not declare the track "playing" the moment
+                            // timeControlStatus flips; audio output can still be
+                            // ramping, route-switching, or waiting on the audio
+                            // session. Stay in .buffering until the playhead
+                            // actually advances, then transition in the
+                            // playbackStartObserver or periodic time observer.
+                            self.installPlaybackStartObserver(
+                                player: activePlayer,
+                                playerItem: playerItem,
+                                track: track,
+                                token: token
+                            )
+                            if self.playbackLoadTiming?.token == token,
+                               let startedAt = self.playbackLoadTiming?.startedAt {
+                                let startupMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
+                                Log.player.notice(
+                                    "[Player] playback ready for \(track.id, privacy: .public) in \(startupMilliseconds, privacy: .public) ms"
+                                )
+                                self.playbackLoadTiming = nil
+                            }
+                            playerItem.preferredForwardBufferDuration = 0
+                            if self.previewSession == nil {
+                                self.prefetchNextStreamAfterPlaybackStarts()
+                                self.djDirector.armMixSession()
+                                if source == .networkStream,
+                                   let stream = self.cacheableStream, stream.trackID == track.id {
+                                    PlayedAudioCache.shared.noteAudibleStart(
+                                        of: track,
+                                        streamURL: stream.url,
+                                        transcoding: stream.transcoding
+                                    )
+                                }
+                            }
+                        case .waitingToPlayAtSpecifiedRate:
+                            if self.playbackRequested {
+                                _ = self.transitionPlayback(to: .buffering(trackID: track.id), for: token)
+                                self.scheduleBufferingWatchdog(
+                                    track: track,
+                                    item: playerItem,
+                                    token: token,
+                                    source: source,
+                                    attempt: mediaRecoveryAttempt
+                                )
+                            }
+                        case .paused:
+                            if !self.playbackRequested {
+                                _ = self.transitionPlayback(to: .paused(trackID: track.id), for: token)
+                            }
+                        @unknown default:
+                            break
+                        }
+                        #if DEBUG
+                        if ProcessInfo.processInfo.environment["SOUNDING_TV_LOG_PLAYBACK_CLOCK"] == "1" {
+                            print("[PlaybackClock] \(Date()) AVPlayer=\(String(describing: status)) waveformPlaying=\(self.isPlaying) time=\(self.currentTime)")
+                        }
+                        #endif
+                        self.updateNowPlayingProgress()
+                    }
+                }
+                .store(in: &cancellables)
+        }
+        // Start with AVFoundation's stall protection. The staged watchdog
+        // relaxes it only if this particular item has made no progress.
+        player?.automaticallyWaitsToMinimizeStalling = true
         player?.isMuted = false
         #if !os(macOS)
         if #available(iOS 27.0, tvOS 27.0, *) {
@@ -1017,9 +1627,12 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         }
         #endif
 
-        if startPosition > 0 {
-            _ = await player?.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))
-            currentTime = startPosition
+        if startPosition > 0, let activePlayer = player {
+            _ = await activePlayer.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))
+            guard playbackPipeline.accepts(token),
+                  player === activePlayer,
+                  activePlayer.currentItem === playerItem else { return }
+            clock.currentTime = startPosition
         }
 
         timeObserver = player?.addPeriodicTimeObserver(
@@ -1027,29 +1640,189 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             queue: .main
         ) { [weak self] time in
             Task { @MainActor in
-                self?.currentTime = time.seconds
-                self?.updateNowPlayingProgress()
-                self?.persistSessionState()
+                guard let self,
+                      self.playbackPipeline.accepts(token),
+                      self.player?.currentItem === playerItem,
+                      time.seconds.isFinite,
+                      !self.seekInFlight else { return }
+                // The first periodic-time tick where the playhead has moved is
+                // the earliest reliable signal that audio has actually started.
+                // Transition from buffering to playing here if the dedicated
+                // start observer has not already done so.
+                self.transitionToPlayingIfBuffering(trackID: track.id, token: token)
+                // While playing, never let the published position move
+                // backwards: tolerance seeks and HLS re-tuning can report a
+                // slightly earlier playhead, which visibly rewinds the
+                // progress UI and re-anchors wall-clock extrapolation.
+                // Explicit seeks and track changes set currentTime directly.
+                if case .playing = self.playbackPipeline.phase {
+                    self.clock.currentTime = max(self.clock.currentTime, time.seconds)
+                } else {
+                    self.clock.currentTime = time.seconds
+                }
+                self.updateNowPlayingProgress()
+                self.persistSessionState()
+                self.refreshNextStreamPrewarmNearEnd(at: self.clock.currentTime, trackID: track.id)
             }
         }
 
-        player?.play()
-        isPlaying = true
-        isLoading = false
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["SOUNDING_TV_LOG_PLAYBACK_CLOCK"] == "1" {
+            print("[PlaybackClock] \(Date()) play requested; waveform remains stopped")
+        }
+        #endif
+        if playbackRequested {
+            if let activePlayer = player,
+               InstantPlayTuning.startsImmediately(origin: source, itemIsPrepared: playerItem.isPlaybackLikelyToKeepUp) {
+                activePlayer.automaticallyWaitsToMinimizeStalling = InstantPlayTuning.waitsToMinimizeStalling(origin: source)
+                activePlayer.playImmediately(atRate: activePlayer.defaultRate > 0 ? activePlayer.defaultRate : 1)
+            } else {
+                player?.play()
+            }
+            scheduleBufferingWatchdog(
+                track: track,
+                item: playerItem,
+                token: token,
+                source: source,
+                attempt: mediaRecoveryAttempt
+            )
+        } else {
+            player?.pause()
+            _ = transitionPlayback(to: .paused(trackID: track.id), for: token)
+        }
         updateNowPlayingMetadata()
-
-        armMixSession()
     }
 
-    private func handlePlaybackEnded() async {
+    private func scheduleBufferingWatchdog(
+        track: Track,
+        item: AVPlayerItem,
+        token: PlaybackPipeline.Token,
+        source: PlaybackMediaOrigin,
+        attempt: Int
+    ) {
+        bufferingWatchdogTask?.cancel()
+        let startingTime = currentTime
+        bufferingWatchdogTask = Task { @MainActor [weak self, weak item] in
+            do { try await Task.sleep(for: PlaybackBufferingPolicy.initialKickDelay) } catch { return }
+            guard let self, let item, let activePlayer = self.player,
+                  self.playbackRequested,
+                  self.playbackPipeline.accepts(token),
+                  activePlayer.currentItem === item,
+                  activePlayer.timeControlStatus != .playing,
+                  PlaybackBufferingPolicy.hasNotAdvanced(
+                    currentTime: self.currentTime,
+                    from: startingTime
+                  ) else { return }
+
+            // This is intentionally a kick on the existing resolved item, not
+            // a second URL request. AVFoundation remains the source of truth:
+            // the UI does not publish playing until timeControlStatus does.
+            Log.player.notice(
+                "[Player] kicking unresponsive item for \(track.id, privacy: .public)"
+            )
+            activePlayer.automaticallyWaitsToMinimizeStalling = false
+            activePlayer.playImmediately(atRate: 1)
+
+            do { try await Task.sleep(for: PlaybackBufferingPolicy.recoveryDelayAfterKick) } catch { return }
+            guard self.playbackRequested,
+                  self.playbackPipeline.accepts(token),
+                  self.player === activePlayer,
+                  activePlayer.currentItem === item,
+                  activePlayer.timeControlStatus != .playing,
+                  PlaybackBufferingPolicy.hasNotAdvanced(
+                    currentTime: self.currentTime,
+                    from: startingTime
+                  ) else { return }
+            self.recoverMediaPlayback(
+                track: track,
+                item: item,
+                token: token,
+                source: source,
+                attempt: attempt,
+                error: URLError(.timedOut)
+            )
+        }
+    }
+
+    private func recoverMediaPlayback(
+        track: Track,
+        item: AVPlayerItem,
+        token: PlaybackPipeline.Token,
+        source: PlaybackMediaOrigin,
+        attempt: Int,
+        error: Error?
+    ) {
+        guard playbackPipeline.accepts(token), player?.currentItem === item else { return }
+        guard recoveringToken != token else { return }
+        bufferingWatchdogTask?.cancel()
+        bufferingWatchdogTask = nil
+
+        let failure = error ?? NSError(
+            domain: "red.forbes.sounding.playback",
+            code: -1,
+            userInfo: [NSLocalizedDescriptionKey: "The audio stream stopped responding."]
+        )
+        guard playbackRequested, attempt < Self.maximumMediaRecoveryAttempts else {
+            finishPlaybackFailure(failure, token: token)
+            return
+        }
+
+        Log.player.notice(
+            "[Player] retrying track \(track.id, privacy: .public) after \(failure.localizedDescription, privacy: .public)"
+        )
+        recoveringToken = token
+        if source == .localCache, !downloads.isLocallyAvailable(track) {
+            PlayedAudioCache.shared.remove(trackID: track.id)
+        }
+        let resumeAt = currentTime.isFinite ? max(0, currentTime) : 0
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.loadAndPlay(
+                track: track,
+                startPosition: resumeAt,
+                transportIntent: .preserve,
+                skipLocalFile: source == .localCache,
+                bypassStreamCache: true,
+                mediaRecoveryAttempt: attempt + 1
+            )
+            if self.recoveringToken == token { self.recoveringToken = nil }
+        }
+    }
+
+    private func finishPlaybackFailure(_ error: Error, token: PlaybackPipeline.Token) {
+        guard playbackPipeline.accepts(token) else { return }
+        if playbackLoadTiming?.token == token { playbackLoadTiming = nil }
+        Log.player.error("[Player] playback failed: \(error.localizedDescription, privacy: .public)")
+        teardownAVPlayer(invalidatePipeline: false)
+        playbackPipeline.requestPause(trackID: token.trackID)
+        playbackPipeline.transitionCurrent(
+            to: .failed(trackID: token.trackID, message: Self.describePlaybackFailure(error))
+        )
+        syncPublishedPlaybackState()
+        playbackErrorMessage = Self.describePlaybackFailure(error)
+        if let denial = error as? SoundCloudEntitlementError { entitlementPrompt = denial }
+        updateNowPlayingProgress()
+    }
+
+    func handlePlaybackEnded() async {
+        if previewSession != nil {
+            playbackPipeline.requestPause(trackID: currentTrack?.id)
+            syncPublishedPlaybackState()
+            updateNowPlayingProgress()
+            return
+        }
+        if isPlayingSoundCloudPreview, let track = currentTrack {
+            notePreviewEnded(track)
+        }
         switch repeatMode {
         case .one:
+            let restart = trimTimeline.range.lowerBound
             if isMixEngineLive {
-                seek(to: 0)
+                seek(to: restart)
             } else {
-                let cmTime = CMTime(seconds: 0, preferredTimescale: 600)
+                let cmTime = CMTime(seconds: restart, preferredTimescale: 600)
                 _ = await player?.seek(to: cmTime)
-                currentTime = 0
+                clock.currentTime = restart
                 updateNowPlayingProgress()
             }
             play()
@@ -1059,13 +1832,24 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             if currentIndex < queue.count - 1 {
                 await playNext()
             } else {
-                isPlaying = false
+                playbackPipeline.requestPause(trackID: currentTrack?.id)
+                syncPublishedPlaybackState()
+                let restart = trimTimeline.range.lowerBound
+                if isMixEngineLive {
+                    seek(to: restart)
+                } else {
+                    clock.currentTime = restart
+                    issueSeek(to: restart)
+                }
+                updateNowPlayingProgress()
             }
         }
     }
 
     func play() {
         PlatformAudioSession.activatePlayback()
+        playbackPipeline.requestPlay(trackID: currentTrack?.id)
+        syncPublishedPlaybackState()
 
         if let pending = pendingRestore {
             // Let loadAndPlay read the latest pending position (which seek(to:)
@@ -1075,84 +1859,180 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             }
             return
         }
+        // A paused resolve remains valid and will inspect the new transport
+        // intent before starting audio. Avoid a duplicate URL request here.
+        if case .resolving = playbackPipeline.phase { return }
         if isMixEngineLive {
-            MixEngine.shared.play(deck: liveDeck)
-            if isCrossfading { MixEngine.shared.play(deck: liveDeck.other) }
-            isPlaying = true
+            djDirector.resumeMixDecks()
             updateNowPlayingProgress()
             return
         }
-        player?.play()
-        isPlaying = true
+        if djDirector.isStartingInEngine(currentTrack?.id) {
+            updateNowPlayingProgress()
+            return
+        }
+        guard let player, player.currentItem != nil else {
+            guard let currentTrack else {
+                playbackPipeline.invalidate()
+                syncPublishedPlaybackState()
+                return
+            }
+            Task { @MainActor [weak self] in
+                await self?.loadAndPlay(
+                    track: currentTrack,
+                    startPosition: self?.currentTime ?? 0,
+                    bypassStreamCache: true
+                )
+            }
+            return
+        }
+        player.automaticallyWaitsToMinimizeStalling = true
+        player.play()
         updateNowPlayingProgress()
     }
 
+    private func syncClockFromPlayer() {
+        guard !seekInFlight, !isMixEngineLive,
+              let seconds = player?.currentTime().seconds,
+              seconds.isFinite, seconds >= 0 else { return }
+        clock.currentTime = max(clock.currentTime, min(seconds, duration > 0 ? duration : seconds))
+    }
+
     func pause() {
+        syncClockFromPlayer()
         persistSessionState(force: true)
+        playbackLoadTiming = nil
+        playbackPipeline.requestPause(trackID: currentTrack?.id)
+        syncPublishedPlaybackState()
+        bufferingWatchdogTask?.cancel()
+        bufferingWatchdogTask = nil
+        removePlaybackStartObserver()
+        player?.automaticallyWaitsToMinimizeStalling = true
         if isMixEngineLive {
-            MixEngine.shared.pause(deck: liveDeck)
-            if isCrossfading { MixEngine.shared.pause(deck: liveDeck.other) }
-            isPlaying = false
+            djDirector.pauseMixDecks()
+            clock.currentTime = PlaybackTimelinePolicy.clampedPosition(
+                MixEngine.shared.livePosition(of: liveDeck),
+                duration: duration
+            )
             updateNowPlayingProgress()
             return
         }
         player?.pause()
-        isPlaying = false
         updateNowPlayingProgress()
     }
 
     func togglePlayPause() {
-        if isPlaying {
+        if playbackRequested || isPlaying {
             pause()
         } else {
             play()
         }
     }
 
-    /// Brief, bounded rate correction used by authenticated nearby playback.
-    /// This deliberately avoids changing a live DJ deck's musical tempo.
-    func nudgeSynchronizationRate(_ requestedRate: Double, for seconds: TimeInterval) {
-        guard !isMixEngineLive, isPlaying, let player else { return }
-        let rate = Float(min(1.02, max(0.98, requestedRate)))
-        synchronizationRateTask?.cancel()
-        player.rate = rate
-        synchronizationRateTask = Task { @MainActor [weak self, weak player] in
-            try? await Task.sleep(for: .seconds(max(0.1, seconds)))
-            guard !Task.isCancelled, let self, let current = self.player,
-                  current === player, self.isPlaying else { return }
-            player?.rate = 1
-        }
-    }
-
-    func resetSynchronizationRate() {
-        synchronizationRateTask?.cancel()
-        synchronizationRateTask = nil
-        guard !isMixEngineLive, isPlaying else { return }
-        player?.rate = 1
-    }
-
     func seek(to time: TimeInterval) {
+        seek(to: time, expectedTrackID: nil)
+    }
+
+    func seek(to time: TimeInterval, expectedTrackID: String?, intent: SeekIntent = .user) {
+        guard PlaybackTimelinePolicy.accepts(
+            expectedTrackID: expectedTrackID,
+            activeTrackID: currentTrack?.id
+        ) else { return }
+        let boundedTime = trimTimeline.clamped(PlaybackTimelinePolicy.clampedPosition(time, duration: duration))
+        seekEvents.send(boundedTime)
         if isMixEngineLive {
-            MixEngine.shared.seek(deck: liveDeck, to: time)
-            currentTime = time
-            deckEndHandled = false
+            clock.currentTime = PlaybackTimelinePolicy.clampedPosition(
+                djDirector.seekMixDecks(to: boundedTime),
+                duration: duration
+            )
+            djDirector.deckEndHandled = false
+            updateNowPlayingProgress()
+            return
+        }
+        if djDirector.isStartingInEngine(currentTrack?.id) {
+            djDirector.updatePendingStart(boundedTime)
+            clock.currentTime = boundedTime
             updateNowPlayingProgress()
             return
         }
         if pendingRestore != nil {
-            pendingRestore?.position = time
-            currentTime = time
+            pendingRestore?.position = boundedTime
+            clock.currentTime = boundedTime
             updateNowPlayingProgress()
             return
         }
-        let cmTime = CMTime(seconds: time, preferredTimescale: 600)
-        // Exact seeks on long HLS mixes can block playback while AVPlayer waits
-        // for one precise sample. A sub-second tolerance lets it use the nearest
-        // buffered keyframe and makes waveform taps resume immediately.
-        let tolerance = CMTime(seconds: 0.75, preferredTimescale: 600)
-        player?.seek(to: cmTime, toleranceBefore: tolerance, toleranceAfter: tolerance)
-        currentTime = time
-        updateNowPlayingProgress()
+        clock.currentTime = boundedTime
+        seekStartedAt = Date()
+        ListeningRecorder.shared.noteSeek(
+            trackId: currentTrack?.id,
+            toSeconds: boundedTime,
+            duration: duration,
+            intent: intent,
+            decksLive: isMixEngineLive
+        ) { [weak self] in
+            ListeningRecorder.PlaybackProbe(
+                trackId: self?.currentTrack?.id,
+                positionSeconds: self?.currentTime ?? 0,
+                isPlaying: self?.isPlaying ?? false
+            )
+        }
+        issueSeek(to: boundedTime)
+    }
+
+    private func issueSeek(to target: TimeInterval) {
+        guard let player else { return }
+        if seekInFlight {
+            queuedSeekTarget = target
+            return
+        }
+        seekInFlight = true
+        seekGeneration &+= 1
+        let generation = seekGeneration
+        let item = player.currentItem
+        let issuedAt = Date()
+        let tolerance = target > 0 ? CMTime(seconds: 0.75, preferredTimescale: 600) : .zero
+        player.seek(
+            to: CMTime(seconds: target, preferredTimescale: 600),
+            toleranceBefore: tolerance,
+            toleranceAfter: tolerance
+        ) { [weak self] finished in
+            Task { @MainActor in
+                guard let self, self.seekGeneration == generation else { return }
+                self.seekInFlight = false
+                guard let player = self.player, player.currentItem === item else { return }
+                if let next = self.queuedSeekTarget {
+                    self.queuedSeekTarget = nil
+                    self.issueSeek(to: next)
+                    return
+                }
+                guard finished else { return }
+                let seconds = player.currentTime().seconds
+                self.clock.currentTime = seconds.isFinite ? seconds : target
+                self.updateNowPlayingProgress()
+                Log.player.notice(
+                    "[Player] seek to \(target, privacy: .public) s landed in \(Int(Date().timeIntervalSince(issuedAt) * 1_000), privacy: .public) ms"
+                )
+            }
+        }
+    }
+
+    #if DEBUG
+    var debugMediaPosition: (seconds: TimeInterval, isRunning: Bool)? {
+        if isMixEngineLive {
+            let engine = MixEngine.shared
+            return (engine.audiblePosition(of: liveDeck), engine[liveDeck].isPlaying)
+        }
+        guard let player, player.currentItem != nil else { return nil }
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite else { return nil }
+        return (seconds, player.timeControlStatus == .playing && !seekInFlight)
+    }
+    #endif
+
+    private func cancelSeeks() {
+        seekGeneration &+= 1
+        seekInFlight = false
+        queuedSeekTarget = nil
     }
 
     func seekForward(_ seconds: TimeInterval = 15) {
@@ -1160,17 +2040,19 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     }
 
     func seekBackward(_ seconds: TimeInterval = 15) {
-        seek(to: max(currentTime - seconds, 0))
+        seek(to: max(currentTime - seconds, trimTimeline.range.lowerBound))
     }
 
     func playNext() async {
         guard let nextIndex = nextQueueIndex() else { return }
 
+        if djDirector.isCrossfading, djDirector.completeMoveForSkip() { return }
+
         if isMixEngineLive,
-           !isCrossfading,
+           !djDirector.isCrossfading,
            incomingDeck.isReady,
-           incomingTrackId == queue[nextIndex].id {
-            performLiveTransition(to: queue[nextIndex], at: nextIndex, over: 0.25, announceAsMix: false)
+           djDirector.incomingTrackId == queue[nextIndex].id {
+            djDirector.performLiveTransition(to: queue[nextIndex], at: nextIndex, over: 0.25, announceAsMix: false)
             return
         }
 
@@ -1209,10 +2091,11 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     func toggleShuffle() {
         isShuffleEnabled.toggle()
 
-        if isShuffleEnabled {
-            var remainingTracks = Array(queue[(currentIndex + 1)...])
+        if isShuffleEnabled, !queue.isEmpty, currentIndex < queue.count {
+            let kept = currentIndex + playingNextCount
+            var remainingTracks = Array(queue[(kept + 1)...])
             remainingTracks.shuffle()
-            queue = Array(queue[0...currentIndex]) + remainingTracks
+            queue = Array(queue[0...kept]) + remainingTracks
         } else {
             if let currentTrack = currentTrack,
                let newIndex = originalQueue.firstIndex(of: currentTrack) {
@@ -1221,7 +2104,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             }
         }
 
-        prepareIncomingDeck()
+        djDirector.refreshMixSessionForQueue()
     }
 
     func cycleRepeatMode() {
@@ -1232,14 +2115,53 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         }
     }
 
+    var playingNextCount: Int {
+        playingNext.count(in: queue.map(\.id), currentIndex: currentIndex)
+    }
+
     func addToQueue(_ track: Track) {
-        queue.append(track)
-        originalQueue.append(track)
-        prepareIncomingDeck()
+        guard !queue.isEmpty else {
+            queue.append(track)
+            originalQueue.append(track)
+            djDirector.refreshMixSessionForQueue()
+            return
+        }
+        insertIntoQueue(track, at: playingNext.addToQueueIndex(in: queue.map(\.id), currentIndex: currentIndex))
+    }
+
+    var currentPlayRequest: UInt64 { explicitPlayRequest }
+
+    func appendCollectionTracks(_ tracks: [Track], collectionId: String, playRequest: UInt64) {
+        guard activeCollectionId == collectionId,
+              explicitPlayRequest == playRequest,
+              !queue.isEmpty else { return }
+        let eligible = djContextEligibility()
+        let incomingIDs = Set(CollectionStartPlanner.appended(queue.map(\.id), with: tracks.map(\.id)).dropFirst(queue.count))
+        var seen = Set<String>()
+        var incoming = tracks.filter {
+            incomingIDs.contains($0.id) && (eligible?($0) ?? true) && seen.insert($0.id).inserted
+        }
+        guard !incoming.isEmpty else { return }
+        originalQueue.append(contentsOf: incoming)
+        if isShuffleEnabled { incoming.shuffle() }
+        queue.append(contentsOf: incoming)
+        djDirector.refreshMixSessionForQueue()
+    }
+
+    func moveToPlayingNext(at index: Int) {
+        guard index > currentIndex, index < queue.count else { return }
+        let wasQueued = playingNext.contains(offset: index, in: queue.map(\.id), currentIndex: currentIndex)
+        let track = queue.remove(at: index)
+        queue.insert(track, at: currentIndex + 1)
+        if !isShuffleEnabled { originalQueue = queue }
+        playingNext.noteRemoved(track.id, wasQueued: wasQueued)
+        playingNext.noteJoined(track.id)
+        djDirector.refreshMixSessionForQueue()
     }
 
     func insertIntoQueue(_ track: Track, at index: Int) {
         let target = max(0, min(index, queue.count))
+        playingNext.noteInserted(track.id, at: target, before: queue.map(\.id), currentIndex: currentIndex)
         queue.insert(track, at: target)
         originalQueue.append(track)
 
@@ -1247,7 +2169,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             currentIndex += 1
         }
 
-        prepareIncomingDeck()
+        djDirector.refreshMixSessionForQueue()
     }
 
     func moveQueueItem(from source: Int, to destination: Int) {
@@ -1255,24 +2177,28 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         let target = max(0, min(destination, queue.count - 1))
         guard target != source else { return }
 
+        let wasQueued = playingNext.contains(offset: source, in: queue.map(\.id), currentIndex: currentIndex)
         let track = queue.remove(at: source)
         queue.insert(track, at: target)
 
         if let currentTrack, let index = queue.firstIndex(of: currentTrack) {
             currentIndex = index
         }
+        playingNext.noteMoved(track.id, wasQueued: wasQueued, to: target, after: queue.map(\.id), currentIndex: currentIndex)
 
         if !isShuffleEnabled {
             originalQueue = queue
         }
 
-        prepareIncomingDeck()
+        djDirector.refreshMixSessionForQueue()
     }
 
     func removeFromQueue(at index: Int) async {
         guard index >= 0, index < queue.count else { return }
 
+        let wasQueued = playingNext.contains(offset: index, in: queue.map(\.id), currentIndex: currentIndex)
         let removed = queue.remove(at: index)
+        playingNext.noteRemoved(removed.id, wasQueued: wasQueued)
         if let originalIndex = originalQueue.firstIndex(of: removed) {
             originalQueue.remove(at: originalIndex)
         }
@@ -1285,35 +2211,50 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         let wasPlayingTrack = index == currentIndex
         if wasPlayingTrack {
             currentIndex = min(index, queue.count - 1)
-            await loadAndPlay(track: queue[currentIndex])
+            await loadAndPlay(
+                track: queue[currentIndex],
+                transportIntent: playbackRequested ? .play : .pause
+            )
         } else if let currentTrack, let newIndex = queue.firstIndex(of: currentTrack) {
             currentIndex = newIndex
-            prepareIncomingDeck()
+            djDirector.refreshMixSessionForQueue()
         }
     }
 
-    func clearQueue() {
-        pause()
-        endMixSession()
-        teardownPeerContent()
-
-        loadGeneration &+= 1
-
-        if let observer = timeObserver, let player {
-            player.removeTimeObserver(observer)
+    func clearQueue(forgetSavedSession: Bool = true) {
+        if forgetSavedSession, let accountID = sessionAccountID ?? playbackPersistenceID {
+            PlaybackStateStore.clear(accountID: accountID)
         }
-        timeObserver = nil
-        cancellables.removeAll()
-
-        player?.replaceCurrentItem(with: nil)
+        restoreTask?.cancel()
+        restoreTask = nil
+        pendingRestore = nil
+        restoreLedger = nil
+        restoredOriginalIds = nil
+        pause()
+        djDirector.endMixSession()
+        warmDebounceTask?.cancel()
+        warmDebounceTask = nil
+        discardPreparedPlayback()
+        teardownPeerContent()
+        teardownAVPlayer()
         queue = []
         originalQueue = []
+        playingNext.removeAll()
+        queueSource = nil
         currentTrack = nil
         currentIndex = 0
-        currentTime = 0
-        duration = 0
-        loadingState = .idle
-        Self.nowPlaying.publishNowPlaying(nil)
+        clock.currentTime = 0
+        clock.duration = 0
+        playbackPipeline.invalidate()
+        syncPublishedPlaybackState()
+        if systemRemoteHandlers == nil { nowPlaying.publishNowPlaying(nil) }
+    }
+
+    /// Explicit logout is stronger than an ordinary queue clear: it also
+    /// forgets short-lived resolved stream endpoints saved by this app.
+    func purgeLocalPlaybackState() {
+        clearQueue()
+        sourceResolver.clearResolutionCache()
     }
 
     func clearPlaybackHistory() {
@@ -1337,31 +2278,10 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         queue = remaining
     }
 
-    var canSwitchToAppleTV: Bool {
-        Self.remoteOutput?.isReachable == true
-    }
-
-    func switchOutputTarget(to target: PlaybackOutput) {
-        guard target != outputTarget else { return }
-
-        switch target {
-        case .companion(let deviceClass):
-            guard let remote = Self.remoteOutput, remote.isReachable else { return }
-            if let track = currentTrack {
-                remote.sendPlayback(track: track, queue: queue, index: currentIndex, position: currentTime, isPlaying: isPlaying)
-            }
-            pause()
-            outputTarget = .companion(deviceClass)
-        case .thisDevice:
-            Self.remoteOutput?.pausePlayback()
-            outputTarget = .thisDevice
-        }
-    }
-
-    func adoptHandoff(track: Track, queue context: [Track], index: Int, position: TimeInterval, autoplay: Bool) async {
-        Self.remoteOutput?.pausePlayback()
-        outputTarget = .thisDevice
-
+    func adoptOutputSession(track: Track, queue context: [Track], index: Int, position: TimeInterval, autoplay: Bool) async {
+        restoreTask?.cancel()
+        pendingRestore = nil
+        restoreLedger = nil
         var tracks = context
         let resolvedIndex: Int
         if tracks.indices.contains(index), tracks[index] == track {
@@ -1374,184 +2294,403 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         }
 
         originalQueue = tracks
+        playingNext.removeAll()
+        queueSideEffectsSuspended = true
         queue = tracks
         currentIndex = resolvedIndex
+        queueSideEffectsSuspended = false
 
-        await loadAndPlay(track: track, startPosition: position)
-        if !autoplay { pause() }
+        await loadAndPlay(
+            track: track,
+            startPosition: position,
+            transportIntent: autoplay ? .play : .pause
+        )
     }
 
-    private static let positionPersistInterval: TimeInterval = 5
-    private static let guestPlaybackPersistenceID = "device-public-playback"
+    private static let positionPersistInterval: TimeInterval = 10
+
+    private struct PlaybackAccountInputs: Equatable {
+        var authenticatedAccountID: String?
+        var currentUserID: String?
+        var isSignedOut: Bool
+    }
 
     private var playbackPersistenceID: String? {
-        SubscriptionService.shared.authenticatedAccountID
-            ?? SoundCloudCredentialSource.shared.currentUser?.id
-            ?? (SoundCloudCredentialSource.shared.isSignedOut ? Self.guestPlaybackPersistenceID : nil)
-    }
-
-    private func restoreLastSessionIfAvailable() {
-        guard let accountID = playbackPersistenceID,
-              let snapshot = PlaybackStateStore.load(accountID: accountID),
-              !snapshot.trackIds.isEmpty else { return }
-        restoreTask?.cancel()
-        restoreTask = Task { @MainActor [weak self] in
-            await self?.performRestore(snapshot)
-        }
-    }
-
-    private func performRestore(_ snapshot: PlaybackStateStore.Snapshot) async {
-        let savedTrackId = snapshot.trackIds.indices.contains(snapshot.currentIndex)
-            ? snapshot.trackIds[snapshot.currentIndex]
-            : nil
-        guard let savedTrackId else { return }
-
-        var byId: [String: Track] = Dictionary(
-            snapshot.trackIds.compactMap { id in
-                DownloadManager.shared.cachedTrack(forTrackId: id).map { (id, $0) }
-            },
-            uniquingKeysWith: { cached, _ in cached }
+        PlaybackPersistenceAccountPolicy.accountID(
+            authenticatedAccountID: SubscriptionService.shared.authenticatedAccountID,
+            currentUserID: SoundCloudCredentialSource.shared.currentUser?.id,
+            rememberedAccountID: PlaybackStateStore.rememberedAccountID,
+            isSignedOut: SoundCloudCredentialSource.shared.isSignedOut
         )
+    }
 
-        // Restore downloaded content immediately. Network enrichment continues
-        // below, but an offline launch still gets its previous Now Playing row,
-        // queue position, and playable local audio.
-        if byId[savedTrackId] != nil {
-            applyRestoredSnapshot(snapshot, tracksById: byId)
+    private func reconcilePlaybackAccount(_ inputs: PlaybackAccountInputs) {
+        #if DEBUG
+        guard !isVisualFixtureInstalled, SoundCloudCredentialSource.visualFixtureUser == nil else { return }
+        #endif
+        if inputs.isSignedOut {
+            resolveLaunchRestore()
+            PlaybackStateStore.forgetRememberedAccount()
+            if let previous = sessionAccountID, previous != PlaybackPersistenceAccountPolicy.guestAccountID {
+                Log.playback.info("signed out; closing the account's playback session")
+                clearQueue(forgetSavedSession: false)
+                sessionAccountID = nil
+            }
+        }
+        let accountID = PlaybackPersistenceAccountPolicy.accountID(
+            authenticatedAccountID: inputs.authenticatedAccountID,
+            currentUserID: inputs.currentUserID,
+            rememberedAccountID: PlaybackStateStore.rememberedAccountID,
+            isSignedOut: inputs.isSignedOut
+        )
+        let transition = PlaybackAccountTransitionPolicy.transition(
+            from: sessionAccountID,
+            to: accountID,
+            hasLiveSession: currentTrack != nil || !queue.isEmpty
+        )
+        switch transition {
+        case .keep:
+            if accountID == nil, sessionAccountID == nil, currentTrack == nil {
+                Log.playback.info("restore skipped: account not known yet")
+            }
+        case .adopt(let id):
+            sessionAccountID = id
+        case .restore(let id):
+            sessionAccountID = id
+            restoreLastSession(accountID: id)
+        case .replace(let id):
+            Log.playback.info("account changed; closing the previous account's playback session")
+            clearQueue(forgetSavedSession: false)
+            sessionAccountID = id
+            restoreLastSession(accountID: id)
+        }
+    }
+
+    private func restoreLastSession(accountID: String) {
+        restoreTask?.cancel()
+        restoreTask = nil
+        guard let snapshot = PlaybackStateStore.load(accountID: accountID) else {
+            Log.playback.info("restore skipped: no saved snapshot")
+            resolveLaunchRestore()
+            return
+        }
+        guard let savedTrackId = snapshot.currentTrackId else {
+            Log.playback.info("restore skipped: saved snapshot has no current track")
+            resolveLaunchRestore()
+            return
+        }
+        Log.playback.info("restoring snapshot (\(snapshot.trackIds.count, privacy: .public) tracks, index \(snapshot.currentIndex, privacy: .public), track \(savedTrackId, privacy: .public), mix \(snapshot.wantsMix, privacy: .public))…")
+        let cached = immediatelyAvailableTracks(for: snapshot)
+        if cached[savedTrackId] != nil, applyRestoredSnapshot(snapshot, tracksById: cached) {
+            resolveLaunchRestore()
+        }
+        restoreTask = Task { @MainActor [weak self] in
+            await self?.performRestore(snapshot, cached: cached)
+            self?.resolveLaunchRestore()
+        }
+    }
+
+    private func resolveLaunchRestore() {
+        if !hasResolvedLaunchRestore { hasResolvedLaunchRestore = true }
+    }
+
+    private func immediatelyAvailableTracks(for snapshot: PlaybackStateStore.Snapshot) -> [String: Track] {
+        var byId: [String: Track] = [:]
+        for id in snapshot.trackIds where byId[id] == nil {
+            if let track = downloads.cachedTrack(forTrackId: id) { byId[id] = track }
+        }
+        let localIds = Set(snapshot.trackIds.filter(LocalTrackFile.isLocalTrackID))
+        if !localIds.isEmpty, LocalMusicLibrary.isSupported {
+            for track in LocalMusicLibrary.shared.allTracks where localIds.contains(track.id) && byId[track.id] == nil {
+                byId[track.id] = track
+            }
+        }
+        if let id = snapshot.currentTrackId, byId[id] == nil,
+           let payload = snapshot.currentTrackPayload,
+           let track = PlaybackStateStore.decodeTrack(payload), track.id == id {
+            byId[id] = track
+        }
+        return byId
+    }
+
+    private func performRestore(_ snapshot: PlaybackStateStore.Snapshot, cached: [String: Track]) async {
+        guard let savedTrackId = snapshot.currentTrackId else { return }
+        var byId = cached
+
+        let uncached = snapshot.trackIds.filter { byId[$0] == nil && !LocalTrackFile.isLocalTrackID($0) }
+        if !uncached.isEmpty {
+            let library = await LibraryDB.cachedTracks(ids: uncached)
+            guard !Task.isCancelled else { return }
+            byId.merge(library) { current, _ in current }
+            if !library.isEmpty { applyOrEnrichRestore(snapshot, tracksById: byId) }
         }
 
-        var retryDelay: TimeInterval = 1
+        let backoff = SoundCloudBackoff(base: 2, cap: 120)
+        var attempt = 0
         while !Task.isCancelled {
-            let missing = snapshot.trackIds.filter { byId[$0] == nil }
-            if missing.isEmpty { return }
-            guard currentTrack == nil || (currentTrack?.id == savedTrackId && pendingRestore != nil) else { return }
-
+            let missing = snapshot.trackIds.filter { byId[$0] == nil && !LocalTrackFile.isLocalTrackID($0) }
+            guard !missing.isEmpty else { break }
+            guard currentTrack == nil || restoreLedger != nil else { return }
+            guard attempt < Self.maximumRestoreAttempts else {
+                let unresolved = missing.count
+                let attempts = attempt
+                Log.playback.info("restore skipped: \(unresolved, privacy: .public) tracks still unresolved after \(attempts, privacy: .public) attempts")
+                break
+            }
             guard SoundCloudAPI.credentials != nil else {
-                try? await Task.sleep(for: .seconds(retryDelay))
-                retryDelay = min(30, retryDelay * 2)
+                try? await Task.sleep(for: backoff.duration(attempt: attempt))
+                attempt += 1
                 continue
             }
-
             do {
-                let countBeforeFetch = byId.count
-                let fetched = try await SoundCloudAPI.shared.getTracks(ids: missing)
+                let fetched = try await api.getTracks(ids: missing)
+                guard !Task.isCancelled else { return }
                 for track in fetched { byId[track.id] = track }
-                if byId[savedTrackId] != nil {
-                    applyRestoredSnapshot(snapshot, tracksById: byId)
-                }
-                if snapshot.trackIds.allSatisfy({ byId[$0] != nil }) { return }
-                // A successful but partial/empty response is still a retry.
-                // Back off so a deleted or unavailable queue item cannot spin
-                // continuously and hammer the API after launch.
-                if byId.count == countBeforeFetch {
-                    try await Task.sleep(for: .seconds(retryDelay))
-                    retryDelay = min(30, retryDelay * 2)
-                } else {
-                    retryDelay = 1
-                }
+                applyOrEnrichRestore(snapshot, tracksById: byId)
+                break
             } catch is CancellationError {
                 return
             } catch {
-                try? await Task.sleep(for: .seconds(retryDelay))
-                retryDelay = min(30, retryDelay * 2)
+                let attemptNumber = attempt + 1
+                let failure = String(describing: type(of: error))
+                Log.playback.info("restore fetch failed (attempt \(attemptNumber, privacy: .public)): \(failure, privacy: .public)")
+                try? await Task.sleep(for: backoff.duration(attempt: attempt))
+                attempt += 1
             }
+        }
+        guard !Task.isCancelled else { return }
+        if currentTrack?.id == savedTrackId {
+            Log.playback.info("restore finished (\(self.queue.count, privacy: .public) of \(snapshot.trackIds.count, privacy: .public) tracks, index \(self.currentIndex, privacy: .public), auto mix \(self.isAutoMixEnabled, privacy: .public))")
+        } else if currentTrack == nil {
+            Log.playback.info("restore skipped: the saved track \(savedTrackId, privacy: .public) is not available")
         }
     }
 
-    private func applyRestoredSnapshot(
+    private static let maximumRestoreAttempts = 4
+
+    private func restorablePlaybackIDs(in tracksById: [String: Track]) -> Set<String> {
+        Set(tracksById.values.filter { track in
+            track.streamURL != nil || track.isLocal || downloads.isLocallyAvailable(track)
+        }.map(\.id))
+    }
+
+    private func applyOrEnrichRestore(
         _ snapshot: PlaybackStateStore.Snapshot,
         tracksById: [String: Track]
     ) {
-        let restoredQueue = snapshot.trackIds.compactMap { tracksById[$0] }.filter { track in
-            track.streamURL != nil || DownloadManager.shared.localFileURL(for: track) != nil
+        if currentTrack == nil, queue.isEmpty {
+            applyRestoredSnapshot(snapshot, tracksById: tracksById)
+        } else {
+            enrichRestoredQueue(snapshot, tracksById: tracksById)
         }
-        guard !restoredQueue.isEmpty else { return }
-        let savedTrackId = snapshot.trackIds.indices.contains(snapshot.currentIndex)
-            ? snapshot.trackIds[snapshot.currentIndex]
-            : nil
-        guard let savedTrackId,
-              let resumeIndex = restoredQueue.firstIndex(where: { $0.id == savedTrackId }) else { return }
+    }
+
+    private func restoredOriginalQueue(
+        _ snapshot: PlaybackStateStore.Snapshot,
+        tracksById: [String: Track],
+        playable: Set<String>,
+        fallback: [Track]
+    ) -> [Track] {
+        guard snapshot.isShuffleEnabled, let original = snapshot.originalTrackIds, !original.isEmpty else {
+            return fallback
+        }
+        let tracks = original.filter(playable.contains).compactMap { tracksById[$0] }
+        return tracks.isEmpty ? fallback : tracks
+    }
+
+    @discardableResult
+    private func applyRestoredSnapshot(
+        _ snapshot: PlaybackStateStore.Snapshot,
+        tracksById: [String: Track]
+    ) -> Bool {
+        guard currentTrack == nil, queue.isEmpty,
+              let savedTrackId = snapshot.currentTrackId else { return false }
+        let playable = restorablePlaybackIDs(in: tracksById)
+        guard playable.contains(savedTrackId) else { return false }
+        let ledger = PlaybackRestoreLedger(snapshotIds: snapshot.trackIds, resolvedIds: playable)
+        let restoredQueue = ledger.keptIds.compactMap { tracksById[$0] }
+        let resumeIndex = snapshot.trackIds[..<snapshot.currentIndex].filter(playable.contains).count
+        guard restoredQueue.indices.contains(resumeIndex),
+              restoredQueue[resumeIndex].id == savedTrackId else { return false }
         let resumeTrack = restoredQueue[resumeIndex]
 
+        restoreLedger = ledger.isComplete ? nil : ledger
+        restoredOriginalIds = snapshot.originalTrackIds
+        let wasEnabled = djSessionEnabled
         activeCollectionId = snapshot.collectionId
+        queueSource = snapshot.queueSource ?? PlaybackQueueSourceDirectory.source(for: snapshot.collectionId)
         activeCollectionPolicy = snapshot.collectionId.map {
             CollectionQualityOverrideStore.shared.policy(for: $0)
         }
         collectionAutoMixRequested = snapshot.collectionAutoMixWasActive == true
-        if collectionAutoMixRequested {
+        if snapshot.djSessionWasRequested == true {
+            djModeRequested = true
+        }
+        if snapshot.autoMixWasActive == true, !collectionAutoMixRequested {
+            autoMixSettingEnabled = true
+        }
+        if snapshot.wantsMix {
             let base = snapshot.djProfileId.flatMap(DJProfile.profile(id:))
                 ?? activeCollectionPolicy.flatMap { DJProfile.profile(id: $0.djProfileId) }
                 ?? defaultDJProfile
             djProfile = activeCollectionPolicy.map { base.applying(collectionPolicy: $0) } ?? base
-            isAutoMixEnabled = true
+            if snapshot.autoMixWasActive == true || collectionAutoMixRequested {
+                isAutoMixEnabled = true
+            }
         }
-        let resumePosition = pendingRestore?.track.id == resumeTrack.id
-            ? max(0, pendingRestore?.position ?? snapshot.positionSeconds)
-            : max(0, snapshot.positionSeconds)
+        let resumePosition = max(0, snapshot.positionSeconds)
 
         isRestoringSession = true
-        originalQueue = restoredQueue
+        originalQueue = restoredOriginalQueue(snapshot, tracksById: tracksById, playable: playable, fallback: restoredQueue)
         queue = restoredQueue
         currentIndex = resumeIndex
         currentTrack = resumeTrack
         isShuffleEnabled = snapshot.isShuffleEnabled
         repeatMode = snapshot.repeatMode
-        duration = resumeTrack.duration
-        currentTime = resumeTrack.duration > 0 ? min(resumePosition, resumeTrack.duration) : resumePosition
-        isPlaying = false
-        isLoading = false
-        loadingState = .idle
+        clock.duration = resumeTrack.duration
+        clock.currentTime = resumeTrack.duration > 0 ? min(resumePosition, resumeTrack.duration) : resumePosition
+        playbackPipeline.begin(trackID: resumeTrack.id, intent: .pause)
+        syncPublishedPlaybackState()
         pendingRestore = (track: resumeTrack, position: currentTime)
         isRestoringSession = false
 
+        applySessionEnabledTransition(from: wasEnabled, primeAnalysis: false)
+        if !downloads.isLocallyAvailable(resumeTrack) {
+            startPlaybackPrewarm(for: resumeTrack)
+        }
         updateNowPlayingMetadata()
+        Log.playback.info("restored (\(restoredQueue.count, privacy: .public) of \(snapshot.trackIds.count, privacy: .public) tracks, index \(resumeIndex, privacy: .public), auto mix \(self.isAutoMixEnabled, privacy: .public)), paused")
+        return true
     }
 
-    private func persistSessionState(force: Bool = false) {
-        guard !isRestoringSession else { return }
-        guard let accountID = playbackPersistenceID else { return }
-        guard force || Date().timeIntervalSince(lastPersistedAt) >= Self.positionPersistInterval else { return }
-        lastPersistedAt = Date()
-
-        guard !queue.isEmpty, currentTrack != nil else {
-            PlaybackStateStore.clear(accountID: accountID)
+    private func enrichRestoredQueue(
+        _ snapshot: PlaybackStateStore.Snapshot,
+        tracksById: [String: Track]
+    ) {
+        guard let ledger = restoreLedger, ledger.snapshotIds == snapshot.trackIds else { return }
+        let playable = restorablePlaybackIDs(in: tracksById)
+        let newlyResolved = playable.subtracting(ledger.resolvedIds)
+        guard !newlyResolved.isEmpty else { return }
+        guard let enrichment = ledger.enriched(
+            with: newlyResolved,
+            liveIds: queue.map(\.id),
+            liveIndex: currentIndex
+        ) else {
+            restoreLedger = nil
             return
         }
+        let tracks = enrichment.ledger.keptIds.compactMap { tracksById[$0] }
+        guard tracks.count == enrichment.ledger.keptIds.count,
+              tracks.indices.contains(enrichment.index) else { return }
+
+        restoreLedger = enrichment.ledger.isComplete ? nil : enrichment.ledger
+        queueSideEffectsSuspended = true
+        originalQueue = restoredOriginalQueue(
+            snapshot,
+            tracksById: tracksById,
+            playable: enrichment.ledger.resolvedIds,
+            fallback: tracks
+        )
+        queue = tracks
+        currentIndex = enrichment.index
+        queueSideEffectsSuspended = false
+        queueStateDidChange()
+        djDirector.refreshMixSessionForQueue()
+        Log.playback.info("restored queue grew to \(tracks.count, privacy: .public) of \(snapshot.trackIds.count, privacy: .public) tracks")
+    }
+
+    func persistSessionState(force: Bool = false) {
+        #if DEBUG
+        guard !isVisualFixtureInstalled else { return }
+        #endif
+        guard !isRestoringSession, previewSession == nil else { return }
+        guard (sessionAccountID ?? playbackPersistenceID) != nil else { return }
+        if force {
+            guard persistFlushTask == nil else { return }
+            persistFlushTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard let self else { return }
+                self.persistFlushTask = nil
+                self.writeSessionState()
+            }
+            return
+        }
+        guard Date().timeIntervalSince(lastPersistedAt) >= Self.positionPersistInterval else { return }
+        writeSessionState()
+    }
+
+    private func writeSessionState() {
+        #if DEBUG
+        guard !isVisualFixtureInstalled else { return }
+        #endif
+        guard !isRestoringSession, previewSession == nil else { return }
+        guard let accountID = sessionAccountID ?? playbackPersistenceID else { return }
+        guard !queue.isEmpty, let currentTrack else { return }
+        lastPersistedAt = Date()
+
+        let liveIds = queue.map(\.id)
+        var trackIds = liveIds
+        var index = currentIndex
+        var originalIds: [String]? = isShuffleEnabled ? originalQueue.map(\.id) : nil
+        if let ledger = restoreLedger {
+            if let merged = ledger.persistedOrder(liveIds: liveIds, liveIndex: currentIndex) {
+                trackIds = merged.ids
+                index = merged.index
+                originalIds = isShuffleEnabled ? (restoredOriginalIds ?? originalIds) : nil
+            } else {
+                restoreLedger = nil
+            }
+        }
         let position = currentTime.isFinite ? max(0, currentTime) : 0
-        PlaybackStateStore.save(PlaybackStateStore.Snapshot(
-            trackIds: queue.map(\.id),
-            currentIndex: currentIndex,
+        let snapshot = PlaybackStateStore.Snapshot(
+            trackIds: trackIds,
+            currentIndex: index,
             positionSeconds: position,
             isShuffleEnabled: isShuffleEnabled,
             repeatMode: repeatMode,
             collectionId: activeCollectionId,
+            queueSource: queueSource,
             djProfileId: djProfile?.id,
             collectionAutoMixWasActive: collectionAutoMixRequested,
+            autoMixWasActive: isAutoMixEnabled,
+            djSessionWasRequested: djModeRequested,
+            originalTrackIds: originalIds,
+            currentTrackPayload: PlaybackStateStore.encodeTrack(currentTrack),
             savedAt: Date()
-        ), accountID: accountID)
+        )
+        PlaybackStateStore.save(snapshot, accountID: accountID)
+        let savedCount = trackIds.count
+        let savedIndex = index
+        Log.playback.info("saved snapshot (\(savedCount, privacy: .public) tracks, index \(savedIndex, privacy: .public))")
     }
 
     private func observeAuthenticatedAccount() {
-        SubscriptionService.shared.$authenticatedAccountID
-            .removeDuplicates()
-            .sink { [weak self] accountID in
-                guard let self else { return }
-                self.restoreTask?.cancel()
-                self.restoreTask = nil
-                if accountID == nil {
-                    if SoundCloudCredentialSource.shared.isSignedOut {
-                        self.restoreLastSessionIfAvailable()
-                    } else {
-                        self.clearQueue()
-                    }
-                } else {
-                    self.restoreLastSessionIfAvailable()
-                }
-            }
-            .store(in: &sessionCancellables)
+        Task { @MainActor [weak self] in
+            self?.subscribeToPlaybackAccount()
+        }
+    }
+
+    private func subscribeToPlaybackAccount() {
+        Publishers.CombineLatest(
+            SubscriptionService.shared.$authenticatedAccountID,
+            SoundCloudCredentialSource.shared.$state
+        )
+        .map { accountID, state in
+            PlaybackAccountInputs(
+                authenticatedAccountID: accountID,
+                currentUserID: state.currentUser?.id,
+                isSignedOut: state.isSignedOut
+            )
+        }
+        .removeDuplicates()
+        .sink { [weak self] inputs in
+            self?.reconcilePlaybackAccount(inputs)
+        }
+        .store(in: &sessionCancellables)
     }
 
     func setDJSessionEnabled(_ enabled: Bool) {
+        if enabled, isMixingSuspendedForGroupSession { return }
         guard djModeRequested != enabled || (!enabled && collectionAutoMixRequested) else { return }
         // Remote, watch, and hardware commands intentionally have no UI. If
         // this person has already chosen a start preset, honour it there too;
@@ -1592,6 +2731,11 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
 
     var isDJSessionEnabled: Bool { djSessionEnabled }
 
+    func endDJSession() {
+        setAutomaticMixEnabled(false)
+        setDJSessionEnabled(false)
+    }
+
     /// Starts (or explicitly reconfigures) an Auto DJ session. The UI holds
     /// this behind its configuration sheet, so cancelling never enables the
     /// audio graph or changes the running session.
@@ -1599,7 +2743,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         configuration: DJStartConfiguration,
         reconfigure: Bool = false
     ) {
-        guard reconfigure || !djModeRequested else { return }
+        guard reconfigure || !djModeRequested, !isMixingSuspendedForGroupSession else { return }
         SettingsStore.shared.setDJStartConfiguration(configuration)
         activeDJStartConfiguration = configuration
 
@@ -1608,15 +2752,15 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         djProfile = collectionAdjusted.applying(queueOrder: configuration.queueOrder)
         applyDJQueueOrder(configuration.queueOrder)
         setAutomaticMixEnabled(true)
-        DJTransitionService.shared.isEnabled = true
+        transitionService.isEnabled = true
         setDJSessionEnabled(true)
 
         if configuration.sourceStrategy == .goodMatches {
             discoverGoodMatchesIfNeeded()
         }
         if djSessionEnabled {
-            DJTransitionService.shared.analyzeUpcoming(in: queue, from: currentIndex)
-            refreshPhantomPlan()
+            transitionService.analyzeUpcoming(in: queue, from: currentIndex)
+            djDirector.refreshPhantomPlan()
         }
     }
 
@@ -1625,7 +2769,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         var remaining = Array(queue[(currentIndex + 1)...])
         remaining.shuffle()
         queue = Array(queue[...currentIndex]) + remaining
-        prepareIncomingDeck()
+        djDirector.prepareIncomingDeck()
     }
 
     private func discoverGoodMatchesIfNeeded() {
@@ -1635,7 +2779,9 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             guard let self else { return }
             defer { self.goodMatchDiscoveryTask = nil }
             do {
-                let related = try await SoundCloudAPI.shared.getRelatedTracks(trackID: seed.id, limit: 30).collection
+                let related = try await SoundCloudRequestEnvironment.$intent.withValue(.playback) {
+                    try await api.getRelatedTracks(trackID: seed.id, limit: 30).collection
+                }
                 guard !Task.isCancelled,
                       self.activeDJStartConfiguration?.sourceStrategy == .goodMatches else { return }
                 let known = Set(self.queue.map(\.id))
@@ -1653,8 +2799,8 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
                 self.queue.append(contentsOf: matches)
                 self.originalQueue.append(contentsOf: matches)
                 if configuration?.queueOrder == .random { self.applyDJQueueOrder(.random) }
-                self.prepareIncomingDeck()
-                self.refreshPhantomPlan()
+                self.djDirector.refreshMixSessionForQueue()
+                self.djDirector.refreshPhantomPlan()
             } catch is CancellationError {
                 return
             } catch {
@@ -1689,22 +2835,23 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     }
 
     private func defaultDJTracks(collectionId: String) async throws -> [Track] {
-        let cached = DownloadManager.shared.cachedTracks(forCollectionId: collectionId)
+        let cached = downloads.cachedTracks(forCollectionId: collectionId)
         if !cached.isEmpty { return cached }
 
         if collectionId == CollectionPolicyID.likedTracks {
-            return try await SoundCloudAPI.shared.getLikedTracks(limit: 200).collection.map(\.item)
+            return try await api.getLikedTracks(limit: 200).collection.map(\.item)
         }
 
-        let playlist = try await SoundCloudAPI.shared.getPlaylist(id: collectionId)
+        let playlist = try await api.getPlaylist(id: collectionId)
         let ids = playlist.trackIDs ?? playlist.loadedTracks.map(\.id)
-        return try await SoundCloudAPI.shared.getPlaylistTracks(playlist, ids: ids)
+        return try await api.getPlaylistTracks(playlist, ids: ids)
     }
 
     /// Changes the Decks run mode and keeps the normal playback setting in
     /// sync. This is the single entry point used by the TV console and the
     /// phone remote; merely moving an EQ or fader never silently changes it.
     func setAutomaticMixEnabled(_ enabled: Bool) {
+        if enabled, isMixingSuspendedForGroupSession { return }
         if !enabled, activeCollectionPolicy?.djMode == .djOnly {
             // "DJ Only" is a collection contract. The explicit Turn Off DJ
             // command can still end the session; the Auto switch cannot leave
@@ -1713,10 +2860,15 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             return
         }
         if enabled, djProfile == nil { djProfile = defaultDJProfile }
+        let wasEnabled = isAutoMixEnabled
         isAutoMixEnabled = enabled
         SettingsStore.shared.setDJAutoMixEnabled(enabled)
+        if autoMixSettingEnabled != enabled {
+            applyAutoMixSettingEnabled(enabled, initial: false)
+        }
+        if !enabled, wasEnabled { djDirector.autoMixDidTurnOff() }
         if enabled {
-            armMixSession()
+            djDirector.armMixSession()
             if isMixEngineLive {
                 let engine = MixEngine.shared
                 engine.resetProcessing(on: liveDeck)
@@ -1726,7 +2878,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
                 if let currentTrack { applyLoudnessNormalization(for: currentTrack, deck: liveDeck) }
                 if let upcomingTrack { applyLoudnessNormalization(for: upcomingTrack, deck: liveDeck.other) }
             }
-            refreshPhantomPlan()
+            djDirector.refreshPhantomPlan()
         }
     }
 
@@ -1750,25 +2902,6 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             .store(in: &sessionCancellables)
     }
 
-    private func observeDJAnalysisForPlanning() {
-        DJTransitionService.shared.$states
-            .dropFirst()
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] states in
-                guard let self else { return }
-                let relevantIds = Set([self.currentTrack?.id, self.upcomingTrack?.id].compactMap { $0 })
-                let relevant = states.filter { relevantIds.contains($0.key) }
-                guard relevant != self.lastPlannerAnalysisStates else { return }
-                self.lastPlannerAnalysisStates = relevant
-                let gainedMeasuredAnalysis = relevant.values.contains {
-                    if case .analyzed(let analysis) = $0 { return !analysis.isEstimated }
-                    return false
-                }
-                if gainedMeasuredAnalysis { self.reconsiderCurrentPlanIfUseful() }
-            }
-            .store(in: &sessionCancellables)
-    }
-
     private func applyAutoMixSettingEnabled(_ enabled: Bool, initial: Bool) {
         guard initial || autoMixSettingEnabled != enabled else { return }
         let before = djSessionEnabled
@@ -1784,20 +2917,23 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
 
     private func applySessionEnabledTransition(from before: Bool, primeAnalysis: Bool) {
         let after = djSessionEnabled
+        transitionService.syncEnabledFromCanonicalState(after)
         guard after != before else { return }
 
         if after {
-            armMixSession()
+            djDirector.armMixSession()
             if primeAnalysis {
-                DJTransitionService.shared.analyzeUpcoming(in: queue, from: currentIndex)
+                transitionService.analyzeUpcoming(in: queue, from: currentIndex)
             }
         } else {
-            handBackToAVPlayer()
+            djDirector.handBackToAVPlayer()
         }
     }
 
     private func syncIsAutoMixEnabledFromSetting(_ enabled: Bool) {
+        let wasEnabled = isAutoMixEnabled
         isAutoMixEnabled = enabled || collectionAutoMixRequested
+        if wasEnabled, !isAutoMixEnabled { djDirector.autoMixDidTurnOff() }
     }
 
     private var defaultDJProfile: DJProfile {
@@ -1811,26 +2947,48 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         guard let base = DJProfile.profile(id: profileId) else { return }
         SettingsStore.shared.setDJDefaultProfileId(profileId)
         djProfile = activeCollectionPolicy.map { base.applying(collectionPolicy: $0) } ?? base
-        if djSessionEnabled { armMixSession() }
-        refreshPhantomPlan()
+        if djSessionEnabled { djDirector.armMixSession() }
+        djDirector.refreshPhantomPlan()
     }
 
     private func applyDefaultDJProfile(_ profileId: DJProfileID) {
         guard activeCollectionPolicy == nil, djSessionEnabled,
               let profile = DJProfile.profile(id: profileId) else { return }
         djProfile = profile
-        refreshPhantomPlan()
+        djDirector.refreshPhantomPlan()
     }
 
     func armMixSessionIfNeeded() {
-        armMixSession()
+        djDirector.armMixSession()
     }
 
     var upcomingTrack: Track? {
         nextQueueIndex().map { queue[$0] }
     }
 
-    private func nextQueueIndex() -> Int? {
+    var upcomingMixTrack: Track? {
+        guard !isPlayingSoundCloudPreview else { return nil }
+        let subscription = SubscriptionService.shared
+        return SoundCloudEntitlements.blendableNext(after: currentTrack, next: upcomingTrack) {
+            subscription.playbackGrant(for: $0)
+        }
+    }
+
+    func playsAsSoundCloudPreview(_ track: Track) -> Bool {
+        SubscriptionService.shared.playsAsPreview(track)
+    }
+
+    var allowsSoundCloudPreviews: Bool {
+        !requiresMixEngineOutput && !isMixingSuspendedForGroupSession
+    }
+
+    private func notePreviewEnded(_ track: Track) {
+        guard !hasShownPreviewEndedPrompt else { return }
+        hasShownPreviewEndedPrompt = true
+        entitlementPrompt = SubscriptionService.shared.previewDenial(for: track)
+    }
+
+    func nextQueueIndex() -> Int? {
         guard !queue.isEmpty else { return nil }
         if repeatMode == .all, currentIndex >= queue.count - 1 { return 0 }
         if currentIndex < queue.count - 1 { return currentIndex + 1 }
@@ -1838,439 +2996,43 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     }
 
     func plannedMixSeconds() -> TimeInterval? {
-        if let plan = adaptiveMixPlan { return plan.transitionSeconds }
-        if isPhantomEnabled, let track = currentTrack {
-            return automaticCleanCutFallback(for: track)?.transitionSeconds
-        }
-        guard let from = currentTrack, let to = upcomingTrack else { return nil }
-        let dj = DJTransitionService.shared
-        guard let plan = dj.transition(from: from, to: to) else { return nil }
-        guard case .analyzed(let analysis) = dj.state(for: from.id),
-              let bpm = analysis.bpm, bpm > 20 else { return nil }
-        guard plan.totalBars > 0 else { return 2 }
-        return min(90, max(2, Double(plan.totalBars) * 240.0 / bpm))
+        djDirector.plannedMixSeconds()
     }
 
     func plannedMixPointSeconds() -> TimeInterval? {
-        if let plan = adaptiveMixPlan { return plan.mixPointSeconds }
-        guard isPhantomEnabled, let track = currentTrack,
-              let fallback = automaticCleanCutFallback(for: track) else {
-            return nil
-        }
-        return fallback.mixPointSeconds
+        djDirector.plannedMixPointSeconds()
     }
 
     var adaptiveMixPlan: PhantomDJEngine.Plan? {
-        guard let track = currentTrack, let plan = phantomPlanCache[track.id] else { return nil }
-        guard let next = upcomingTrack else { return nil }
-        guard plan.incomingTrackId == nil || plan.incomingTrackId == next.id else { return nil }
-        return plan
+        djDirector.adaptiveMixPlan
     }
 
     var automaticMixDecision: DJAutomaticMixDecision {
-        let profileName = djProfile?.displayName
-        let plan = adaptiveMixPlan
-        let isFallback = plan?.templateId == DJTemplates.cutOnTheOne
-        let templateName = plan?.rationale?.templateName
-            ?? plan?.templateId.map { DJTemplates.displayName(for: $0) }
-        let headline = plan?.rationale?.headline
-            ?? plan.map { isFallback ? "Clean cut at \(DJFormat.time($0.mixPointSeconds))" : $0.reasoning }
-
-        let phase: DJAutomaticMixDecision.Phase
-        if !isAutoMixEnabled {
-            phase = .off
-        } else if case .unavailable = mixEngineState {
-            phase = .unavailable
-        } else if mixWindow != nil {
-            phase = isFallback ? .cutting : .mixing
-        } else if upcomingTrack == nil {
-            phase = .waiting
-        } else if plan == nil {
-            phase = isMixEngineLive ? .planning : .preparing
-        } else if incomingDeck.isReady {
-            phase = .armed
-        } else {
-            phase = .preparing
-        }
-
-        let unavailableReason: String?
-        if case .unavailable(let reason) = mixEngineState { unavailableReason = reason }
-        else { unavailableReason = nil }
-
-        return DJAutomaticMixDecision(
-            phase: phase,
-            profileName: profileName,
-            templateName: templateName,
-            headline: unavailableReason
-                ?? headline
-                ?? (upcomingTrack == nil ? "Nothing queued after this track" : "Listening for a clean transition point"),
-            reasoning: unavailableReason ?? plan?.reasoning,
-            incomingTrackId: plan?.incomingTrackId ?? upcomingTrack?.id,
-            mixPointSeconds: plan?.mixPointSeconds,
-            transitionSeconds: plan?.transitionSeconds,
-            entrySeconds: plan?.entrySeconds,
-            score: plan?.rationale?.score,
-            isFallback: isFallback
-        )
+        djDirector.automaticMixDecision
     }
 
     var canStartMix: Bool {
-        guard mixWindow == nil, !isCrossfading, upcomingTrack != nil else { return false }
-        if isPhantomEnabled {
-            return currentTrack.flatMap(phantomPlanOrFallback) != nil
-        }
-        return plannedMixSeconds() != nil
+        djDirector.canStartMix
     }
 
     func startMix() {
-        guard canStartMix, let next = upcomingTrack, let index = nextQueueIndex() else { return }
-
-        if isPhantomEnabled, let track = currentTrack, let plan = phantomPlanOrFallback(for: track) {
-            if isMixEngineLive, incomingDeck.isReady, incomingTrackId == next.id {
-                phantomActivity = .mixing(plan)
-                performLiveTransition(
-                    to: next, at: index, over: plan.transitionSeconds,
-                    announceAsMix: true, filterAccent: plan.accent, plan: plan
-                )
-            } else {
-                phantomActivity = .cutting(reason: "Incoming deck wasn't ready — playing out, then cutting.")
-                scheduleWindowThenCut(seconds: plan.transitionSeconds)
-            }
-            return
-        }
-
-        guard let seconds = plannedMixSeconds() else { return }
-        if isMixEngineLive, incomingDeck.isReady, incomingTrackId == next.id {
-            performLiveTransition(to: next, at: index, over: seconds, announceAsMix: true)
-            return
-        }
-
-        scheduleWindowThenCut(seconds: seconds)
+        djDirector.startMix()
     }
 
-    private func scheduleWindowThenCut(seconds: TimeInterval) {
-        // "Mix Now" is an immediate command. If the second deck missed its
-        // preload deadline, use a short safe cut instead of displaying a fake
-        // mix window for the full planned blend and cutting much later.
-        let cutSeconds = min(0.25, max(0.08, seconds))
-        mixWindow = MixWindow(start: currentTime, seconds: cutSeconds, isLive: false)
-        mixTask?.cancel()
-        mixTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(cutSeconds))
-            guard !Task.isCancelled, let self else { return }
-            self.mixWindow = nil
-            await self.playNext()
-        }
+    var canExtendMix: Bool {
+        djDirector.canExtendMix
     }
 
-    private func armMixSession() {
-        guard djSessionEnabled else { return }
-        guard let track = currentTrack else {
-            mixEngineState = .off
-            return
-        }
-        if isMixEngineLive, armedTrackId == track.id {
-            prepareIncomingDeck()
-            return
-        }
-        guard armingTrackId != track.id else { return }
-
-        guard !PlatformAudioSession.isAirPlayRoute else {
-            mixEngineState = .unavailable(
-                MixEngineError.airPlayRouteActive.errorDescription
-                    ?? "DJ mode isn't available over AirPlay."
-            )
-            return
-        }
-
-        observeMixEngine()
-
-        armTask?.cancel()
-        armingTrackId = track.id
-        mixEngineState = .preparing(0)
-
-        let deck = MixEngine.Deck.a
-        armTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let url = try await Self.resolveMixURL(for: track, collectionId: activeCollectionId)
-                try Task.checkCancellation()
-                guard self.djSessionEnabled, self.currentTrack?.id == track.id else {
-                    self.armingTrackId = nil
-                    self.mixEngineState = .off
-                    return
-                }
-
-                let engine = MixEngine.shared
-                self.incomingTask?.cancel()
-                self.incomingTask = nil
-                engine.unload(deck: deck.other)
-                self.incomingTrackId = nil
-                self.incomingDeck = .idle
-
-                try await engine.load(
-                    url: url,
-                    into: deck,
-                    trackId: track.id,
-                    cacheKey: Self.mixCacheKey(for: track, collectionId: activeCollectionId)
-                )
-                if let localURL = engine.localFileURL(for: deck) {
-                    scheduleMixAnalysis(track: track, transcoding: track.mixSource, localFileURL: localURL)
-                }
-
-                self.armingTrackId = nil
-                guard self.djSessionEnabled, self.currentTrack?.id == track.id else {
-                    engine.unload(deck: deck)
-                    self.mixEngineState = .off
-                    return
-                }
-                self.takeOverFromAVPlayer(on: deck, track: track)
-            } catch {
-                self.armingTrackId = nil
-                if Self.isCancellation(error) { return }
-                guard self.djSessionEnabled, self.currentTrack?.id == track.id else {
-                    self.mixEngineState = .off
-                    return
-                }
-                self.mixEngineState = .unavailable(Self.describeMixFailure(error))
-            }
-        }
+    func extendMix() {
+        djDirector.extendMix()
     }
 
-    private func takeOverFromAVPlayer(on deck: MixEngine.Deck, track: Track) {
-        let engine = MixEngine.shared
-        let resumeAt = currentTime
-        let wasPlaying = isPlaying
+    /// Deck arming, preload, plan caching, adaptive replanning, stage
+    /// scheduling, and mix-session handoff now live in DJSessionDirector
+    /// (Core/DJ/DJSessionDirector.swift). The public DJ API above forwards.
 
-        liveDeck = deck
-        armedTrackId = track.id
-        deckEndHandled = false
-        isCrossfading = false
-
-        engine.cancelAllRamps()
-        engine.masterVolume = 1
-        engine.crossfade = deck == .a ? 0 : 1
-        engine.setGain(1, on: deck)
-        applyLoudnessNormalization(for: track, deck: deck)
-        engine.resetEQ(on: deck)
-        engine.openFilter(on: deck)
-        engine.setRate(1, on: deck)
-        engine.setPitch(0, on: deck)
-        engine.seek(deck: deck, to: resumeAt)
-
-        // Do not tear down the AVPlayer until the engine deck has actually
-        // started. If startup fails, fall back to the existing player so the
-        // track does not end up in a silent half-state.
-        if wasPlaying {
-            player?.pause()
-            engine.play(deck: deck)
-        }
-
-        guard engine[deck].status.isReady, engine[deck].isPlaying || !wasPlaying else {
-            if wasPlaying { player?.play() }
-            mixEngineState = .unavailable(
-                Self.describeMixFailure(engine.lastError ?? MixEngineError.engineStartFailed("deck did not start"))
-            )
-            return
-        }
-
-        teardownAVPlayer()
-
-        mixEngineState = .live
-        isLoading = false
-        loadingState = .playing
-        if engine[deck].duration > 0 { duration = engine[deck].duration }
-        currentTime = resumeAt
-
-        isPlaying = wasPlaying
-
-        updateNowPlayingProgress()
-        prepareIncomingDeck()
-        refreshPhantomPlan()
-    }
-
-    private func prepareIncomingDeck() {
-        guard djSessionEnabled, isMixEngineLive, !isCrossfading else { return }
-
-        guard let next = upcomingTrack else {
-            incomingTask?.cancel()
-            incomingTask = nil
-            if incomingTrackId != nil {
-                MixEngine.shared.unload(deck: liveDeck.other)
-                incomingTrackId = nil
-            }
-            incomingDeck = .idle
-            return
-        }
-        if let currentId = currentTrack?.id,
-           let cached = phantomPlanCache[currentId],
-           cached.incomingTrackId != nil,
-           cached.incomingTrackId != next.id {
-            invalidatePhantomPlan(for: currentId)
-        } else if let previous = incomingTrackId, previous != next.id,
-                  let currentId = currentTrack?.id {
-            invalidatePhantomPlan(for: currentId)
-        }
-        if incomingTrackId == next.id {
-            if isAutoMixEnabled, MixEngine.shared[liveDeck.other].status.isReady {
-                MixEngine.shared.resetProcessing(on: liveDeck.other, killLows: true)
-                applyLoudnessNormalization(for: next, deck: liveDeck.other)
-            }
-            if let grid = adaptiveMixPlan?.incomingBeatGrid {
-                MixEngine.shared.setBeatGrid(grid, for: liveDeck.other)
-            }
-            return
-        }
-
-        incomingTask?.cancel()
-        incomingTrackId = next.id
-        incomingDeck = .loading(0)
-
-        let deck = liveDeck.other
-        incomingTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let url = try await Self.resolveMixURL(for: next, collectionId: activeCollectionId)
-                try Task.checkCancellation()
-                guard self.incomingTrackId == next.id else { return }
-
-                let engine = MixEngine.shared
-                try await engine.load(
-                    url: url,
-                    into: deck,
-                    trackId: next.id,
-                    cacheKey: Self.mixCacheKey(for: next, collectionId: activeCollectionId)
-                )
-                guard self.incomingTrackId == next.id else {
-                    engine.unload(deck: deck)
-                    return
-                }
-                if let localURL = engine.localFileURL(for: deck) {
-                    scheduleMixAnalysis(track: next, transcoding: next.mixSource, localFileURL: localURL)
-                }
-
-                engine.resetProcessing(on: deck, killLows: true)
-                self.applyLoudnessNormalization(for: next, deck: deck)
-                engine.seek(deck: deck, to: 0)
-                self.incomingDeck = .ready
-                self.precomputePhantomPlanIfNeeded(for: next)
-                self.reconsiderCurrentPlanIfUseful()
-            } catch {
-                if Self.isCancellation(error) { return }
-                guard self.incomingTrackId == next.id else { return }
-                self.incomingDeck = .failed(Self.describeMixFailure(error))
-            }
-        }
-    }
-
-    private func scheduleMixAnalysis(track: Track, transcoding: Transcoding?, localFileURL: URL) {
-        if DeckIdentityResolver.isLikelyMix(track) {
-            SetlistBackgroundWorkCoordinator.shared.enqueue(
-                track: track,
-                localFileURL: localFileURL
-            )
-        }
-        #if os(tvOS)
-        return
-        #else
-        guard #available(iOS 27.0, macOS 27.0, *) else { return }
-        Task.detached(priority: .utility) { [weak self] in
-            let result = await AnalysisCoordinator.analyze(
-                track: track,
-                transcoding: transcoding,
-                localFileURL: localFileURL,
-                registry: AnalysisProducerRegistry([MusicUnderstandingProducer()]),
-                cache: .shared
-            )
-            guard !Task.isCancelled else { return }
-            let learnedSomething = result.outcomes.values.contains {
-                if case .stored = $0 { return true }
-                return false
-            }
-            if learnedSomething {
-                await MainActor.run { self?.reconsiderCurrentPlanIfUseful() }
-            }
-        }
-        #endif
-    }
-
-    private func refreshPhantomPlan() {
-        phantomCutAnnounced = false
-        guard isPhantomEnabled, isMixEngineLive, let track = currentTrack else {
-            phantomActivity = .idle
-            return
-        }
-        if let cached = phantomPlanCache[track.id] {
-            phantomActivity = .armed(cached)
-            return
-        }
-        phantomActivity = .idle
-        precomputePhantomPlanIfNeeded(for: track, thenArmIfLive: true)
-    }
-
-    private func invalidatePhantomPlan(for trackId: String) {
-        phantomPlanTasks[trackId]?.cancel()
-        phantomPlanTasks[trackId] = nil
-        phantomPlanCache[trackId] = nil
-        if currentTrack?.id == trackId {
-            phantomActivity = .idle
-            refreshPhantomPlan()
-        }
-    }
-
-    /// Analysis can improve after the first envelope-only decision. Keep
-    /// reconsidering while the transition is still far enough away, then
-    /// commit so the loaded deck and UI cannot churn at the last moment.
-    private func reconsiderCurrentPlanIfUseful() {
-        guard isAutoMixEnabled, let track = currentTrack, mixWindow == nil, !isCrossfading else { return }
-        if let plan = adaptiveMixPlan,
-           currentTime >= max(0, plan.mixPointSeconds - 45) {
-            return
-        }
-        invalidatePhantomPlan(for: track.id)
-    }
-
-    private func precomputePhantomPlanIfNeeded(for track: Track, thenArmIfLive: Bool = false) {
-        guard let profile = djProfile, phantomPlanCache[track.id] == nil else { return }
-        guard phantomPlanTasks[track.id] == nil else { return }
-
-        let trackId = track.id
-        let candidates = candidateTracks(after: track, limit: profile.lookaheadCandidates)
-        let history = currentSetHistory()
-
-        phantomPlanTasks[trackId] = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let plan = await Self.computePhantomPlan(
-                for: track, candidates: candidates, profile: profile, history: history
-            )
-            self.phantomPlanTasks[trackId] = nil
-            guard !Task.isCancelled, self.djProfile == profile,
-                  self.phantomPlanCache[trackId] == nil, let plan else { return }
-            if profile.mayReorderQueue == false,
-               plan.incomingTrackId != nil,
-               plan.incomingTrackId != self.upcomingTrack?.id {
-                return
-            }
-            if profile.mayReorderQueue,
-               let incomingTrackId = plan.incomingTrackId,
-               incomingTrackId != self.upcomingTrack?.id {
-                self.promoteToUpcoming(trackId: incomingTrackId)
-            }
-            self.phantomPlanCache[trackId] = plan
-            if self.currentTrack?.id == trackId, self.isMixEngineLive {
-                MixEngine.shared.setBeatGrid(plan.outgoingBeatGrid, for: self.liveDeck)
-                if plan.incomingTrackId == self.incomingTrackId {
-                    MixEngine.shared.setBeatGrid(plan.incomingBeatGrid, for: self.liveDeck.other)
-                }
-            }
-            if thenArmIfLive, self.armedTrackId == trackId {
-                self.phantomActivity = .armed(plan)
-            }
-        }
-    }
-
-    private func promoteToUpcoming(trackId: String) {
-        guard currentIndex + 1 < queue.count,
+    func promoteToUpcoming(trackId: String) {
+        guard playingNextCount == 0, currentIndex + 1 < queue.count,
               let sourceIndex = queue[(currentIndex + 1)...].firstIndex(where: { $0.id == trackId }),
               sourceIndex != currentIndex + 1 else { return }
         let selected = queue.remove(at: sourceIndex)
@@ -2280,858 +3042,107 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         originalQueue.insert(selected, at: originalInsertion)
     }
 
-    private func candidateTracks(after track: Track, limit: Int) -> [Track] {
-        guard let index = queue.firstIndex(of: track) else { return upcomingTrack.map { [$0] } ?? [] }
-        var out: [Track] = []
-        var cursor = index + 1
-        while out.count < max(1, limit), cursor < queue.count {
-            out.append(queue[cursor])
-            cursor += 1
-        }
-        if out.isEmpty, repeatMode == .all, !queue.isEmpty, queue[0].id != track.id {
-            out.append(queue[0])
-        }
-        return out
+    // MARK: - App volume
+
+    static let volumeDefaultsKey = "playback.appVolume"
+
+    static func storedVolume(_ defaults: UserDefaults = .standard) -> Double {
+        guard defaults.object(forKey: volumeDefaultsKey) != nil else { return 1 }
+        return clampedVolume(defaults.double(forKey: volumeDefaultsKey))
     }
 
-    private func currentSetHistory() -> SetHistory {
-        let played = (0..<currentIndex).reversed().prefix(6).map { queue[$0] }
-        return SetHistory(
-            recentTemplates: recentTemplates,
-            recentArtists: played.map(\.user.username),
-            recentTrackIds: played.map(\.id)
-        )
+    nonisolated static func clampedVolume(_ value: Double) -> Double {
+        guard value.isFinite else { return 1 }
+        return min(1, max(0, value))
     }
 
-    private nonisolated static func computePhantomPlan(
-        for track: Track,
-        candidates: [Track],
-        profile: DJProfile,
-        history: SetHistory
-    ) async -> PhantomDJEngine.Plan? {
-        let outgoing = await features(for: track)
-
-        guard !candidates.isEmpty else {
-            return envelopeOnlyPlan(outgoing)
-        }
-        var candidateFeatures: [TrackFeatures] = []
-        for candidate in candidates {
-            candidateFeatures.append(await features(for: candidate))
-        }
-
-        let inputs = PhantomDJEngine.PlanningInputs(
-            outgoing: outgoing,
-            candidates: candidateFeatures,
-            profile: profile,
-            history: history,
-            capabilities: .fullMixEngine,
-            seedComponents: [profile.id.rawValue, track.id, String(candidates.count)]
-        )
-        let (plan, result) = PhantomDJEngine.plan(inputs)
-        if let plan { return plan }
-
-        return PhantomDJEngine.cleanCutFallbackPlan(
-            outgoingDuration: outgoing.duration,
-            incomingTrackId: candidates.first?.id,
-            profileId: profile.id,
-            reasoning: PhantomDJEngine.refusalReasoning(result, profile: profile),
-        )
+    func setVolume(_ value: Double) {
+        let clamped = Self.clampedVolume(value)
+        guard abs(clamped - volume) > 0.0001 else { return }
+        volume = clamped
+        UserDefaults.standard.set(clamped, forKey: Self.volumeDefaultsKey)
+        player?.volume = Float(loudnessGain * clamped * sleepFadeGain)
+        MixEngine.shared.setOutputVolume(clamped * sleepFadeGain)
     }
 
-    private nonisolated static func envelopeOnlyPlan(_ features: TrackFeatures) -> PhantomDJEngine.Plan? {
-        guard !features.envelope.isEmpty else {
-            return PhantomDJEngine.fallbackPlan(outgoingDuration: features.duration)
-        }
-        return PhantomDJEngine.plan(outgoingDuration: features.duration, envelope: features.envelope)
-            ?? PhantomDJEngine.fallbackPlan(outgoingDuration: features.duration)
+    func setSleepFadeGain(_ gain: Double) {
+        let clamped = Self.clampedVolume(gain)
+        guard abs(clamped - sleepFadeGain) > 0.0001 else { return }
+        sleepFadeGain = clamped
+        player?.volume = Float(loudnessGain * volume * clamped)
+        MixEngine.shared.setOutputVolume(volume * clamped)
     }
 
-    private static func scheduleTier1Analysis(for track: Track) {
-        Task.detached(priority: .utility) {
-            var samples: [Float] = []
-            if case .success(let waveform) = await WaveformService.shared.waveform(for: track), !waveform.isEmpty {
-                samples = waveform.resampled(to: 200)
-            }
-            var tags: [String] = []
-            if let genre = track.genre, !genre.isEmpty { tags.append(genre) }
-            tags.append(contentsOf: track.tags)
-            tags.append(track.title)
-            _ = await AnalysisCoordinator.analyze(
-                track: track,
-                genreField: track.genre,
-                tags: tags,
-                waveformSamples: samples,
-                registry: .metadataOnly,
-                cache: .shared
-            )
-        }
+    func setQueueSource(_ source: PlaybackQueueSource?) {
+        if let source { PlaybackQueueSourceDirectory.note(source) }
+        queueSource = source
     }
 
-    private nonisolated static func features(for track: Track) async -> TrackFeatures {
-        var envelope: [Float] = []
-        if case .success(let waveform) = await WaveformService.shared.waveform(for: track), !waveform.isEmpty {
-            let bucketCount = max(8, Int((track.duration / DJEngineConstants.bucketSeconds).rounded()))
-            envelope = waveform.resampled(to: bucketCount)
-        }
-
-        var grid: BeatGrid?
-        var keyRegions: [KeyRegion] = []
-        var energyLevel: Int?
-        var sections: [TrackSection] = []
-        var provenance: FeatureProvenance = envelope.isEmpty ? .metadataOnly : .envelopeOnly
-
-        var vocalRanges: [ClosedRange<TimeInterval>] = []
-        var bassRanges: [ClosedRange<TimeInterval>] = []
-        var phraseBoundaries: [TimeInterval] = []
-
-        if #available(iOS 27.0, macOS 27.0, tvOS 27.0, *) {
-            if let cached = await cachedAnalysisFeatures(for: track) {
-                if let bpm = cached.features.bpm,
-               cached.barSeconds.count >= 2,
-               let measured = BeatGrid.fromMeasuredBars(
-                   bpm: bpm, beats: cached.beatSeconds, bars: cached.barSeconds, confidence: 0.85
-               ) {
-                grid = measured
-                provenance.insert([.measuredTempo, .measuredBeatGrid, .measuredDownbeats])
-            } else if let bpm = cached.features.bpm, let measured = BeatGrid.fromDisplayBPM(bpm, confidence: 0.85) {
-                grid = measured
-                provenance.insert([.measuredTempo, .measuredBeatGrid])
-            }
-            if !cached.keyRegions.isEmpty {
-                keyRegions = cached.keyRegions
-                provenance.insert(.measuredKey)
-            } else if let key = cached.features.key {
-                keyRegions = [KeyRegion(key: key, start: 0, end: track.duration)]
-                provenance.insert(.measuredKey)
-            }
-            if let measuredVocalRanges = cached.vocalRanges {
-                vocalRanges = measuredVocalRanges
-                provenance.insert(.measuredVocals)
-            }
-            if let measuredBassRanges = cached.bassRanges {
-                bassRanges = measuredBassRanges
-                provenance.insert(.measuredBass)
-            }
-            if !cached.structureRanges.isEmpty {
-                sections = classifyStructure(
-                    cached.structureRanges,
-                    duration: track.duration,
-                    envelope: envelope
-                )
-                phraseBoundaries = cached.phraseBoundaries
-                provenance.insert(.measuredStructure)
-            }
-            if let lufs = cached.integratedLUFS, lufs.isFinite {
-                // Typical mastered music falls roughly between -24 and -6
-                // LUFS. This is a stable whole-track energy prior, unlike the
-                // legacy analyzer's first-minute snapshot.
-                energyLevel = min(10, max(1, Int(((Double(lufs) + 24) / 2).rounded()) + 1))
-            }
-            }
-        }
-
-        let legacyAnalysis: TrackAnalysis? = await MainActor.run {
-            if case .analyzed(let analysis) = DJTransitionService.shared.state(for: track.id) {
-                return analysis
-            }
-            return nil
-        }
-        if let analysis = legacyAnalysis, !analysis.isEstimated {
-            if grid == nil,
-               let bpm = analysis.bpm,
-               let measured = BeatGrid.fromDisplayBPM(bpm, confidence: 0.7) {
-                grid = measured
-                provenance.insert([.measuredTempo, .measuredBeatGrid])
-            }
-            if keyRegions.isEmpty, let key = analysis.key, let camelot = CamelotKey.parse(key) {
-                keyRegions = [KeyRegion(key: camelot, start: 0, end: track.duration)]
-                provenance.insert(.measuredKey)
-            }
-            if energyLevel == nil {
-                energyLevel = min(10, max(1, Int((analysis.energy * 10).rounded())))
-            }
-            if sections.isEmpty, analysis.intro > 1, analysis.intro < track.duration * 0.5 {
-                sections = [TrackSection(kind: .intro, start: 0, end: analysis.intro)]
-            }
-        }
-
-        let userCues = await CueStore.shared.cues(forTrack: track.id)
-        let preferredEntry = userCues.first { $0.kind == .mixIn }?.positionSeconds
-        let preferredExit = userCues.first { $0.kind == .mixOut }?.positionSeconds
-
-        let genre = GenreDetector.resolve(genreField: track.genre, tags: track.tags + [track.title])
-
-        return TrackFeatures(
-            trackId: track.id,
-            title: track.title,
-            artist: track.user.username,
-            duration: track.duration,
-            beatGrid: grid,
-            swingRatio: nil,
-            keyRegions: keyRegions,
-            sections: sections,
-            phraseBoundaries: phraseBoundaries,
-            energyLevel: energyLevel,
-            envelope: envelope,
-            genre: genre,
-            vocalRanges: vocalRanges,
-            bassRanges: bassRanges,
-            preferredEntrySeconds: preferredEntry,
-            preferredExitSeconds: preferredExit,
-            provenance: provenance
-        )
-    }
-
-    private nonisolated static func classifyStructure(
-        _ ranges: [ClosedRange<TimeInterval>],
-        duration: TimeInterval,
-        envelope: [Float]
-    ) -> [TrackSection] {
-        let valid = ranges
-            .filter { $0.lowerBound.isFinite && $0.upperBound.isFinite && $0.upperBound > $0.lowerBound }
-            .sorted { $0.lowerBound < $1.lowerBound }
-        guard !valid.isEmpty else { return [] }
-
-        let median = DJPointFinder.envelopeMedian(envelope)
-        func level(in range: ClosedRange<TimeInterval>) -> Double? {
-            guard !envelope.isEmpty, duration > 0 else { return nil }
-            let lower = max(0, min(envelope.count - 1, Int(range.lowerBound / duration * Double(envelope.count))))
-            let upper = max(lower + 1, min(envelope.count, Int(range.upperBound / duration * Double(envelope.count))))
-            guard lower < upper else { return nil }
-            return envelope[lower..<upper].map(Double.init).reduce(0, +) / Double(upper - lower)
-        }
-
-        return valid.enumerated().map { index, range in
-            let center = (range.lowerBound + range.upperBound) / 2
-            let normalized = duration > 0 ? center / duration : 0
-            let relative = median > 0 ? (level(in: range) ?? median) / median : 1
-            let kind: SectionKind
-            if index == 0 || normalized < 0.12 {
-                kind = relative < 0.45 ? .ambientIntro : .intro
-            } else if index == valid.count - 1 || normalized > 0.88 {
-                kind = relative < 0.45 ? .ambientOutro : .outro
-            } else if relative < 0.65 {
-                kind = normalized > 0.70 ? .cooldown : .breakdown
-            } else if relative > 1.18 {
-                kind = .drop
-            } else if index + 1 < valid.count,
-                      let next = level(in: valid[index + 1]), median > 0, next / median > relative + 0.2 {
-                kind = .buildup
-            } else {
-                kind = .bridge
-            }
-            return TrackSection(kind: kind, start: range.lowerBound, end: range.upperBound)
-        }
-    }
-
-    private struct CachedMusicUnderstanding: Sendable {
-        let features: AnalysisFeatures
-        let beatSeconds: [TimeInterval]
-        let barSeconds: [TimeInterval]
-        let structureRanges: [ClosedRange<TimeInterval>]
-        let phraseBoundaries: [TimeInterval]
-        let keyRegions: [KeyRegion]
-        let vocalRanges: [ClosedRange<TimeInterval>]?
-        let bassRanges: [ClosedRange<TimeInterval>]?
-        let integratedLUFS: Float?
-    }
-
-    @available(iOS 27.0, macOS 27.0, tvOS 27.0, *)
-    private nonisolated static func cachedAnalysisFeatures(for track: Track) async -> CachedMusicUnderstanding? {
-        let transcoding = track.transcodings.max { $0.playbackRank < $1.playbackRank }
-        guard let key = AnalysisCacheKey(
-            track: track,
-            transcoding: transcoding,
-            generation: MusicUnderstandingProducer().generation
-        ) else { return nil }
-
-        guard let result = await AnalysisCache.shared.peek(
-            MusicUnderstandingSession.SessionResult.self,
-            for: key
-        ) else { return nil }
-
-        let beatSeconds = (result.rhythm?.beats ?? []).map(\.seconds).filter { $0.isFinite }
-        let barSeconds = (result.rhythm?.bars ?? []).map(\.seconds).filter { $0.isFinite }
-
-        func validRange(_ range: CMTimeRange) -> ClosedRange<TimeInterval>? {
-            let lower = range.start.seconds
-            let upper = range.end.seconds
-            guard lower.isFinite, upper.isFinite, upper > lower else { return nil }
-            return lower...upper
-        }
-        let structureRanges = (result.structure?.sections ?? []).compactMap(validRange)
-        let phraseBoundaries = (result.structure?.phrases ?? [])
-            .map(\.start.seconds)
-            .filter { $0.isFinite && $0 >= 0 }
-        let keyRegions: [KeyRegion] = (result.key?.ranges ?? []).compactMap { ranged in
-            guard let range = validRange(ranged.range),
-                  let key = MusicUnderstandingProducer.camelotKey(for: ranged.value) else { return nil }
-            return KeyRegion(key: key, start: range.lowerBound, end: range.upperBound)
-        }
-
-        func ranges(for instrument: InstrumentActivityResult.Instrument) -> [ClosedRange<TimeInterval>]? {
-            result.instrumentActivity.map { activity in
-                (activity.ranges[instrument] ?? []).compactMap { range -> ClosedRange<TimeInterval>? in
-                    let lower = range.start.seconds
-                    let upper = range.end.seconds
-                    guard lower.isFinite, upper.isFinite, upper >= lower else { return nil }
-                    return lower...upper
-                }
-            }
-        }
-        let vocalRanges = ranges(for: .vocal)
-        let bassRanges = ranges(for: .bass)
-
-        let integratedLUFS = result.loudness?.integrated.value
-
-        return CachedMusicUnderstanding(
-            features: MusicUnderstandingProducer.projectFeatures(result),
-            beatSeconds: beatSeconds,
-            barSeconds: barSeconds,
-            structureRanges: structureRanges,
-            phraseBoundaries: phraseBoundaries,
-            keyRegions: keyRegions,
-            vocalRanges: vocalRanges,
-            bassRanges: bassRanges,
-            integratedLUFS: integratedLUFS
-        )
-    }
-
-    private static func loudnessAttenuation(for track: Track) async -> Double {
-        if #available(iOS 27.0, macOS 27.0, tvOS 27.0, *) {
-            if let cached = await cachedAnalysisFeatures(for: track), let lufs = cached.integratedLUFS {
-                return LoudnessNormalization.attenuation(measuredLUFS: lufs)
-            }
-        }
-        if case .success(let waveform) = await WaveformService.shared.waveform(for: track), !waveform.isEmpty {
-            return LoudnessNormalization.attenuation(waveformRMS: waveform.rmsLevel)
-        }
-        return 1
-    }
-
-    private func applyLoudnessNormalization(for track: Track, deck: MixEngine.Deck? = nil) {
+    func applyLoudnessNormalization(for track: Track, deck: MixEngine.Deck? = nil) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let gain = await Self.loudnessAttenuation(for: track)
+            let gain = await DJSessionDirector.loudnessAttenuation(for: track)
             guard !Task.isCancelled else { return }
             if let deck {
                 guard MixEngine.shared[deck].trackId == track.id else { return }
                 MixEngine.shared.setGain(gain, on: deck, over: 0.5)
             } else {
                 guard self.currentTrack?.id == track.id, !self.isMixEngineLive else { return }
-                self.player?.volume = Float(gain)
+                self.loudnessGain = gain
+                self.player?.volume = Float(gain * self.volume * self.sleepFadeGain)
             }
         }
     }
 
-    private func phantomPlanOrFallback(for track: Track) -> PhantomDJEngine.Plan? {
-        if let cached = phantomPlanCache[track.id],
-           cached.incomingTrackId == nil || cached.incomingTrackId == upcomingTrack?.id {
-            return cached
-        }
-        return automaticCleanCutFallback(for: track)
-    }
-
-    private func automaticCleanCutFallback(for track: Track) -> PhantomDJEngine.Plan? {
-        PhantomDJEngine.cleanCutFallbackPlan(
-            outgoingDuration: track.duration,
-            incomingTrackId: upcomingTrack?.id,
-            profileId: djProfile?.id
-        )
-    }
-
-    private func updatePhantomTick(live: MixEngine.DeckState) {
-        guard isAutoMixEnabled, isMixEngineLive, !isCrossfading, mixWindow == nil else { return }
-        guard let track = currentTrack, let plan = phantomPlanOrFallback(for: track) else { return }
-        guard live.position >= max(0, plan.mixPointSeconds - Self.transitionSchedulingLead) else { return }
-
-        if incomingDeck.isReady, let next = upcomingTrack, incomingTrackId == next.id {
-            Task { @MainActor [weak self] in self?.startPhantomMixIfStillDue() }
-        } else if !phantomCutAnnounced {
-            phantomCutAnnounced = true
-            let reason: String
-            if case .failed(let message) = incomingDeck {
-                reason = "Next track couldn't be prepared: \(message)"
-            } else if upcomingTrack == nil {
-                reason = "No next track queued — playing out."
-            } else {
-                reason = "Next track wasn't ready in time — playing out to a hard cut."
-            }
-            phantomActivity = .cutting(reason: reason)
-        }
-    }
-
-    private func startPhantomMixIfStillDue() {
-        guard isAutoMixEnabled, isPhantomEnabled, isMixEngineLive, !isCrossfading, mixWindow == nil else { return }
-        guard let track = currentTrack, let plan = phantomPlanOrFallback(for: track) else { return }
-        guard MixEngine.shared[liveDeck].position >= max(0, plan.mixPointSeconds - Self.transitionSchedulingLead) else { return }
-        guard incomingDeck.isReady, let next = upcomingTrack, let index = nextQueueIndex(),
-              incomingTrackId == next.id else { return }
-
-        phantomActivity = .mixing(plan)
-        performLiveTransition(
-            to: next, at: index, over: plan.transitionSeconds,
-            announceAsMix: true, filterAccent: plan.accent, plan: plan,
-            startAtPlannedBoundary: true
-        )
-    }
-
-    private func performLiveTransition(
-        to track: Track,
-        at index: Int,
-        over seconds: TimeInterval,
-        announceAsMix: Bool,
-        filterAccent: PhantomDJEngine.Accent? = nil,
-        plan: PhantomDJEngine.Plan? = nil,
-        startAtPlannedBoundary: Bool = false
-    ) {
-        let engine = MixEngine.shared
-        let outgoing = liveDeck
-        let incoming = liveDeck.other
-        let window = max(0.15, seconds)
-        let defersIncomingStart = plan?.templateId == DJTemplates.loopRollDown
-
-        isCrossfading = true
-        deckEndHandled = false
-        let entrySeconds = plan?.entrySeconds ?? 0
-
-        if let grid = plan?.outgoingBeatGrid { engine.setBeatGrid(grid, for: outgoing) }
-        if let grid = plan?.incomingBeatGrid { engine.setBeatGrid(grid, for: incoming) }
-
-        // A manually touched preloaded deck is never trusted as an automatic
-        // input. Reset it on every takeover, not only on first load.
-        if isAutoMixEnabled { engine.resetProcessing(on: incoming, killLows: true) }
-
-        let grid = plan?.outgoingBeatGrid ?? outgoingBeatGrid()
-        let plannedSourceTime = startAtPlannedBoundary ? plan?.mixPointSeconds : nil
-        let currentSourceTime = engine[outgoing].position
-        applyBeatMatch(outgoing: outgoing, incoming: incoming, to: track, plan: plan)
-
-        let cueResult: MixEngine.CueResult
-        if defersIncomingStart {
-            // A roll-down keeps the next record silent until the final cut. The
-            // old executor started it here, so a 32-bar ladder could reveal the
-            // incoming track a minute past its selected entry cue.
-            engine.seek(deck: incoming, to: entrySeconds)
-            if let plannedSourceTime,
-               let lead = engine.wallLeadSeconds(on: outgoing, to: plannedSourceTime) {
-                cueResult = .aligned(leadSeconds: lead)
-            } else {
-                cueResult = .unaligned(reason: "roll-down starts immediately")
-            }
-        } else if plannedSourceTime.map({ $0 > currentSourceTime + 0.06 }) == true || grid != nil {
-            cueResult = engine.cue(
-                deck: incoming,
-                to: entrySeconds,
-                alignedTo: outgoing,
-                referenceBeatPeriod: grid?.beatPeriod ?? 1,
-                referenceGridAnchor: grid?.firstDownbeat ?? 0,
-                referenceSourceSeconds: plannedSourceTime,
-                beatsPerAlignment: 4
-            )
-        } else {
-            engine.seek(deck: incoming, to: entrySeconds)
-            engine.play(deck: incoming)
-            cueResult = .unaligned(reason: "no measured grid — starting the safe transition immediately")
-        }
-        if !isPlaying { engine.pause(deck: incoming) }
-
-        let leadSeconds: TimeInterval
-        switch cueResult {
-        case .aligned(let lead):
-            leadSeconds = max(0, lead)
-        case .unaligned:
-            leadSeconds = 0
-        case .failed(let reason):
-            isCrossfading = false
-            phantomActivity = .cutting(reason: "Incoming deck could not start: \(reason)")
+    private func parkAVPlayer(trackID: String) {
+        #if !os(macOS)
+        if #available(iOS 27.0, tvOS 27.0, *), let player, player.currentItem != nil,
+           player.currentItem?.status != .failed, let origin = mediaOrigin, origin != .peerStream {
+            discardParkedPlayback()
+            player.pause()
+            player.setDisconnectedFromSystemAudio(true)
+            parkedPlayback = (trackID, player, origin)
+            self.player = nil
+            mediaOrigin = nil
             return
         }
-
-        if announceAsMix {
-            let sourceLead = leadSeconds * max(0.01, engine[outgoing].rate)
-            mixWindow = MixWindow(start: currentTime + sourceLead, seconds: window, isLive: true)
-        }
-
-        engine.setEQ(.low, on: incoming, toDecibels: MixEngine.eqGainRange.lowerBound)
-        if filterAccent == .incomingFilterOpen {
-            engine.setFilterCutoff(DJEngineConstants.accentClosedFilterHz, on: incoming, over: 0)
-        }
-
-        mixTask?.cancel()
-        for task in transitionStageTasks { task.cancel() }
-        transitionStageTasks.removeAll()
-        mixTask = Task { @MainActor [weak self] in
-            if leadSeconds > 0 {
-                try? await Task.sleep(for: .seconds(leadSeconds))
-            }
-            guard !Task.isCancelled, let self else { return }
-
-            if let plan, !plan.stages.isEmpty {
-                // A hidden incoming deck adds no level. Preserve loudness during
-                // the roll and rely on the limiter for the final 50 ms cut.
-                let needsOverlapHeadroom = announceAsMix && window > 1 && !defersIncomingStart
-                MixEngine.shared.setMasterVolume(needsOverlapHeadroom ? 0.707 : 1, over: min(1, window * 0.1))
-                self.executeStages(plan.stages, outgoing: outgoing, incoming: incoming)
-            } else {
-                self.beginDefaultTransition(
-                    outgoing: outgoing,
-                    incoming: incoming,
-                    window: window,
-                    announceAsMix: announceAsMix,
-                    filterAccent: filterAccent,
-                    plan: plan
-                )
-            }
-
-            let started = Date()
-            while !Task.isCancelled {
-                let t = min(1, Date().timeIntervalSince(started) / window)
-                if announceAsMix { self.mixWindow?.progress = t }
-                if t >= 1 { break }
-                try? await Task.sleep(nanoseconds: 33_000_000)
-            }
-            guard !Task.isCancelled else { return }
-            self.finishLiveTransition(outgoing: outgoing, incoming: incoming, track: track, index: index)
-        }
+        #endif
+        discardParkedPlayback()
     }
 
-    private func beginDefaultTransition(
-        outgoing: MixEngine.Deck,
-        incoming: MixEngine.Deck,
-        window: TimeInterval,
-        announceAsMix: Bool,
-        filterAccent: PhantomDJEngine.Accent?,
-        plan: PhantomDJEngine.Plan?
-    ) {
-        let engine = MixEngine.shared
-        engine.setMasterVolume(announceAsMix && window > 1 ? 0.707 : 1, over: min(1, window * 0.1))
-        engine.crossfade(to: incoming, over: window)
-
-        let swapAt = plan?.bassSwapAtSeconds ?? (window * 0.55)
-        let swapOver = plan?.bassSwapSeconds ?? min(0.5, window * 0.2)
-        engine.swapBass(
-            from: outgoing,
-            to: incoming,
-            after: min(max(0, swapAt), max(0, window - swapOver)),
-            over: swapOver
-        )
-
-        switch filterAccent {
-        case .outgoingFilterClose:
-            engine.setFilterCutoff(DJEngineConstants.accentClosedFilterHz, on: outgoing, over: window)
-        case .incomingFilterOpen:
-            engine.setFilterCutoff(MixEngine.filterCutoffRange.upperBound, on: incoming, over: window)
-        case nil:
-            break
+    private func unparkAVPlayer(trackID: String) async -> (asset: AVURLAsset, item: AVPlayerItem, origin: PlaybackMediaOrigin)? {
+        #if !os(macOS)
+        guard #available(iOS 27.0, tvOS 27.0, *), let parked = parkedPlayback, parked.trackID == trackID,
+              player == nil, !isMixEngineLive,
+              let item = parked.player.currentItem, item.status != .failed,
+              let asset = item.asset as? AVURLAsset else { return nil }
+        parkedPlayback = nil
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            parked.player.setDisconnectedFromSystemAudio(false) { continuation.resume() }
         }
+        guard player == nil, !isMixEngineLive, parked.player.currentItem === item else {
+            parked.player.replaceCurrentItem(with: nil)
+            return nil
+        }
+        player = parked.player
+        return (asset, item, parked.origin)
+        #else
+        return nil
+        #endif
     }
 
-    private func executeStages(
-        _ stages: [TransitionStage],
-        outgoing: MixEngine.Deck,
-        incoming: MixEngine.Deck
-    ) {
-        for stage in stages.sorted(by: { $0.atSeconds < $1.atSeconds }) {
-            let task = Task { @MainActor [weak self] in
-                if stage.atSeconds > 0 { try? await Task.sleep(for: .seconds(stage.atSeconds)) }
-                guard !Task.isCancelled, self != nil else { return }
-                let deck = stage.deck == .outgoing ? outgoing : incoming
-                let engine = MixEngine.shared
-                switch stage.action {
-                case .loop(let bars):
-                    engine.setQuantizedLoop(
-                        on: deck,
-                        near: engine[deck].position,
-                        beats: max(1, bars * 4)
-                    )
-                case .clearLoop:
-                    engine.clearLoop(on: deck)
-                case .lowPassTo(let hertz, let duration):
-                    engine.setFilterCutoff(hertz, on: deck, over: duration)
-                case .highPassTo(let hertz, let duration):
-                    engine.setHighPassCutoff(hertz, on: deck, over: duration)
-                case .eqLow(let decibels, let duration):
-                    engine.setEQ(.low, on: deck, toDecibels: decibels, over: duration)
-                case .delayWet(let mix, let feedback, let duration):
-                    engine.setDelayWet(
-                        mix,
-                        feedback: feedback,
-                        beatSeconds: engine.beatGrid(for: deck)?.beatPeriod,
-                        on: deck,
-                        over: duration
-                    )
-                case .crossfadeTo(let position, let duration):
-                    if stage.deck == .incoming, !engine[incoming].isPlaying {
-                        engine.play(deck: incoming)
-                    }
-                    engine.crossfade(to: position, over: duration)
-                case .rateRatio(let ratio, let duration):
-                    engine.setRate(ratio, on: deck, over: duration)
-                case .hardCut(let fade):
-                    if !engine[incoming].isPlaying { engine.play(deck: incoming) }
-                    engine.crossfade(to: incoming, over: fade)
-                }
-            }
-            transitionStageTasks.append(task)
-        }
+    private func discardParkedPlayback() {
+        guard let parked = parkedPlayback else { return }
+        parkedPlayback = nil
+        parked.player.pause()
+        parked.player.replaceCurrentItem(with: nil)
     }
 
-    private func outgoingBeatGrid() -> BeatGrid? {
-        if let grid = MixEngine.shared.beatGrid(for: liveDeck) { return grid }
-        if let grid = adaptiveMixPlan?.outgoingBeatGrid { return grid }
-        guard let track = currentTrack else { return nil }
-        guard case .analyzed(let analysis) = DJTransitionService.shared.state(for: track.id),
-              !analysis.isEstimated, let bpm = analysis.bpm else { return nil }
-        return BeatGrid.fromDisplayBPM(bpm, confidence: 0.7)
-    }
-
-    private func applyBeatMatch(
-        outgoing: MixEngine.Deck,
-        incoming: MixEngine.Deck,
-        to track: Track,
-        plan: PhantomDJEngine.Plan? = nil
-    ) {
-        let engine = MixEngine.shared
-        let budget = djProfile?.maxAbsRatePercent ?? MixEngine.maxTempoMatchPercent
-
-        if let ratio = plan?.incomingRateRatio, abs(ratio - 1) > 0.0005 {
-            engine.setRateRatio(ratio, on: incoming, maxPercent: budget)
-            return
-        }
-        if plan != nil {
-            engine.setRate(1, on: incoming)
-            return
-        }
-
-        guard let from = currentTrack else { return }
-        let dj = DJTransitionService.shared
-        guard case .analyzed(let a) = dj.state(for: from.id),
-              case .analyzed(let b) = dj.state(for: track.id),
-              !a.isEstimated, !b.isEstimated,
-              let sourceBPM = b.bpm, let targetBPM = a.bpm
-        else {
-            engine.setRate(1, on: incoming)
-            return
-        }
-        engine.matchTempo(on: incoming, sourceBPM: sourceBPM, targetBPM: targetBPM, maxPercent: budget)
-    }
-
-    private func finishLiveTransition(
-        outgoing: MixEngine.Deck,
-        incoming: MixEngine.Deck,
-        track: Track,
-        index: Int
-    ) {
-        let engine = MixEngine.shared
-
-        if let outgoingId = currentTrack?.id, let used = phantomPlanCache[outgoingId]?.templateId {
-            recentTemplates.insert(used, at: 0)
-            if recentTemplates.count > 8 { recentTemplates.removeLast() }
-        }
-
-        engine.crossfade(to: incoming, over: 0)
-        if engine.masterVolume < 0.999 {
-            engine.setMasterVolume(1, over: 2)
-        }
-        engine.pause(deck: outgoing)
-        engine.unload(deck: outgoing)
-        engine.resetProcessing(on: outgoing)
-        if engine[incoming].loopLengthSeconds != nil { engine.clearLoop(on: incoming) }
-        engine.resetEQ(on: incoming)
-        engine.openFilter(on: incoming)
-        engine.setHighPassCutoff(MixEngine.filterCutoffRange.lowerBound, on: incoming)
-        engine.setDelayWet(0, feedback: 0, on: incoming)
-        if abs(engine[incoming].rate - 1) > 0.001 {
-            engine.setRate(1, on: incoming, over: 8)
-        }
-
-        for task in transitionStageTasks { task.cancel() }
-        transitionStageTasks.removeAll()
-
-        liveDeck = incoming
-        armedTrackId = track.id
-        incomingTrackId = nil
-        incomingDeck = .idle
-        isCrossfading = false
-        mixWindow = nil
-        deckEndHandled = false
-
-        currentIndex = queue.firstIndex(of: track) ?? min(max(0, index), max(0, queue.count - 1))
-        currentTrack = track
-        duration = engine[incoming].duration > 0 ? engine[incoming].duration : track.duration
-        currentTime = engine[incoming].position
-        isPlaying = engine[incoming].isPlaying
-        isLoading = false
-        DownloadManager.shared.markPlayed(trackId: track.id)
-
-        updateNowPlayingMetadata()
-        DJTransitionService.shared.analyzeUpcoming(in: queue, from: currentIndex)
-        prepareIncomingDeck()
-        refreshPhantomPlan()
-    }
-
-    private func observeMixEngine() {
-        guard mixEngineObserver == nil else { return }
-        mixEngineTouched = true
-        mixEngineObserver = MixEngine.shared.$decks
-            // Audio-unit automation can write several parameters at 60 Hz.
-            // The renderer needs that resolution; transport/UI telemetry does
-            // not. Coalescing here prevents hundreds of main-view invalidations
-            // per second during a multi-stage transition.
-            .throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] decks in
-                self?.mixEngineDidTick(decks)
-            }
-        mixEngineErrorObserver = MixEngine.shared.$lastError
-            .sink { [weak self] error in
-                self?.mixEngineErrorDidChange(error)
-            }
-    }
-
-    private func mixEngineErrorDidChange(_ error: MixEngineError?) {
-        guard let error, djSessionEnabled else { return }
-        guard mixEngineState != .off else { return }
-        mixEngineState = .unavailable(Self.describeMixFailure(error))
-    }
-
-    private func mixEngineDidTick(_ deckStates: [MixEngine.DeckState]) {
-        guard deckStates.count == MixEngine.Deck.allCases.count else { return }
-
-        if case .preparing = mixEngineState {
-            let armingDeck = deckStates[MixEngine.Deck.a.rawValue]
-            if armingDeck.trackId == armingTrackId, case .loading(let fraction) = armingDeck.status {
-                let nextState = MixEngineState.preparing(fraction)
-                if mixEngineState != nextState { mixEngineState = nextState }
-            }
-        }
-
-        let other = deckStates[liveDeck.other.rawValue]
-        if let wanted = incomingTrackId, other.trackId == wanted {
-            switch other.status {
-            case .loading(let fraction):
-                let nextState = IncomingDeckState.loading(fraction)
-                if incomingDeck != nextState { incomingDeck = nextState }
-            case .ready:
-                if incomingDeck != .ready { incomingDeck = .ready }
-            case .failed(let message):
-                let nextState = IncomingDeckState.failed(message)
-                if incomingDeck != nextState { incomingDeck = nextState }
-            case .empty:                 break
-            }
-        }
-
-        guard isMixEngineLive else { return }
-
-        let live = deckStates[liveDeck.rawValue]
-        if live.duration > 0, duration != live.duration { duration = live.duration }
-        // Deck metering changes at 20 Hz. Publishing that rate through the
-        // app-wide player object redraws every observer, even while the user
-        // is browsing another tab. Transport controls interpolate locally, so
-        // match the normal AVPlayer cadence instead.
-        let now = Date()
-        if now.timeIntervalSince(lastMixEngineTransportUpdate) >= Self.mixEngineTransportUpdateInterval {
-            lastMixEngineTransportUpdate = now
-            currentTime = live.position
-        }
-        let playing = live.isPlaying || isCrossfading
-        if isPlaying != playing { isPlaying = playing }
-        persistSessionState()
-        let whole = Int(live.position)
-        if whole != lastNowPlayingSecond {
-            lastNowPlayingSecond = whole
-            updateNowPlayingProgress()
-        }
-
-        if isPhantomEnabled {
-            updatePhantomTick(live: live)
-        } else if isAutoMixDue(live: live) {
-            Task { @MainActor [weak self] in self?.startAutoMixIfStillDue() }
-        }
-
-        if !isCrossfading,
-           !deckEndHandled,
-           !live.isPlaying,
-           live.status == .ready,
-           live.duration > 0,
-           live.position >= live.duration - 0.35 {
-            deckEndHandled = true
-            Task { @MainActor [weak self] in
-                await self?.handlePlaybackEnded()
-            }
-        }
-    }
-
-    private func isAutoMixDue(live: MixEngine.DeckState) -> Bool {
-        guard djSessionEnabled, isAutoMixEnabled else { return false }
-        guard !isCrossfading, mixWindow == nil else { return false }
-        guard isMixEngineLive, incomingDeck.isReady else { return false }
-        guard let next = upcomingTrack, incomingTrackId == next.id else { return false }
-        guard let seconds = effectiveMixSeconds() else { return false }
-        let total = live.duration > 0 ? live.duration : duration
-        guard total > 0 else { return false }
-        return live.position >= max(0, total - seconds)
-    }
-
-    private func effectiveMixSeconds() -> TimeInterval? {
-        if let seconds = plannedMixSeconds() { return seconds }
-        guard autoMixSettingEnabled, upcomingTrack != nil else { return nil }
-        return SettingsStore.shared.djTransitionLengthSeconds
-    }
-
-    private func startAutoMixIfStillDue() {
-        guard isMixEngineLive, !isCrossfading, mixWindow == nil else { return }
-        guard isAutoMixDue(live: MixEngine.shared[liveDeck]) else { return }
-        guard let next = upcomingTrack, let index = nextQueueIndex() else { return }
-        guard let seconds = effectiveMixSeconds() else { return }
-
-        performLiveTransition(to: next, at: index, over: seconds, announceAsMix: true)
-    }
-
-    private func handBackToAVPlayer() {
-        guard isMixEngineLive, let track = currentTrack else {
-            endMixSession()
-            return
-        }
-        let resumeAt = currentTime
-        endMixSession()
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.loadAndPlay(track: track)
-            self.seek(to: resumeAt)
-        }
-    }
-
-    private func endMixSession() {
-        armTask?.cancel();      armTask = nil
-        incomingTask?.cancel(); incomingTask = nil
-        mixTask?.cancel();      mixTask = nil
-        for task in transitionStageTasks { task.cancel() }
-        transitionStageTasks.removeAll()
-
-        armingTrackId = nil
-        armedTrackId = nil
-        incomingTrackId = nil
-        incomingDeck = .idle
-        isCrossfading = false
-        deckEndHandled = false
-        mixWindow = nil
-        liveDeck = .a
-
-        for task in phantomPlanTasks.values { task.cancel() }
-        phantomPlanTasks.removeAll()
-        phantomPlanCache.removeAll()
-        phantomCutAnnounced = false
-        recentTemplates.removeAll()
-        phantomActivity = .idle
-
-        mixEngineState = .off
-        if mixEngineTouched {
-            MixEngine.shared.stop()
-        }
-    }
-
-    private func teardownAVPlayer() {
+    func teardownAVPlayer(invalidatePipeline: Bool = true, keepingParked: Bool = false) {
+        if !keepingParked { discardParkedPlayback() }
+        bufferingWatchdogTask?.cancel()
+        bufferingWatchdogTask = nil
+        recoveringToken = nil
         #if !os(macOS)
         if #available(iOS 27.0, tvOS 27.0, *) {
             player?.setDisconnectedFromSystemAudio(true)
@@ -3142,78 +3153,126 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             player.removeTimeObserver(observer)
         }
         timeObserver = nil
+        removePlaybackStartObserver()
         cancellables.removeAll()
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         player = nil
-        standbyItems.removeAll()
-        loadGeneration &+= 1
+        mediaOrigin = nil
+        if invalidatePipeline {
+            playbackPipeline.invalidate(keeping: currentTrack?.id)
+            syncPublishedPlaybackState()
+        }
     }
 
-    private static func resolveMixURL(for track: Track, collectionId: String?) async throws -> URL {
-        guard let source = mixSource(for: track, collectionId: collectionId) else {
+    /// The manual DJ surface still renders through MixEngine, but source and
+    /// cache ownership stays here with every other audio load.
+    func loadManualDeck(_ track: Track, into deck: MixEngine.Deck) async throws {
+        let url = try await resolveMixURL(for: track, collectionId: activeCollectionId)
+        defer { TemporaryPlaintextFile(url: url).release() }
+        try await MixEngine.shared.load(
+            url: url,
+            into: deck,
+            trackId: track.id,
+            cacheKey: mixCacheKey(for: track, collectionId: activeCollectionId)
+        )
+    }
+
+    /// Analysis is a consumer of audio, not a second resolver. This gives it
+    /// the exact same local-first and quality-aware source policy as playback.
+    func audioURLForAnalysis(of track: Track) async throws -> URL {
+        try await resolveMixURL(for: track, collectionId: activeCollectionId)
+    }
+
+    func resolveMixURL(for track: Track, collectionId: String?) async throws -> URL {
+        do {
+            return try await sourceResolver.decodedAudioURL(
+                for: track,
+                collectionID: collectionId
+            )
+        } catch is CancellationError {
+            throw MixEngineError.cancelled
+        } catch let denial as SoundCloudEntitlementError {
+            throw denial
+        } catch PlaybackSourceResolutionError.unsupportedFormat {
             throw MixEngineError.unsupportedFormat(
                 "SoundCloud only offers Opus for this track, and AVFoundation has no Opus decoder"
             )
-        }
-
-        let token = SoundCloudAPI.credentials?.accessToken
-        let url = SoundCloudAPI.sanitized(source.url, isAuthenticated: token != nil)
-
-        var request = URLRequest(url: url)
-        request.addValue("application/json", forHTTPHeaderField: "Accept")
-        if let token {
-            request.addValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
-        }
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch is CancellationError {
-            throw MixEngineError.cancelled
         } catch {
             throw MixEngineError.networkFailure(error.localizedDescription)
         }
-
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw MixEngineError.httpStatus(http.statusCode)
-        }
-
-        struct StreamResponse: Decodable { let url: String }
-        guard let decoded = try? JSONDecoder().decode(StreamResponse.self, from: data),
-              let resolved = URL(string: decoded.url) else {
-            throw MixEngineError.networkFailure("SoundCloud returned no stream URL for the mix source.")
-        }
-        return resolved
     }
 
-    private static func mixSource(for track: Track, collectionId: String?) -> Transcoding? {
-        let decodable = track.transcodings.filter { $0.codec != .opus }
-        let ceiling = CollectionQualityOverrideStore.shared.effectiveCeiling(
-            for: collectionId ?? track.id,
-            default: SettingsStore.shared.streamingQualityCeiling
+    private func mixSource(for track: Track, collectionId: String?) -> Transcoding? {
+        sourceResolver.transcoding(
+            for: track,
+            collectionID: collectionId,
+            purpose: .decodedAudio
         )
-        return ceiling.bestTranscoding(among: decodable)
     }
 
-    private static func mixCacheKey(for track: Track, collectionId: String?) -> String {
+    func mixCacheKey(for track: Track, collectionId: String?) -> String {
         "track-\(track.id)-\(mixSource(for: track, collectionId: collectionId)?.preset ?? "default")"
     }
 
-    private static func isCancellation(_ error: Error) -> Bool {
+    static func isCancellation(_ error: Error) -> Bool {
         if error is CancellationError { return true }
         if let mixError = error as? MixEngineError, mixError == .cancelled { return true }
         return false
     }
 
-    private static func describeMixFailure(_ error: Error) -> String {
-        if let mixError = error as? MixEngineError {
-            return mixError.errorDescription ?? "Audio could not be prepared for mixing."
-        }
-        if error is CancellationError { return "Preparation was cancelled." }
-        if let api = error as? APIError { return api.errorDescription ?? error.localizedDescription }
-        return error.localizedDescription
+    static func describeMixFailure(_ error: Error) -> String {
+        if error is CancellationError { return MixEngineError.cancelled.displayMessage }
+        Log.dj.error("[Mix] \(String(describing: error), privacy: .public)")
+        if let mixError = error as? MixEngineError { return mixError.displayMessage }
+        if error is APIError || error is URLError { return MixEngineError.networkFailure("").displayMessage }
+        return MixEngineError.engineStartFailed("").displayMessage
     }
 
+}
+
+@MainActor
+final class PlayedTrackLog {
+    static let shared = PlayedTrackLog()
+
+    private static let storageKey = "playedTrackLog.v1"
+    private static let limit = 5_000
+    private let defaults: UserDefaults
+    private var order: [String]
+    private(set) var ids: Set<String>
+
+    private var forgetObserver: NSObjectProtocol?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        order = defaults.stringArray(forKey: Self.storageKey) ?? []
+        ids = Set(order)
+        forgetObserver = NotificationCenter.default.addObserver(
+            forName: AccountDataVault.didForgetAccountData,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.forget() }
+        }
+    }
+
+    func hasPlayed(_ id: String) -> Bool { ids.contains(id) }
+
+    func forget() {
+        order = []
+        ids = []
+        defaults.removeObject(forKey: Self.storageKey)
+    }
+
+    func note(_ id: String) {
+        guard !ids.contains(id) else { return }
+        order.append(id)
+        ids.insert(id)
+        if order.count > Self.limit {
+            let dropped = order.prefix(order.count - Self.limit)
+            order.removeFirst(dropped.count)
+            ids.subtract(dropped)
+        }
+        defaults.set(order, forKey: Self.storageKey)
+    }
 }

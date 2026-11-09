@@ -4,180 +4,114 @@ struct WatchSettingsView: View {
     @EnvironmentObject private var link: WatchLinkClient
     @EnvironmentObject private var credentials: WatchCredentialSource
     @ObservedObject private var settings = SettingsStore.shared
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var displayName: String {
         if let name = credentials.currentUser?.displayName ?? link.authState.displayName {
             return name
         }
-        return credentials.isSignedIn ? "SoundCloud Account" : "No Account"
+        return credentials.isSignedIn ? "SoundCloud" : "Not Signed In"
     }
 
     private var avatarURL: URL? {
         credentials.currentUser?.avatarURL ?? link.authState.avatarURL
     }
 
+    private var outputSelection: Binding<String> {
+        Binding(
+            get: { link.nowPlaying.outputOptions.first(where: link.nowPlaying.isSelected)?.id ?? WatchOutputOption.thisPhoneID },
+            set: { id in
+                guard let option = link.nowPlaying.outputOptions.first(where: { $0.id == id }) else { return }
+                link.selectOutput(option)
+            }
+        )
+    }
+
     var body: some View {
         List {
             Section {
-                HStack(spacing: WatchStyle.style.spaceTight) {
-                    SCArtworkResolver(url: avatarURL, variant: .standard) { image in
-                        if let image {
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } else {
-                            Circle()
-                                .fill(WatchStyle.style.bgOverlay)
-                                .overlay {
-                                    Image(systemName: "person.fill")
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundStyle(WatchStyle.style.textTertiary)
-                                }
-                        }
-                    }
-                    .frame(width: 36, height: 36)
-                    .clipShape(Circle())
+                HStack(spacing: 8) {
+                    WatchArtwork(url: avatarURL, size: 36, corner: 18, identity: displayName)
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text(displayName)
-                            .font(WatchStyle.style.fontBodyEmphasis)
-                            .foregroundStyle(WatchStyle.style.textPrimary)
-                            .lineLimit(1)
+                            .font(.body)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                         Text(credentials.isSignedIn ? "Signed In" : "Signed Out")
-                            .font(WatchStyle.style.fontCaption)
-                            .foregroundStyle(WatchStyle.style.textSecondary)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
 
                     Spacer(minLength: 0)
                 }
-                .padding(.vertical, 2)
+                .accessibilityElement(children: .combine)
 
                 if credentials.isSignedIn {
-                    Button(role: .destructive) {
+                    Button("Sign Out", role: .destructive) {
                         credentials.signOut()
-                    } label: {
-                        Text("Sign Out")
                     }
                 }
             } header: {
-                WatchSectionHeader(title: "Account")
+                Text("Account")
             }
 
             Section {
-                WatchOutputOptionRow(
-                    title: "iPhone",
-                    systemImage: "iphone.gen3",
-                    isSelected: link.nowPlaying.output == .phone
-                ) {
-                    link.selectOutput(.phone)
+                Picker("Output", selection: outputSelection) {
+                    ForEach(link.nowPlaying.outputOptions) { option in
+                        Label(option.name, systemImage: option.deviceClass.symbolName)
+                            .tag(option.id)
+                    }
                 }
-                WatchOutputOptionRow(
-                    title: "Apple TV",
-                    systemImage: "appletv.fill",
-                    isSelected: link.nowPlaying.output == .tv
-                ) {
-                    link.selectOutput(.tv)
+                .pickerStyle(.navigationLink)
+            }
+
+            Section {
+                NavigationLink {
+                    WatchDownloadsView()
+                } label: {
+                    LabeledContent("Storage") {
+                        WatchOfflineStorageLine()
+                    }
                 }
             } header: {
-                WatchSectionHeader(title: "Output")
+                Text("On This Watch")
+            } footer: {
+                Text("Change the limit on iPhone.")
             }
 
             if !link.settings.items.isEmpty {
                 Section {
                     ForEach(link.settings.items) { item in
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(item.title)
-                                .font(WatchStyle.style.fontBody)
-                                .foregroundStyle(WatchStyle.style.textPrimary)
-                                .lineLimit(1)
-                            Spacer(minLength: WatchStyle.style.spaceTight)
-                            Text(item.value)
-                                .font(WatchStyle.style.fontCaption)
-                                .foregroundStyle(WatchStyle.style.textSecondary)
-                                .lineLimit(1)
-                        }
+                        LabeledContent(item.title, value: item.value)
                     }
                 } header: {
-                    WatchSectionHeader(title: "Playback")
+                    Text("Playback")
                 } footer: {
-                    Text("Change these on iPhone.")
-                        .font(WatchStyle.style.fontCaption)
-                        .foregroundStyle(WatchStyle.style.textTertiary)
+                    Text("Change on iPhone.")
                 }
             }
 
             if !settings.recentSearchQueries.isEmpty {
                 Section {
-                    Button(role: .destructive) {
+                    Button("Clear Recent Searches", role: .destructive) {
                         settings.setRecentSearchQueries([])
-                    } label: {
-                        Label("Clear Recent Searches", systemImage: "trash")
                     }
-                } header: {
-                    WatchSectionHeader(title: "This Watch")
                 }
             }
 
             Section {
-                HStack {
-                    Text("iPhone")
-                        .font(WatchStyle.style.fontBody)
-                        .foregroundStyle(WatchStyle.style.textPrimary)
-                    Spacer()
-                    Text(link.isReachable ? "Connected" : "Unreachable")
-                        .font(WatchStyle.style.fontCaption)
-                        .foregroundStyle(link.isReachable ? WatchStyle.style.success : WatchStyle.style.destructive)
-                }
-
-                HStack {
-                    Text("Companion App")
-                        .font(WatchStyle.style.fontBody)
-                        .foregroundStyle(WatchStyle.style.textPrimary)
-                    Spacer()
-                    Text(link.isCompanionInstalled ? "Installed" : "Not Installed")
-                        .font(WatchStyle.style.fontCaption)
-                        .foregroundStyle(link.isCompanionInstalled ? WatchStyle.style.success : WatchStyle.style.textTertiary)
-                }
-
+                LabeledContent("iPhone", value: link.isReachable ? "Connected" : "Not Reachable")
+                LabeledContent("Sounding on iPhone", value: link.isCompanionInstalled ? "Installed" : "Not Installed")
                 Button {
                     link.requestSnapshot()
                 } label: {
                     Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
                 }
+                .accessibilityHint("Requests the latest state from iPhone")
             } header: {
-                WatchSectionHeader(title: "Connection")
+                Text("Connection")
             }
         }
         .navigationTitle("Settings")
-    }
-}
-
-private struct WatchOutputOptionRow: View {
-    let title: String
-    let systemImage: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: WatchStyle.style.spaceTight) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(isSelected ? WatchStyle.style.accent : WatchStyle.style.textSecondary)
-                    .frame(width: 22)
-                Text(title)
-                    .font(WatchStyle.style.fontBodyEmphasis)
-                    .foregroundStyle(WatchStyle.style.textPrimary)
-                Spacer(minLength: 0)
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(WatchStyle.style.accent)
-                }
-            }
-            .padding(.vertical, 3)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }

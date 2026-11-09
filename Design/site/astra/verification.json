@@ -1,0 +1,58 @@
+{
+  "viewports": [
+    {
+      "width": 320,
+      "scrollWidth": 320,
+      "brokenImages": [],
+      "overflows": []
+    },
+    {
+      "width": 390,
+      "scrollWidth": 390,
+      "brokenImages": [],
+      "overflows": []
+    },
+    {
+      "width": 768,
+      "scrollWidth": 768,
+      "brokenImages": [],
+      "overflows": []
+    },
+    {
+      "width": 1024,
+      "scrollWidth": 1024,
+      "brokenImages": [],
+      "overflows": []
+    },
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "brokenImages": [],
+      "overflows": []
+    }
+  ],
+  "errors": [],
+  "externalPageRequests": [],
+  "reducedMotion": {
+    "matches": true,
+    "activeAnimations": 0
+  },
+  "anchors": {
+    "broken": []
+  },
+  "dark": {
+    "background": "rgb(28, 32, 29)",
+    "colour": "rgb(242, 238, 229)"
+  },
+  "motion": {
+    "duration": "2.3s",
+    "revealTransform": "matrix(0, 0, 0, 1, 0, 0)"
+  },
+  "focus": {
+    "tag": "SUMMARY",
+    "focused": true
+  },
+  "keyboardFAQ": true,
+  "keyboardTheme": true,
+  "passed": true
+}

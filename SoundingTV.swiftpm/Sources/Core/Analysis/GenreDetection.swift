@@ -147,7 +147,7 @@ enum GenreTagNormalizer {
             for part in parts {
                 guard let match = resolve(part) else { continue }
                 let score = partScore(match, tokenCount: tokens(part).count)
-                if best == nil || score > best!.score {
+                if best == nil || score > best?.score ?? -.infinity {
                     best = (match, score)
                 }
             }
@@ -194,7 +194,7 @@ enum GenreTagNormalizer {
         for context in containmentDenylist where key.contains(context) { return nil }
         var best: (stem: String, genre: MusicGenre)?
         for (stem, genre) in containmentStems where key.contains(stem) {
-            if best == nil || stem.count > best!.stem.count { best = (stem, genre) }
+            if best == nil || stem.count > best?.stem.count ?? 0 { best = (stem, genre) }
         }
         guard let best else { return nil }
         return Match(genre: best.genre, family: GenreProfile.of(best.genre).family,

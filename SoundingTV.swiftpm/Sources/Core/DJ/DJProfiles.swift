@@ -1,15 +1,13 @@
 import Foundation
 import SwiftUI
 
-/// A single explanation used by phone, television, and Mac so the controls do
-/// not acquire three subtly different meanings on three screens.
 struct DJModeGuideView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                LazyVStack(alignment: .leading, spacing: 20) {
                     guideSection(
                         "Run modes",
                         icon: "switch.2",
@@ -99,23 +97,24 @@ struct DJModeGuideView: View {
 
 extension DJProfile {
 
-    /// The default background director: it keeps queue order and stays
-    /// conservative about tempo/key, but may take a strong phrase or
-    /// breakdown after roughly half the track instead of always waiting for
-    /// the outro.
     static let automaticDJ = DJProfile(
         id: .automatic,
-        displayName: "Auto DJ",
-        blurb: "Plays the queue in order and takes a strong mid-track phrase when the analysis backs it up.",
+        displayName: "Auto Mix",
+        blurb: "Plays the queue in order and mixes each track out of its outro with a long, phrase-aligned blend.",
 
         exitRegionFloor: 0.45,
-        allowMidTrackExit: true,
+        allowMidTrackExit: false,
+        entryRegionCeiling: 0.35,
         minimumPlayFraction: 0.55,
 
         admissibleTemplates: [
-            DJTemplates.bassSwapBlend, DJTemplates.filterFadeOut,
-            DJTemplates.filterBloomIn, DJTemplates.cutOnTheOne,
-            DJTemplates.halfTimeBlend
+            DJMoveIDs.blend, DJTemplates.filterFadeOut,
+            DJTemplates.filterBloomIn, DJTemplates.highPassThinOut,
+            DJTemplates.cutOnTheOne,
+            DJTemplates.halfTimeBlend,
+            DJMoveIDs.echoOut, DJMoveIDs.breakdownExit, DJMoveIDs.dropIn,
+            DJMoveIDs.dropOnTheOne, DJMoveIDs.filterBuild, DJMoveIDs.echoBuild,
+            DJMoveIDs.loopMix
         ],
         repeatTemplateCooldown: 2,
 
@@ -149,9 +148,10 @@ extension DJProfile {
             .novelty: 0.25
         ],
         minimumScoreToFire: 0.55,
-        transitionBarsRange: 4...32,
+        transitionBarsRange: 8...32,
         energyStepLimit: 2,
-        timbreTargetDistance: 0.24
+        timbreTargetDistance: 0.24,
+        honoursUserTransitionLength: false
     )
 
     static let weddingDJ = DJProfile(
@@ -161,12 +161,15 @@ extension DJProfile {
 
         exitRegionFloor: 0.72,
         allowMidTrackExit: false,
+        entryRegionCeiling: 0.20,
         minimumPlayFraction: 0.85,
 
         admissibleTemplates: [
-            DJTemplates.bassSwapBlend, DJTemplates.filterFadeOut,
-            DJTemplates.filterBloomIn, DJTemplates.cutOnTheOne,
-            DJTemplates.halfTimeBlend
+            DJMoveIDs.blend, DJTemplates.filterFadeOut,
+            DJTemplates.filterBloomIn, DJTemplates.highPassThinOut,
+            DJTemplates.cutOnTheOne,
+            DJTemplates.halfTimeBlend,
+            DJMoveIDs.echoOut, DJMoveIDs.loopMix
         ],
         repeatTemplateCooldown: 2,
 
@@ -202,23 +205,31 @@ extension DJProfile {
         minimumScoreToFire: 0.62,
         transitionBarsRange: 8...32,
         energyStepLimit: 1,
-        timbreTargetDistance: 0.18
+        timbreTargetDistance: 0.18,
+        honoursUserTransitionLength: true
     )
 
     static let junkie = DJProfile(
         id: .junkie,
         displayName: "Junkie",
-        blurb: "Cuts tracks short, reorders the queue, and goes wherever the phrase boundaries let it.",
+        blurb: "Cuts tracks short and goes wherever the phrase boundaries let it.",
 
         exitRegionFloor: 0.25,
         allowMidTrackExit: true,
+        entryRegionCeiling: 0.55,
         minimumPlayFraction: 0.35,
 
         admissibleTemplates: [
-            DJTemplates.bassSwapBlend, DJTemplates.filterFadeOut,
-            DJTemplates.filterBloomIn, DJTemplates.cutOnTheOne,
+            DJMoveIDs.blend, DJTemplates.filterFadeOut,
+            DJTemplates.filterBloomIn, DJTemplates.highPassThinOut,
+            DJTemplates.cutOnTheOne,
             DJTemplates.halfTimeBlend,
-            DJTemplates.loopRollDown
+            DJTemplates.echoOut,
+            DJTemplates.doubleDrop,
+            DJMoveIDs.echoOut, DJMoveIDs.breakdownExit, DJMoveIDs.dropIn,
+            DJMoveIDs.dropOnTheOne, DJMoveIDs.filterBuild, DJMoveIDs.echoBuild,
+            DJMoveIDs.reverbWash, DJMoveIDs.loopRoll, DJMoveIDs.tempoRamp, DJMoveIDs.bridge,
+            DJMoveIDs.loopMix
         ],
         repeatTemplateCooldown: 3,
 
@@ -233,7 +244,7 @@ extension DJProfile {
         genreCeiling: 0.85,
 
         mayReorderQueue: true,
-        lookaheadCandidates: 24,
+        lookaheadCandidates: 12,
         analysisBudgetPerTrack: 3,
 
         maxLoopBars: 32,
@@ -254,20 +265,14 @@ extension DJProfile {
         minimumScoreToFire: 0.45,
         transitionBarsRange: 4...64,
         energyStepLimit: 2,
-        timbreTargetDistance: 0.32
+        timbreTargetDistance: 0.32,
+        honoursUserTransitionLength: false
     )
-
-    static let junkieFutureTemplates: Set<TransitionTemplateID> = [
-        "highPassThinOut", "echoOut", "tempoRampBlend", "doubleDrop"
-    ]
 
     static let all: [DJProfile] = [.automaticDJ, .weddingDJ, .junkie]
 
     static func profile(id: DJProfileID) -> DJProfile? { all.first { $0.id == id } }
 
-    /// An explicit session choice only changes how candidates are ordered. It
-    /// must not accidentally inherit unrelated collection constraints such as
-    /// a shorter maximum transition.
     func applying(queueOrder order: DJQueueOrderPolicy) -> DJProfile {
         let mayReorder: Bool
         switch order {
@@ -279,6 +284,7 @@ extension DJProfile {
         return DJProfile(
             id: id, displayName: displayName, blurb: blurb,
             exitRegionFloor: exitRegionFloor, allowMidTrackExit: allowMidTrackExit,
+            entryRegionCeiling: entryRegionCeiling,
             minimumPlayFraction: minimumPlayFraction,
             admissibleTemplates: admissibleTemplates, repeatTemplateCooldown: repeatTemplateCooldown,
             maxAbsRatePercent: maxAbsRatePercent, allowVarispeed: allowVarispeed,
@@ -290,8 +296,60 @@ extension DJProfile {
             analysisBudgetPerTrack: analysisBudgetPerTrack, maxLoopBars: maxLoopBars,
             maxLoopHalvings: maxLoopHalvings, weights: weights,
             minimumScoreToFire: minimumScoreToFire, transitionBarsRange: transitionBarsRange,
-            energyStepLimit: energyStepLimit, timbreTargetDistance: timbreTargetDistance
+            energyStepLimit: energyStepLimit, timbreTargetDistance: timbreTargetDistance,
+            honoursUserTransitionLength: honoursUserTransitionLength,
+            blendTargetBars: blendTargetBars
         )
+    }
+
+    var styleName: String {
+        switch id {
+        case .wedding: return "Smooth"
+        case .automatic: return "Club"
+        case .junkie: return "Adventurous"
+        default: return displayName
+        }
+    }
+
+    func referenceBars(outgoing: TrackFeatures?, incoming: TrackFeatures?) -> Int {
+        let target = blendTargetBars ?? DJBlendTarget.bars(outgoing: outgoing, incoming: incoming)
+        return max(transitionBarsRange.lowerBound, min(transitionBarsRange.upperBound, target))
+    }
+
+    func applying(blend: DJBlendLength) -> DJProfile {
+        let upper: Int
+        var target: Int?
+        switch blend {
+        case .short:
+            upper = max(transitionBarsRange.lowerBound, min(transitionBarsRange.upperBound, DJBlendTarget.shortBars))
+            target = DJBlendTarget.shortBars
+        case .normal:
+            upper = max(transitionBarsRange.upperBound, DJBlendTarget.autoMaximumBars)
+        case .long:
+            upper = max(transitionBarsRange.upperBound, DJBlendTarget.longBars)
+            target = DJBlendTarget.longBars
+        }
+        var profile = DJProfile(
+            id: id, displayName: displayName, blurb: blurb,
+            exitRegionFloor: exitRegionFloor, allowMidTrackExit: allowMidTrackExit,
+            entryRegionCeiling: entryRegionCeiling,
+            minimumPlayFraction: minimumPlayFraction,
+            admissibleTemplates: admissibleTemplates, repeatTemplateCooldown: repeatTemplateCooldown,
+            maxAbsRatePercent: maxAbsRatePercent, allowVarispeed: allowVarispeed,
+            requireMeasuredBPMForRate: requireMeasuredBPMForRate, maxDriftMs: maxDriftMs,
+            minGridConfidence: minGridConfidence, maxCamelotSteps: maxCamelotSteps,
+            allowEnergyBoost: allowEnergyBoost, genreCeiling: genreCeiling,
+            mayReorderQueue: mayReorderQueue,
+            lookaheadCandidates: lookaheadCandidates,
+            analysisBudgetPerTrack: analysisBudgetPerTrack, maxLoopBars: maxLoopBars,
+            maxLoopHalvings: maxLoopHalvings, weights: weights,
+            minimumScoreToFire: minimumScoreToFire,
+            transitionBarsRange: transitionBarsRange.lowerBound...upper,
+            energyStepLimit: energyStepLimit, timbreTargetDistance: timbreTargetDistance,
+            honoursUserTransitionLength: honoursUserTransitionLength
+        )
+        profile.blendTargetBars = target
+        return profile
     }
 
     func applying(collectionPolicy policy: CollectionPolicy) -> DJProfile {
@@ -316,6 +374,7 @@ extension DJProfile {
             blurb: blurb,
             exitRegionFloor: exitRegionFloor,
             allowMidTrackExit: allowMidTrackExit,
+            entryRegionCeiling: entryRegionCeiling,
             minimumPlayFraction: minimumPlayFraction,
             admissibleTemplates: admissibleTemplates,
             repeatTemplateCooldown: repeatTemplateCooldown,
@@ -336,7 +395,9 @@ extension DJProfile {
             minimumScoreToFire: minimumScoreToFire,
             transitionBarsRange: minimumBars...maximumBars,
             energyStepLimit: energyStepLimit,
-            timbreTargetDistance: timbreTargetDistance
+            timbreTargetDistance: timbreTargetDistance,
+            honoursUserTransitionLength: honoursUserTransitionLength,
+            blendTargetBars: blendTargetBars
         )
     }
 }
@@ -344,7 +405,7 @@ extension DJProfile {
 extension DJProfile {
     enum CodingKeys: String, CodingKey {
         case id, displayName, blurb
-        case exitRegionFloor, allowMidTrackExit, minimumPlayFraction
+        case exitRegionFloor, allowMidTrackExit, entryRegionCeiling, minimumPlayFraction
         case admissibleTemplates, repeatTemplateCooldown
         case maxAbsRatePercent, allowVarispeed, requireMeasuredBPMForRate, maxDriftMs, minGridConfidence
         case maxCamelotSteps, allowEnergyBoost, genreCeiling
@@ -352,6 +413,7 @@ extension DJProfile {
         case maxLoopBars, maxLoopHalvings
         case weightPairs, minimumScoreToFire, transitionBarsLow, transitionBarsHigh
         case energyStepLimit, timbreTargetDistance
+        case honoursUserTransitionLength
     }
 
     private struct WeightPair: Codable, Sendable {
@@ -366,6 +428,7 @@ extension DJProfile {
         blurb = try c.decode(String.self, forKey: .blurb)
         exitRegionFloor = try c.decode(Double.self, forKey: .exitRegionFloor)
         allowMidTrackExit = try c.decode(Bool.self, forKey: .allowMidTrackExit)
+        entryRegionCeiling = try c.decodeIfPresent(Double.self, forKey: .entryRegionCeiling) ?? 0.20
         minimumPlayFraction = try c.decode(Double.self, forKey: .minimumPlayFraction)
         admissibleTemplates = Set(try c.decode([String].self, forKey: .admissibleTemplates)
             .map { TransitionTemplateID($0) })
@@ -391,6 +454,7 @@ extension DJProfile {
         transitionBarsRange = low...max(low, high)
         energyStepLimit = try c.decode(Int.self, forKey: .energyStepLimit)
         timbreTargetDistance = try c.decode(Double.self, forKey: .timbreTargetDistance)
+        honoursUserTransitionLength = try c.decodeIfPresent(Bool.self, forKey: .honoursUserTransitionLength) ?? true
     }
 
     func encode(to encoder: Encoder) throws {
@@ -400,6 +464,7 @@ extension DJProfile {
         try c.encode(blurb, forKey: .blurb)
         try c.encode(exitRegionFloor, forKey: .exitRegionFloor)
         try c.encode(allowMidTrackExit, forKey: .allowMidTrackExit)
+        try c.encode(entryRegionCeiling, forKey: .entryRegionCeiling)
         try c.encode(minimumPlayFraction, forKey: .minimumPlayFraction)
         try c.encode(admissibleTemplates.map(\.rawValue).sorted(), forKey: .admissibleTemplates)
         try c.encode(repeatTemplateCooldown, forKey: .repeatTemplateCooldown)
@@ -426,5 +491,50 @@ extension DJProfile {
         try c.encode(transitionBarsRange.upperBound, forKey: .transitionBarsHigh)
         try c.encode(energyStepLimit, forKey: .energyStepLimit)
         try c.encode(timbreTargetDistance, forKey: .timbreTargetDistance)
+        try c.encode(honoursUserTransitionLength, forKey: .honoursUserTransitionLength)
+    }
+}
+
+enum DJBlendTarget {
+    static let shortBars = 16
+    static let longBars = 64
+    static let autoMaximumBars = 48
+    static let phraseLengths = [16, 24, 32, 40, 48]
+    static let fallbackBars = 32
+    static let spotCheckScale = 0.85
+
+    static func medianBars(_ track: TrackFeatures) -> Double? {
+        if let genre = track.genre, genre.family != .unknown {
+            switch genre.genre {
+            case .hardTechno, .schranz, .hardGroove, .hardstyle, .hardHouse, .hardDance, .hardTrance: return 39
+            case .bigRoom, .futureHouse, .eurodance, .euroHouse, .italoDance, .handsUp, .donk: return 28
+            default: break
+            }
+            switch genre.family {
+            case .techno: return 38
+            case .trance: return 40
+            case .hardDance: return 39
+            case .house: return 31
+            case .disco: return 26
+            default: break
+            }
+        }
+        guard let bpm = track.beatGrid?.bpm ?? track.genre?.bpmHint, bpm > 0 else { return nil }
+        var folded = bpm
+        while folded < 90 { folded *= 2 }
+        while folded >= 180 { folded /= 2 }
+        if folded < 126 { return 31 }
+        if folded < 150 { return 38 }
+        return 39
+    }
+
+    static func bars(outgoing: TrackFeatures?, incoming: TrackFeatures?) -> Int {
+        let medians = [outgoing, incoming].compactMap { $0.flatMap(medianBars) }
+        guard !medians.isEmpty else { return fallbackBars }
+        let target = medians.reduce(0, +) / Double(medians.count) * spotCheckScale
+        return phraseLengths.min { lhs, rhs in
+            let a = abs(Double(lhs) - target), b = abs(Double(rhs) - target)
+            return a == b ? lhs > rhs : a < b
+        } ?? fallbackBars
     }
 }

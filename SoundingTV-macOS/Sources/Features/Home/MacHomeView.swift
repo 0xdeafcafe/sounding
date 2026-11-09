@@ -5,9 +5,18 @@ struct MacHomeView: View {
     @EnvironmentObject private var credentials: SoundCloudCredentialSource
     @ObservedObject private var source: DiscoveryHomeSource
     @ObservedObject private var feedModel: FeedViewModel
-    @ObservedObject private var player = PlayerService.shared
+    private let player = PlayerService.shared
     @State private var hasLoadedOnce = false
-    @State private var homeSurface: HomeSurface = .forYou
+    @SceneStorage("home.surface") private var homeSurface: HomeSurface = .forYou
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var continueFrom = ContinueFrom.shared
+    @State private var isShowingSignIn = false
+    @State private var isHeroUnderBar = true
+
+    private var showsContinueHero: Bool {
+        homeSurface == .forYou && showsShelves && continueFrom.offer != nil
+    }
 
     private enum HomeSurface: String, CaseIterable, Identifiable {
         case forYou = "For You"
@@ -24,15 +33,33 @@ struct MacHomeView: View {
         Group {
             switch homeSurface {
             case .forYou:
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        homeTitleRow
+                MacViewportScrollView {
+                    if showsShelves {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            homeTitleRow
+                                .padding(.bottom, SCContentStyle.mac.spaceBase)
+                                .collectionScrollBackdropLead()
 
-                        content
-                            .padding(.top, SCContentStyle.mac.spaceBase)
-                            .padding(.bottom, 32)
+                            shelves
+                                .padding(.bottom, 32)
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 0) {
+                            homeTitleRow
+
+                            paneState
+                        }
                     }
                 }
+                .defaultScrollAnchor(.top, for: .alignment)
+                .collectionScrollBackdrop(
+                    url: continueFrom.offer?.session.artworkURL,
+                    identity: continueFrom.offer?.session.trackID,
+                    fade: Self.continueMetrics.backdropFade,
+                    isPresent: showsContinueHero
+                )
+                .scrollEdgeEffectHidden(showsContinueHero && isHeroUnderBar, for: .top)
+                .toolbarColorScheme(showsContinueHero && isHeroUnderBar ? .dark : nil, for: .windowToolbar)
             case .following:
                 VStack(spacing: 0) {
                     homeTitleRow
@@ -40,7 +67,7 @@ struct MacHomeView: View {
                 }
             }
         }
-        .navigationTitle("")
+        .navigationTitle("Home")
         .toolbar(removing: .title)
         .background(Color.primary.opacity(0.001))
         .task {
@@ -49,46 +76,32 @@ struct MacHomeView: View {
             await source.refreshIfStale(seed: seed)
         }
         .onChange(of: credentials.isSignedOut) { _, _ in
-            Task { await source.load(seed: seed) }
+            Task { await source.refreshIfStale(seed: seed) }
+        }
+        .sheet(isPresented: $isShowingSignIn) {
+            MacSoundCloudSignInView(peerName: nil, forHandoff: false) {
+                isShowingSignIn = false
+            }
         }
     }
 
     private var homeTitleRow: some View {
         HStack(alignment: .center, spacing: SCContentStyle.mac.spaceBase) {
             Text("Home")
-                .font(.system(size: 34, weight: .bold))
+                .font(.largeTitle.weight(.bold))
                 .foregroundStyle(.primary)
             Spacer(minLength: 20)
-            homeSurfacePicker
+            MacGlassTabs(
+                "Home Feed",
+                selection: $homeSurface,
+                options: Array(HomeSurface.allCases),
+                title: \.rawValue
+            )
         }
+        .macFadesUnderToolbar(over: 18)
         .padding(.horizontal, 20)
         .padding(.top, 22)
-    }
-
-    private var homeSurfacePicker: some View {
-        HStack(spacing: 3) {
-            ForEach(HomeSurface.allCases) { surface in
-                Button {
-                    homeSurface = surface
-                } label: {
-                    Text(surface.rawValue)
-                        .font(.system(size: 12, weight: homeSurface == surface ? .semibold : .medium))
-                        .foregroundStyle(homeSurface == surface ? Color.scAccentOn : Color.secondary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 27)
-                        .background(
-                            homeSurface == surface ? SCContentStyle.mac.accent.opacity(0.55) : .clear,
-                            in: Capsule(style: .continuous)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(3)
-        .frame(width: 190)
-        .glassEffect(.regular, in: Capsule(style: .continuous))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Home feed")
+        .environment(\.colorScheme, showsContinueHero ? .dark : colorScheme)
     }
 
     private var seed: DiscoveryHomeSource.Seed {
@@ -96,24 +109,43 @@ struct MacHomeView: View {
         return DiscoveryHomeSource.Seed(track: track)
     }
 
+    private var showsShelves: Bool {
+        !source.shelves.isEmpty
+    }
+
     @ViewBuilder
-    private var content: some View {
-        if source.shelves.isEmpty, source.isLoading || !hasLoadedOnce {
+    private var paneState: some View {
+        if source.isLoading || !hasLoadedOnce {
             loadingState
         } else if source.didFailCompletely {
             errorState
-        } else if source.shelves.isEmpty {
-            trulyEmptyState
         } else {
-            VStack(alignment: .leading, spacing: 32) {
-                if credentials.isSignedOut {
-                    signedOutBanner
-                }
-                ForEach(source.shelves) { shelf in
-                    shelfView(shelf)
-                }
+            trulyEmptyState
+        }
+    }
+
+    private static let continueMetrics: CollectionHeroMetrics = {
+        var metrics = CollectionHeroMetrics.mac
+        metrics.artworkSide = 160
+        metrics.backdropFade = 96
+        return metrics
+    }()
+
+    private var shelves: some View {
+        VStack(alignment: .leading, spacing: 32) {
+            ContinueFromHero(metrics: Self.continueMetrics, horizontalPadding: 20)
+                .onGeometryChange(for: Bool.self) { proxy in
+                    proxy.size.height > 0 && proxy.frame(in: .scrollView).maxY - Self.continueMetrics.backdropFade > 60
+                } action: { isHeroUnderBar = $0 }
+                .padding(.bottom, showsContinueHero ? -32 : 0)
+            if showsSignedOutBanner {
+                signedOutBanner
+            }
+            ForEach(source.shelves) { shelf in
+                shelfView(shelf)
             }
         }
+        .animation(reduceMotion ? nil : .smooth, value: source.shelves.map(\.id))
     }
 
     @ViewBuilder
@@ -137,22 +169,28 @@ struct MacHomeView: View {
 
     private func shelfHeader(_ shelf: DiscoveryShelf) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            SCSectionHeader(title: shelf.title, style: .mac)
+            if shelf.kind == .recent {
+                SCSectionHeader(title: shelf.title, showChevron: true, action: { MacHistoryRoute.shared.open() }, style: .mac)
+                    .accessibilityHint("Shows your listening history")
+            } else {
+                SCSectionHeader(title: shelf.title, style: .mac)
+            }
             if let subtitle = shelf.subtitle, !subtitle.isEmpty {
                 Text(subtitle)
                     .font(SCContentStyle.mac.fontCaption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MacSecondaryStyle())
                     .lineLimit(2)
             }
         }
+        .macFadesUnderToolbar()
         .padding(.horizontal, 20)
     }
 
     private func trackRail(_ tracks: [Track]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: SCContentStyle.mac.spaceGutter) {
+            LazyHStack(alignment: .top, spacing: SCContentStyle.mac.spaceGutter) {
                 ForEach(tracks) { track in
-                    DiscoveryTrackTile(track: track, context: { tracks }, player: player)
+                    DiscoveryTrackTile(track: track, context: { tracks })
                 }
             }
             .padding(.horizontal, 20)
@@ -163,7 +201,7 @@ struct MacHomeView: View {
 
     private func playlistRail(_ playlists: [Playlist]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: SCContentStyle.mac.spaceGutter) {
+            LazyHStack(alignment: .top, spacing: SCContentStyle.mac.spaceGutter) {
                 ForEach(playlists) { playlist in
                     DiscoveryPlaylistCard(playlist: playlist)
                 }
@@ -177,13 +215,13 @@ struct MacHomeView: View {
     @ViewBuilder
     private func entryRail(_ entries: [DiscoveryEntry]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: SCContentStyle.mac.spaceGutter) {
+            LazyHStack(alignment: .top, spacing: SCContentStyle.mac.spaceGutter) {
                 ForEach(entries) { entry in
                     switch entry {
                     case .playlist(let playlist):
                         DiscoveryPlaylistCard(playlist: playlist)
                     case .station(let station):
-                        DiscoveryStationTile(station: station, player: player)
+                        DiscoveryStationTile(station: station)
                     case .user(let user):
                         DiscoveryArtistTile(user: user)
                     }
@@ -197,7 +235,7 @@ struct MacHomeView: View {
 
     private func artistRail(_ users: [User]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: SCContentStyle.mac.spaceGutter) {
+            LazyHStack(alignment: .top, spacing: SCContentStyle.mac.spaceGutter) {
                 ForEach(users) { user in
                     DiscoveryArtistTile(user: user)
                 }
@@ -208,95 +246,79 @@ struct MacHomeView: View {
         .prefetchArtwork(users.compactMap { $0.largeAvatarURL ?? $0.avatarURL })
     }
 
+    private var showsSignedOutBanner: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["SOUNDING_TV_WELCOME"] == "1" { return true }
+        #endif
+        return credentials.isSignedOut
+    }
+
     private var signedOutBanner: some View {
-        HStack(alignment: .center, spacing: SCContentStyle.mac.spaceSnug) {
-            Image(systemName: "person.crop.circle.badge.plus")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Browsing as a guest")
-                    .font(SCContentStyle.mac.fontBodyEmphasis)
-                    .foregroundStyle(SCContentStyle.mac.textPrimary)
-                Text("Pair with your iPhone to get your likes, your listening history, and mixes made for you.")
-                    .font(SCContentStyle.mac.fontCaption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 16)
-            Button("Open Account") { MacRootSelection.shared.request(.account) }
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: SCContentStyle.mac.cornerControl, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
-        )
-        .padding(.horizontal, 20)
-        .accessibilityElement(children: .combine)
+        MacWelcomeHero(isActive: !isShowingSignIn) { isShowingSignIn = true }
+            .padding(.horizontal, 20)
     }
 
     private var loadingState: some View {
-        ProgressView()
-            .controlSize(.large)
-            .frame(maxWidth: .infinity, minHeight: 320)
+        MacLoadingView()
     }
 
     @ViewBuilder
     private var errorState: some View {
         if source.didFailForCredentials {
-            SCEmptyState(
-                kind: .error,
-                title: "Signed Out by SoundCloud",
-                message: "SoundCloud rejected this Mac's sign-in, so nothing could load. Re-pair with your iPhone from the Account pane if it keeps happening.",
-                actionTitle: "Open Account",
-                action: { MacRootSelection.shared.request(.account) },
-                style: .mac
-            )
-            .frame(maxWidth: .infinity, minHeight: 320)
+            ContentUnavailableView {
+                Label("Signed Out by SoundCloud", systemImage: "person.crop.circle.badge.exclamationmark")
+            } description: {
+                Text("SoundCloud rejected this Mac’s sign-in. Sign in again to continue.")
+            } actions: {
+                Button("Open Account") { MacRootSelection.shared.request(.account) }
+            }
+            .macFillsPane()
         } else {
-            SCEmptyState(
-                kind: .error,
-                title: "Couldn\u{2019}t Load Home",
-                message: "Couldn't reach SoundCloud's discovery feed. Check your connection and try again.",
-                actionTitle: "Try Again",
-                action: { Task { await source.load(seed: seed) } },
-                style: .mac
-            )
-            .frame(maxWidth: .infinity, minHeight: 320)
+            ContentUnavailableView {
+                Label("Couldn’t Load Home", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text("Check your connection and try again.")
+            } actions: {
+                Button("Try Again") { Task { await source.load(seed: seed) } }
+            }
+            .macFillsPane()
         }
     }
 
     private var trulyEmptyState: some View {
-        SCEmptyState(
-            icon: "sparkles",
-            title: "Nothing Here Yet",
-            message: "SoundCloud didn\u{2019}t return anything to discover right now.",
-            actionTitle: "Search SoundCloud",
-            action: { MacRootSelection.shared.request(.search) },
-            style: .mac
-        )
-        .frame(maxWidth: .infinity, minHeight: 320)
+        ContentUnavailableView {
+            Label("Nothing Here Yet", systemImage: "sparkles")
+        } description: {
+            Text("SoundCloud didn’t return anything to discover right now.")
+        } actions: {
+            Button("Search SoundCloud") { MacRootSelection.shared.request(.search) }
+        }
+        .macFillsPane()
     }
 }
 
 private struct DiscoveryTrackTile: View {
     let track: Track
     let context: () -> [Track]
-    @ObservedObject var player: PlayerService
+    private let player = PlayerService.shared
+    private let playback = PlaybackIndicatorStore.shared
 
     private static let side: CGFloat = 160
 
     private var isPlayable: Bool { track.streamURL != nil }
-    private var isCurrent: Bool { player.currentTrack?.id == track.id }
+    private var isCurrent: Bool { playback.isCurrent(track.id) }
 
     var body: some View {
         Button {
             guard isPlayable else { return }
-            Task { await player.play(track, in: context()) }
+            Task { await MacPlayback.play(track, in: context()) }
         } label: {
             SCArtworkResolver(url: track.artworkURL) { image in
                 SCMediaCard(
                     title: track.title,
                     subtitle: track.user.displayName,
                     artworkImage: image,
+                    artIdentity: track.id,
                     isAvailable: isPlayable,
                     crownUser: track.user,
                     crownContext: track.title,
@@ -305,70 +327,67 @@ private struct DiscoveryTrackTile: View {
             }
             .frame(width: Self.side, alignment: .leading)
             .overlay(alignment: .topTrailing) {
-                if isPlayable, isCurrent, player.isPlaying {
+                if isPlayable, isCurrent, playback.isPlaying {
                     nowPlayingBadge
                 }
             }
         }
         .buttonStyle(.plain)
         .disabled(!isPlayable)
-        .macHoverLift()
-        .onHover { hovering in
-            // Resolve while the user is deciding, not after their click.
-            // This stays entirely separate from download storage and is
-            // deduplicated by PlayerService.
-            if hovering, isPlayable { player.warmStreamURL(for: track) }
+        .macCardHover(
+            artworkURL: track.artworkURL,
+            play: isPlayable ? { Task { await MacPlayback.play(track, in: context()) } } : nil
+        ) {
+            MacTrackContextMenu(track: track, context: context())
         }
-        .contextMenu { contextMenuItems }
+        .onHover { hovering in
+            if hovering, isPlayable { player.preparePlayback(for: track) }
+        }
         .help(isPlayable ? "" : "No playable source for this track on this account.")
+        .macTrackAccessibility(track: track, context: context(), isCurrent: isCurrent && playback.isPlaying)
     }
 
     private var nowPlayingBadge: some View {
         Image(systemName: "waveform")
-            .font(.system(size: 12, weight: .semibold))
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white)
             .padding(SCContentStyle.mac.spaceTight)
             .background(.black.opacity(0.45), in: Circle())
             .padding(SCContentStyle.mac.spaceTight)
-    }
-
-    @ViewBuilder
-    private var contextMenuItems: some View {
-        if isPlayable {
-            Button("Play") { Task { await player.play(track, in: context()) } }
-            Button("Add to Up Next") { player.addToQueue(track) }
-            Divider()
-        }
-        Button("Copy SoundCloud Link") { copyToPasteboard(track.permalinkURL) }
+            .accessibilityHidden(true)
     }
 }
 
 private struct DiscoveryStationTile: View {
     let station: SystemPlaylist
-    @ObservedObject var player: PlayerService
 
     @State private var isHydrating = false
 
     private static let side: CGFloat = 160
     private var entry: DiscoveryEntry { .station(station) }
 
+    private func playStation() {
+        guard !isHydrating else { return }
+        isHydrating = true
+        Task {
+            defer { isHydrating = false }
+            guard let tracks = try? await SoundCloudAPI.shared
+                .getSystemPlaylistTracks(station, limit: 50),
+                  let first = tracks.first(where: { $0.streamURL != nil }) else { return }
+            StationLibrary.shared.record(station)
+            await MacPlayback.play(first, in: tracks, collectionId: station.id, source: PlaybackQueueSource(station: station))
+        }
+    }
+
     var body: some View {
-        Button {
-            guard !isHydrating else { return }
-            isHydrating = true
-            Task {
-                defer { isHydrating = false }
-                guard let tracks = try? await SoundCloudAPI.shared
-                    .getSystemPlaylistTracks(station, limit: 50),
-                      let first = tracks.first(where: { $0.streamURL != nil }) else { return }
-                await PlayActions.play(tracks: tracks, startingAt: first)
-            }
-        } label: {
+        Button(action: playStation) {
             SCArtworkResolver(url: entry.artworkURL) { image in
                 SCMediaCard(
                     title: entry.cardTitle,
                     subtitle: entry.cardSubtitle,
                     artworkImage: image,
+                    artIdentity: entry.artIdentity,
+                    artSubject: .station,
                     style: .mac
                 )
             }
@@ -378,13 +397,15 @@ private struct DiscoveryStationTile: View {
             }
         }
         .buttonStyle(.plain)
-        .macHoverLift()
-        .contextMenu {
+        .macCardHover(play: playStation) {
             if let url = station.permalinkURL {
                 Button("Open on SoundCloud") { NSWorkspace.shared.open(url) }
                 Button("Copy SoundCloud Link") { copyToPasteboard(url) }
             }
         }
+        .accessibilityLabel("\(entry.cardTitle), station, \(entry.cardSubtitle)")
+        .accessibilityHint("Plays the station")
+        .accessibilityValue(isHydrating ? "Loading" : "")
     }
 }
 
@@ -402,6 +423,7 @@ private struct DiscoveryArtistTile: View {
                     name: user.displayName,
                     subtitle: "\(user.formattedFollowers) followers",
                     avatarImage: image,
+                    identity: user.id,
                     diameter: Self.side,
                     crownUser: user,
                     crownContext: user.displayName,
@@ -410,21 +432,17 @@ private struct DiscoveryArtistTile: View {
             }
         }
         .buttonStyle(.plain)
-        .macHoverLift()
-        .contextMenu {
-            Button("Open on SoundCloud") { NSWorkspace.shared.open(user.permalinkURL) }
-            Button("Copy SoundCloud Link") { copyToPasteboard(user.permalinkURL) }
+        .macCardHover(shape: .circle, play: { Task { await MacPlayback.play(user: user) } }) {
+            MacArtistContextMenu(artist: user)
         }
+        .accessibilityLabel("\(user.displayName), \(user.formattedFollowers) followers")
+        .accessibilityHint("Opens the artist")
     }
 }
 
 private struct DiscoveryPlaylistCard: View {
     let playlist: Playlist
 
-    /// Mixed rails (especially Recently Played) need one visual rhythm. A
-    /// playlist should not suddenly turn into a hero tile merely because it
-    /// has no cover image; that made generated fallback artwork look like a
-    /// large coloured panel beside the normal 160pt cards.
     private static let side: CGFloat = 160
 
     private var subtitle: String {
@@ -444,6 +462,8 @@ private struct DiscoveryPlaylistCard: View {
                     title: playlist.title,
                     subtitle: subtitle,
                     artworkImage: image,
+                    artIdentity: playlist.id,
+                    artSubject: .collection,
                     crownUser: playlist.user,
                     crownContext: playlist.title,
                     style: .mac
@@ -452,11 +472,11 @@ private struct DiscoveryPlaylistCard: View {
             .frame(width: Self.side, alignment: .leading)
         }
         .buttonStyle(.plain)
-        .macHoverLift()
-        .contextMenu {
-            Button("Open on SoundCloud") { NSWorkspace.shared.open(playlist.permalinkURL) }
-            Button("Copy SoundCloud Link") { copyToPasteboard(playlist.permalinkURL) }
+        .macCardHover(artworkURL: playlist.displayArtworkURL, prewarm: { CollectionPlayback.prewarm(playlist: playlist) }, play: { Task { await MacPlayback.play(playlist: playlist) } }) {
+            MacPlaylistContextMenu(playlist: playlist)
         }
+        .accessibilityLabel("\(playlist.title), \(playlist.isAlbum ? "album" : "playlist"), \(subtitle)")
+        .accessibilityHint("Opens the \(playlist.isAlbum ? "album" : "playlist")")
     }
 }
 
@@ -488,4 +508,133 @@ enum MacCollectionCover {
 private func copyToPasteboard(_ url: URL) {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(url.absoluteString, forType: .string)
+}
+
+struct MacWelcomeHero: View {
+    var isActive = true
+    let onSignIn: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        let ground = SoundingArtPalette.resolve(colorScheme).ground
+        ZStack(alignment: .leading) {
+            SoundingLineArt(seed: 0x4D_41_43_48, style: .banner, loop: .once, isActive: isActive && !reduceMotion)
+                .accessibilityHidden(true)
+
+            LinearGradient(
+                stops: [
+                    .init(color: ground, location: 0.28),
+                    .init(color: ground.opacity(0), location: 0.62),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Plug in. Turn it up.")
+                    .font(.largeTitle.weight(.bold))
+                    .foregroundStyle(.primary)
+                Text("Sign in for your likes, your listening history and mixes made for you.")
+                    .font(.body)
+                    .foregroundStyle(MacSecondaryStyle())
+                    .fixedSize(horizontal: false, vertical: true)
+                signInButton
+                    .controlSize(.large)
+                    .padding(.top, 10)
+            }
+            .frame(maxWidth: 380, alignment: .leading)
+            .padding(28)
+        }
+        .frame(minHeight: 240)
+        .clipShape(RoundedRectangle(cornerRadius: SCContentStyle.mac.cornerHero, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var signInButton: some View {
+        if reduceTransparency {
+            Button("Sign In…", action: onSignIn)
+                .buttonStyle(.borderedProminent)
+        } else {
+            Button("Sign In…", action: onSignIn)
+                .buttonStyle(.glassProminent)
+        }
+    }
+}
+
+struct MacOnboardingView: View {
+    enum Step: Hashable {
+        case welcome
+        case music
+    }
+
+    let step: Step
+    let onUseWithoutSoundCloud: () -> Void
+    let onMusicAnswered: (_ addedFolder: Bool) -> Void
+
+    @State private var isSigningIn = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static let signInTint = MusicStepPage.tint
+
+    var body: some View {
+        ZStack {
+            switch step {
+            case .welcome:
+                welcomePage
+                    .transition(.push(from: .trailing))
+            case .music:
+                MusicStepPage(onAnswered: onMusicAnswered)
+                    .frame(height: 600)
+                    .transition(.push(from: .trailing))
+            }
+        }
+        .frame(width: 520)
+        .clipped()
+        .animation(.smooth, value: step)
+        .sheet(isPresented: $isSigningIn) {
+            MacSoundCloudSignInView(peerName: nil, forHandoff: false, isReauthentication: false) {
+                isSigningIn = false
+            }
+        }
+    }
+
+    private var welcomePage: some View {
+        VStack(spacing: 0) {
+            SoundingWelcomeHero(seed: 0x4D_41_43_48, style: .banner, loop: .once, isActive: !reduceMotion && !isSigningIn, fadeFrom: 0.7)
+                .frame(height: 210)
+
+            welcome
+                .padding(.horizontal, 40)
+                .padding(.top, 8)
+                .padding(.bottom, 32)
+        }
+    }
+
+    private var welcome: some View {
+        VStack(spacing: 24) {
+            SoundingWelcomeTitle(messageFont: .title3, messageStyle: AnyShapeStyle(MacSecondaryStyle()), spacing: 8)
+            VStack(spacing: 10) {
+                Button { isSigningIn = true } label: {
+                    Text("Sign In with SoundCloud").frame(maxWidth: 280)
+                }
+                .buttonStyle(.glassProminent)
+                .tint(Self.signInTint)
+                .controlSize(.extraLarge)
+                .keyboardShortcut(.defaultAction)
+
+                Button(action: onUseWithoutSoundCloud) {
+                    Text("Use Without SoundCloud")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(Self.signInTint)
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerStyle(.link)
+            }
+        }
+    }
 }

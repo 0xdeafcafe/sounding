@@ -1,7 +1,15 @@
 import Foundation
+import XCTest
 @testable import SoundingTV
 
 #if DEBUG
+
+final class LibraryCacheSelfTests: XCTestCase {
+    func testLibraryCacheSelfTest() async {
+        let report = await LibraryCacheSelfTest.run()
+        XCTAssertTrue(report.failures.isEmpty, report.summary)
+    }
+}
 
 enum LibraryCacheSelfTest {
     struct Report {
@@ -28,7 +36,7 @@ enum LibraryCacheSelfTest {
         defer { try? FileManager.default.removeItem(at: dir) }
         let cache = LibraryCache(directory: dir)
 
-        let empty = await cache.loadSection("likes")
+        let empty = cache.loadSection("likes")
         report.expect("an uncached section reads empty, not an error", empty.isEmpty)
 
         let uncachedAt = await cache.sectionCachedAt("likes")
@@ -40,7 +48,7 @@ enum LibraryCacheSelfTest {
             .init(id: "3", payload: Data("c".utf8), likedAtMillis: 300),
         ]
         await cache.replaceSection("likes", rows: rows)
-        let loaded = await cache.loadSection("likes")
+        let loaded = cache.loadSection("likes")
         let freshSnapshot = await cache.loadSectionSnapshot("likes")
 
         let cachedAt = await cache.sectionCachedAt("likes")
@@ -75,7 +83,7 @@ enum LibraryCacheSelfTest {
 
         let fewer: [LibraryCache.WriteRow] = [.init(id: "1", payload: Data("a".utf8), likedAtMillis: 100)]
         await cache.replaceSection("likes", rows: fewer)
-        let afterRemoval = await cache.loadSection("likes")
+        let afterRemoval = cache.loadSection("likes")
         report.expect(
             "a row absent from the next replaceSection is gone, not merged",
             afterRemoval.count == 1 && afterRemoval.first?.payload == Data("a".utf8),
@@ -83,16 +91,16 @@ enum LibraryCacheSelfTest {
         )
 
         await cache.replaceSection("playlists", rows: [.init(id: "p1", payload: Data("p".utf8))])
-        let likesStillOne = await cache.loadSection("likes")
-        let playlistsOne = await cache.loadSection("playlists")
+        let likesStillOne = cache.loadSection("likes")
+        let playlistsOne = cache.loadSection("playlists")
         report.expect(
             "writing one section doesn't disturb another",
             likesStillOne.count == 1 && playlistsOne.count == 1
         )
 
         await cache.clearAll()
-        let afterClear = await cache.loadSection("likes")
-        let playlistsAfterClear = await cache.loadSection("playlists")
+        let afterClear = cache.loadSection("likes")
+        let playlistsAfterClear = cache.loadSection("playlists")
         report.expect(
             "clearAll empties every section",
             afterClear.isEmpty && playlistsAfterClear.isEmpty
@@ -101,7 +109,7 @@ enum LibraryCacheSelfTest {
         let cache2 = LibraryCache(directory: dir)
         await cache2.replaceSection("following", rows: [.init(id: "u1", payload: Data("u".utf8))])
         let cache3 = LibraryCache(directory: dir)
-        let reopened = await cache3.loadSection("following")
+        let reopened = cache3.loadSection("following")
         report.expect(
             "a written row persists across a fresh store instance on the same file",
             reopened.count == 1 && reopened.first?.payload == Data("u".utf8),

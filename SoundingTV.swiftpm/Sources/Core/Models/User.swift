@@ -32,6 +32,7 @@ struct User: Identifiable, Codable, Hashable, Sendable {
     let permalink: String
     let permalinkURL: URL
     let avatarURL: URL?
+    let profileVisuals: SoundCloudProfileVisuals?
     let city: String?
     let country: String?
     let fullName: String?
@@ -42,6 +43,8 @@ struct User: Identifiable, Codable, Hashable, Sendable {
     let playlistCount: Int
     let followersCount: Int
     let followingsCount: Int
+    let publicFavoritesCount: Int?
+    let verified: Bool?
     let consumerSubscriptions: [ConsumerSubscription]?
 
     let consumerSubscription: ConsumerSubscription?
@@ -54,15 +57,8 @@ struct User: Identifiable, Codable, Hashable, Sendable {
     var urn: String { "soundcloud:users:\(id)" }
 
     var displayName: String {
-        fullName?.isEmpty == false ? fullName! : username
-    }
-
-    var isKyleStarkey: Bool {
-        KyleCrownPosition.resolve(user: self) != .none
-    }
-
-    func kyleCrownPosition(in context: String? = nil) -> KyleCrownPosition {
-        KyleCrownPosition.resolve(user: self, context: context)
+        if let fullName, !fullName.isEmpty { return fullName }
+        return username
     }
 
     var largeAvatarURL: URL? {
@@ -70,21 +66,27 @@ struct User: Identifiable, Codable, Hashable, Sendable {
         return URL(string: url.absoluteString.replacingOccurrences(of: "-large", with: "-t500x500"))
     }
 
+    var artSeed: UInt64 { UInt64(id) ?? 0x534F_554E }
+
+    static func customAvatar(_ url: URL?) -> URL? {
+        guard let url, !url.absoluteString.contains("default_avatar") else { return nil }
+        return url
+    }
+
+    var profileCoverURL: URL? {
+        profileVisuals?.visuals.first(where: { $0.visualURL != nil })?.visualURL
+    }
+
+    var isArtist: Bool { trackCount > 0 }
+
+    var kindLabel: String { isArtist ? "Artist" : "Profile" }
+
     var formattedFollowers: String {
-        formatCount(followersCount)
+        CompactCount.string(followersCount)
     }
 
     var formattedTracks: String {
-        formatCount(trackCount)
-    }
-
-    private func formatCount(_ count: Int) -> String {
-        if count >= 1_000_000 {
-            return String(format: "%.1fM", Double(count) / 1_000_000)
-        } else if count >= 1_000 {
-            return String(format: "%.1fK", Double(count) / 1_000)
-        }
-        return "\(count)"
+        CompactCount.string(trackCount)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -92,11 +94,14 @@ struct User: Identifiable, Codable, Hashable, Sendable {
         case websiteTitle = "website_title"
         case permalinkURL = "permalink_url"
         case avatarURL = "avatar_url"
+        case profileVisuals = "visuals"
         case fullName = "full_name"
         case trackCount = "track_count"
         case playlistCount = "playlist_count"
         case followersCount = "followers_count"
         case followingsCount = "followings_count"
+        case publicFavoritesCount = "public_favorites_count"
+        case verified
         case consumerSubscriptions = "consumer_subscriptions"
         case consumerSubscription = "consumer_subscription"
         case creatorSubscriptions = "creator_subscriptions"
@@ -108,6 +113,56 @@ struct User: Identifiable, Codable, Hashable, Sendable {
         .creatorSubscriptions, .creatorSubscription,
     ]
 
+    init(
+        id: String,
+        username: String,
+        permalink: String,
+        permalinkURL: URL,
+        avatarURL: URL? = nil,
+        profileVisuals: SoundCloudProfileVisuals? = nil,
+        city: String? = nil,
+        country: String? = nil,
+        fullName: String? = nil,
+        description: String? = nil,
+        website: URL? = nil,
+        websiteTitle: String? = nil,
+        trackCount: Int = 0,
+        playlistCount: Int = 0,
+        followersCount: Int = 0,
+        followingsCount: Int = 0,
+        publicFavoritesCount: Int? = nil,
+        verified: Bool? = nil,
+        consumerSubscriptions: [ConsumerSubscription]? = nil,
+        consumerSubscription: ConsumerSubscription? = nil,
+        creatorSubscriptions: [CreatorSubscription]? = nil,
+        creatorSubscription: CreatorSubscription? = nil,
+        rawSubscriptionPayload: [String: JSONValue]? = nil
+    ) {
+        self.id = id
+        self.username = username
+        self.permalink = permalink
+        self.permalinkURL = permalinkURL
+        self.avatarURL = User.customAvatar(avatarURL)
+        self.profileVisuals = profileVisuals
+        self.city = city
+        self.country = country
+        self.fullName = fullName
+        self.description = description
+        self.website = website
+        self.websiteTitle = websiteTitle
+        self.trackCount = trackCount
+        self.playlistCount = playlistCount
+        self.followersCount = followersCount
+        self.followingsCount = followingsCount
+        self.publicFavoritesCount = publicFavoritesCount
+        self.verified = verified
+        self.consumerSubscriptions = consumerSubscriptions
+        self.consumerSubscription = consumerSubscription
+        self.creatorSubscriptions = creatorSubscriptions
+        self.creatorSubscription = creatorSubscription
+        self.rawSubscriptionPayload = rawSubscriptionPayload
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
@@ -116,7 +171,8 @@ struct User: Identifiable, Codable, Hashable, Sendable {
         username = try container.decode(String.self, forKey: .username)
         permalink = try container.decode(String.self, forKey: .permalink)
         permalinkURL = try container.decode(URL.self, forKey: .permalinkURL)
-        avatarURL = try container.decodeIfPresent(URL.self, forKey: .avatarURL)
+        avatarURL = User.customAvatar(try container.decodeIfPresent(URL.self, forKey: .avatarURL))
+        profileVisuals = try container.decodeIfPresent(SoundCloudProfileVisuals.self, forKey: .profileVisuals)
         city = try container.decodeIfPresent(String.self, forKey: .city)
         country = try container.decodeIfPresent(String.self, forKey: .country)
         fullName = try container.decodeIfPresent(String.self, forKey: .fullName)
@@ -127,6 +183,8 @@ struct User: Identifiable, Codable, Hashable, Sendable {
         playlistCount = try container.decodeIfPresent(Int.self, forKey: .playlistCount) ?? 0
         followersCount = try container.decodeIfPresent(Int.self, forKey: .followersCount) ?? 0
         followingsCount = try container.decodeIfPresent(Int.self, forKey: .followingsCount) ?? 0
+        publicFavoritesCount = try container.decodeIfPresent(Int.self, forKey: .publicFavoritesCount)
+        verified = try? container.decodeIfPresent(Bool.self, forKey: .verified)
         consumerSubscriptions = try container.decodeIfPresent([ConsumerSubscription].self, forKey: .consumerSubscriptions)
         consumerSubscription = try container.decodeIfPresent(ConsumerSubscription.self, forKey: .consumerSubscription)
         creatorSubscriptions = try container.decodeIfPresent([CreatorSubscription].self, forKey: .creatorSubscriptions)
@@ -148,6 +206,7 @@ struct User: Identifiable, Codable, Hashable, Sendable {
         try container.encode(permalink, forKey: .permalink)
         try container.encode(permalinkURL, forKey: .permalinkURL)
         try container.encodeIfPresent(avatarURL, forKey: .avatarURL)
+        try container.encodeIfPresent(profileVisuals, forKey: .profileVisuals)
         try container.encodeIfPresent(city, forKey: .city)
         try container.encodeIfPresent(country, forKey: .country)
         try container.encodeIfPresent(fullName, forKey: .fullName)
@@ -158,6 +217,8 @@ struct User: Identifiable, Codable, Hashable, Sendable {
         try container.encode(playlistCount, forKey: .playlistCount)
         try container.encode(followersCount, forKey: .followersCount)
         try container.encode(followingsCount, forKey: .followingsCount)
+        try container.encodeIfPresent(publicFavoritesCount, forKey: .publicFavoritesCount)
+        try container.encodeIfPresent(verified, forKey: .verified)
         try container.encodeIfPresent(consumerSubscriptions, forKey: .consumerSubscriptions)
         try container.encodeIfPresent(consumerSubscription, forKey: .consumerSubscription)
         try container.encodeIfPresent(creatorSubscriptions, forKey: .creatorSubscriptions)
@@ -170,6 +231,83 @@ struct User: Identifiable, Codable, Hashable, Sendable {
 
     static func == (lhs: User, rhs: User) -> Bool {
         lhs.id == rhs.id
+    }
+}
+
+struct SoundCloudWebProfile: Decodable, Hashable, Sendable {
+    let url: URL
+    let title: String?
+    let service: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case url, title, service, network
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        url = try container.decode(URL.self, forKey: .url)
+        title = (try? container.decodeIfPresent(String.self, forKey: .title)) ?? nil
+        service = ((try? container.decodeIfPresent(String.self, forKey: .service)) ?? nil)
+            ?? ((try? container.decodeIfPresent(String.self, forKey: .network)) ?? nil)
+    }
+}
+
+struct SoundCloudWebProfiles: Decodable, Sendable {
+    let profiles: [SoundCloudWebProfile]
+
+    private enum CodingKeys: String, CodingKey {
+        case collection
+    }
+
+    private struct Lenient: Decodable {
+        let profile: SoundCloudWebProfile?
+
+        init(from decoder: Decoder) throws {
+            profile = try? SoundCloudWebProfile(from: decoder)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        if let list = try? decoder.singleValueContainer().decode([Lenient].self) {
+            profiles = list.compactMap(\.profile)
+        } else {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            profiles = (try container.decodeIfPresent([Lenient].self, forKey: .collection) ?? []).compactMap(\.profile)
+        }
+    }
+}
+
+enum CompactCount {
+    private static let units: [(size: Double, suffix: String)] = [(1e9, "B"), (1e6, "M"), (1e3, "K")]
+
+    static func string(_ count: Int) -> String {
+        let value = Double(abs(count))
+        let sign = count < 0 ? "-" : ""
+        for (index, unit) in units.enumerated() where value >= unit.size {
+            let scaled = (value / unit.size * 10).rounded() / 10
+            if scaled >= 1000, index > 0 {
+                let larger = units[index - 1]
+                return sign + trimmed((value / larger.size * 10).rounded() / 10) + larger.suffix
+            }
+            return sign + trimmed(scaled) + unit.suffix
+        }
+        return "\(count)"
+    }
+
+    private static func trimmed(_ value: Double) -> String {
+        value.rounded() == value ? String(Int(value)) : String(format: "%.1f", value)
+    }
+}
+
+struct SoundCloudProfileVisuals: Codable, Hashable, Sendable {
+    let visuals: [SoundCloudProfileVisual]
+}
+
+struct SoundCloudProfileVisual: Codable, Hashable, Sendable {
+    let visualURL: URL?
+
+    enum CodingKeys: String, CodingKey {
+        case visualURL = "visual_url"
     }
 }
 
@@ -259,5 +397,29 @@ enum JSONValue: Codable, Hashable, Sendable {
             }
             return "{" + body.joined(separator: ", ") + "}"
         }
+    }
+}
+
+struct TrackEngagedUser: Codable, Hashable, Sendable {
+    let user: User
+
+    private enum CodingKeys: String, CodingKey {
+        case user
+    }
+
+    init(user: User) {
+        self.user = user
+    }
+
+    init(from decoder: Decoder) throws {
+        if let direct = try? User(from: decoder) {
+            user = direct
+        } else {
+            user = try decoder.container(keyedBy: CodingKeys.self).decode(User.self, forKey: .user)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try user.encode(to: encoder)
     }
 }

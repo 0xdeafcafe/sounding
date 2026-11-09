@@ -97,7 +97,14 @@ final class PeerContentAssetLoaderDelegate: NSObject, AVAssetResourceLoaderDeleg
                 applyContentInformation(loadingRequest, totalLength: fetched.totalLength)
             }
             dataRequest.respond(with: fetched.data)
-            loadingRequest.finishLoading()
+            let end = dataRequest.requestsAllDataToEndOfResource
+                ? fetched.totalLength
+                : dataRequest.requestedOffset + Int64(dataRequest.requestedLength)
+            if !fetched.data.isEmpty, dataRequest.currentOffset < end, !loadingRequest.isCancelled {
+                fulfill(loadingRequest)
+            } else {
+                loadingRequest.finishLoading()
+            }
         case .failure(let error):
             loadingRequest.finishLoading(with: Self.nsError(for: error))
         }

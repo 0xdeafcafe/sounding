@@ -29,9 +29,6 @@ struct AuthHandoffRequest: Identifiable, Equatable {
 //   Reuses the remote-control CompanionServer/CompanionClient channel.
 //   The peer asks; the companion runs a fresh sign-in and returns a brand-new
 //   token pair that belongs to the peer, not to the companion.
-//
-// Synchronized multi-device listening room:
-//   PolyphonyController over Bonjour `_polyphony._tcp`. Does not carry auth.
 
 enum BonjourConstants {
     static let serviceType = "_soundingtv._tcp"
@@ -44,7 +41,21 @@ enum BonjourConstants {
 
     static let linkOfferServiceName = "SoundingTV-LinkOffer"
 
+    static let nearbyServiceName = "SoundingTV-Nearby"
+
+    static let fixtureLinkToken = "sounding-fixture-link-token"
+
+    static func linkServiceName(sessionId: String) -> String {
+        "\(serviceName)-\(sessionId.prefix(8))"
+    }
+
+    static func linkOfferServiceName(sessionId: String) -> String {
+        "\(linkOfferServiceName)-\(sessionId.prefix(8))"
+    }
+
     static let sessionTimeout: TimeInterval = 300
+
+    static let linkApprovalTimeout: TimeInterval = 90
 
     static let commandFreshnessWindow: TimeInterval = 120
 }
@@ -61,6 +72,7 @@ enum MessageType: String, Codable {
     case queueJump = "queue_jump"
     case queueAdd = "queue_add"
     case queueReplace = "queue_replace"
+    case queueLoad = "queue_load"
 
     case queueState = "queue_state"
 
@@ -69,6 +81,10 @@ enum MessageType: String, Codable {
     case transportNext     = "transport_next"
     case transportPrevious = "transport_previous"
     case transportSeek     = "transport_seek"
+    case transportShuffle  = "transport_shuffle"
+    case transportRepeat   = "transport_repeat"
+    case transportVolume   = "transport_volume"
+    case transportSleepTimer = "transport_sleep_timer"
 
     case djEnable    = "dj_enable"
     case djDisable   = "dj_disable"
@@ -76,6 +92,8 @@ enum MessageType: String, Codable {
     case djAutoDisable = "dj_auto_disable"
     case djProfile     = "dj_profile"
     case djMixNow    = "dj_mix_now"
+    case djExtend    = "dj_extend"
+    case djEnergy    = "dj_energy"
     case djLoopSet   = "dj_loop_set"
     case djLoopClear = "dj_loop_clear"
     case djCue       = "dj_cue"
@@ -88,9 +106,17 @@ enum MessageType: String, Codable {
     case djFilter     = "dj_filter"
     case djRate       = "dj_rate"
     case djJog        = "dj_jog"
+    case djRemoteAttach = "dj_remote_attach"
+    case djHandBack   = "dj_hand_back"
+
+    case sceneParty    = "scene_party"
+    case sceneWindDown = "scene_wind_down"
 
     case cueSync = "cue_sync"
     case likesSync = "likes_sync"
+    case localMusicOffer = "local_music_offer"
+    case localMusicRequest = "local_music_request"
+    case continueSession = "continue_session"
 
     case playbackState = "playback_state"
     case djState       = "dj_state"
@@ -108,9 +134,21 @@ enum MessageType: String, Codable {
     case numericComparisonCredentials = "numeric_credentials"
     case numericComparisonDeclined = "numeric_declined"
 
+    case chimeHello = "chime_hello"
+    case chimeHelloAck = "chime_hello_ack"
+    case chimeConfirm = "chime_confirm"
+    case chimeCredentials = "chime_credentials"
+    case chimePlayRequest = "chime_play_request"
+    case chimePlaying = "chime_playing"
+
+    case deviceStatus = "device_status"
+
+    case linkRevoke = "link_revoke"
+    case sessionRevoke = "session_revoke"
+
     var isQueueCommand: Bool {
         switch self {
-        case .queueRequest, .queueReorder, .queueRemove, .queueJump, .queueAdd, .queueReplace:
+        case .queueRequest, .queueReorder, .queueRemove, .queueJump, .queueAdd, .queueReplace, .queueLoad:
             return true
         default:
             return false
@@ -120,10 +158,13 @@ enum MessageType: String, Codable {
     var isControlCommand: Bool {
         switch self {
         case .transportPlay, .transportPause, .transportNext,
-             .transportPrevious, .transportSeek,
+             .transportPrevious, .transportSeek, .transportShuffle, .transportRepeat, .transportVolume,
+             .transportSleepTimer,
              .djEnable, .djDisable, .djAutoEnable, .djAutoDisable, .djProfile,
-             .djMixNow, .djLoopSet, .djLoopClear, .djCue, .djHotCueSet, .djDeckPlayPause, .djSync,
-             .djCrossfader, .djEQ, .djFilter, .djRate, .djJog:
+             .djMixNow, .djExtend, .djEnergy, .djLoopSet, .djLoopClear, .djCue, .djHotCueSet, .djDeckPlayPause, .djSync,
+             .djCrossfader, .djEQ, .djFilter, .djRate, .djJog,
+             .djRemoteAttach, .djHandBack,
+             .sceneParty, .sceneWindDown:
             return true
         default:
             return false
@@ -132,7 +173,7 @@ enum MessageType: String, Codable {
 
     var isContinuousControl: Bool {
         switch self {
-        case .djCrossfader, .djEQ, .djFilter, .djRate, .djJog:
+        case .djCrossfader, .djEQ, .djFilter, .djRate, .djJog, .transportVolume:
             return true
         default:
             return false
@@ -143,6 +184,7 @@ enum MessageType: String, Codable {
 enum HandoffActivityType {
     static let link = "red.forbes.sounding.pairing"
     static let nowPlaying = "red.forbes.sounding.nowplaying"
+    static let playing = "red.forbes.sounding.playing"
 }
 
 enum CanonicalForm {
@@ -173,14 +215,67 @@ enum CanonicalForm {
             using: key
         )
     }
+
+    static func digest<T: Encodable>(of value: T?) -> String {
+        guard let value else { return "" }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(value) else { return "" }
+        return SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+    }
 }
 
 enum SoundCloudTokenRefresh {
+
+    typealias RequestTransport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+
+    /// Thread-safe holder so the refresh network path does not have to wait
+    /// for the MainActor just to read the installed transport.
+    private final class TransportHolder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var transport: RequestTransport?
+
+        func get() -> RequestTransport? {
+            lock.lock()
+            defer { lock.unlock() }
+            return transport
+        }
+
+        func set(_ transport: @escaping RequestTransport) {
+            lock.lock()
+            self.transport = transport
+            lock.unlock()
+        }
+
+        func clear() {
+            lock.lock()
+            self.transport = nil
+            lock.unlock()
+        }
+    }
+
+    private static let transportHolder = TransportHolder()
+
+    /// Application hosts install the SoundCloud gateway here. Lightweight
+    /// extensions compile this shared auth model but never initiate refresh;
+    /// the URLSession fallback keeps that model independently reusable.
+    nonisolated static var requestTransport: RequestTransport? {
+        get { transportHolder.get() }
+        set {
+            if let newValue {
+                transportHolder.set(newValue)
+            } else {
+                transportHolder.clear()
+            }
+        }
+    }
 
     struct Credentials: Equatable {
         let accessToken: String
         let refreshToken: String?
         let expiresAt: Date?
+        var issuedAt: Date? = nil
+        var generation: Int? = nil
     }
 
     enum Outcome: Equatable {
@@ -210,24 +305,30 @@ enum SoundCloudTokenRefresh {
         let data: Data
         let http: HTTPURLResponse
         do {
-            let (body, response) = try await URLSession.shared.data(for: request)
-            guard let asHTTP = response as? HTTPURLResponse else { return .transient }
-            data = body
-            http = asHTTP
+            if let installedTransport = requestTransport {
+                (data, http) = try await installedTransport(request)
+            } else {
+                let (body, response) = try await URLSession.shared.data(for: request)
+                guard let asHTTP = response as? HTTPURLResponse else { return .transient }
+                data = body
+                http = asHTTP
+            }
         } catch {
             Log.link.error("[TokenRefresh] request did not complete: \(error.localizedDescription, privacy: .public)")
             return .transient
         }
 
-        switch http.statusCode {
-        case 200..<300:
-            break
-        case 400, 401, 403:
-            Log.link.error("[TokenRefresh] rejected: HTTP \(http.statusCode, privacy: .public) \(errorCode(in: data), privacy: .public)")
-            return .unrecoverable
-        default:
-            Log.link.error("[TokenRefresh] inconclusive: HTTP \(http.statusCode, privacy: .public)")
-            return .transient
+        guard (200..<300).contains(http.statusCode) else {
+            let outcome = failureOutcome(statusCode: http.statusCode, data: data)
+            switch outcome {
+            case .unrecoverable:
+                Log.link.error("[TokenRefresh] credentials rejected: HTTP \(http.statusCode, privacy: .public) \(errorCode(in: data), privacy: .public)")
+            case .transient:
+                Log.link.error("[TokenRefresh] inconclusive: HTTP \(http.statusCode, privacy: .public) \(errorCode(in: data), privacy: .public)")
+            case .succeeded:
+                break
+            }
+            return outcome
         }
 
         struct RefreshResponse: Decodable {
@@ -244,13 +345,41 @@ enum SoundCloudTokenRefresh {
         return .succeeded(Credentials(
             accessToken: parsed.access_token,
             refreshToken: parsed.refresh_token.flatMap { $0.isEmpty ? nil : $0 },
-            expiresAt: parsed.expires_in.map { Date(timeIntervalSinceNow: $0) }
+            expiresAt: parsed.expires_in.map { Date(timeIntervalSinceNow: $0) },
+            issuedAt: Date()
         ))
     }
 
-    private static func errorCode(in data: Data) -> String {
+    /// HTTP status alone is not proof that the user's refresh credential is
+    /// gone. In particular, 401/403 can also be produced by infrastructure,
+    /// policy, or bot-challenge layers and 400 can describe a malformed
+    /// request. Only an explicit OAuth credential rejection makes the local
+    /// session unrecoverable; everything else keeps the session for a later
+    /// retry.
+    static func failureOutcome(statusCode: Int, data: Data) -> Outcome {
+        // Rate limits, policy/challenge responses, and server failures are
+        // always retryable regardless of an incidental body string. OAuth
+        // credential errors are defined on the 400/401 token response path.
+        guard statusCode == 400 || statusCode == 401 else { return .transient }
+        guard let code = oauthErrorCode(in: data) else { return .transient }
+        switch code {
+        case "invalid_grant", "invalid_token", "expired_token", "revoked_token",
+             "invalid_client", "unauthorized_client":
+            return .unrecoverable
+        default:
+            return .transient
+        }
+    }
+
+    static func oauthErrorCode(in data: Data) -> String? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let code = json["error"] as? String else { return "" }
+              let code = json["error"] as? String else { return nil }
+        let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func errorCode(in data: Data) -> String {
+        guard let code = oauthErrorCode(in: data) else { return "" }
         return "(\(code))"
     }
 
@@ -265,40 +394,62 @@ enum SoundCloudTokenRefresh {
 final class TokenRefreshCoordinator {
 
     static let verdictLifetime: TimeInterval = 10
+    static let transientVerdictLifetime: TimeInterval = 60
+
+    private struct CacheKey: Equatable {
+        let refreshToken: String
+        let clientId: String
+    }
 
     private var inFlight: Task<SoundCloudTokenRefresh.Outcome, Never>?
-    private var lastVerdict: (outcome: SoundCloudTokenRefresh.Outcome, wasLocalGuard: Bool, at: Date)?
+    private var inFlightKey: CacheKey?
+    private var lastVerdict: (key: CacheKey, outcome: SoundCloudTokenRefresh.Outcome, wasLocalGuard: Bool, at: Date)?
 
     private var generation: UInt64 = 0
 
     var recentOutcome: SoundCloudTokenRefresh.Outcome? {
         guard let lastVerdict,
-              Date().timeIntervalSince(lastVerdict.at) < Self.verdictLifetime else { return nil }
+              lastVerdict.key == currentKey(),
+              Date().timeIntervalSince(lastVerdict.at) < lifetime(for: lastVerdict.outcome) else { return nil }
         return lastVerdict.outcome
     }
 
     var recentOutcomeWasLocalGuard: Bool {
         guard let lastVerdict,
-              Date().timeIntervalSince(lastVerdict.at) < Self.verdictLifetime else { return false }
+              lastVerdict.key == currentKey(),
+              Date().timeIntervalSince(lastVerdict.at) < lifetime(for: lastVerdict.outcome) else { return false }
         return lastVerdict.wasLocalGuard
     }
 
+    private func currentKey() -> CacheKey? {
+        guard let session = DeviceSessionStore.load(), session.isUsable else { return nil }
+        guard let refreshToken = session.refreshToken, !refreshToken.isEmpty,
+              let clientId = session.clientId, !clientId.isEmpty else { return nil }
+        return CacheKey(refreshToken: refreshToken, clientId: clientId)
+    }
+
+    private func lifetime(for outcome: SoundCloudTokenRefresh.Outcome) -> TimeInterval {
+        outcome == .transient ? Self.transientVerdictLifetime : Self.verdictLifetime
+    }
+
     func reset() {
-        inFlight?.cancel()
         inFlight = nil
+        inFlightKey = nil
         lastVerdict = nil
         generation &+= 1
     }
 
     func refresh(refreshToken: String?, clientId: String?) async -> SoundCloudTokenRefresh.Outcome {
-        if let recentOutcome { return recentOutcome }
-        if let inFlight { return await inFlight.value }
+        let key = CacheKey(refreshToken: refreshToken ?? "", clientId: clientId ?? "")
+
+        if let recentOutcome, lastVerdict?.key == key { return recentOutcome }
+        if let inFlight, inFlightKey == key { return await inFlight.value }
 
         guard let refreshToken, !refreshToken.isEmpty,
               let clientId, !clientId.isEmpty else {
             Log.link.error("[TokenRefresh] no refresh material held")
             let outcome = SoundCloudTokenRefresh.Outcome.unrecoverable
-            lastVerdict = (outcome, true, Date())
+            lastVerdict = (key, outcome, true, Date())
             return outcome
         }
 
@@ -307,11 +458,19 @@ final class TokenRefreshCoordinator {
             await SoundCloudTokenRefresh.perform(refreshToken: refreshToken, clientId: clientId)
         }
         inFlight = task
+        inFlightKey = key
         let outcome = await task.value
 
-        guard generation == startedAt else { return outcome }
+        guard generation == startedAt else {
+            // Generation changed while the refresh was in flight; do not leave
+            // a stale task reference behind for the next caller.
+            inFlight = nil
+            inFlightKey = nil
+            return outcome
+        }
         inFlight = nil
-        lastVerdict = (outcome, false, Date())
+        inFlightKey = nil
+        lastVerdict = (key, outcome, false, Date())
         return outcome
     }
 }
@@ -322,8 +481,6 @@ enum LinkTLS {
     static let contentPSKInfo = Data("SoundingTV-Content-TLS-PSK-v1".utf8)
 
     static let companionPSKInfo = Data("SoundingTV-Companion-TLS-PSK-v1".utf8)
-
-    static let polyphonyPSKInfo = Data("Sounding-Polyphony-TLS-PSK-v1".utf8)
 
     private static let pskCiphersuite: UInt16 = 0xCCAC
 
@@ -615,13 +772,98 @@ struct AuthHandoffSessionOfferPayload: Codable, Equatable {
     }
 }
 
+struct LinkPeerIdentity: Codable, Equatable {
+    static let maximumNameLength = 64
+    private static let deviceIdDefaultsKey = "red.forbes.sounding.link.deviceId"
+
+    let name: String
+    let deviceClass: String
+    let deviceId: String
+    let signature: String
+
+    var peerClass: DeviceClass? { DeviceClass(rawValue: deviceClass) }
+
+    static func create(
+        name: String,
+        deviceClass: DeviceClass,
+        deviceId: String,
+        sessionId: String,
+        secret: Data
+    ) -> LinkPeerIdentity {
+        let name = String(name.prefix(maximumNameLength))
+        let signature = CanonicalForm.sign(
+            fields(name: name, deviceClass: deviceClass.rawValue, deviceId: deviceId, sessionId: sessionId),
+            secret: secret
+        )
+        return LinkPeerIdentity(
+            name: name,
+            deviceClass: deviceClass.rawValue,
+            deviceId: deviceId,
+            signature: signature
+        )
+    }
+
+    static func local(sessionId: String, secret: Data, defaults: UserDefaults = .standard) -> LinkPeerIdentity {
+        create(
+            name: localName,
+            deviceClass: .current,
+            deviceId: localDeviceId(defaults: defaults),
+            sessionId: sessionId,
+            secret: secret
+        )
+    }
+
+    static func localDeviceId(defaults: UserDefaults = .standard) -> String {
+        if let existing = defaults.string(forKey: deviceIdDefaultsKey), !existing.isEmpty { return existing }
+        let generated = UUID().uuidString
+        defaults.set(generated, forKey: deviceIdDefaultsKey)
+        return generated
+    }
+
+    static var localName: String {
+        #if os(macOS)
+        return Host.current().localizedName ?? DeviceClass.current.displayName
+        #else
+        return DeviceClass.current.displayName
+        #endif
+    }
+
+    func verify(sessionId: String, secret: Data) -> Bool {
+        guard name.count <= Self.maximumNameLength, !deviceId.isEmpty, peerClass != nil else { return false }
+        return CanonicalForm.verify(
+            signature,
+            fields: Self.fields(name: name, deviceClass: deviceClass, deviceId: deviceId, sessionId: sessionId),
+            secret: secret
+        )
+    }
+
+    private static func fields(name: String, deviceClass: String, deviceId: String, sessionId: String) -> [String] {
+        [sessionId, "peer_identity", name, deviceClass, deviceId]
+    }
+}
+
 enum LinkOfferTXT {
     private static let nameKey = "name"
     private static let kindKey = "kind"
     private static let commitmentKey = "pkc"
+    private static let rendezvousKey = "rv"
 
-    static func dictionary(name: String, kind: DeviceClass, commitment: Data) -> [String: String] {
-        [nameKey: name, kindKey: kind.rawValue, commitmentKey: commitment.base64EncodedString()]
+    static func dictionary(
+        name: String,
+        kind: DeviceClass,
+        commitment: Data,
+        rendezvous: String? = nil,
+        accountHint: LinkAccountHint.Advert? = nil
+    ) -> [String: String] {
+        var entries = [nameKey: name, kindKey: kind.rawValue, commitmentKey: commitment.base64EncodedString()]
+        if let rendezvous { entries[rendezvousKey] = rendezvous }
+        if let accountHint { entries.merge(accountHint.entries) { _, new in new } }
+        return entries
+    }
+
+    static func rendezvous(_ record: NWTXTRecord) -> String? {
+        guard case .string(let value)? = record.getEntry(for: rendezvousKey), !value.isEmpty else { return nil }
+        return value
     }
 
     static func decode(_ record: NWTXTRecord) -> (name: String, kind: DeviceClass, commitment: Data)? {
@@ -637,22 +879,255 @@ enum LinkOfferTXT {
     }
 }
 
+enum NearbyPresenceTXT {
+    static let nameKey = "name"
+    static let kindKey = "kind"
+
+    static func entries(name: String, kind: DeviceClass) -> [String: String] {
+        [nameKey: String(name.prefix(LinkPeerIdentity.maximumNameLength)), kindKey: kind.rawValue]
+    }
+
+    static func name(_ record: NWTXTRecord) -> String? {
+        guard case .string(let raw)? = record.getEntry(for: nameKey) else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
+        guard !trimmed.isEmpty else { return nil }
+        return String(trimmed.prefix(LinkPeerIdentity.maximumNameLength))
+    }
+}
+
+enum LinkAccountHint {
+    static let saltKey = "as"
+    static let accountKey = "ah"
+    static let linkedKey = "lp"
+    static let saltLength = 8
+    static let accountDigestLength = 12
+    static let linkedDigestLength = 4
+    static let maximumLinked = 8
+
+    struct Advert: Equatable, Sendable {
+        let salt: Data
+        let accountDigest: Data
+        let linkedDigests: [Data]
+
+        var entries: [String: String] {
+            var entries = [
+                LinkAccountHint.saltKey: salt.base64EncodedString(),
+                LinkAccountHint.accountKey: accountDigest.base64EncodedString(),
+            ]
+            if !linkedDigests.isEmpty {
+                entries[LinkAccountHint.linkedKey] = linkedDigests.reduce(Data(), +).base64EncodedString()
+            }
+            return entries
+        }
+
+        func matches(accountId: String) -> Bool {
+            guard !accountId.isEmpty else { return false }
+            let mine = LinkAccountHint.accountDigest(accountId: accountId, salt: salt)
+            return LinkAccountHint.constantTimeEqual(mine, accountDigest)
+        }
+
+        func isLinked(toDeviceId deviceId: String) -> Bool {
+            guard !deviceId.isEmpty else { return false }
+            let mine = LinkAccountHint.linkedDigest(deviceId: deviceId, salt: salt)
+            return linkedDigests.contains { LinkAccountHint.constantTimeEqual($0, mine) }
+        }
+    }
+
+    static func makeSalt() -> Data? {
+        var bytes = [UInt8](repeating: 0, count: saltLength)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
+        return Data(bytes)
+    }
+
+    static func advert(accountId: String, linkedDeviceIds: [String], salt: Data) -> Advert? {
+        guard !accountId.isEmpty, salt.count == saltLength else { return nil }
+        return Advert(
+            salt: salt,
+            accountDigest: accountDigest(accountId: accountId, salt: salt),
+            linkedDigests: linkedDeviceIds.filter { !$0.isEmpty }.prefix(maximumLinked).map { linkedDigest(deviceId: $0, salt: salt) }
+        )
+    }
+
+    static func accountDigest(accountId: String, salt: Data) -> Data {
+        digest(label: "Sounding-LinkAccount-v1", value: accountId, salt: salt, length: accountDigestLength)
+    }
+
+    static func linkedDigest(deviceId: String, salt: Data) -> Data {
+        digest(label: "Sounding-LinkedPeer-v1", value: deviceId.lowercased(), salt: salt, length: linkedDigestLength)
+    }
+
+    static func decode(_ entries: [String: String]) -> Advert? {
+        guard let saltText = entries[saltKey], let salt = Data(base64Encoded: saltText), salt.count == saltLength,
+              let accountText = entries[accountKey], let account = Data(base64Encoded: accountText),
+              account.count == accountDigestLength else { return nil }
+        var linked: [Data] = []
+        if let linkedText = entries[linkedKey], let blob = Data(base64Encoded: linkedText),
+           blob.count % linkedDigestLength == 0, blob.count <= linkedDigestLength * maximumLinked {
+            linked = stride(from: 0, to: blob.count, by: linkedDigestLength).map {
+                Data(blob[blob.startIndex + $0 ..< blob.startIndex + $0 + linkedDigestLength])
+            }
+        }
+        return Advert(salt: salt, accountDigest: account, linkedDigests: linked)
+    }
+
+    static let nameKey = "name"
+
+    static func decode(_ record: NWTXTRecord) -> Advert? {
+        var entries: [String: String] = [:]
+        for key in [saltKey, accountKey, linkedKey] {
+            if case .string(let value)? = record.getEntry(for: key) { entries[key] = value }
+        }
+        return decode(entries)
+    }
+
+    private static func digest(label: String, value: String, salt: Data, length: Int) -> Data {
+        var hasher = SHA256()
+        hasher.update(data: Data(label.utf8))
+        hasher.update(data: salt)
+        hasher.update(data: Data(value.utf8))
+        return Data(hasher.finalize().prefix(length))
+    }
+
+    static func constantTimeEqual(_ a: Data, _ b: Data) -> Bool {
+        guard a.count == b.count else { return false }
+        var difference: UInt8 = 0
+        for (x, y) in zip(a, b) { difference |= x ^ y }
+        return difference == 0
+    }
+}
+
 struct LinkConfirmationHelloPayload: Codable, Equatable {
     let ephemeralPublicKeyBase64: String
+    var deviceName: String?
+    var deviceClass: String?
+    var ownerKeyTags: [String]?
 }
 
 struct LinkConfirmationHelloAckPayload: Codable, Equatable {
     let ephemeralPublicKeyBase64: String
     let commitNonceBase64: String
+    var ownerKeyTag: String?
+    var ownerProof: String?
+}
+
+struct LinkConfirmationConfirmPayload: Codable, Equatable {
+    var ownerProof: String?
 }
 
 struct LinkConfirmationCredentialsPayload: Codable, Equatable {
     let sealedBase64: String
 }
 
+struct ChimeLinkPayload: Codable, Equatable {
+    var version: Int?
+    var nonceBase64: String?
+    var sessionId: String?
+    var tvName: String?
+    var tvKind: String?
+    var tvDeviceId: String?
+    var confirmationBase64: String?
+    var sealedBase64: String?
+}
+
+struct DeviceStatusPayload: Codable, Equatable {
+    let needsSignIn: Bool
+    let issuedAtMillis: Int64
+    let signature: String
+
+    static func create(needsSignIn: Bool, sessionId: String, secret: Data) -> DeviceStatusPayload {
+        let issuedAtMillis = Int64(Date().timeIntervalSince1970 * 1000)
+        return DeviceStatusPayload(
+            needsSignIn: needsSignIn,
+            issuedAtMillis: issuedAtMillis,
+            signature: CanonicalForm.sign(
+                fields(needsSignIn: needsSignIn, issuedAtMillis: issuedAtMillis, sessionId: sessionId),
+                secret: secret
+            )
+        )
+    }
+
+    func verify(sessionId: String, secret: Data) -> Bool {
+        CanonicalForm.verify(
+            signature,
+            fields: Self.fields(needsSignIn: needsSignIn, issuedAtMillis: issuedAtMillis, sessionId: sessionId),
+            secret: secret
+        )
+    }
+
+    func isFresh(now: Date = Date()) -> Bool {
+        let nowMillis = Int64(now.timeIntervalSince1970 * 1000)
+        return abs(TimeInterval(nowMillis - issuedAtMillis) / 1000) <= BonjourConstants.commandFreshnessWindow
+    }
+
+    private static func fields(needsSignIn: Bool, issuedAtMillis: Int64, sessionId: String) -> [String] {
+        [sessionId, MessageType.deviceStatus.rawValue, needsSignIn ? "1" : "0", String(issuedAtMillis)]
+    }
+}
+
+struct LinkRevokePayload: Codable, Equatable {
+    let accountId: String?
+    let lineageDigest: String?
+    let issuedAtMillis: Int64
+    let nonce: String
+    let signature: String
+
+    static func create(
+        _ type: MessageType,
+        accountId: String? = nil,
+        lineageDigest: String? = nil,
+        sessionId: String,
+        secret: Data,
+        now: Date = Date()
+    ) -> LinkRevokePayload {
+        let issuedAtMillis = Int64(now.timeIntervalSince1970 * 1000)
+        let nonce = UUID().uuidString
+        return LinkRevokePayload(
+            accountId: accountId,
+            lineageDigest: lineageDigest,
+            issuedAtMillis: issuedAtMillis,
+            nonce: nonce,
+            signature: CanonicalForm.sign(
+                fields(type, accountId: accountId, lineageDigest: lineageDigest, issuedAtMillis: issuedAtMillis, nonce: nonce, sessionId: sessionId),
+                secret: secret
+            )
+        )
+    }
+
+    func verify(_ type: MessageType, sessionId: String, secret: Data) -> Bool {
+        guard type == .linkRevoke || type == .sessionRevoke else { return false }
+        return CanonicalForm.verify(
+            signature,
+            fields: Self.fields(type, accountId: accountId, lineageDigest: lineageDigest, issuedAtMillis: issuedAtMillis, nonce: nonce, sessionId: sessionId),
+            secret: secret
+        )
+    }
+
+    func isFresh(now: Date = Date()) -> Bool {
+        let nowMillis = Int64(now.timeIntervalSince1970 * 1000)
+        return abs(TimeInterval(nowMillis - issuedAtMillis) / 1000) <= BonjourConstants.commandFreshnessWindow
+    }
+
+    func matchesAccount(accountId localAccountId: String?, lineageDigest localLineage: String?) -> Bool {
+        if let accountId, !accountId.isEmpty, accountId == localAccountId { return true }
+        if let lineageDigest, !lineageDigest.isEmpty, lineageDigest == localLineage { return true }
+        return false
+    }
+
+    private static func fields(
+        _ type: MessageType,
+        accountId: String?,
+        lineageDigest: String?,
+        issuedAtMillis: Int64,
+        nonce: String,
+        sessionId: String
+    ) -> [String] {
+        [sessionId, type.rawValue, accountId ?? "", lineageDigest ?? "", String(issuedAtMillis), nonce]
+    }
+}
+
 enum LinkConfirmationCrypto {
-    private static let codeInfo = Data("SoundingTV-LinkConfirmation-Code-v1".utf8)
-    private static let transportInfo = Data("SoundingTV-LinkConfirmation-Transport-v1".utf8)
+    private static let codeInfo = Data("SoundingTV-LinkConfirmation-Code-v2".utf8)
+    private static let transportInfo = Data("SoundingTV-LinkConfirmation-Transport-v2".utf8)
 
     private static func transcript(_ a: Data, _ b: Data) -> Data {
         let ordered = [a, b].sorted { $0.lexicographicallyPrecedes($1) }
@@ -663,12 +1138,12 @@ enum LinkConfirmationCrypto {
         Data(SHA256.hash(data: nonce + publicKey))
     }
 
-    static func code(sharedSecret: SharedSecret, publicKeyA: Data, publicKeyB: Data, sessionId: String) -> String {
+    static func code(sharedSecret: SharedSecret, publicKeyA: Data, publicKeyB: Data, sessionId: String, peerName: String) -> String {
         let salt = Data(sessionId.utf8) + transcript(publicKeyA, publicKeyB)
         let key = sharedSecret.hkdfDerivedSymmetricKey(
             using: SHA256.self,
             salt: salt,
-            sharedInfo: codeInfo,
+            sharedInfo: codeInfo + Data(peerName.utf8),
             outputByteCount: 4
         )
         let bytes = key.withUnsafeBytes { Array($0) }
@@ -677,12 +1152,12 @@ enum LinkConfirmationCrypto {
         return String(format: "%06u", value % 1_000_000)
     }
 
-    static func transportKey(sharedSecret: SharedSecret, publicKeyA: Data, publicKeyB: Data, sessionId: String) -> SymmetricKey {
+    static func transportKey(sharedSecret: SharedSecret, publicKeyA: Data, publicKeyB: Data, sessionId: String, peerName: String) -> SymmetricKey {
         let salt = Data(sessionId.utf8) + transcript(publicKeyA, publicKeyB)
         return sharedSecret.hkdfDerivedSymmetricKey(
             using: SHA256.self,
             salt: salt,
-            sharedInfo: transportInfo,
+            sharedInfo: transportInfo + Data(peerName.utf8),
             outputByteCount: 32
         )
     }
@@ -728,12 +1203,18 @@ struct QueueStatePayload: Codable, Equatable {
     let revision: Int
     let issuedAtMillis: Int64
     let signature: String
+    var sourceTitle: String? = nil
+    var sourceKind: String? = nil
+    var playingNextCount: Int? = nil
 
     static func create(
         tracks: [QueueTrack],
         currentIndex: Int,
         isPlaying: Bool,
         revision: Int,
+        sourceTitle: String? = nil,
+        sourceKind: String? = nil,
+        playingNextCount: Int? = nil,
         sessionId: String,
         secret: Data
     ) -> QueueStatePayload {
@@ -755,7 +1236,10 @@ struct QueueStatePayload: Codable, Equatable {
             isPlaying: isPlaying,
             revision: revision,
             issuedAtMillis: issuedAtMillis,
-            signature: signature
+            signature: signature,
+            sourceTitle: sourceTitle?.isEmpty == false ? sourceTitle : nil,
+            sourceKind: sourceTitle?.isEmpty == false ? sourceKind : nil,
+            playingNextCount: playingNextCount.map { max(0, $0) }
         )
     }
 
@@ -882,6 +1366,103 @@ struct QueueCommandPayload: Codable, Equatable {
             String(toIndex),
             trackId,
             String(revision),
+            String(issuedAtMillis),
+            nonce,
+        ]
+    }
+}
+
+struct QueueLoadPayload: Codable, Equatable {
+    static let maximumTrackCount = 300
+
+    let trackIds: [String]
+    let startIndex: Int
+    let positionSeconds: Double
+    let autoplay: Bool
+    let issuedAtMillis: Int64
+    let nonce: String
+    let signature: String
+    var sourceTitle: String? = nil
+    var sourceKind: String? = nil
+
+    static func create(
+        trackIds: [String],
+        startIndex: Int,
+        positionSeconds: Double,
+        autoplay: Bool,
+        sourceTitle: String? = nil,
+        sourceKind: String? = nil,
+        sessionId: String,
+        secret: Data
+    ) -> QueueLoadPayload {
+        let window = window(of: trackIds, around: startIndex)
+        let issuedAtMillis = Int64(Date().timeIntervalSince1970 * 1000)
+        let nonce = UUID().uuidString
+        let signature = CanonicalForm.sign(
+            fields(
+                trackIds: window.ids, startIndex: window.index,
+                positionSeconds: positionSeconds, autoplay: autoplay,
+                issuedAtMillis: issuedAtMillis, nonce: nonce, sessionId: sessionId
+            ),
+            secret: secret
+        )
+        return QueueLoadPayload(
+            trackIds: window.ids,
+            startIndex: window.index,
+            positionSeconds: positionSeconds,
+            autoplay: autoplay,
+            issuedAtMillis: issuedAtMillis,
+            nonce: nonce,
+            signature: signature,
+            sourceTitle: sourceTitle?.isEmpty == false ? sourceTitle : nil,
+            sourceKind: sourceTitle?.isEmpty == false ? sourceKind : nil
+        )
+    }
+
+    static func window(of ids: [String], around index: Int) -> (ids: [String], index: Int) {
+        guard ids.count > maximumTrackCount else { return (ids, index) }
+        let clamped = max(0, min(index, ids.count - 1))
+        let lead = min(clamped, maximumTrackCount / 6)
+        let lower = clamped - lead
+        let upper = min(ids.count, lower + maximumTrackCount)
+        return (Array(ids[lower..<upper]), clamped - lower)
+    }
+
+    func verify(sessionId: String, secret: Data) -> Bool {
+        CanonicalForm.verify(
+            signature,
+            fields: Self.fields(
+                trackIds: trackIds, startIndex: startIndex,
+                positionSeconds: positionSeconds, autoplay: autoplay,
+                issuedAtMillis: issuedAtMillis, nonce: nonce, sessionId: sessionId
+            ),
+            secret: secret
+        )
+    }
+
+    func isFresh(now: Date = Date()) -> Bool {
+        let nowMillis = Int64(now.timeIntervalSince1970 * 1000)
+        return abs(TimeInterval(nowMillis - issuedAtMillis) / 1000)
+            <= BonjourConstants.commandFreshnessWindow
+    }
+
+    private static func fields(
+        trackIds: [String],
+        startIndex: Int,
+        positionSeconds: Double,
+        autoplay: Bool,
+        issuedAtMillis: Int64,
+        nonce: String,
+        sessionId: String
+    ) -> [String] {
+        [
+            sessionId,
+            MessageType.queueLoad.rawValue,
+            String(trackIds.count),
+        ] + trackIds + [
+            String(startIndex),
+            String(format: "%.3f", positionSeconds),
+            autoplay ? "1" : "0",
             String(issuedAtMillis),
             nonce,
         ]
@@ -1032,6 +1613,98 @@ struct LikesSyncPayload: Codable, Equatable {
     }
 }
 
+struct LocalMusicOfferPayload: Codable, Equatable {
+    static let maximumBodyBytes = 16 * 1024
+
+    let body: Data
+    let issuedAtMillis: Int64
+    let nonce: String
+    let signature: String
+
+    static func create(body: Data, sessionId: String, secret: Data, now: Date = Date()) -> LocalMusicOfferPayload {
+        let issuedAtMillis = Int64(now.timeIntervalSince1970 * 1_000)
+        let nonce = UUID().uuidString
+        return LocalMusicOfferPayload(
+            body: body,
+            issuedAtMillis: issuedAtMillis,
+            nonce: nonce,
+            signature: CanonicalForm.sign(
+                canonicalFields(body: body, issuedAtMillis: issuedAtMillis, nonce: nonce, sessionId: sessionId),
+                secret: secret
+            )
+        )
+    }
+
+    func verify(sessionId: String, secret: Data) -> Bool {
+        guard body.count <= Self.maximumBodyBytes else { return false }
+        return CanonicalForm.verify(
+            signature,
+            fields: Self.canonicalFields(body: body, issuedAtMillis: issuedAtMillis, nonce: nonce, sessionId: sessionId),
+            secret: secret
+        )
+    }
+
+    func isFresh(now: Date = Date()) -> Bool {
+        let nowMillis = Int64(now.timeIntervalSince1970 * 1_000)
+        return abs(TimeInterval(nowMillis - issuedAtMillis) / 1_000)
+            <= BonjourConstants.commandFreshnessWindow
+    }
+
+    private static func canonicalFields(body: Data, issuedAtMillis: Int64, nonce: String, sessionId: String) -> [String] {
+        [
+            sessionId, MessageType.localMusicOffer.rawValue,
+            Data(SHA256.hash(data: body)).base64EncodedString(),
+            String(issuedAtMillis), nonce,
+        ]
+    }
+}
+
+struct ContinueSessionPayload: Codable, Equatable {
+    static let maximumBodyBytes = 32 * 1024
+
+    let body: Data
+    let issuedAtMillis: Int64
+    let nonce: String
+    let signature: String
+
+    static func create(body: Data, sessionId: String, secret: Data, now: Date = Date()) -> ContinueSessionPayload {
+        let issuedAtMillis = Int64(now.timeIntervalSince1970 * 1_000)
+        let nonce = UUID().uuidString
+        return ContinueSessionPayload(
+            body: body,
+            issuedAtMillis: issuedAtMillis,
+            nonce: nonce,
+            signature: CanonicalForm.sign(
+                canonicalFields(body: body, issuedAtMillis: issuedAtMillis, nonce: nonce, sessionId: sessionId),
+                secret: secret
+            )
+        )
+    }
+
+    func verify(sessionId: String, secret: Data) -> Bool {
+        guard body.count <= Self.maximumBodyBytes else { return false }
+        return CanonicalForm.verify(
+            signature,
+            fields: Self.canonicalFields(body: body, issuedAtMillis: issuedAtMillis, nonce: nonce, sessionId: sessionId),
+            secret: secret
+        )
+    }
+
+    func isFresh(now: Date = Date()) -> Bool {
+        let nowMillis = Int64(now.timeIntervalSince1970 * 1_000)
+        return abs(TimeInterval(nowMillis - issuedAtMillis) / 1_000)
+            <= BonjourConstants.commandFreshnessWindow
+    }
+
+    private static func canonicalFields(body: Data, issuedAtMillis: Int64, nonce: String, sessionId: String) -> [String] {
+        [
+            sessionId, MessageType.continueSession.rawValue,
+            Data(SHA256.hash(data: body)).base64EncodedString(),
+            String(issuedAtMillis), nonce,
+        ]
+    }
+}
+
 enum ControlDeck: Int, Codable, Equatable {
     case none = -1
     case a = 0
@@ -1050,6 +1723,7 @@ enum ControlParameter: String, Codable, Equatable {
     case loopStart, loopLength  // seconds
     case loopBeats     // quantized musical beats
     case profile       // DJProfile.all index
+    case highPassCutoff
 }
 
 struct ControlCommandPayload: Codable, Equatable {
@@ -1153,6 +1827,82 @@ struct SequenceGate {
     mutating func reset() { last.removeAll() }
 }
 
+enum RemoteRepeatMode: String, CaseIterable, Equatable {
+    case off
+    case all
+    case one
+
+    var wireValue: Double {
+        switch self {
+        case .off: return 0
+        case .all: return 1
+        case .one: return 2
+        }
+    }
+
+    init?(wireValue: Double) {
+        guard let mode = Self.allCases.first(where: { $0.wireValue == wireValue.rounded() }) else { return nil }
+        self = mode
+    }
+}
+
+struct PlaybackModesPayload: Codable, Equatable {
+    let isShuffleEnabled: Bool
+    let repeatMode: String
+    let signature: String
+
+    var remoteRepeatMode: RemoteRepeatMode? { RemoteRepeatMode(rawValue: repeatMode) }
+
+    static func create(
+        isShuffleEnabled: Bool,
+        repeatMode: RemoteRepeatMode,
+        revision: Int,
+        issuedAtMillis: Int64,
+        sessionId: String,
+        secret: Data
+    ) -> PlaybackModesPayload {
+        PlaybackModesPayload(
+            isShuffleEnabled: isShuffleEnabled,
+            repeatMode: repeatMode.rawValue,
+            signature: CanonicalForm.sign(
+                fields(
+                    isShuffleEnabled: isShuffleEnabled, repeatMode: repeatMode.rawValue,
+                    revision: revision, issuedAtMillis: issuedAtMillis, sessionId: sessionId
+                ),
+                secret: secret
+            )
+        )
+    }
+
+    func verify(revision: Int, issuedAtMillis: Int64, sessionId: String, secret: Data) -> Bool {
+        CanonicalForm.verify(
+            signature,
+            fields: Self.fields(
+                isShuffleEnabled: isShuffleEnabled, repeatMode: repeatMode,
+                revision: revision, issuedAtMillis: issuedAtMillis, sessionId: sessionId
+            ),
+            secret: secret
+        )
+    }
+
+    private static func fields(
+        isShuffleEnabled: Bool,
+        repeatMode: String,
+        revision: Int,
+        issuedAtMillis: Int64,
+        sessionId: String
+    ) -> [String] {
+        [
+            sessionId,
+            "playback_modes",
+            String(revision),
+            String(issuedAtMillis),
+            isShuffleEnabled ? "1" : "0",
+            repeatMode,
+        ]
+    }
+}
+
 struct PlaybackStatePayload: Codable, Equatable {
     let isPlaying: Bool
     let positionSeconds: Double
@@ -1165,6 +1915,19 @@ struct PlaybackStatePayload: Codable, Equatable {
     let revision: Int
     let issuedAtMillis: Int64
     let signature: String
+    var rate: Double? = nil
+    var modes: PlaybackModesPayload? = nil
+    var volume: Double? = nil
+    var sleepTimer: SleepTimerStatePayload? = nil
+
+    var effectiveRate: Double { rate ?? 1 }
+
+    var sleepTimerStatus: SleepTimerStatus? { sleepTimer?.status }
+
+    var effectiveVolume: Double? {
+        guard let volume, volume.isFinite else { return nil }
+        return min(1, max(0, volume))
+    }
 
     static func create(
         isPlaying: Bool,
@@ -1175,16 +1938,22 @@ struct PlaybackStatePayload: Codable, Equatable {
         artist: String?,
         artworkURL: String?,
         isDJEngineLive: Bool,
+        rate: Double = 1,
+        isShuffleEnabled: Bool? = nil,
+        repeatMode: RemoteRepeatMode? = nil,
+        volume: Double? = nil,
+        sleepTimer: SleepTimerStatus? = nil,
         revision: Int,
         sessionId: String,
         secret: Data
     ) -> PlaybackStatePayload {
         let issuedAtMillis = Int64(Date().timeIntervalSince1970 * 1000)
+        let wireRate: Double? = abs(rate - 1) < 0.0005 ? nil : rate
         let signature = CanonicalForm.sign(
             fields(
                 isPlaying: isPlaying, positionSeconds: positionSeconds,
                 durationSeconds: durationSeconds, trackId: trackId,
-                isDJEngineLive: isDJEngineLive, revision: revision,
+                isDJEngineLive: isDJEngineLive, rate: wireRate, revision: revision,
                 issuedAtMillis: issuedAtMillis, sessionId: sessionId
             ),
             secret: secret
@@ -1194,21 +1963,51 @@ struct PlaybackStatePayload: Codable, Equatable {
             durationSeconds: durationSeconds, trackId: trackId, title: title,
             artist: artist, artworkURL: artworkURL,
             isDJEngineLive: isDJEngineLive, revision: revision,
-            issuedAtMillis: issuedAtMillis, signature: signature
+            issuedAtMillis: issuedAtMillis, signature: signature,
+            rate: wireRate,
+            modes: isShuffleEnabled.flatMap { shuffle in
+                repeatMode.map { mode in
+                    PlaybackModesPayload.create(
+                        isShuffleEnabled: shuffle, repeatMode: mode, revision: revision,
+                        issuedAtMillis: issuedAtMillis, sessionId: sessionId, secret: secret
+                    )
+                }
+            },
+            volume: volume.map { min(1, max(0, $0)) },
+            sleepTimer: sleepTimer.map {
+                SleepTimerStatePayload.create(
+                    $0, revision: revision, issuedAtMillis: issuedAtMillis,
+                    sessionId: sessionId, secret: secret
+                )
+            }
         )
     }
 
     func verify(sessionId: String, secret: Data) -> Bool {
-        CanonicalForm.verify(
+        let base = CanonicalForm.verify(
             signature,
             fields: Self.fields(
                 isPlaying: isPlaying, positionSeconds: positionSeconds,
                 durationSeconds: durationSeconds, trackId: trackId,
-                isDJEngineLive: isDJEngineLive, revision: revision,
+                isDJEngineLive: isDJEngineLive, rate: rate, revision: revision,
                 issuedAtMillis: issuedAtMillis, sessionId: sessionId
             ),
             secret: secret
         )
+        guard base else { return false }
+        if let modes, !modes.verify(revision: revision, issuedAtMillis: issuedAtMillis, sessionId: sessionId, secret: secret) {
+            return false
+        }
+        if let sleepTimer, !sleepTimer.verify(revision: revision, issuedAtMillis: issuedAtMillis, sessionId: sessionId, secret: secret) {
+            return false
+        }
+        return true
+    }
+
+    func estimatedPosition(elapsed: TimeInterval) -> Double {
+        guard isPlaying else { return positionSeconds }
+        let advanced = positionSeconds + max(0, elapsed) * effectiveRate
+        return durationSeconds > 0 ? min(durationSeconds, advanced) : advanced
     }
 
     private static func fields(
@@ -1217,11 +2016,12 @@ struct PlaybackStatePayload: Codable, Equatable {
         durationSeconds: Double,
         trackId: String?,
         isDJEngineLive: Bool,
+        rate: Double?,
         revision: Int,
         issuedAtMillis: Int64,
         sessionId: String
     ) -> [String] {
-        [
+        var out = [
             sessionId,
             MessageType.playbackState.rawValue,
             isPlaying ? "1" : "0",
@@ -1231,6 +2031,114 @@ struct PlaybackStatePayload: Codable, Equatable {
             isDJEngineLive ? "1" : "0",
             String(revision),
             String(issuedAtMillis),
+        ]
+        if let rate {
+            out.append(String(format: "%.4f", rate))
+        }
+        return out
+    }
+}
+
+enum SleepTimerMode: Equatable, Hashable, Sendable {
+    case minutes(Int)
+    case endOfTrack
+    case endOfMix
+
+    static let minuteChoices = [15, 30, 45, 60]
+
+    var wireKind: Double {
+        switch self {
+        case .minutes: return 1
+        case .endOfTrack: return 2
+        case .endOfMix: return 3
+        }
+    }
+
+    var wireMinutes: Double {
+        if case .minutes(let minutes) = self { return Double(minutes) }
+        return 0
+    }
+
+    init?(wireKind: Double, minutes: Double) {
+        switch Int(wireKind.rounded()) {
+        case 1:
+            guard minutes.isFinite else { return nil }
+            let value = Int(minutes.rounded())
+            guard (1...720).contains(value) else { return nil }
+            self = .minutes(value)
+        case 2: self = .endOfTrack
+        case 3: self = .endOfMix
+        default: return nil
+        }
+    }
+}
+
+struct SleepTimerStatus: Equatable, Sendable {
+    var mode: SleepTimerMode
+    var endsAt: Date?
+}
+
+struct SleepTimerStatePayload: Codable, Equatable {
+    let kind: Int
+    let minutes: Int
+    let endsAtMillis: Int64?
+    let signature: String
+
+    var status: SleepTimerStatus? {
+        guard let mode = SleepTimerMode(wireKind: Double(kind), minutes: Double(minutes)) else { return nil }
+        return SleepTimerStatus(
+            mode: mode,
+            endsAt: endsAtMillis.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+        )
+    }
+
+    static func create(
+        _ status: SleepTimerStatus,
+        revision: Int,
+        issuedAtMillis: Int64,
+        sessionId: String,
+        secret: Data
+    ) -> SleepTimerStatePayload {
+        let kind = Int(status.mode.wireKind)
+        let minutes = Int(status.mode.wireMinutes)
+        let endsAtMillis = status.endsAt.map { Int64($0.timeIntervalSince1970 * 1000) }
+        return SleepTimerStatePayload(
+            kind: kind,
+            minutes: minutes,
+            endsAtMillis: endsAtMillis,
+            signature: CanonicalForm.sign(
+                fields(kind: kind, minutes: minutes, endsAtMillis: endsAtMillis,
+                       revision: revision, issuedAtMillis: issuedAtMillis, sessionId: sessionId),
+                secret: secret
+            )
+        )
+    }
+
+    func verify(revision: Int, issuedAtMillis: Int64, sessionId: String, secret: Data) -> Bool {
+        CanonicalForm.verify(
+            signature,
+            fields: Self.fields(kind: kind, minutes: minutes, endsAtMillis: endsAtMillis,
+                                revision: revision, issuedAtMillis: issuedAtMillis, sessionId: sessionId),
+            secret: secret
+        )
+    }
+
+    private static func fields(
+        kind: Int,
+        minutes: Int,
+        endsAtMillis: Int64?,
+        revision: Int,
+        issuedAtMillis: Int64,
+        sessionId: String
+    ) -> [String] {
+        [
+            sessionId,
+            "sleep_timer",
+            String(revision),
+            String(issuedAtMillis),
+            String(kind),
+            String(minutes),
+            endsAtMillis.map(String.init) ?? "",
         ]
     }
 }
@@ -1262,6 +2170,8 @@ struct DJDeckStatePayload: Codable, Equatable {
     let peak: Double?
     let isClipping: Bool?
     let phaseErrorSeconds: Double?
+    let highPassCutoffHz: Double?
+    let delayWetMix: Double?
 
     init(
         trackId: String?, title: String?, artist: String?,
@@ -1270,7 +2180,8 @@ struct DJDeckStatePayload: Codable, Equatable {
         filterCutoffHz: Double, filterResonance: Double, rate: Double,
         bpm: Double?, loopStartSeconds: Double?, loopLengthSeconds: Double?,
         role: DJDeckRole? = nil, level: Double? = nil, peak: Double? = nil,
-        isClipping: Bool? = nil, phaseErrorSeconds: Double? = nil
+        isClipping: Bool? = nil, phaseErrorSeconds: Double? = nil,
+        highPassCutoffHz: Double? = nil, delayWetMix: Double? = nil
     ) {
         self.trackId = trackId
         self.title = title
@@ -1292,6 +2203,8 @@ struct DJDeckStatePayload: Codable, Equatable {
         self.peak = peak
         self.isClipping = isClipping
         self.phaseErrorSeconds = phaseErrorSeconds
+        self.highPassCutoffHz = highPassCutoffHz
+        self.delayWetMix = delayWetMix
     }
 }
 
@@ -1321,6 +2234,9 @@ struct DJAutomaticMixDecision: Codable, Equatable, Sendable {
     let entrySeconds: TimeInterval?
     let score: Double?
     let isFallback: Bool
+    var canExtend: Bool? = nil
+    var energyTarget: Int? = nil
+    var selectionReason: String? = nil
 
     var statusLabel: String {
         switch phase {
@@ -1344,6 +2260,50 @@ struct DJAutomaticMixDecision: Codable, Equatable, Sendable {
     }
 }
 
+/// A display-safe projection of one executor stage. The action is deliberately
+/// sent as the same human-readable summary used by the local consoles: remote
+/// companions should explain the TV's plan, not grow a second executor model.
+struct DJPlanStagePayload: Codable, Equatable, Sendable, Identifiable {
+    let atSeconds: TimeInterval
+    let deck: String
+    let action: String
+    let snap: String
+    let durationSeconds: TimeInterval?
+
+    init(
+        atSeconds: TimeInterval,
+        deck: String,
+        action: String,
+        snap: String,
+        durationSeconds: TimeInterval? = nil
+    ) {
+        self.atSeconds = atSeconds
+        self.deck = deck
+        self.action = action
+        self.snap = snap
+        self.durationSeconds = durationSeconds
+    }
+
+    var id: String {
+        "\(atSeconds)|\(deck)|\(action)|\(snap)"
+    }
+}
+
+/// The upcoming or executing automatic-mix plan transported to companion
+/// consoles. Values are optional only where the planner itself has no richer
+/// answer; an absent `DJStatePayload.plan` remains backwards-compatible with
+/// cached state written by older builds.
+struct DJPlanPayload: Codable, Equatable, Sendable {
+    let templateName: String?
+    let profileName: String?
+    let mixPointSeconds: TimeInterval
+    let transitionSeconds: TimeInterval
+    let entrySeconds: TimeInterval
+    let reasoning: String
+    let score: Double?
+    let stages: [DJPlanStagePayload]
+}
+
 struct DJStatePayload: Codable, Equatable {
     let isEnabled: Bool
     let isEngineLive: Bool
@@ -1352,9 +2312,14 @@ struct DJStatePayload: Codable, Equatable {
     let deckA: DJDeckStatePayload
     let deckB: DJDeckStatePayload
     let automaticMix: DJAutomaticMixDecision?
+    let plan: DJPlanPayload?
     let revision: Int
     let issuedAtMillis: Int64
     let signature: String
+    var live: Data? = nil
+    var liveSignature: String? = nil
+    var decksOpen: Bool? = nil
+    var decksOpenSignature: String? = nil
 
     static func create(
         isEnabled: Bool,
@@ -1364,6 +2329,9 @@ struct DJStatePayload: Codable, Equatable {
         deckA: DJDeckStatePayload,
         deckB: DJDeckStatePayload,
         automaticMix: DJAutomaticMixDecision?,
+        plan: DJPlanPayload? = nil,
+        live: Data? = nil,
+        decksOpen: Bool? = nil,
         revision: Int,
         sessionId: String,
         secret: Data
@@ -1373,7 +2341,8 @@ struct DJStatePayload: Codable, Equatable {
             fields(
                 isEnabled: isEnabled, isEngineLive: isEngineLive,
                 isAutoMixEnabled: isAutoMixEnabled, crossfade: crossfade,
-                deckA: deckA, deckB: deckB, revision: revision,
+                deckA: deckA, deckB: deckB,
+                automaticMix: automaticMix, plan: plan, revision: revision,
                 issuedAtMillis: issuedAtMillis, sessionId: sessionId
             ),
             secret: secret
@@ -1381,9 +2350,37 @@ struct DJStatePayload: Codable, Equatable {
         return DJStatePayload(
             isEnabled: isEnabled, isEngineLive: isEngineLive,
             isAutoMixEnabled: isAutoMixEnabled, crossfade: crossfade,
-            deckA: deckA, deckB: deckB, automaticMix: automaticMix, revision: revision,
-            issuedAtMillis: issuedAtMillis, signature: signature
+            deckA: deckA, deckB: deckB, automaticMix: automaticMix, plan: plan, revision: revision,
+            issuedAtMillis: issuedAtMillis, signature: signature,
+            live: live,
+            liveSignature: live.map {
+                CanonicalForm.sign(liveFields($0, revision: revision, issuedAtMillis: issuedAtMillis, sessionId: sessionId), secret: secret)
+            },
+            decksOpen: decksOpen,
+            decksOpenSignature: decksOpen.map {
+                CanonicalForm.sign(decksFields($0, revision: revision, issuedAtMillis: issuedAtMillis, sessionId: sessionId), secret: secret)
+            }
         )
+    }
+
+    func verifiedDecksOpen(sessionId: String, secret: Data) -> Bool? {
+        guard let decksOpen, let decksOpenSignature else { return nil }
+        let fields = Self.decksFields(decksOpen, revision: revision, issuedAtMillis: issuedAtMillis, sessionId: sessionId)
+        return CanonicalForm.verify(decksOpenSignature, fields: fields, secret: secret) ? decksOpen : nil
+    }
+
+    private static func decksFields(_ decksOpen: Bool, revision: Int, issuedAtMillis: Int64, sessionId: String) -> [String] {
+        [sessionId, "dj_decks", String(revision), String(issuedAtMillis), decksOpen ? "1" : "0"]
+    }
+
+    func verifiedLive(sessionId: String, secret: Data) -> Data? {
+        guard let live, let liveSignature else { return nil }
+        let fields = Self.liveFields(live, revision: revision, issuedAtMillis: issuedAtMillis, sessionId: sessionId)
+        return CanonicalForm.verify(liveSignature, fields: fields, secret: secret) ? live : nil
+    }
+
+    private static func liveFields(_ live: Data, revision: Int, issuedAtMillis: Int64, sessionId: String) -> [String] {
+        [sessionId, "dj_live", String(revision), String(issuedAtMillis), live.base64EncodedString()]
     }
 
     func verify(sessionId: String, secret: Data) -> Bool {
@@ -1392,7 +2389,8 @@ struct DJStatePayload: Codable, Equatable {
             fields: Self.fields(
                 isEnabled: isEnabled, isEngineLive: isEngineLive,
                 isAutoMixEnabled: isAutoMixEnabled, crossfade: crossfade,
-                deckA: deckA, deckB: deckB, revision: revision,
+                deckA: deckA, deckB: deckB,
+                automaticMix: automaticMix, plan: plan, revision: revision,
                 issuedAtMillis: issuedAtMillis, sessionId: sessionId
             ),
             secret: secret
@@ -1416,6 +2414,8 @@ struct DJStatePayload: Codable, Equatable {
         crossfade: Double,
         deckA: DJDeckStatePayload,
         deckB: DJDeckStatePayload,
+        automaticMix: DJAutomaticMixDecision?,
+        plan: DJPlanPayload?,
         revision: Int,
         issuedAtMillis: Int64,
         sessionId: String
@@ -1430,7 +2430,12 @@ struct DJStatePayload: Codable, Equatable {
         ]
         + deckFields(deckA)
         + deckFields(deckB)
-        + [String(revision), String(issuedAtMillis)]
+        + [
+            CanonicalForm.digest(of: automaticMix),
+            CanonicalForm.digest(of: plan),
+            String(revision),
+            String(issuedAtMillis),
+        ]
     }
 }
 
@@ -1461,17 +2466,25 @@ struct TokenTransferMessage: Codable {
     let error: String?
     let queue: QueueStatePayload?
     let command: QueueCommandPayload?
+    let queueLoad: QueueLoadPayload?
     let control: ControlCommandPayload?
     let playback: PlaybackStatePayload?
     let dj: DJStatePayload?
     let cueSync: CueSyncPayload?
     let likesSync: LikesSyncPayload?
+    let localMusicOffer: LocalMusicOfferPayload?
+    let continueSession: ContinueSessionPayload?
     let numericHello: LinkConfirmationHelloPayload?
     let numericHelloAck: LinkConfirmationHelloAckPayload?
     let numericCredentials: LinkConfirmationCredentialsPayload?
+    let numericConfirm: LinkConfirmationConfirmPayload?
     let sessionRequest: SessionRequestPayload?
     let sessionOffer: SessionOfferPayload?
     let authHandoffSessionOffer: AuthHandoffSessionOfferPayload?
+    let chime: ChimeLinkPayload?
+    let deviceStatus: DeviceStatusPayload?
+    let revoke: LinkRevokePayload?
+    var peer: LinkPeerIdentity?
 
     init(
         type: MessageType,
@@ -1480,17 +2493,25 @@ struct TokenTransferMessage: Codable {
         error: String? = nil,
         queue: QueueStatePayload? = nil,
         command: QueueCommandPayload? = nil,
+        queueLoad: QueueLoadPayload? = nil,
         control: ControlCommandPayload? = nil,
         playback: PlaybackStatePayload? = nil,
         dj: DJStatePayload? = nil,
         cueSync: CueSyncPayload? = nil,
         likesSync: LikesSyncPayload? = nil,
+        localMusicOffer: LocalMusicOfferPayload? = nil,
+        continueSession: ContinueSessionPayload? = nil,
         numericHello: LinkConfirmationHelloPayload? = nil,
         numericHelloAck: LinkConfirmationHelloAckPayload? = nil,
         numericCredentials: LinkConfirmationCredentialsPayload? = nil,
+        numericConfirm: LinkConfirmationConfirmPayload? = nil,
         sessionRequest: SessionRequestPayload? = nil,
         sessionOffer: SessionOfferPayload? = nil,
-        authHandoffSessionOffer: AuthHandoffSessionOfferPayload? = nil
+        authHandoffSessionOffer: AuthHandoffSessionOfferPayload? = nil,
+        chime: ChimeLinkPayload? = nil,
+        deviceStatus: DeviceStatusPayload? = nil,
+        revoke: LinkRevokePayload? = nil,
+        peer: LinkPeerIdentity? = nil
     ) {
         self.type = type
         self.sessionId = sessionId
@@ -1498,21 +2519,29 @@ struct TokenTransferMessage: Codable {
         self.error = error
         self.queue = queue
         self.command = command
+        self.queueLoad = queueLoad
         self.control = control
         self.playback = playback
         self.dj = dj
         self.cueSync = cueSync
         self.likesSync = likesSync
+        self.localMusicOffer = localMusicOffer
+        self.continueSession = continueSession
         self.numericHello = numericHello
         self.numericHelloAck = numericHelloAck
         self.numericCredentials = numericCredentials
+        self.numericConfirm = numericConfirm
         self.sessionRequest = sessionRequest
         self.sessionOffer = sessionOffer
         self.authHandoffSessionOffer = authHandoffSessionOffer
+        self.chime = chime
+        self.deviceStatus = deviceStatus
+        self.revoke = revoke
+        self.peer = peer
     }
 
-    static func tokenTransfer(sessionId: String, payload: TokenPayload) -> TokenTransferMessage {
-        TokenTransferMessage(type: .tokenTransfer, sessionId: sessionId, payload: payload)
+    static func tokenTransfer(sessionId: String, payload: TokenPayload, peer: LinkPeerIdentity? = nil) -> TokenTransferMessage {
+        TokenTransferMessage(type: .tokenTransfer, sessionId: sessionId, payload: payload, peer: peer)
     }
 
     static func acknowledgment(sessionId: String, payload: TokenPayload? = nil) -> TokenTransferMessage {
@@ -1535,8 +2564,12 @@ struct TokenTransferMessage: Codable {
         TokenTransferMessage(type: .numericComparisonHelloAck, sessionId: sessionId, numericHelloAck: payload)
     }
 
-    static func numericComparisonConfirm(sessionId: String) -> TokenTransferMessage {
-        TokenTransferMessage(type: .numericComparisonConfirm, sessionId: sessionId)
+    static func numericComparisonConfirm(sessionId: String, ownerProof: String? = nil) -> TokenTransferMessage {
+        TokenTransferMessage(
+            type: .numericComparisonConfirm,
+            sessionId: sessionId,
+            numericConfirm: ownerProof.map { LinkConfirmationConfirmPayload(ownerProof: $0) }
+        )
     }
 
     static func numericComparisonCredentials(sessionId: String, payload: LinkConfirmationCredentialsPayload) -> TokenTransferMessage {
@@ -1545,6 +2578,39 @@ struct TokenTransferMessage: Codable {
 
     static func numericComparisonDeclined(sessionId: String) -> TokenTransferMessage {
         TokenTransferMessage(type: .numericComparisonDeclined, sessionId: sessionId)
+    }
+
+    static func chime(_ type: MessageType, sessionId: String, payload: ChimeLinkPayload) -> TokenTransferMessage {
+        TokenTransferMessage(type: type, sessionId: sessionId, chime: payload)
+    }
+
+    static func deviceStatus(sessionId: String, status: DeviceStatusPayload) -> TokenTransferMessage {
+        TokenTransferMessage(type: .deviceStatus, sessionId: sessionId, deviceStatus: status)
+    }
+
+    static func linkRevoke(sessionId: String, secret: Data) -> TokenTransferMessage {
+        TokenTransferMessage(
+            type: .linkRevoke,
+            sessionId: sessionId,
+            revoke: .create(.linkRevoke, sessionId: sessionId, secret: secret)
+        )
+    }
+
+    static func sessionRevoke(sessionId: String, secret: Data, accountId: String?, lineageDigest: String?) -> TokenTransferMessage {
+        TokenTransferMessage(
+            type: .sessionRevoke,
+            sessionId: sessionId,
+            revoke: .create(.sessionRevoke, accountId: accountId, lineageDigest: lineageDigest, sessionId: sessionId, secret: secret)
+        )
+    }
+
+    func verifiedRevoke(sessionId expected: String, secret: Data) -> LinkRevokePayload? {
+        guard type == .linkRevoke || type == .sessionRevoke,
+              sessionId == expected,
+              let revoke,
+              revoke.verify(type, sessionId: expected, secret: secret),
+              revoke.isFresh() else { return nil }
+        return revoke
     }
 
     static func queueState(sessionId: String, queue: QueueStatePayload) -> TokenTransferMessage {
@@ -1557,6 +2623,10 @@ struct TokenTransferMessage: Codable {
         command: QueueCommandPayload
     ) -> TokenTransferMessage {
         TokenTransferMessage(type: type, sessionId: sessionId, command: command)
+    }
+
+    static func queueLoad(sessionId: String, load: QueueLoadPayload) -> TokenTransferMessage {
+        TokenTransferMessage(type: .queueLoad, sessionId: sessionId, queueLoad: load)
     }
 
     static func controlCommand(
@@ -1581,6 +2651,18 @@ struct TokenTransferMessage: Codable {
 
     static func likesSync(sessionId: String, payload: LikesSyncPayload) -> TokenTransferMessage {
         TokenTransferMessage(type: .likesSync, sessionId: sessionId, likesSync: payload)
+    }
+
+    static func localMusicOffer(sessionId: String, payload: LocalMusicOfferPayload) -> TokenTransferMessage {
+        TokenTransferMessage(type: .localMusicOffer, sessionId: sessionId, localMusicOffer: payload)
+    }
+
+    static func continueSession(sessionId: String, payload: ContinueSessionPayload) -> TokenTransferMessage {
+        TokenTransferMessage(type: .continueSession, sessionId: sessionId, continueSession: payload)
+    }
+
+    static func localMusicRequest(sessionId: String) -> TokenTransferMessage {
+        TokenTransferMessage(type: .localMusicRequest, sessionId: sessionId)
     }
 
     static func sessionRequest(sessionId: String, request: SessionRequestPayload) -> TokenTransferMessage {
@@ -1665,6 +2747,203 @@ struct MessageFramer {
     }
 }
 
+// MARK: - Companion channel
+
+enum CompanionEndpoint {
+    static func serviceName(sessionId: String) -> String {
+        "\(BonjourConstants.companionServiceName)-\(sessionId.prefix(8))"
+    }
+
+    static func isCompanionService(_ name: String, sessionId: String) -> Bool {
+        name.hasPrefix(BonjourConstants.companionServiceName) && name.contains(sessionId.prefix(8))
+    }
+
+    static func makeBrowser() -> NWBrowser {
+        let parameters = NWParameters()
+        parameters.includePeerToPeer = false
+        return NWBrowser(
+            for: .bonjour(type: BonjourConstants.serviceType, domain: BonjourConstants.serviceDomain),
+            using: parameters
+        )
+    }
+
+    static func listenerParameters(sessionId: String, secret: Data) -> NWParameters {
+        let parameters = LinkTLS.makeParameters(sessionId: sessionId, secret: secret, info: LinkTLS.companionPSKInfo)
+        parameters.includePeerToPeer = false
+        return parameters
+    }
+
+    static func clientParameters(sessionId: String, secret: Data, keepalive: Bool = true) -> NWParameters {
+        let parameters = listenerParameters(sessionId: sessionId, secret: secret)
+        if keepalive, let tcp = parameters.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options {
+            tcp.enableKeepalive = true
+            tcp.keepaliveIdle = 5
+            tcp.keepaliveInterval = 3
+            tcp.keepaliveCount = 3
+        }
+        return parameters
+    }
+}
+
+struct CompanionCommandSigner {
+    let sessionId: String
+    let secret: Data
+
+    func queue(
+        _ type: MessageType,
+        fromIndex: Int = -1,
+        toIndex: Int = -1,
+        trackId: String = "",
+        revision: Int
+    ) -> TokenTransferMessage {
+        let command = QueueCommandPayload.create(
+            type: type, fromIndex: fromIndex, toIndex: toIndex, trackId: trackId,
+            revision: max(0, revision), sessionId: sessionId, secret: secret
+        )
+        return .queueCommand(type, sessionId: sessionId, command: command)
+    }
+
+    func load(
+        trackIds: [String],
+        startIndex: Int,
+        positionSeconds: Double,
+        autoplay: Bool,
+        sourceTitle: String? = nil,
+        sourceKind: String? = nil
+    ) -> TokenTransferMessage {
+        let load = QueueLoadPayload.create(
+            trackIds: trackIds, startIndex: startIndex, positionSeconds: positionSeconds,
+            autoplay: autoplay, sourceTitle: sourceTitle, sourceKind: sourceKind,
+            sessionId: sessionId, secret: secret
+        )
+        return .queueLoad(sessionId: sessionId, load: load)
+    }
+
+    func control(
+        _ type: MessageType,
+        deck: ControlDeck = .none,
+        parameter: ControlParameter = .none,
+        value: Double = 0,
+        value2: Double = 0,
+        sequence: Int64 = 0
+    ) -> TokenTransferMessage {
+        let control = ControlCommandPayload.create(
+            type: type, deck: deck, parameter: parameter, value: value, value2: value2,
+            sequence: sequence, sessionId: sessionId, secret: secret
+        )
+        return .controlCommand(type, sessionId: sessionId, control: control)
+    }
+}
+
+@MainActor
+final class CompanionChannel {
+    enum Event {
+        case ready
+        case waiting(String)
+        case failed(String)
+        case closed
+    }
+
+    let connection: NWConnection
+    private(set) var lastError: NWError?
+    private var framer = MessageFramer()
+    private var onEvent: (Event) -> Void = { _ in }
+    private var onMessage: (TokenTransferMessage) async -> Void = { _ in }
+    private var isFinished = false
+
+    init(to endpoint: NWEndpoint, sessionId: String, secret: Data, keepalive: Bool = true) {
+        connection = NWConnection(
+            to: endpoint,
+            using: CompanionEndpoint.clientParameters(sessionId: sessionId, secret: secret, keepalive: keepalive)
+        )
+    }
+
+    func start(
+        onEvent: @escaping (Event) -> Void,
+        onMessage: @escaping (TokenTransferMessage) async -> Void
+    ) {
+        self.onEvent = onEvent
+        self.onMessage = onMessage
+        connection.stateUpdateHandler = { [weak self] state in
+            Task { @MainActor in self?.handle(state) }
+        }
+        connection.start(queue: .main)
+        receive()
+    }
+
+    func cancel() {
+        isFinished = true
+        connection.stateUpdateHandler = nil
+        connection.cancel()
+    }
+
+    func send(_ message: TokenTransferMessage, completion: (@MainActor @Sendable (NWError?) -> Void)? = nil) {
+        guard !isFinished, let data = try? message.framed() else { return }
+        connection.send(content: data, completion: .contentProcessed { error in
+            guard let completion else { return }
+            Task { @MainActor in completion(error) }
+        })
+    }
+
+    private func handle(_ state: NWConnection.State) {
+        guard !isFinished else { return }
+        switch state {
+        case .ready:
+            onEvent(.ready)
+        case .waiting(let error):
+            lastError = error
+            onEvent(.waiting(error.localizedDescription))
+        case .failed(let error):
+            lastError = error
+            finish(.failed(error.localizedDescription))
+        case .cancelled:
+            finish(.closed)
+        default:
+            break
+        }
+    }
+
+    private func finish(_ event: Event) {
+        guard !isFinished else { return }
+        isFinished = true
+        connection.stateUpdateHandler = nil
+        connection.cancel()
+        onEvent(event)
+    }
+
+    private func receive() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+            Task { @MainActor in
+                guard let self, !self.isFinished else { return }
+                if let error {
+                    self.lastError = error
+                    self.finish(.failed(error.localizedDescription))
+                    return
+                }
+                if let data, !data.isEmpty {
+                    self.framer.append(data)
+                    while !self.isFinished {
+                        do {
+                            guard let message = try self.framer.next() else { break }
+                            await self.onMessage(message)
+                        } catch is MessageFramer.FramingError {
+                            self.finish(.failed("Malformed frame"))
+                            return
+                        } catch {
+                            continue
+                        }
+                    }
+                }
+                if isComplete {
+                    self.finish(.closed)
+                } else if !self.isFinished {
+                    self.receive()
+                }
+            }
+        }
+    }
+}
+
 struct LinkOffer: Codable, Equatable {
     let sessionId: String
     let secretBase64: String
@@ -1713,5 +2992,190 @@ struct SessionCredentials {
         }
 
         return Data(base64Encoded: base64)
+    }
+}
+
+struct LinkRetryPolicy: Equatable {
+    static let maximumAttempts = 3
+    static let delays: [Double] = [1, 2, 4]
+
+    private(set) var attempts = 0
+
+    mutating func nextDelay() -> Double? {
+        guard attempts < Self.maximumAttempts - 1 else { return nil }
+        let delay = Self.delays[min(attempts, Self.delays.count - 1)]
+        attempts += 1
+        return delay
+    }
+}
+
+enum LinkStep: CaseIterable {
+    case findingTV
+    case securing
+    case waitingForTV
+    case comparingCode
+
+    var timeout: Double {
+        switch self {
+        case .findingTV: return 30
+        case .securing: return 15
+        case .waitingForTV: return 15
+        case .comparingCode: return BonjourConstants.linkApprovalTimeout
+        }
+    }
+
+    func timedOutMessage(peer: String) -> String {
+        switch self {
+        case .findingTV:
+            return "Couldn't find your \(peer). Check that it's on the same Wi-Fi network and still showing Sounding, then try again."
+        case .securing:
+            return "Couldn't verify this \(peer). Open Sounding on it, choose Add a Device again, then try again."
+        case .waitingForTV:
+            return "Your \(peer) didn't answer. Keep it on and try again."
+        case .comparingCode:
+            return "The code expired. On your \(peer), choose Allow sooner, or try again."
+        }
+    }
+}
+
+struct SameAccountLinkOffer: Equatable {
+    struct Candidate: Equatable {
+        let sessionIdPrefix: String
+        let name: String
+        let kind: DeviceClass
+    }
+
+    enum Phase: Equatable {
+        case hidden
+        case suggested(Candidate)
+        case linking(Candidate, since: Date)
+        case failed(Candidate, message: String)
+    }
+
+    static let linkingTimeout: TimeInterval = 150
+
+    private(set) var phase: Phase = .hidden
+    private(set) var dismissed: Set<String> = []
+    private(set) var linkedNames: Set<String> = []
+
+    struct Advertised: Equatable {
+        let sessionIdPrefix: String
+        let name: String
+        let kind: DeviceClass
+        let accountHint: LinkAccountHint.Advert?
+    }
+
+    static func candidates(
+        from offers: [Advertised],
+        accountId: String?,
+        deviceId: String,
+        linked: Set<String> = []
+    ) -> [Candidate] {
+        guard let accountId, !accountId.isEmpty else { return [] }
+        return offers.compactMap { offer in
+            guard offer.kind == .tv,
+                  let hint = offer.accountHint,
+                  hint.matches(accountId: accountId),
+                  !hint.isLinked(toDeviceId: deviceId),
+                  !linked.contains(identity(name: offer.name, kind: offer.kind)) else { return nil }
+            return Candidate(sessionIdPrefix: offer.sessionIdPrefix, name: offer.name, kind: offer.kind)
+        }
+    }
+
+    static func identity(name: String, kind: DeviceClass) -> String {
+        "\(kind.rawValue)|\(name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+    }
+
+    var suggestion: Candidate? {
+        if case .suggested(let candidate) = phase { return candidate }
+        return nil
+    }
+
+    mutating func observe(_ candidates: [Candidate], now: Date) {
+        switch phase {
+        case .linking(let candidate, let since):
+            if now.timeIntervalSince(since) > Self.linkingTimeout {
+                phase = .failed(candidate, message: "\(candidate.name) didn't finish linking. Try again from Devices.")
+            }
+            return
+        case .failed:
+            return
+        case .hidden, .suggested:
+            let fresh = candidates.first { !Self.isMember($0.name, of: dismissed) && !Self.isMember($0.name, of: linkedNames) }
+            phase = fresh.map(Phase.suggested) ?? .hidden
+        }
+    }
+
+    mutating func accept(now: Date) -> Candidate? {
+        guard case .suggested(let candidate) = phase else { return nil }
+        phase = .linking(candidate, since: now)
+        return candidate
+    }
+
+    mutating func finish(succeeded: Bool, message: String? = nil) {
+        guard case .linking(let candidate, _) = phase else { return }
+        if succeeded {
+            linkedNames.insert(candidate.name.lowercased())
+            phase = .hidden
+        } else {
+            phase = .failed(candidate, message: message ?? "Couldn't link \(candidate.name). Try again.")
+        }
+    }
+
+    mutating func dismiss() {
+        switch phase {
+        case .suggested(let candidate), .failed(let candidate, _):
+            dismissed.insert(candidate.name.lowercased())
+        case .linking, .hidden:
+            break
+        }
+        phase = .hidden
+    }
+
+    mutating func retry() {
+        guard case .failed(let candidate, _) = phase else { return }
+        phase = .suggested(candidate)
+    }
+
+    private static func isMember(_ name: String, of set: Set<String>) -> Bool {
+        set.contains(name.lowercased())
+    }
+}
+
+enum SameAccountLinkPrompt: Equatable {
+    case suggestion(name: String)
+    case failed(name: String, message: String)
+
+    init?(_ phase: SameAccountLinkOffer.Phase) {
+        switch phase {
+        case .suggested(let candidate): self = .suggestion(name: candidate.name)
+        case .failed(let candidate, let message): self = .failed(name: candidate.name, message: message)
+        case .hidden, .linking: return nil
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .suggestion(let name), .failed(let name, _): return name
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .suggestion(let name): return "\(name) is signed in to your account. Link it?"
+        case .failed(let name, _): return "Couldn't Link \(name)"
+        }
+    }
+
+    var message: String? {
+        if case .failed(_, let message) = self { return message }
+        return nil
+    }
+
+    var primaryAction: String {
+        switch self {
+        case .suggestion: return "Link"
+        case .failed: return "Try Again"
+        }
     }
 }

@@ -1,6 +1,30 @@
 import Foundation
 import SQLite3
 
+/// Stable, transport-neutral rows exported by the library cache. Keeping the
+/// wire value beside its sole persistence owner prevents the cache from
+/// depending back on the peer synchronization coordinator.
+struct LikesPeerRecord: Codable, Sendable, Equatable {
+    let id: String
+    let payload: Data
+    let likedAtMillis: Int64
+    let title: String
+    let artist: String
+}
+
+struct LikesPeerBody: Codable, Sendable, Equatable {
+    let accountId: String
+    let snapshotId: String
+    let records: [LikesPeerRecord]
+    let isComplete: Bool
+
+    func encoded() -> Data? { try? JSONEncoder().encode(self) }
+
+    static func decode(_ data: Data) -> LikesPeerBody? {
+        try? JSONDecoder().decode(LikesPeerBody.self, from: data)
+    }
+}
+
 actor LibraryCache {
     static let shared = LibraryCache(directory: LibraryCache.defaultDirectory())
 
@@ -47,11 +71,10 @@ actor LibraryCache {
     }
 
     private nonisolated(unsafe) let db: OpaquePointer?
+    private nonisolated let lock = NSRecursiveLock()
 
     static func defaultDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return base.appendingPathComponent("LibraryCache", isDirectory: true)
+        AppDataDirectory.folder("LibraryCache")
     }
 
     init(directory: URL) {
@@ -77,13 +100,28 @@ actor LibraryCache {
         if let db { sqlite3_close(db) }
     }
 
-    func loadSection(_ section: String) -> [Row] {
-        guard let db else { return [] }
+    nonisolated func loadSection(_ section: String, offset: Int = 0, limit: Int? = nil) -> [Row] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let db, offset >= 0 else { return [] }
         var stmt: OpaquePointer?
-        let sql = "SELECT payload, liked_at_millis FROM library_item WHERE section = ? ORDER BY position ASC;"
+        var sql = "SELECT payload, liked_at_millis FROM library_item WHERE section = ? ORDER BY position ASC"
+        if limit != nil {
+            sql += " LIMIT ? OFFSET ?"
+        } else if offset > 0 {
+            sql += " LIMIT -1 OFFSET ?"
+        }
+        sql += ";"
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
         defer { sqlite3_finalize(stmt) }
         _ = section.withCString { sqlite3_bind_text(stmt, 1, $0, -1, Self.sqliteTransient) }
+        if let limit {
+            guard limit > 0 else { return [] }
+            sqlite3_bind_int64(stmt, 2, Int64(limit))
+            sqlite3_bind_int64(stmt, 3, Int64(offset))
+        } else if offset > 0 {
+            sqlite3_bind_int64(stmt, 2, Int64(offset))
+        }
 
         var rows: [Row] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
@@ -100,10 +138,14 @@ actor LibraryCache {
     /// paint stale data immediately and decide whether to revalidate without
     /// maintaining a launch-only in-memory timestamp.
     func loadSectionSnapshot(_ section: String) -> SectionSnapshot {
-        SectionSnapshot(rows: loadSection(section), state: sectionState(section))
+        lock.lock()
+        defer { lock.unlock() }
+        return SectionSnapshot(rows: loadSection(section), state: sectionState(section))
     }
 
     func replaceSection(_ section: String, rows: [WriteRow]) {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return }
         sqlite3_exec(db, "BEGIN IMMEDIATE;", nil, nil, nil)
 
@@ -146,6 +188,8 @@ actor LibraryCache {
     /// last complete snapshot. This is deliberately metadata-only: callers
     /// supply JSON payloads and this cache never resolves stream URLs.
     func mergeSection(_ section: String, rows: [WriteRow]) {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db, !rows.isEmpty else { return }
         sqlite3_exec(db, "BEGIN IMMEDIATE;", nil, nil, nil)
         defer { sqlite3_exec(db, "COMMIT;", nil, nil, nil) }
@@ -194,6 +238,8 @@ actor LibraryCache {
         completed: Bool,
         now: Date = Date()
     ) {
+        lock.lock()
+        defer { lock.unlock() }
         setSectionState(
             section,
             completedAt: completed ? now : nil,
@@ -204,6 +250,8 @@ actor LibraryCache {
     }
 
     func sectionState(_ section: String) -> SectionState {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return SectionState(updatedAt: nil, completedAt: nil, nextHref: nil, itemCount: 0) }
         var stmt: OpaquePointer?
         let sql = "SELECT updated_at, completed_at, next_href, item_count FROM library_section_state WHERE section = ?;"
@@ -222,6 +270,8 @@ actor LibraryCache {
     }
 
     func clearAll() {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return }
         sqlite3_exec(db, "DELETE FROM library_item;", nil, nil, nil)
         sqlite3_exec(db, "DELETE FROM likes_index;", nil, nil, nil)
@@ -230,6 +280,8 @@ actor LibraryCache {
     }
 
     func upsertLikes(_ rows: [LikeIndexRow], generation: Int64) {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db, !rows.isEmpty else { return }
         sqlite3_exec(db, "BEGIN IMMEDIATE;", nil, nil, nil)
 
@@ -264,6 +316,8 @@ actor LibraryCache {
     }
 
     func removeLikes(ids: [String]) {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db, !ids.isEmpty else { return }
         sqlite3_exec(db, "BEGIN IMMEDIATE;", nil, nil, nil)
         for id in ids {
@@ -277,6 +331,8 @@ actor LibraryCache {
     }
 
     func pruneLikes(olderThanGeneration generation: Int64) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return 0 }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "DELETE FROM likes_index WHERE generation < ?;", -1, &stmt, nil) == SQLITE_OK else { return 0 }
@@ -287,6 +343,8 @@ actor LibraryCache {
     }
 
     func likesCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return 0 }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM likes_index;", -1, &stmt, nil) == SQLITE_OK else { return 0 }
@@ -296,6 +354,8 @@ actor LibraryCache {
     }
 
     func containsLike(id: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return false }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(
@@ -310,15 +370,49 @@ actor LibraryCache {
         return sqlite3_step(stmt) == SQLITE_ROW
     }
 
-    func loadAllLikes(limit: Int? = nil) -> [Row] {
-        guard let db else { return [] }
+    func loadLikes(ids: [String]) -> [Row] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let db, !ids.isEmpty else { return [] }
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ", ")
+        let sql = "SELECT payload, liked_at_millis FROM likes_index WHERE item_id IN (\(placeholders));"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        for (offset, id) in ids.enumerated() {
+            _ = id.withCString { sqlite3_bind_text(stmt, Int32(offset + 1), $0, -1, Self.sqliteTransient) }
+        }
+
+        var rows: [Row] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let blob = sqlite3_column_blob(stmt, 0) else { continue }
+            let length = Int(sqlite3_column_bytes(stmt, 0))
+            rows.append(Row(payload: Data(bytes: blob, count: length), likedAtMillis: sqlite3_column_int64(stmt, 1)))
+        }
+        return rows
+    }
+
+    func loadAllLikes(offset: Int = 0, limit: Int? = nil) -> [Row] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let db, offset >= 0 else { return [] }
         var stmt: OpaquePointer?
         var sql = "SELECT payload, liked_at_millis FROM likes_index ORDER BY liked_at_millis DESC, item_id ASC"
-        if limit != nil { sql += " LIMIT ?" }
+        if limit != nil {
+            sql += " LIMIT ? OFFSET ?"
+        } else if offset > 0 {
+            sql += " LIMIT -1 OFFSET ?"
+        }
         sql += ";"
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
         defer { sqlite3_finalize(stmt) }
-        if let limit { sqlite3_bind_int64(stmt, 1, Int64(limit)) }
+        if let limit {
+            guard limit > 0 else { return [] }
+            sqlite3_bind_int64(stmt, 1, Int64(limit))
+            sqlite3_bind_int64(stmt, 2, Int64(offset))
+        } else if offset > 0 {
+            sqlite3_bind_int64(stmt, 1, Int64(offset))
+        }
 
         var rows: [Row] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
@@ -330,6 +424,8 @@ actor LibraryCache {
     }
 
     func loadLikesForPeer(offset: Int, limit: Int) -> [LikesPeerRecord] {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db, offset >= 0, limit > 0 else { return [] }
         var stmt: OpaquePointer?
         let sql = """
@@ -360,6 +456,8 @@ actor LibraryCache {
     }
 
     func likeIDs(newerThanMillis millis: Int64) -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return [] }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT item_id FROM likes_index WHERE liked_at_millis > ?;", -1, &stmt, nil) == SQLITE_OK else { return [] }
@@ -376,6 +474,8 @@ actor LibraryCache {
     }
 
     func searchLikes(query: String, limit: Int) -> [Row] {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return [] }
         let folded = Self.fold(query)
         let terms = folded.split(whereSeparator: { $0.isWhitespace }).map(String.init)
@@ -424,6 +524,8 @@ actor LibraryCache {
     }
 
     func syncValue(forKey key: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return nil }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT value FROM sync_state WHERE key = ?;", -1, &stmt, nil) == SQLITE_OK else { return nil }
@@ -434,6 +536,8 @@ actor LibraryCache {
     }
 
     func setSyncValue(_ value: String?, forKey key: String) {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return }
         var stmt: OpaquePointer?
         if let value {
@@ -468,6 +572,8 @@ actor LibraryCache {
     }
 
     func sectionCachedAt(_ section: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return nil }
         var stmt: OpaquePointer?
         let sql = "SELECT MAX(cached_at) FROM library_item WHERE section = ?;"
@@ -481,7 +587,7 @@ actor LibraryCache {
 
     private static func openDatabase(path: String) -> OpaquePointer? {
         var handle: OpaquePointer?
-        let status = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil)
+        let status = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil)
         guard status == SQLITE_OK, let handle else {
             if let handle { sqlite3_close(handle) }
             return nil
@@ -538,6 +644,8 @@ actor LibraryCache {
     private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     private func sectionCount(_ section: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return 0 }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM library_item WHERE section = ?;", -1, &stmt, nil) == SQLITE_OK else { return 0 }
@@ -554,6 +662,8 @@ actor LibraryCache {
         itemCount: Int,
         now: Date = Date()
     ) {
+        lock.lock()
+        defer { lock.unlock() }
         guard let db else { return }
         var stmt: OpaquePointer?
         let sql = """

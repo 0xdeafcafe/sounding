@@ -252,7 +252,7 @@ struct AnalysisSyncEngineScope: Sendable, Equatable {
 
     static let `default` = AnalysisSyncEngineScope(allowedEngineNames: [
         "apple.musicUnderstanding",
-        "sounding.fftAudioAnalyzer",
+        "sounding.beatTracker",
         "sounding.genreTaxonomy",
         "sounding.userCorrection",
         "soundcloud.waveform",

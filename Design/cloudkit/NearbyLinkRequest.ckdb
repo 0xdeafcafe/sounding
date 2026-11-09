@@ -1,0 +1,32 @@
+    RECORD TYPE NearbyLinkRequest (
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        accountTag      STRING,
+        createdAt       TIMESTAMP,
+        expiresAt       TIMESTAMP,
+        linkedDevices   STRING,
+        tvKind          STRING,
+        tvName          STRING,
+        tvTag           STRING,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE NearbyLinkSnooze (
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        snoozedAt       TIMESTAMP,
+        tvTag           STRING,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );

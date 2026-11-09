@@ -1,4 +1,4 @@
-# SoundingCloud
+# Sounding
 
 The SoundCloud client I wished existed on my Apple TV, so I built it. For one Apple TV, one iPhone, and nobody else's App Store.
 
@@ -16,7 +16,7 @@ SoundCloud has never shipped a tvOS app. The third-party ones that exist throw a
 
 **Playback that follows you.** Start a track on the TV, pick the phone up on the way out and it carries on in your headphones at the same position. Come back and it lands on the big screen again. Same session, no restart, no scrubbing to catch up.
 
-**The rest of it**, briefly: offline downloads with storage management that evicts the oldest first, Live Activities and Lock Screen transport on iOS, a Share extension that queues a link into the TV without opening the app, a Top Shelf that shows what you actually played, spatial and multichannel output, and Polyphony - one device leading, others playing in sync as speakers.
+**The rest of it**, briefly: offline downloads with storage management that evicts the oldest first, system Now Playing controls on iOS, a Share extension that queues a link into the TV without opening the app, a Top Shelf that shows what you actually played, spatial and multichannel output, and SharePlay to listen together.
 
 ## Layout
 
@@ -26,10 +26,9 @@ SoundingTV.swiftpm/      Shared Swift package. Core/ is the engine room
                          Shared/ is design system + view models,
                          Apps/tvOS/ is the TV UI.
 SoundingTV-tvOS/         tvOS app shell (Info.plist, entitlements, assets)
-SoundingTV-iOS/          iPhone app: Companion control, DJ remote, Stream, Library
+SoundingTV-iOS/          iPhone app: Home, Music Intelligence, Library, Companion control
 SoundingTV-macOS/        Mac app: Decks, Home, Library, Search
 SoundingTV-watchOS/      Watch app and its haptics
-SoundingTV-Widget/       Widgets, Live Activity, playback control intents
 SoundingTV-TopShelf/     tvOS Top Shelf extension
 SoundingTV-Share/        Share extension
 SoundingTV-UITests/      Focus-walk UI tests
@@ -51,14 +50,13 @@ One rule worth knowing before you touch anything: **do not run `xcodegen`.** The
 
 ## The vocabulary
 
-Cross-device code gets confusing fast, so these four words mean exactly one thing each and never overlap:
+Cross-device code gets confusing fast, so these words mean exactly one thing each and never overlap:
 
 - **Link** - trust and credentials. Establishing that two devices belong to the same person, and moving the session between them.
 - **Companion** - the control channel. Auth, state and settings flowing between a phone and a TV.
-- **Polyphony** - one leader driving other devices as synchronised speakers.
 - **Output** - where audio physically comes out.
 
-"Handoff" means `NSUserActivity` and nothing else. There is no lyrics feature and there never will be.
+"Handoff" means `NSUserActivity` and nothing else. Listening together is SharePlay. There is no lyrics feature and there never will be.
 
 ## Legal
 

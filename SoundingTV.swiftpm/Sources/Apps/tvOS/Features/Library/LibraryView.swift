@@ -1,839 +1,196 @@
 import SwiftUI
+import Combine
 
 struct LibraryView: View {
     @StateObject private var viewModel = LibraryViewModel()
     @EnvironmentObject var authService: AuthenticationService
     @EnvironmentObject var navigationState: NavigationState
-    @FocusState private var railFocus: LibraryFilter?
-    @State private var isShowingLikesPolicy = false
-    @State private var selectedGenre: String?
-    @ObservedObject private var settings = SettingsStore.shared
+    @ObservedObject private var router = LibraryRouter.shared
+    @AppStorage("library.tv.page") private var page: LibraryFilter = .recentlyAdded
+    @State private var path: [LibraryFilter] = []
+    @State private var socialPage: SocialSection?
+    @State private var appliedLaunchRoute = false
 
     var body: some View {
         Group {
             if authService.isAuthenticated {
                 authenticatedView
             } else {
-                signInPrompt
+                NavigationStack { SignedOutLibraryView() }
+                    .background { BrowseBackdrop() }
             }
         }
         .onChange(of: authService.isAuthenticated) { wasAuthenticated, isAuthenticated in
             if wasAuthenticated, !isAuthenticated {
+                path = []
                 Task { await viewModel.handleSignOut() }
             }
-        }
-        .sheet(isPresented: $isShowingLikesPolicy) {
-            CollectionPolicyEditor(
-                collectionId: CollectionPolicyID.likedTracks,
-                collectionName: "Liked Tracks",
-                collectionKind: .playlist,
-                tracks: viewModel.likedTracks,
-                applier: DownloadManager.shared
-            )
         }
     }
 
     private var authenticatedView: some View {
-        NavigationStack {
-            HStack(alignment: .top, spacing: Space.roomy) {
-                rail
-                content
-            }
-            .padding(.trailing, Space.gutter)
-            .padding(.top, SCBrowseMetrics.contentTopInset)
-            .defaultFocus($railFocus, viewModel.selectedFilter)
-            .onAppear {
-                DispatchQueue.main.async { railFocus = viewModel.selectedFilter }
-            }
-            .onChange(of: viewModel.selectedFilter) { _, _ in
-                Task { await viewModel.loadSelectedFilter() }
-            }
-            .task { await viewModel.loadSelectedFilter() }
-            .onChange(of: navigationState.selectedTab) { _, tab in
-                if tab == .library {
-                    Task { await viewModel.refreshSelectedFilterIfStale() }
+        NavigationStack(path: $path) {
+            LibrarySplitView(viewModel: viewModel, page: $page) { socialPage = $0 }
+                .navigationDestination(for: LibraryFilter.self) { filter in
+                    LibraryDetailView(filter: filter, viewModel: viewModel)
                 }
+                .navigationDestination(item: $socialPage) { section in
+                    TVSocialPage(section: section)
+                }
+        }
+        .onChange(of: navigationState.socialRequest, initial: true) { _, request in
+            guard let request else { return }
+            path = []
+            socialPage = request
+            navigationState.socialRequest = nil
+        }
+        .onChange(of: navigationState.selectedTab) { _, tab in
+            if tab == .library {
+                Task { await viewModel.refreshShelvesIfStale() }
             }
         }
+        .onChange(of: router.request, initial: true) { _, request in
+            guard let request else { return }
+            open(request)
+            router.request = nil
+        }
+        .onAppear(perform: applyLaunchRoute)
         .background { BrowseBackdrop() }
     }
 
-    private var rail: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: Space.hair) {
-                ForEach(LibraryFilter.railGroups) { group in
-                    if let title = group.title {
-                        Rectangle()
-                            .fill(Color.scSeparator)
-                            .frame(height: 1)
-                            .padding(.top, Space.snug)
-                            .padding(.bottom, Space.tight)
-
-                        Text(title.uppercased())
-                            .font(.system(size: 20, weight: .semibold))
-                            .tracking(1.4)
-                            .foregroundStyle(Color.scTextTertiary)
-                            .padding(.leading, LibraryFilter.railLabelInset)
-                            .padding(.trailing, Space.base)
-                            .padding(.bottom, Space.tight)
-                    }
-
-                    ForEach(group.filters) { filter in
-                        LibraryRailRow(
-                            filter: filter,
-                            isSelected: selectedGenre == nil && viewModel.selectedFilter == filter,
-                            isFocused: railFocus == filter
-                        ) {
-                            selectedGenre = nil
-                            viewModel.selectedFilter = filter
-                        }
-                        .focused($railFocus, equals: filter)
-                    }
-                }
-
-                if !libraryGenres.isEmpty {
-                    Rectangle()
-                        .fill(Color.scSeparator)
-                        .frame(height: 1)
-                        .padding(.top, Space.snug)
-                        .padding(.bottom, Space.tight)
-
-                    Text("Genres")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(Color.scTextTertiary)
-                        .padding(.leading, Space.base)
-                        .padding(.bottom, Space.hair)
-
-                    ForEach(libraryGenres, id: \.self) { genre in
-                        LibraryGenreRailRow(
-                            genre: genre,
-                            isSelected: selectedGenre == genre
-                        ) {
-                            selectedGenre = genre
-                            viewModel.selectedFilter = .songs
-                            railFocus = nil
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, Space.hair)
-        }
-        .scrollClipDisabled()
-        .frame(width: LibraryFilter.railWidth)
-        .offset(x: -30)
-        .focusSection()
-    }
-
-    private var content: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: SCBrowseMetrics.headerGap) {
-                paneHeader
-                contentBody
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.bottom, Space.section)
-        }
-        .scrollClipDisabled()
-        .focusSection()
-    }
-
-    @ViewBuilder
-    private var paneHeader: some View {
-        HStack(alignment: .bottom, spacing: Space.roomy) {
-            VStack(alignment: .leading, spacing: Space.hair) {
-                SCSectionHeader(title: selectedGenre ?? viewModel.selectedFilter.label, style: SCBrowseMetrics.header)
-                if let count = paneCount {
-                    Text(count)
-                        .font(.tvCaption)
-                        .foregroundStyle(Color.scTextSecondary)
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            if viewModel.selectedFilter != .songs,
-               viewModel.selectedFilter != .likes,
-               !panePlayableTracks.isEmpty {
-                HStack(spacing: Space.snug) {
-                    Button {
-                        Task { await PlayActions.play(tracks: panePlayableTracks, collectionId: paneCollectionId) }
-                    } label: {
-                        Label("Play", systemImage: "play.fill")
-                    }
-
-                    Button {
-                        Task { await PlayActions.shufflePlay(tracks: panePlayableTracks, collectionId: paneCollectionId) }
-                    } label: {
-                        Label("Shuffle", systemImage: "shuffle")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .controlSize(.regular)
-                .tint(.white)
-                .focusSection()
-            }
-        }
-    }
-
-    private var panePlayableTracks: [Track] {
-        switch viewModel.selectedFilter {
-        case .recentlyAdded:
-            return viewModel.recentlyAdded.compactMap(\.track).filter { $0.streamURL != nil }
-        case .songs:
-            return displayedSongTracks.filter { $0.streamURL != nil }
-        case .likes:
-            return viewModel.likedTracks.filter { $0.streamURL != nil }
-        case .sets:
-            return displayedSets.filter { $0.streamURL != nil }
-        case .artists, .playlists, .following:
-            return []
-        }
-    }
-
-    private var paneCollectionId: String? {
-        switch viewModel.selectedFilter {
-        case .likes: return CollectionPolicyID.likedTracks
-        default: return nil
-        }
-    }
-
-    private var paneCount: String? {
-        func label(_ count: Int, _ noun: String) -> String {
-            "\(count) \(count == 1 ? noun : noun + "s")"
-        }
-        switch viewModel.selectedFilter {
-        case .recentlyAdded:
-            if viewModel.recentlyAddedLoading, viewModel.recentlyAdded.isEmpty { return nil }
-            return label(viewModel.recentlyAdded.count, "item")
-        case .artists:
-            if isLoadingFirstPage(.likes), viewModel.libraryArtists.isEmpty { return nil }
-            return label(viewModel.libraryArtists.count, "artist")
-        case .sets:
-            if isLoadingFirstPage(.likes), displayedSets.isEmpty { return nil }
-            return label(displayedSets.count, "set")
-        case .songs:
-            if isLoadingFirstPage(.likes), viewModel.likedTracks.isEmpty { return nil }
-            return label(displayedSongTracks.count, "song")
-        case .likes:
-            if isLoadingFirstPage(.likes), viewModel.likedTracks.isEmpty { return nil }
-            return label(viewModel.likedTracks.count, "track")
-        case .playlists:
-            if isLoadingFirstPage(.playlists), viewModel.libraryPlaylists.isEmpty { return nil }
-            return label(viewModel.libraryPlaylists.count, "playlist")
-        case .following:
-            if isLoadingFirstPage(.following), viewModel.following.isEmpty { return nil }
-            return label(viewModel.following.count, "artist")
-        }
-    }
-
-    @ViewBuilder
-    private var contentBody: some View {
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["SOUNDING_TV_LIBRARY_SKELETON"] == "1" {
-            loadingSkeleton(for: viewModel.selectedFilter)
+    private func open(_ filter: LibraryFilter) {
+        if LibraryFilter.sidebarOrder.contains(filter) {
+            page = filter
+            path = []
+        } else if filter == .likes {
+            page = .playlists
+            path = [.likes]
         } else {
-            contentSwitch
-        }
-        #else
-        contentSwitch
-        #endif
-    }
-
-    @ViewBuilder
-    private func loadingSkeleton(for filter: LibraryFilter) -> some View {
-        switch filter {
-        case .recentlyAdded:
-            ContentSkeleton(
-                lockup: .grid(columns: LibraryFilter.gridColumns),
-                title: "Loading recently added…"
-            )
-        case .artists:
-            ContentSkeleton(
-                lockup: .grid(columns: LibraryFilter.gridColumns, circular: true),
-                title: "Loading artists…"
-            )
-        case .songs, .likes, .sets:
-            ContentSkeleton(lockup: .list(), title: "Loading songs…")
-        case .playlists:
-            ContentSkeleton(
-                lockup: .grid(columns: LibraryFilter.gridColumns),
-                title: "Loading your playlists…"
-            )
-        case .following:
-            ContentSkeleton(
-                lockup: .grid(columns: LibraryFilter.gridColumns, circular: true),
-                title: "Loading who you follow…"
-            )
+            path = [filter]
         }
     }
 
-    @ViewBuilder
-    private var contentSwitch: some View {
-        switch viewModel.selectedFilter {
-        case .recentlyAdded:
-            if viewModel.recentlyAddedLoading || !viewModel.recentlyAddedAttempted,
-               viewModel.recentlyAdded.isEmpty {
-                loadingSkeleton(for: .recentlyAdded)
-            } else if let error = viewModel.recentlyAddedError, viewModel.recentlyAdded.isEmpty {
-                retryPanel(title: "Couldn't load recently added", error: error) {
-                    Task { await viewModel.loadRecentlyAdded() }
-                }
-            } else {
-                RecentlyAddedGridView(
-                    items: viewModel.recentlyAdded,
-                    columns: LibraryFilter.gridColumns,
-                    onNearEnd: { Task { await viewModel.loadMoreRecentlyAdded() } },
-                    isLoadingMore: viewModel.recentlyAddedLoadingMore
-                )
-            }
-
-        case .songs:
-            if isLoadingFirstPage(.likes), viewModel.likedTracks.isEmpty {
-                loadingSkeleton(for: .songs)
-            } else if let error = viewModel.errorMessage, viewModel.likedTracks.isEmpty {
-                retryPanel(title: "Couldn't load your songs", error: error) {
-                    Task { await viewModel.loadContent() }
-                }
-            } else {
-                TrackListView(
-                    tracks: displayedSongTracks,
-                    collectionId: nil,
-                    dateAdded: { viewModel.likedAtByTrackID[$0.id] ?? $0.createdAt },
-                    emptyIcon: LibraryFilter.songs.icon,
-                    emptyTitle: selectedGenre.map { "No \($0) songs yet" } ?? LibraryFilter.songs.emptyMessage,
-                    onNearEnd: { Task { await viewModel.loadMore(section: .likes) } },
-                    isLoadingMore: viewModel.loadingMore.contains(.likes),
-                    toolbarActions: AnyView(trackToolbarActions(
-                        tracks: panePlayableTracks,
-                        collectionId: nil,
-                        showsManagement: false
-                    )),
-                    toolbarHeaderOverlap: 104
-                )
-            }
-
-        case .likes:
-            if isLoadingFirstPage(.likes), viewModel.likedTracks.isEmpty {
-                loadingSkeleton(for: .likes)
-            } else if let error = viewModel.errorMessage, viewModel.likedTracks.isEmpty {
-                retryPanel(title: "Couldn't load your likes", error: error) {
-                    Task { await viewModel.loadContent() }
-                }
-            } else {
-                TrackListView(
-                    tracks: viewModel.likedTracks,
-                    collectionId: CollectionPolicyID.likedTracks,
-                    dateAdded: { viewModel.likedAtByTrackID[$0.id] ?? $0.createdAt },
-                    emptyIcon: LibraryFilter.likes.icon,
-                    emptyTitle: LibraryFilter.likes.emptyMessage,
-                    onNearEnd: { Task { await viewModel.loadMore(section: .likes) } },
-                    isLoadingMore: viewModel.loadingMore.contains(.likes),
-                    toolbarActions: AnyView(trackToolbarActions(
-                        tracks: panePlayableTracks,
-                        collectionId: CollectionPolicyID.likedTracks,
-                        showsManagement: true
-                    )),
-                    toolbarHeaderOverlap: 104
-                )
-            }
-
-        case .sets:
-            if isLoadingFirstPage(.likes), displayedSets.isEmpty {
-                loadingSkeleton(for: .sets)
-            } else if let error = viewModel.errorMessage, displayedSets.isEmpty {
-                retryPanel(title: "Couldn't load sets", error: error) {
-                    Task { await viewModel.loadSelectedFilter() }
-                }
-            } else {
-                TrackListView(
-                    tracks: displayedSets,
-                    collectionId: nil,
-                    dateAdded: { viewModel.likedAtByTrackID[$0.id] ?? $0.createdAt },
-                    emptyIcon: LibraryFilter.sets.icon,
-                    emptyTitle: "No Sets Yet",
-                    onNearEnd: { Task { await viewModel.loadMore(section: .likes) } },
-                    isLoadingMore: viewModel.loadingMore.contains(.likes),
-                    toolbarActions: AnyView(trackToolbarActions(
-                        tracks: panePlayableTracks,
-                        collectionId: nil,
-                        showsManagement: false
-                    )),
-                    toolbarHeaderOverlap: 104
-                )
-            }
-
-        case .artists:
-            if isLoadingFirstPage(.likes), viewModel.libraryArtists.isEmpty {
-                loadingSkeleton(for: .artists)
-            } else if let error = viewModel.errorMessage, viewModel.libraryArtists.isEmpty {
-                retryPanel(title: "Couldn't load your artists", error: error) {
-                    Task { await viewModel.loadSelectedFilter() }
-                }
-            } else {
-                UserGridView(
-                    users: viewModel.libraryArtists,
-                    columns: LibraryFilter.gridColumns,
-                    onNearEnd: { Task { await viewModel.loadMoreArtists() } },
-                    isLoadingMore: viewModel.loadingMore.contains(.likes)
-                        || viewModel.loadingMore.contains(.following),
-                    emptyIcon: LibraryFilter.artists.icon,
-                    emptyTitle: LibraryFilter.artists.emptyMessage
-                )
-            }
-
-        case .playlists:
-            if isLoadingFirstPage(.playlists), viewModel.libraryPlaylists.isEmpty {
-                loadingSkeleton(for: .playlists)
-            } else if let error = viewModel.errorMessage, viewModel.libraryPlaylists.isEmpty {
-                retryPanel(title: "Couldn't load your playlists", error: error) {
-                    Task { await viewModel.loadContent() }
-                }
-            } else {
-                PlaylistGridView(
-                    playlists: viewModel.libraryPlaylists,
-                    columns: LibraryFilter.gridColumns,
-                    onNearEnd: { Task { await viewModel.loadMoreCollections() } },
-                    isLoadingMore: viewModel.loadingMore.contains(.playlists)
-                        || viewModel.likedPlaylistsLoadingMore,
-                    emptyIcon: LibraryFilter.playlists.icon,
-                    emptyTitle: LibraryFilter.playlists.emptyMessage
-                )
-            }
-
-        case .following:
-            if isLoadingFirstPage(.following), viewModel.following.isEmpty {
-                loadingSkeleton(for: .following)
-            } else if let error = viewModel.errorMessage, viewModel.following.isEmpty {
-                retryPanel(title: "Couldn't load who you follow", error: error) {
-                    Task { await viewModel.loadContent() }
-                }
-            } else {
-                UserGridView(
-                    users: viewModel.following,
-                    columns: LibraryFilter.gridColumns,
-                    onNearEnd: { Task { await viewModel.loadMore(section: .following) } },
-                    isLoadingMore: viewModel.loadingMore.contains(.following),
-                    emptyIcon: LibraryFilter.following.icon,
-                    emptyTitle: LibraryFilter.following.emptyMessage
-                )
-            }
-        }
-    }
-
-    private func trackToolbarActions(
-        tracks: [Track],
-        collectionId: String?,
-        showsManagement: Bool
-    ) -> some View {
-        HStack(spacing: Space.snug) {
-            Button {
-                Task {
-                    await PlayActions.play(
-                        tracks: tracks,
-                        collectionId: collectionId
-                    )
-                }
-            } label: {
-                Label("Play", systemImage: "play.fill")
-            }
-
-            Button {
-                Task {
-                    await PlayActions.shufflePlay(
-                        tracks: tracks,
-                        collectionId: collectionId
-                    )
-                }
-            } label: {
-                Label("Shuffle", systemImage: "shuffle")
-            }
-
-            if showsManagement {
-                Button {
-                    isShowingLikesPolicy = true
-                } label: {
-                    Label("Manage Likes", systemImage: "arrow.down.circle")
-                }
-                .accessibilityLabel("Manage liked-track downloads")
-            }
-        }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.capsule)
-        .controlSize(.regular)
-        .tint(.white)
-        .focusSection()
-    }
-
-    private var displayedSongTracks: [Track] {
-        guard let selectedGenre else { return viewModel.librarySongTracks }
-        return viewModel.librarySongTracks.filter {
-            $0.genre?.localizedCaseInsensitiveCompare(selectedGenre) == .orderedSame
-        }
-    }
-
-    private var displayedSets: [Track] {
-        GeneratedLibraryCollections.sets(
-            from: viewModel.likedTracks,
-            minimumDuration: settings.setMinimumDurationSeconds
-        )
-    }
-
-    private var libraryGenres: [String] {
-        var counts: [String: Int] = [:]
-        for track in viewModel.librarySongTracks {
-            guard let raw = track.genre?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !raw.isEmpty else { continue }
-            counts[raw, default: 0] += 1
-        }
-        return counts.keys.sorted {
-            let lhsCount = counts[$0, default: 0]
-            let rhsCount = counts[$1, default: 0]
-            return lhsCount == rhsCount
-                ? $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
-                : lhsCount > rhsCount
-        }
-        .prefix(8)
-        .map { $0 }
-    }
-
-    private func isLoadingFirstPage(_ section: LibrarySection) -> Bool {
-        viewModel.isLoading || !viewModel.attempted.contains(section)
-    }
-
-    private func retryPanel(title: String, error: String, retry: @escaping () -> Void) -> some View {
-        StatusPanel(
-            kind: .error,
-            title: title,
-            message: error,
-            actionTitle: "Try Again",
-            action: retry,
-            minHeight: 400
-        )
-    }
-
-    private var signInPrompt: some View {
-        VStack(spacing: Space.roomy) {
-            Spacer()
-
-            Image(systemName: "music.note.list")
-                .font(.system(size: 96, weight: .heavy))
-                .foregroundStyle(Color.scTextTertiary)
-
-            VStack(spacing: Spacing.sm) {
-                Text("Your Library")
-                    .font(.tvTitle)
-                    .foregroundStyle(.white)
-                Text("Sign in to see your liked tracks, playlists, and artists.")
-                    .font(.tvBody)
-                    .foregroundStyle(Color.scTextSecondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            Button {
-                NotificationCenter.default.post(name: .sessionExpired, object: nil)
-            } label: {
-                Label("Sign In", systemImage: "qrcode")
-            }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
-            .tint(.white)
-            .foregroundStyle(.black)
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
+    private func applyLaunchRoute() {
+        guard !appliedLaunchRoute else { return }
+        appliedLaunchRoute = true
+        if let filter = LibraryViewModel.launchRoute() { open(filter) }
     }
 }
 
-private struct RecentlyAddedGridView: View {
-    let items: [LibraryItem]
-    let columns: Int
-    var onNearEnd: (() -> Void)?
-    var isLoadingMore = false
+@MainActor
+final class LibraryRouter: ObservableObject {
+    static let shared = LibraryRouter()
 
-    @EnvironmentObject private var playerService: PlayerService
+    @Published var request: LibraryFilter?
 
-    private var grid: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: Space.gutter), count: max(1, columns))
-    }
-
-    private var playableTracks: [Track] {
-        items.compactMap(\.track).filter { $0.streamURL != nil }
-    }
-
-    var body: some View {
-        if items.isEmpty {
-            StatusPanel(
-                kind: .empty,
-                icon: LibraryFilter.recentlyAdded.icon,
-                title: LibraryFilter.recentlyAdded.emptyMessage,
-                minHeight: 320
-            )
-        } else {
-            VStack(spacing: Space.base) {
-                LazyVGrid(columns: grid, spacing: Space.gutter) {
-                    ForEach(Array(items.enumerated()), id: \.element.libraryID) { index, item in
-                        destination(for: item)
-                            .onAppear {
-                                guard index >= max(0, items.count - 12) else { return }
-                                onNearEnd?()
-                            }
-                    }
-                }
-                .buttonStyle(SCCardButtonStyle(cornerRadius: Corner.control, sizeClass: .tile))
-                .focusEffectDisabled()
-                .prefetchArtwork(items.compactMap(\.artworkURL))
-
-                if isLoadingMore {
-                    LoadingMoreRow()
-                        .frame(maxWidth: .infinity)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func destination(for item: LibraryItem) -> some View {
-        if let playlist = item.playlist {
-            NavigationLink {
-                PlaylistDetailView(playlist: playlist)
-            } label: {
-                card(for: item)
-            }
-        } else if let track = item.track {
-            Button {
-                Task { await playerService.play(track, in: playableTracks) }
-            } label: {
-                card(for: item)
-            }
-            .disabled(track.streamURL == nil)
-        } else if let station = item.systemPlaylist {
-            Button {
-                Task {
-                    guard let tracks = try? await SoundCloudAPI.shared.getSystemPlaylistTracks(station),
-                          let first = tracks.first else { return }
-                    await playerService.play(first, in: tracks)
-                }
-            } label: {
-                card(for: item)
-            }
-        }
-    }
-
-    private func card(for item: LibraryItem) -> some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
-            ArtworkImage(url: item.artworkURL, icon: item.icon)
-                .aspectRatio(1, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
-                .kyleCrowned(user: item.crownUser, context: item.displayTitle)
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text(item.displayTitle)
-                    .font(.tvBodyEmph)
-                    .foregroundStyle(Color.scTextPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(item.displaySubtitle)
-                    .font(.tvCaption)
-                    .foregroundStyle(Color.scTextSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .opacity(item.isAvailable ? 1 : 0.5)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-private extension LibraryItem {
-    var libraryID: String {
-        if let track { return "track:\(track.id)" }
-        if let playlist { return "playlist:\(playlist.id)" }
-        if let systemPlaylist { return "system:\(systemPlaylist.id)" }
-        return "unknown:\(createdAt.timeIntervalSince1970)"
-    }
-
-    var artworkURL: URL? {
-        track?.artworkURL ?? playlist?.displayArtworkURL ?? systemPlaylist?.artworkURL
-    }
-
-    var displayTitle: String {
-        track?.title ?? playlist?.title ?? systemPlaylist?.title ?? "Unknown"
-    }
-
-    var displaySubtitle: String {
-        if let track { return track.user.displayName }
-        if let playlist { return playlist.isAlbum ? playlist.user.displayName : "Playlist" }
-        if let systemPlaylist { return systemPlaylist.user?.displayName ?? "Station" }
-        return ""
-    }
-
-    var crownUser: User? {
-        track?.user ?? playlist?.user
-    }
-
-    var icon: String {
-        if track != nil { return "music.note" }
-        if playlist?.isAlbum == true { return "square.stack" }
-        if playlist != nil { return "music.note.list" }
-        return "dot.radiowaves.left.and.right"
-    }
-
-    var isAvailable: Bool {
-        track?.streamURL != nil || playlist != nil || systemPlaylist != nil
-    }
-}
-
-private struct LibraryRailRow: View {
-    let filter: LibraryFilter
-    let isSelected: Bool
-    let isFocused: Bool
-    let action: () -> Void
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var shape: Capsule { Capsule(style: .continuous) }
-    private var hasLightChrome: Bool { isFocused || isSelected }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: Space.snug) {
-                Image(systemName: filter.icon)
-                    .font(.system(size: 25, weight: .medium))
-                    .frame(width: LibraryFilter.railIconColumn, alignment: .center)
-                    .foregroundStyle(hasLightChrome ? Color.scChromeFocusOn : Color.scTextSecondary)
-
-                Text(filter.label)
-                    .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(hasLightChrome ? Color.scChromeFocusOn : Color.scTextPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background { shape.fill(hasLightChrome ? Color.scChromeFocus : .clear) }
-            .contentShape(shape)
-        }
-        .buttonStyle(SCPlainButtonStyle())
-        .focusEffectDisabled()
-        .scMotion(Motion.focus, reduceMotion: reduceMotion, value: isFocused)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityIdentifier("libraryRail.\(filter.rawValue)")
-    }
-}
-
-private struct LibraryGenreRailRow: View {
-    let genre: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    @FocusState private var isFocused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        let isHighlighted = isSelected || isFocused
-        Button(action: action) {
-            Text(GenrePresentation.displayName(for: genre))
-                .font(.system(size: 22, weight: .medium))
-                .foregroundStyle(isHighlighted ? Color.scChromeFocusOn : Color.scTextSecondary)
-                .lineLimit(1)
-                .padding(.horizontal, Space.base)
-                .padding(.vertical, 7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    isHighlighted ? Color.scChromeFocus : .clear,
-                    in: Capsule(style: .continuous)
-                )
-        }
-        .buttonStyle(SCPlainButtonStyle())
-        .focusEffectDisabled()
-        .focused($isFocused)
-        .scMotion(Motion.focus, reduceMotion: reduceMotion, value: isFocused)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    func open(_ filter: LibraryFilter, navigationState: NavigationState) {
+        request = filter
+        navigationState.selectedTab = .library
     }
 }
 
 enum LibraryFilter: String, CaseIterable, Identifiable, Hashable {
     case recentlyAdded
-    case artists
-    case sets
-    case songs
-    case playlists
     case likes
+    case sets
+    case playlists
+    case albums
     case following
+    case setlists
+    case downloads
+    case songs
+    case artists
+    case yourMusic
+    case mixes
+    case history
 
     var id: String { rawValue }
 
-    struct RailGroup: Identifiable {
-        let id: String
-        var title: String?
-        var filters: [LibraryFilter]
-    }
-
-    static let railGroups: [RailGroup] = [
-        RailGroup(
-            id: "library",
-            title: nil,
-            filters: [.recentlyAdded, .artists, .sets, .songs, .playlists, .likes, .following]
-        ),
+    static let sidebarOrder: [LibraryFilter] = [
+        .recentlyAdded, .history, .songs, .albums, .artists, .playlists, .sets, .setlists, .downloads, .mixes, .yourMusic,
     ]
-
-    static let railWidth: CGFloat = 300
-    static let railIconColumn: CGFloat = 32
-
-    static let railLabelInset: CGFloat = Space.base + railIconColumn + Space.snug
-
-    static let gridColumns = 5
 
     var label: String {
         switch self {
         case .recentlyAdded: return "Recently Added"
-        case .artists:       return "Artists"
-        case .sets:          return "Sets"
-        case .songs:         return "Songs"
-        case .playlists:     return "Playlists"
         case .likes:         return "Likes"
+        case .sets:          return "Sets"
+        case .playlists:     return "Playlists"
+        case .albums:        return "Albums"
         case .following:     return "Following"
+        case .setlists:      return "Setlists"
+        case .downloads:     return "Downloads"
+        case .songs:         return "Tracks"
+        case .artists:       return "Artists"
+        case .yourMusic:     return "Your Music"
+        case .mixes:         return "Mixes"
+        case .history:       return "History"
         }
     }
 
     var icon: String {
         switch self {
-        case .recentlyAdded: return "clock"
-        case .artists:       return "music.mic"
-        case .sets:          return "clock.arrow.2.circlepath"
-        case .songs:         return "music.note"
-        case .playlists:     return "music.note.list"
-        case .likes:         return "heart.fill"
-        case .following:     return "person.2"
+        case .recentlyAdded: return SidebarSymbol.recentlyAdded
+        case .likes:         return SidebarSymbol.likes
+        case .sets:          return SidebarSymbol.sets
+        case .playlists:     return SidebarSymbol.allPlaylists
+        case .albums:        return SidebarSymbol.albums
+        case .following:     return SidebarSymbol.following
+        case .artists:       return SidebarSymbol.artists
+        case .setlists:      return SidebarSymbol.setlists
+        case .downloads:     return SidebarSymbol.downloads
+        case .songs:         return SidebarSymbol.tracks
+        case .yourMusic:     return SidebarSymbol.yourMusic
+        case .mixes:         return SidebarSymbol.mixes
+        case .history:       return SidebarSymbol.history
+        }
+    }
+
+    var isPeople: Bool { self == .following }
+
+    var emptyTitle: String {
+        switch self {
+        case .recentlyAdded: return "Nothing Added Yet"
+        case .likes:         return "No Likes Yet"
+        case .sets:          return "No Sets Yet"
+        case .playlists:     return "No Playlists Yet"
+        case .albums:        return "No Albums Yet"
+        case .following:     return "Not Following Anyone"
+        case .artists:       return "No Artists Yet"
+        case .setlists:      return "No Setlists Yet"
+        case .downloads:     return "No Downloads"
+        case .songs:         return "No Tracks Yet"
+        case .yourMusic:     return "No Music on Your Devices"
+        case .mixes:         return "No Mixes Yet"
+        case .history:       return "No Listening History"
         }
     }
 
     var emptyMessage: String {
         switch self {
-        case .recentlyAdded: return "Music you add will appear here"
-        case .artists:       return "Artists you save will appear here"
-        case .sets:          return "Long-form liked tracks appear here"
-        case .songs:         return "Songs you save will appear here"
-        case .playlists:     return "Your saved playlists will appear here"
-        case .likes:         return "Tracks you like will appear here"
-        case .following:     return "Artists you follow will appear here"
+        case .recentlyAdded: return "Tracks you like, playlists you make or like, people you follow and music you add appear here."
+        case .likes:         return "Tracks you like will appear here."
+        case .sets:          return "Long mixes you like will appear here."
+        case .playlists:     return "Your playlists will appear here."
+        case .albums:        return "Albums you like and albums on your devices will appear here."
+        case .following:     return "Artists you follow will appear here."
+        case .artists:       return "Artists from music on your devices will appear here."
+        case .setlists:      return "Mixes with a saved tracklist will appear here."
+        case .downloads:     return "Downloaded music plays without a connection."
+        case .songs:         return "Tracks you save will appear here."
+        case .yourMusic:     return "Music folders on your linked Mac, iPhone or iPad appear here."
+        case .mixes:         return "Transitions Auto Mix plays show up here, so you can save the good ones."
+        case .history:       return "Tracks you play appear here."
         }
     }
 
-    var dataSection: LibrarySection {
+    var dataSection: LibrarySection? {
         switch self {
-        case .recentlyAdded:       return .recentlyAdded
-        case .artists, .sets, .songs, .likes: return .likes
-        case .playlists:          return .playlists
-        case .following:           return .following
+        case .recentlyAdded: return .recentlyAdded
+        case .likes, .sets, .songs, .setlists: return .likes
+        case .playlists, .albums: return .playlists
+        case .following: return .following
+        case .downloads, .yourMusic, .artists, .mixes, .history: return nil
         }
     }
 }
@@ -845,35 +202,54 @@ enum LibrarySection: String, CaseIterable {
     case following = "Following"
 }
 
+private enum LibraryLoadError: Error {
+    case accountUnavailable
+
+    var message: String { "Couldn't load your account details." }
+}
+
+private enum LikesLocalSource {
+    case none
+    case index
+    case cache
+}
+
+private extension PagedSource {
+    static var placeholder: PagedSource {
+        PagedSource(first: { PagedChunk(items: []) }, next: { _ in PagedChunk(items: []) })
+    }
+}
+
 @MainActor
 class LibraryViewModel: ObservableObject {
-    @Published var selectedFilter: LibraryFilter = LibraryViewModel.initialFilter()
-    @Published var recentlyAdded: [LibraryItem] = []
     @Published private(set) var recentlyAddedAttempted = false
     @Published var recentlyAddedLoading = false
-    @Published var recentlyAddedLoadingMore = false
     @Published var recentlyAddedError: String?
-    @Published var likedTracks: [Track] = []
-    @Published var playlists: [Playlist] = []
-    @Published var following: [User] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
 
-    var selectedSection: LibrarySection { selectedFilter.dataSection }
 
     @Published var likedAtByTrackID: [String: Date] = [:]
 
-    @Published private(set) var loadingMore: Set<LibrarySection> = []
-
     @Published private(set) var attempted: Set<LibrarySection> = []
+    @Published private(set) var firstSyncSettled = false
 
-    @Published var likedPlaylists: [Playlist] = []
-    @Published var likedPlaylistsLoadingMore = false
-    private var likedPlaylistsCursor = PageCursor<Playlist>()
-    private var didLoadLikedPlaylists = false
+    let recentlyAddedPager = Paginator<LibraryItem>(soundCloudSource: .placeholder)
+    let recentlyAddedFeed = RecentlyAddedModel()
+    let likesPager = Paginator<Track>(source: .placeholder, maxUnattendedPages: 1_000)
+    let playlistsPager = Paginator<Playlist>(source: .placeholder, maxUnattendedPages: 1_000)
+    let followingPager = Paginator<User>(source: .placeholder, maxUnattendedPages: 1_000)
+    let likedPlaylistsPager = Paginator<Playlist>(source: .placeholder, maxUnattendedPages: 1_000)
+
+    var recentlyAdded: [LibraryItem] { recentlyAddedPager.items }
+    var likedTracks: [Track] { likesPager.items }
+    var playlists: [Playlist] { playlistsPager.items }
+    var following: [User] { followingPager.items }
+    var likedPlaylists: [Playlist] { likedPlaylistsPager.items }
 
     private let api = SoundCloudAPI.shared
     private var lastLoaded: [LibrarySection: Date] = [:]
+    private var didLoadLikedPlaylists = false
 
     private let libraryCache = LibraryCache.shared
     private static let cacheDateFormatter: DateFormatter = {
@@ -894,34 +270,120 @@ class LibraryViewModel: ObservableObject {
     }()
 
     private static let likedPlaylistsCacheKey = "LikedPlaylists"
-
-    private var recentlyAddedCursor = PageCursor<LibraryItem>()
-    private var likesCursor     = PageCursor<Like<Track>>()
-    private var playlistsCursor = PageCursor<Playlist>()
-    private var followingCursor = PageCursor<User>()
+    private static let cachePageSize = 100
 
     private let staleAfter: TimeInterval = 5 * 60
 
-    private var likesServedFromIndex = false
-    private var likesIndexComplete = false
-    private nonisolated(unsafe) var indexObserver: NSObjectProtocol?
+    private var likesLocalSource: LikesLocalSource = .none
+    private var cancellables: [AnyCancellable] = []
     private let createdAtReference = Date()
 
     init() {
-        indexObserver = NotificationCenter.default.addObserver(
-            forName: .likesIndexDidChange, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in await self?.rehydrateLikesFromIndex() }
+        forward(recentlyAddedPager)
+        forward(recentlyAddedFeed)
+        forward(likesPager)
+        forward(playlistsPager)
+        forward(followingPager)
+        forward(likedPlaylistsPager)
+        configureSources()
+        LibrarySyncEngine.shared.$revision
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in await self?.refreshFromDatabase() }
+            }
+            .store(in: &cancellables)
+        LibrarySyncEngine.shared.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        LibrarySyncEngine.shared.$hasFinishedFirstRun
+            .removeDuplicates()
+            .sink { [weak self] finished in
+                Task { @MainActor in await self?.syncRunDidChange(finished: finished) }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func syncRunDidChange(finished: Bool) async {
+        guard finished else {
+            firstSyncSettled = false
+            return
+        }
+        guard !firstSyncSettled else { return }
+        if attempted.contains(.likes) { await likesPager.reload() }
+        if attempted.contains(.playlists) {
+            await playlistsPager.reload()
+            if didLoadLikedPlaylists { await likedPlaylistsPager.reload() }
+        }
+        if attempted.contains(.following) { await followingPager.reload() }
+        firstSyncSettled = true
+    }
+
+    private var firstSyncPending: Bool {
+        AuthenticationService.shared.isAuthenticated && !firstSyncSettled
+    }
+
+    private func awaitingSync(_ collection: LibraryCollection) -> Bool {
+        if firstSyncPending { return true }
+        if LibrarySyncEngine.shared.lastRunFailed { return false }
+        return LibrarySyncEngine.shared.isAwaitingFirstSync(collection)
+    }
+
+    var syncErrorMessage: String? {
+        guard firstSyncSettled, LibrarySyncEngine.shared.lastRunFailed, libraryIsEmpty else { return nil }
+        return "Couldn't reach SoundCloud. Check this Apple TV's network connection."
+    }
+
+    private func refreshFromDatabase() async {
+        let changed = LibrarySyncEngine.shared.lastChanged
+        if changed.contains(.likes), likesPager.hasLoadedFirst {
+            let page = await LibraryDB.tracks(.likes, offset: 0, limit: max(Self.cachePageSize, likesPager.items.count))
+            let total = await LibraryDB.count(.likes)
+            likedAtByTrackID.merge(page.likedAt) { _, latest in latest }
+            likesPager.prime(items: page.tracks, cursor: page.rowCount < total ? .offset(page.rowCount) : nil, total: total)
+        }
+        if changed.contains(.ownPlaylists), playlistsPager.hasLoadedFirst {
+            let page = await LibraryDB.playlists(.ownPlaylists, offset: 0, limit: max(Self.cachePageSize, playlistsPager.items.count))
+            let total = await LibraryDB.count(.ownPlaylists)
+            playlistsPager.prime(items: page.playlists, cursor: page.rowCount < total ? .offset(page.rowCount) : nil, total: total)
+        }
+        if changed.contains(.likedPlaylists), likedPlaylistsPager.hasLoadedFirst {
+            let page = await LibraryDB.playlists(.likedPlaylists, offset: 0, limit: max(Self.cachePageSize, likedPlaylistsPager.items.count))
+            let total = await LibraryDB.count(.likedPlaylists)
+            likedPlaylistsPager.prime(items: page.playlists, cursor: page.rowCount < total ? .offset(page.rowCount) : nil, total: total)
+        }
+        if changed.contains(.followings), followingPager.hasLoadedFirst {
+            let page = await LibraryDB.users(.followings, offset: 0, limit: max(Self.cachePageSize, followingPager.items.count))
+            let total = await LibraryDB.count(.followings)
+            followingPager.prime(items: page.users, cursor: page.rowCount < total ? .offset(page.rowCount) : nil, total: total)
         }
     }
 
-    deinit {
-        if let indexObserver {
-            NotificationCenter.default.removeObserver(indexObserver)
-        }
+    private func forward<Object: ObservableObject>(_ object: Object) where Object.ObjectWillChangePublisher == ObservableObjectPublisher {
+        object.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
     }
 
-    static func initialFilter() -> LibraryFilter {
+    private func configureSources() {
+        recentlyAddedPager.setSource(PagedSource(
+            first: { [weak self] in
+                guard let self else { throw CancellationError() }
+                return try await self.fetchRecentlyAddedFirst()
+            },
+            next: { [weak self] cursor in
+                guard let self else { throw CancellationError() }
+                return try await self.fetchRecentlyAdded(after: cursor)
+            }
+        ))
+        likesPager.setSource(LibraryDB.trackSource(.likes, onLikedAt: { [weak self] likedAt in
+            self?.likedAtByTrackID.merge(likedAt) { _, latest in latest }
+        }))
+        playlistsPager.setSource(LibraryDB.playlistSource(.ownPlaylists))
+        followingPager.setSource(LibraryDB.userSource(.followings))
+        likedPlaylistsPager.setSource(LibraryDB.playlistSource(.likedPlaylists))
+    }
+
+    static func launchRoute() -> LibraryFilter? {
         #if DEBUG
         if let raw = UserDefaults.standard.string(forKey: "SOUNDING_TV_LIBRARY_SECTION")
             ?? ProcessInfo.processInfo.environment["SOUNDING_TV_LIBRARY_SECTION"] {
@@ -934,19 +396,7 @@ class LibraryViewModel: ObservableObject {
             }
         }
         #endif
-        return .recentlyAdded
-    }
-
-    var libraryArtists: [User] {
-        var seen = Set<String>()
-        var result: [User] = []
-        for user in following where seen.insert(user.id).inserted {
-            result.append(user)
-        }
-        for track in likedTracks where seen.insert(track.user.id).inserted {
-            result.append(track.user)
-        }
-        return result
+        return nil
     }
 
     var librarySongTracks: [Track] {
@@ -959,12 +409,110 @@ class LibraryViewModel: ObservableObject {
         mergedCollections.filter { !$0.isAlbum }
     }
 
+    var libraryAlbums: [Playlist] {
+        mergedCollections.filter(\.isAlbum)
+    }
+
+    var albumItems: [LibraryGridItem] {
+        LibraryCollectionsModel.albumItems(soundCloud: libraryAlbums, localTracks: RemoteLocalMusic.shared.allTracks)
+    }
+
+    var artistItems: [LibraryGridItem] {
+        LibraryCollectionsModel.artistItems(localTracks: RemoteLocalMusic.shared.allTracks)
+    }
+
     private var mergedCollections: [Playlist] {
         var seen = Set<String>()
         return (likedPlaylists + playlists).filter { seen.insert($0.id).inserted }
     }
 
-    func loadSelectedFilter() async {
+    func sets(minimumDuration: Double) -> [Track] {
+        GeneratedLibraryCollections.sets(from: likedTracks, minimumDuration: minimumDuration)
+    }
+
+    func loadAllLikes() async {
+        await TrackCollectionLoader.loadAll(likesPager)
+    }
+
+    func loadAllCollections() async {
+        await TrackCollectionLoader.loadAll(playlistsPager)
+        await TrackCollectionLoader.loadAll(likedPlaylistsPager)
+    }
+
+    var likesPaging: TVPaging? { TVPaging(likesPager) }
+    var followingPaging: TVPaging? { TVPaging(followingPager) }
+    var collectionsPaging: TVPaging? { .combining([TVPaging(playlistsPager), TVPaging(likedPlaylistsPager)]) }
+
+    func countText(_ count: Int, singular: String, plural: String, hasMore: Bool) -> String {
+        let number = count.formatted(.number)
+        return "\(number)\(hasMore ? "+" : "") \(count == 1 && !hasMore ? singular : plural)"
+    }
+
+    func totalText(_ filter: LibraryFilter, count: Int?) -> String? {
+        switch filter {
+        case .likes:
+            guard !likedTracks.isEmpty || likesPager.hasLoadedFirst else { return nil }
+            return likesPager.countText(singular: "track", plural: "tracks")
+        case .recentlyAdded:
+            let count = recentlyAddedFeed.items.count
+            guard count > 0 else { return nil }
+            return countText(count, singular: "item", plural: "items", hasMore: false)
+        case .following:
+            guard !following.isEmpty else { return nil }
+            return followingPager.countText(singular: "artist", plural: "artists")
+        case .artists:
+            return countText(count ?? artistItems.count, singular: "artist", plural: "artists", hasMore: false)
+        case .playlists:
+            return countText(count ?? libraryPlaylists.count, singular: "playlist", plural: "playlists", hasMore: collectionsHaveMore)
+        case .albums:
+            return countText(count ?? albumItems.count, singular: "album", plural: "albums", hasMore: collectionsHaveMore)
+        case .sets:
+            return countText(count ?? sets(minimumDuration: SettingsStore.shared.setMinimumDurationSeconds).count, singular: "set", plural: "sets", hasMore: likesPager.hasMore)
+        case .songs, .setlists, .downloads, .yourMusic:
+            guard let count else { return nil }
+            return countText(count, singular: "track", plural: "tracks", hasMore: false)
+        case .mixes:
+            return countText(count ?? MixHistoryStore.shared.collectedCount, singular: "mix", plural: "mixes", hasMore: false)
+        case .history:
+            return nil
+        }
+    }
+
+    var collectionsHaveMore: Bool { playlistsPager.hasMore || likedPlaylistsPager.hasMore }
+
+    func awaitingFirstPage(_ section: LibrarySection) -> Bool {
+        switch section {
+        case .recentlyAdded: return recentlyAddedPager.isPaused && !recentlyAddedPager.hasLoadedFirst
+        case .likes:         return (likesPager.isPaused && !likesPager.hasLoadedFirst) || (likedTracks.isEmpty && awaitingSync(.likes))
+        case .playlists:     return (playlistsPager.isPaused && !playlistsPager.hasLoadedFirst) || (mergedCollections.isEmpty && awaitingSync(.ownPlaylists))
+        case .following:     return (followingPager.isPaused && !followingPager.hasLoadedFirst) || (following.isEmpty && awaitingSync(.followings))
+        }
+    }
+
+    func isFirstPageLoading(_ filter: LibraryFilter) -> Bool {
+        switch filter.dataSection {
+        case .recentlyAdded?:
+            return recentlyAddedFeed.showsLoading || (recentlyAddedFeed.items.isEmpty && firstSyncPending)
+        case let section?:
+            return (isLoading && !attempted.isEmpty) || !attempted.contains(section) || awaitingFirstPage(section)
+        case nil:
+            return false
+        }
+    }
+
+    func pageError(_ filter: LibraryFilter) -> String? {
+        switch filter.dataSection {
+        case .recentlyAdded?: return recentlyAddedError ?? syncErrorMessage
+        case .some: return errorMessage ?? syncErrorMessage
+        case nil: return nil
+        }
+    }
+
+    var libraryIsEmpty: Bool {
+        recentlyAdded.isEmpty && recentlyAddedFeed.items.isEmpty && likedTracks.isEmpty && mergedCollections.isEmpty && following.isEmpty
+    }
+
+    func load(filter: LibraryFilter) async {
         #if DEBUG
         if VisualFixtures.isEnabled {
             installVisualFixtures()
@@ -972,57 +520,99 @@ class LibraryViewModel: ObservableObject {
         }
         #endif
 
-        switch selectedFilter {
+        switch filter {
         case .recentlyAdded:
-            await loadRecentlyAddedIfNeeded()
-        case .artists:
+            await recentlyAddedFeed.load()
+        case .likes, .sets, .setlists:
             await loadSectionIfNeeded(.likes)
-            await loadSectionIfNeeded(.following)
-        case .playlists:
-            await loadSectionIfNeeded(.playlists)
-            await loadLikedPlaylistsIfNeeded()
-        case .likes, .sets, .following:
-            await loadContent()
         case .songs:
             await loadSectionIfNeeded(.likes)
             await loadRecentlyAddedIfNeeded()
+        case .playlists, .albums:
+            await loadSectionIfNeeded(.playlists)
+            await loadLikedPlaylistsIfNeeded()
+        case .following:
+            await loadSectionIfNeeded(.following)
+        case .artists:
+            RemoteLocalMusic.shared.refreshIfNeeded()
+        case .downloads, .mixes:
+            break
+        case .history:
+            await ListeningHistory.shared.load()
+        case .yourMusic:
+            RemoteLocalMusic.shared.refreshIfNeeded()
+        }
+    }
+
+    func reloadAllShelves() async {
+        attempted.removeAll()
+        lastLoaded.removeAll()
+        recentlyAddedAttempted = false
+        didLoadLikedPlaylists = false
+        errorMessage = nil
+        recentlyAddedError = nil
+        await load(filter: .recentlyAdded)
+        await load(filter: .likes)
+    }
+
+    func refreshShelvesIfStale() async {
+        #if DEBUG
+        if VisualFixtures.isEnabled { return }
+        #endif
+        await refreshRecentlyAddedIfStale()
+        for section in [LibrarySection.likes, .playlists, .following] where lastLoaded[section] != nil {
+            await refreshSectionIfStale(section)
         }
     }
 
     #if DEBUG
     private func installVisualFixtures() {
-        recentlyAdded = VisualFixtures.libraryItems
+        guard !fixturesInstalled else { return }
+        fixturesInstalled = true
+        let state = ProcessInfo.processInfo.environment["SOUNDING_TV_LIBRARY_STATE"]
+        switch state {
+        case "empty":
+            for pager in [likesPager] { pager.prime(items: [], cursor: nil) }
+        case "loading":
+            return
+        case "error":
+            errorMessage = "Couldn't reach SoundCloud. Check this Apple TV's network connection."
+        default:
+            recentlyAddedPager.prime(items: VisualFixtures.libraryItems, cursor: nil)
+            likesPager.prime(items: Self.fixtureLikes, cursor: nil, total: Self.fixtureLikes.count)
+            followingPager.prime(items: VisualFixtures.artists, cursor: nil)
+            playlistsPager.prime(items: VisualFixtures.playlists, cursor: nil)
+            likedPlaylistsPager.prime(items: VisualFixtures.albums, cursor: nil)
+        }
         recentlyAddedAttempted = true
-        likedTracks = VisualFixtures.tracks
-        following = VisualFixtures.artists
-        playlists = VisualFixtures.playlists
         attempted = Set(LibrarySection.allCases)
-        errorMessage = nil
         recentlyAddedError = nil
         for section in LibrarySection.allCases { lastLoaded[section] = Date() }
     }
+
+    private var fixturesInstalled = false
+
+    private static let fixtureLikes: [Track] = {
+        guard let raw = ProcessInfo.processInfo.environment["SOUNDING_TV_LIBRARY_LIKES"], let count = Int(raw) else {
+            return VisualFixtures.tracks + [VisualFixtures.nowPlayingMix]
+        }
+        let base = VisualFixtures.tracks
+        return (0..<count).compactMap { index in
+            var track = base[index % base.count]
+            guard let data = try? JSONEncoder().encode(track),
+                  var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+            json["id"] = 50_000 + index
+            json["title"] = "\(track.title) \(index / base.count + 1)"
+            guard let patched = try? JSONSerialization.data(withJSONObject: json),
+                  let decoded = try? JSONDecoder().decode(Track.self, from: patched) else { return nil }
+            track = decoded
+            return track
+        }
+    }()
     #endif
 
-    func refreshSelectedFilterIfStale() async {
-        switch selectedFilter {
-        case .recentlyAdded:
-            await refreshRecentlyAddedIfStale()
-        case .artists:
-            await refreshSectionIfStale(.likes)
-            await refreshSectionIfStale(.following)
-        case .playlists:
-            await refreshSectionIfStale(.playlists)
-            await loadLikedPlaylistsIfNeeded()
-        case .likes, .sets, .following:
-            await refreshIfStale()
-        case .songs:
-            await refreshSectionIfStale(.likes)
-            await refreshRecentlyAddedIfStale()
-        }
-    }
-
     private func loadSectionIfNeeded(_ section: LibrarySection) async {
-        guard lastLoaded[section] == nil else { return }
+        guard lastLoaded[section] == nil, !attempted.contains(section) else { return }
         await load(section: section)
     }
 
@@ -1033,161 +623,145 @@ class LibraryViewModel: ObservableObject {
         }
     }
 
-    func refreshIfStale() async {
-        guard let loaded = lastLoaded[selectedSection] else {
-            await loadContent()
-            return
-        }
-        if Date().timeIntervalSince(loaded) > staleAfter {
-            await loadContent()
-        }
-    }
-
-    func loadContent() async {
-        if selectedSection == .recentlyAdded {
-            await loadRecentlyAdded()
-            return
-        }
-        await load(section: selectedSection)
-    }
-
     private func load(section: LibrarySection) async {
         guard AuthenticationService.shared.isAuthenticated else { return }
 
         attempted.insert(section)
 
         LikesSyncEngine.shared.activate()
+        switch section {
+        case .likes: LibrarySyncEngine.shared.prioritise([.likes])
+        case .playlists: LibrarySyncEngine.shared.prioritise([.ownPlaylists, .likedPlaylists])
+        case .following: LibrarySyncEngine.shared.prioritise([.followings])
+        case .recentlyAdded: LibrarySyncEngine.shared.kick()
+        }
 
-        if lastLoaded[section] == nil {
+        if lastLoaded[section] == nil, section == .recentlyAdded {
             await hydrateFromCache(section)
         }
 
+        switch section {
+        case .recentlyAdded: return
+        case .likes:         await reloadFirstPage(likesPager)
+        case .playlists:     await reloadFirstPage(playlistsPager)
+        case .following:     await reloadFirstPage(followingPager)
+        }
+    }
+
+    private func reloadFirstPage<Item: Identifiable>(_ pager: Paginator<Item>) async {
+        guard !pager.isLoadingFirst else { return }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
 
-        do {
-            switch section {
-            case .recentlyAdded:
-                return
-            case .likes:
-                let result = try await api.getLikedTracks(limit: 100)
-                for like in result.collection { likedAtByTrackID[like.item.id] = like.createdAt }
-                await LikesSyncEngine.shared.integrate(firstPage: result.collection)
-                if likesServedFromIndex {
-                    await rehydrateLikesFromIndex()
-                } else {
-                    likedTracks = result.collection.map { $0.item }
-                    likesCursor.advance(to: result)
-                    await persistLikesCache(result.collection)
-                }
+        await pager.reload()
 
-            case .playlists:
-                guard let user = await AuthenticationService.shared.waitForCurrentUser() else {
-                    if playlists.isEmpty { errorMessage = "Couldn't load your account details." }
-                    return
-                }
-                let result = try await api.getUserPlaylists(userId: user.id, limit: 50)
-                playlists = result.collection
-                playlistsCursor.advance(to: result)
-                await persistCache(LibrarySection.playlists.rawValue, items: result.collection, id: \.id)
-
-            case .following:
-                guard let user = await AuthenticationService.shared.waitForCurrentUser() else {
-                    if following.isEmpty { errorMessage = "Couldn't load your account details." }
-                    return
-                }
-                let result = try await api.getUserFollowings(userId: user.id, limit: 100)
-                following = result.collection
-                followingCursor.advance(to: result)
-                await persistCache(LibrarySection.following.rawValue, items: result.collection, id: \.id)
-            }
-
-            lastLoaded[section] = Date()
-        } catch {
-            print("Library load error: \(error)")
-            if !hasContent(section) {
-                errorMessage = "Couldn't reach SoundCloud. Check this Apple TV's network connection."
-            }
-        }
+        guard let error = pager.firstError, pager.items.isEmpty else { return }
+        errorMessage = (error as? LibraryLoadError)?.message
+            ?? "Couldn't reach SoundCloud. Check this Apple TV's network connection."
     }
 
-    private func hasContent(_ section: LibrarySection) -> Bool {
-        switch section {
-        case .recentlyAdded: return !recentlyAdded.isEmpty
-        case .likes:     return !likedTracks.isEmpty
-        case .playlists: return !playlists.isEmpty
-        case .following: return !following.isEmpty
-        }
+    private var likesTotal: Int? {
+        SoundCloudCredentialSource.shared.currentUser?.publicFavoritesCount.flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    private var followingTotal: Int? {
+        SoundCloudCredentialSource.shared.currentUser.flatMap { $0.followingsCount > 0 ? $0.followingsCount : nil }
+    }
+
+    private static func isVisible(_ item: LibraryItem) -> Bool {
+        item.track != nil || item.playlist != nil || item.systemPlaylist != nil
+    }
+
+    private static func continuation(
+        consumed: Int,
+        pageFull: Bool,
+        state: LibraryCache.SectionState
+    ) -> PagedCursor? {
+        if pageFull, state.itemCount > consumed { return .offset(consumed) }
+        return state.nextHref.map(PagedCursor.url)
+    }
+
+    private func cachedPage<T: Decodable>(
+        _ key: String,
+        offset: Int,
+        as type: T.Type
+    ) async -> (items: [T], rows: [LibraryCache.Row], next: PagedCursor?) {
+        let rows = libraryCache.loadSection(key, offset: offset, limit: Self.cachePageSize)
+        let state = await libraryCache.sectionState(key)
+        let items = rows.compactMap { try? Self.cacheDecoder.decode(T.self, from: $0.payload) }
+        let next = Self.continuation(
+            consumed: offset + rows.count,
+            pageFull: rows.count == Self.cachePageSize,
+            state: state
+        )
+        return (items, rows, next)
     }
 
     private func hydrateFromCache(_ section: LibrarySection) async {
-        if section == .likes, await rehydrateLikesFromIndex() {
-            return
-        }
-
-        let rows = await libraryCache.loadSection(section.rawValue)
-        guard !rows.isEmpty else { return }
-
         switch section {
         case .recentlyAdded:
-            let decoded = rows.compactMap { try? Self.cacheDecoder.decode(LibraryItem.self, from: $0.payload) }
-            guard !decoded.isEmpty else { return }
-            recentlyAdded = decoded
+            let head = await cachedPage(section.rawValue, offset: 0, as: LibraryItem.self)
+            guard !head.items.isEmpty else { return }
+            recentlyAddedPager.prime(items: head.items, cursor: head.next)
 
         case .likes:
-            var tracks: [Track] = []
-            var likedAt: [String: Date] = [:]
-            for row in rows {
-                guard let track = try? Self.cacheDecoder.decode(Track.self, from: row.payload) else { continue }
-                tracks.append(track)
-                if let millis = row.likedAtMillis {
-                    likedAt[track.id] = Date(timeIntervalSince1970: Double(millis) / 1000)
-                }
-            }
+            if await rehydrateLikesFromIndex() { return }
+            let head = await cachedPage(section.rawValue, offset: 0, as: Track.self)
+            let tracks = decodeLikes(head.rows)
             guard !tracks.isEmpty else { return }
-            likedTracks = tracks
-            likedAtByTrackID = likedAt
+            likesLocalSource = .cache
+            likesPager.prime(items: tracks, cursor: head.next, total: likesTotal)
             logLikesContent(count: tracks.count, source: "section cache")
 
         case .playlists:
-            let decoded = rows.compactMap { try? Self.cacheDecoder.decode(Playlist.self, from: $0.payload) }
-            guard !decoded.isEmpty else { return }
-            playlists = decoded
+            let head = await cachedPage(section.rawValue, offset: 0, as: Playlist.self)
+            guard !head.items.isEmpty else { return }
+            playlistsPager.prime(items: head.items, cursor: head.next)
 
         case .following:
-            let decoded = rows.compactMap { try? Self.cacheDecoder.decode(User.self, from: $0.payload) }
-            guard !decoded.isEmpty else { return }
-            following = decoded
+            let head = await cachedPage(section.rawValue, offset: 0, as: User.self)
+            guard !head.items.isEmpty else { return }
+            followingPager.prime(items: head.items, cursor: head.next, total: followingTotal)
         }
+    }
+
+    private func decodeLikes(_ rows: [LibraryCache.Row]) -> [Track] {
+        var tracks: [Track] = []
+        for row in rows {
+            guard let track = try? Self.cacheDecoder.decode(Track.self, from: row.payload) else { continue }
+            tracks.append(track)
+            if let millis = row.likedAtMillis {
+                likedAtByTrackID[track.id] = Date(timeIntervalSince1970: Double(millis) / 1000)
+            }
+        }
+        return tracks
+    }
+
+    private func likesContinuation(base: Int = 0, count: Int, requested: Int, complete: Bool) async -> PagedCursor? {
+        if count >= requested, count > 0 { return .offset(base + count) }
+        if complete { return nil }
+        return await libraryCache.sectionState(LibrarySection.likes.rawValue).nextHref.map(PagedCursor.url)
     }
 
     @discardableResult
     private func rehydrateLikesFromIndex() async -> Bool {
         guard AuthenticationService.shared.isAuthenticated else { return false }
+        let wasIndex = likesLocalSource == .index
+        guard !likesPager.isLoadingFirst, !likesPager.isLoadingMore else { return wasIndex }
 
         let engine = LikesSyncEngine.shared
         let complete = await engine.indexCompletedAt() != nil
+        let requested = max(Self.cachePageSize, wasIndex ? min(likesPager.items.count, 2000) : 0)
+        let indexed = await engine.indexedLikes(limit: requested)
+        guard !indexed.tracks.isEmpty else { return wasIndex }
+        let next = await likesContinuation(count: indexed.tracks.count, requested: requested, complete: complete)
+        guard !likesPager.isLoadingFirst, !likesPager.isLoadingMore else { return wasIndex }
 
-        if likedTracks.isEmpty {
-            let head = await engine.indexedLikes(limit: 100)
-            guard !head.tracks.isEmpty else { return false }
-            likedTracks = head.tracks
-            likedAtByTrackID = head.likedAt
-            likesServedFromIndex = true
-            likesIndexComplete = complete
-            logLikesContent(count: head.tracks.count, source: "index head")
-        }
-
-        let indexed = await engine.indexedLikes()
-        guard !indexed.tracks.isEmpty else { return likesServedFromIndex }
-        guard complete || indexed.tracks.count >= likedTracks.count else { return likesServedFromIndex }
-
-        likedTracks = indexed.tracks
-        likedAtByTrackID = indexed.likedAt
-        likesServedFromIndex = true
-        likesIndexComplete = complete
-        logLikesContent(count: indexed.tracks.count, source: complete ? "index (complete)" : "index (partial)")
+        likedAtByTrackID.merge(indexed.likedAt) { _, incoming in incoming }
+        likesLocalSource = .index
+        likesPager.prime(items: indexed.tracks, cursor: next, total: likesTotal)
+        logLikesContent(count: indexed.tracks.count, source: complete ? "index head (complete)" : "index head (partial)")
         return true
     }
 
@@ -1198,16 +772,192 @@ class LibraryViewModel: ObservableObject {
         #endif
     }
 
-    private func persistLikesCache(_ likes: [Like<Track>]) async {
-        let rows: [LibraryCache.WriteRow] = likes.compactMap { like in
-            guard let payload = try? Self.cacheEncoder.encode(like.item) else { return nil }
-            return LibraryCache.WriteRow(
-                id: like.item.id,
-                payload: payload,
-                likedAtMillis: Int64((like.createdAt.timeIntervalSince1970 * 1000).rounded())
+    private func fetchLikesFirst() async throws -> PagedChunk<Track> {
+        let result = try await api.getLikedTracks(limit: Self.cachePageSize)
+        for like in result.collection { likedAtByTrackID[like.item.id] = like.createdAt }
+        await LikesSyncEngine.shared.integrate(firstPage: result.collection)
+        await libraryCache.markSectionProgress(
+            LibrarySection.likes.rawValue,
+            nextHref: result.nextHref,
+            completed: result.nextHref == nil
+        )
+        lastLoaded[.likes] = Date()
+
+        let engine = LikesSyncEngine.shared
+        let indexed = await engine.indexedLikes(limit: Self.cachePageSize)
+        if !indexed.tracks.isEmpty {
+            likedAtByTrackID.merge(indexed.likedAt) { _, incoming in incoming }
+            likesLocalSource = .index
+            let complete = await engine.indexCompletedAt() != nil
+            let next = await likesContinuation(count: indexed.tracks.count, requested: Self.cachePageSize, complete: complete)
+            return PagedChunk(items: indexed.tracks, next: next, total: likesTotal)
+        }
+
+        likesLocalSource = .none
+        await mergeLikesCache(result.collection)
+        return PagedChunk(
+            items: result.collection.map(\.item),
+            next: result.nextHref.map(PagedCursor.url),
+            total: likesTotal
+        )
+    }
+
+    private func fetchLikes(after cursor: PagedCursor) async throws -> PagedChunk<Track> {
+        switch cursor {
+        case .start:
+            return try await fetchLikesFirst()
+        case .offset(let offset):
+            if likesLocalSource == .index {
+                let engine = LikesSyncEngine.shared
+                let indexed = await engine.indexedLikes(offset: offset, limit: Self.cachePageSize)
+                likedAtByTrackID.merge(indexed.likedAt) { _, incoming in incoming }
+                let complete = await engine.indexCompletedAt() != nil
+                let next = await likesContinuation(
+                    base: offset,
+                    count: indexed.tracks.count,
+                    requested: Self.cachePageSize,
+                    complete: complete
+                )
+                return PagedChunk(items: indexed.tracks, next: next, total: likesTotal)
+            }
+            let page = await cachedPage(LibrarySection.likes.rawValue, offset: offset, as: Track.self)
+            return PagedChunk(items: decodeLikes(page.rows), next: page.next, total: likesTotal)
+        case .url(let url):
+            let page = try await api.getPage(Like<Track>.self, from: url)
+            for like in page.collection { likedAtByTrackID[like.item.id] = like.createdAt }
+            await LikesSyncEngine.shared.integrate(laterPage: page.collection)
+            await mergeLikesCache(page.collection)
+            await libraryCache.markSectionProgress(
+                LibrarySection.likes.rawValue,
+                nextHref: page.nextHref,
+                completed: page.nextHref == nil
+            )
+            return PagedChunk(
+                items: page.collection.map(\.item),
+                next: page.nextHref.map(PagedCursor.url),
+                total: likesTotal
             )
         }
-        await libraryCache.replaceSection(LibrarySection.likes.rawValue, rows: rows)
+    }
+
+    private func fetchPlaylistsFirst() async throws -> PagedChunk<Playlist> {
+        guard let user = await AuthenticationService.shared.waitForCurrentUser() else {
+            throw LibraryLoadError.accountUnavailable
+        }
+        let page = try await api.getUserPlaylists(userId: user.id, limit: 50)
+        await persistCache(LibrarySection.playlists.rawValue, items: page.collection, id: \.id)
+        await libraryCache.markSectionProgress(
+            LibrarySection.playlists.rawValue,
+            nextHref: page.nextHref,
+            completed: page.nextHref == nil
+        )
+        lastLoaded[.playlists] = Date()
+        return PagedChunk(items: page.collection, next: page.nextHref.map(PagedCursor.url))
+    }
+
+    private func fetchPlaylists(after cursor: PagedCursor) async throws -> PagedChunk<Playlist> {
+        try await fetchSection(
+            cursor,
+            key: LibrarySection.playlists.rawValue,
+            as: Playlist.self,
+            first: fetchPlaylistsFirst
+        )
+    }
+
+    private func fetchFollowingFirst() async throws -> PagedChunk<User> {
+        guard let user = await AuthenticationService.shared.waitForCurrentUser() else {
+            throw LibraryLoadError.accountUnavailable
+        }
+        let page = try await api.getUserFollowings(userId: user.id, limit: 100)
+        await persistCache(LibrarySection.following.rawValue, items: page.collection, id: \.id)
+        await libraryCache.markSectionProgress(
+            LibrarySection.following.rawValue,
+            nextHref: page.nextHref,
+            completed: page.nextHref == nil
+        )
+        lastLoaded[.following] = Date()
+        return PagedChunk(items: page.collection, next: page.nextHref.map(PagedCursor.url), total: followingTotal)
+    }
+
+    private func fetchFollowing(after cursor: PagedCursor) async throws -> PagedChunk<User> {
+        try await fetchSection(
+            cursor,
+            key: LibrarySection.following.rawValue,
+            as: User.self,
+            total: followingTotal,
+            first: fetchFollowingFirst
+        )
+    }
+
+    private func fetchLikedPlaylistsFirst() async throws -> PagedChunk<Playlist> {
+        let page = try await api.getLikedPlaylists(limit: 50)
+        await persistCache(Self.likedPlaylistsCacheKey, items: page.collection, id: \.id)
+        await libraryCache.markSectionProgress(
+            Self.likedPlaylistsCacheKey,
+            nextHref: page.nextHref,
+            completed: page.nextHref == nil
+        )
+        return PagedChunk(items: page.collection, next: page.nextHref.map(PagedCursor.url))
+    }
+
+    private func fetchLikedPlaylists(after cursor: PagedCursor) async throws -> PagedChunk<Playlist> {
+        try await fetchSection(
+            cursor,
+            key: Self.likedPlaylistsCacheKey,
+            as: Playlist.self,
+            first: fetchLikedPlaylistsFirst
+        )
+    }
+
+    private func fetchSection<T: Codable & Identifiable>(
+        _ cursor: PagedCursor,
+        key: String,
+        as type: T.Type,
+        total: Int? = nil,
+        first: () async throws -> PagedChunk<T>
+    ) async throws -> PagedChunk<T> where T.ID == String {
+        switch cursor {
+        case .start:
+            return try await first()
+        case .offset(let offset):
+            let page = await cachedPage(key, offset: offset, as: T.self)
+            return PagedChunk(items: page.items, next: page.next, total: total)
+        case .url(let url):
+            let page = try await api.getPage(T.self, from: url)
+            await persistCache(key, items: page.collection, id: \.id)
+            await libraryCache.markSectionProgress(key, nextHref: page.nextHref, completed: page.nextHref == nil)
+            return PagedChunk(items: page.collection, next: page.nextHref.map(PagedCursor.url), total: total)
+        }
+    }
+
+    private func fetchRecentlyAddedFirst() async throws -> PagedChunk<LibraryItem> {
+        let page = try await api.getLibrary(limit: 50)
+        let visible = page.collection.filter(Self.isVisible)
+        await persistCache(LibrarySection.recentlyAdded.rawValue, items: visible, id: { $0.libraryShelfID })
+        await libraryCache.markSectionProgress(
+            LibrarySection.recentlyAdded.rawValue,
+            nextHref: page.nextHref,
+            completed: page.nextHref == nil
+        )
+        lastLoaded[.recentlyAdded] = Date()
+        return PagedChunk(items: visible, next: page.nextHref.map(PagedCursor.url))
+    }
+
+    private func fetchRecentlyAdded(after cursor: PagedCursor) async throws -> PagedChunk<LibraryItem> {
+        let key = LibrarySection.recentlyAdded.rawValue
+        switch cursor {
+        case .start:
+            return try await fetchRecentlyAddedFirst()
+        case .offset(let offset):
+            let page = await cachedPage(key, offset: offset, as: LibraryItem.self)
+            return PagedChunk(items: page.items, next: page.next)
+        case .url(let url):
+            let page = try await api.getPage(LibraryItem.self, from: url)
+            let visible = page.collection.filter(Self.isVisible)
+            await persistCache(key, items: visible, id: { $0.libraryShelfID })
+            await libraryCache.markSectionProgress(key, nextHref: page.nextHref, completed: page.nextHref == nil)
+            return PagedChunk(items: visible, next: page.nextHref.map(PagedCursor.url))
+        }
     }
 
     private func persistCache<T: Encodable>(_ cacheKey: String, items: [T], id: (T) -> String) async {
@@ -1215,7 +965,19 @@ class LibraryViewModel: ObservableObject {
             guard let payload = try? Self.cacheEncoder.encode(item) else { return nil }
             return LibraryCache.WriteRow(id: id(item), payload: payload)
         }
-        await libraryCache.replaceSection(cacheKey, rows: rows)
+        await libraryCache.mergeSection(cacheKey, rows: rows)
+    }
+
+    private func mergeLikesCache(_ likes: [Like<Track>]) async {
+        let rows = likes.compactMap { like -> LibraryCache.WriteRow? in
+            guard let payload = try? Self.cacheEncoder.encode(like.item) else { return nil }
+            return LibraryCache.WriteRow(
+                id: like.item.id,
+                payload: payload,
+                likedAtMillis: Int64((like.createdAt.timeIntervalSince1970 * 1000).rounded())
+            )
+        }
+        await libraryCache.mergeSection(LibrarySection.likes.rawValue, rows: rows)
     }
 
     func handleSignOut() async {
@@ -1223,66 +985,15 @@ class LibraryViewModel: ObservableObject {
         await libraryCache.clearAll()
         attempted.removeAll()
         lastLoaded.removeAll()
-        recentlyAdded = []
         recentlyAddedAttempted = false
-        recentlyAddedCursor.reset()
-        likedTracks = []
+        recentlyAddedPager.reset()
+        likesPager.reset()
+        playlistsPager.reset()
+        followingPager.reset()
+        likedPlaylistsPager.reset()
         likedAtByTrackID = [:]
-        playlists = []
-        following = []
-        likesCursor.reset()
-        playlistsCursor.reset()
-        followingCursor.reset()
-        likedPlaylists = []
-        likedPlaylistsCursor.reset()
         didLoadLikedPlaylists = false
-        likesServedFromIndex = false
-        likesIndexComplete = false
-    }
-
-    func loadMore(section: LibrarySection) async {
-        guard AuthenticationService.shared.isAuthenticated else { return }
-
-        guard !isLoading, !loadingMore.contains(section), canLoadMore(section) else { return }
-
-        loadingMore.insert(section)
-        defer { loadingMore.remove(section) }
-
-        do {
-            switch section {
-            case .recentlyAdded:
-                return
-            case .likes:
-                guard let page = likesCursor.lastPage else { return }
-                let next = try await api.getNextPage(page)
-                likesCursor.advance(to: next)
-                for like in next.collection { likedAtByTrackID[like.item.id] = like.createdAt }
-                likedTracks.appendUnique(contentsOf: next.collection.map { $0.item })
-
-            case .playlists:
-                guard let page = playlistsCursor.lastPage else { return }
-                let next = try await api.getNextPage(page)
-                playlistsCursor.advance(to: next)
-                playlists.appendUnique(contentsOf: next.collection)
-
-            case .following:
-                guard let page = followingCursor.lastPage else { return }
-                let next = try await api.getNextPage(page)
-                followingCursor.advance(to: next)
-                following.appendUnique(contentsOf: next.collection)
-            }
-        } catch {
-            print("Library load-more error (\(section.rawValue)): \(error)")
-        }
-    }
-
-    private func canLoadMore(_ section: LibrarySection) -> Bool {
-        switch section {
-        case .recentlyAdded: return recentlyAddedCursor.canLoadMore
-        case .likes:     return !likesIndexComplete && likesCursor.canLoadMore
-        case .playlists: return playlistsCursor.canLoadMore
-        case .following: return followingCursor.canLoadMore
-        }
+        likesLocalSource = .none
     }
 
     func loadLikedPlaylistsIfNeeded() async {
@@ -1292,28 +1003,10 @@ class LibraryViewModel: ObservableObject {
 
     func loadLikedPlaylists() async {
         guard AuthenticationService.shared.isAuthenticated else { return }
-
-        if likedPlaylists.isEmpty {
-            await hydrateLikedPlaylistsFromCache()
-        }
+        guard !likedPlaylistsPager.isLoadingFirst else { return }
 
         didLoadLikedPlaylists = true
-
-        do {
-            let page = try await api.getLikedPlaylists(limit: 50)
-            likedPlaylists = page.collection
-            likedPlaylistsCursor.advance(to: page)
-            await persistCache(Self.likedPlaylistsCacheKey, items: page.collection, id: \.id)
-        } catch {
-            print("Liked playlists load error: \(error)")
-        }
-    }
-
-    private func hydrateLikedPlaylistsFromCache() async {
-        let rows = await libraryCache.loadSection(Self.likedPlaylistsCacheKey)
-        let decoded = rows.compactMap { try? Self.cacheDecoder.decode(Playlist.self, from: $0.payload) }
-        guard !decoded.isEmpty else { return }
-        likedPlaylists = decoded
+        await likedPlaylistsPager.reload()
     }
 
     func loadRecentlyAddedIfNeeded() async {
@@ -1337,67 +1030,19 @@ class LibraryViewModel: ObservableObject {
             await hydrateFromCache(.recentlyAdded)
         }
 
+        guard !recentlyAddedPager.isLoadingFirst else { return }
         recentlyAddedLoading = true
         recentlyAddedError = nil
         defer { recentlyAddedLoading = false }
 
-        do {
-            let page = try await api.getLibrary(limit: 50)
-            let visible = page.collection.filter { $0.track != nil || $0.playlist != nil || $0.systemPlaylist != nil }
-            recentlyAdded = visible
-            recentlyAddedCursor.advance(to: page)
-            await persistCache(
-                LibrarySection.recentlyAdded.rawValue,
-                items: visible,
-                id: { $0.libraryID }
-            )
-            lastLoaded[.recentlyAdded] = Date()
-        } catch {
-            if recentlyAdded.isEmpty {
-                recentlyAddedError = "Couldn't reach SoundCloud. Check this Apple TV's network connection."
-            }
+        await recentlyAddedPager.reload()
+
+        if recentlyAddedPager.firstError != nil, recentlyAdded.isEmpty {
+            recentlyAddedError = "Couldn't reach SoundCloud. Check this Apple TV's network connection."
         }
     }
+}
 
-    func loadMoreRecentlyAdded() async {
-        guard !recentlyAddedLoadingMore, recentlyAddedCursor.canLoadMore else { return }
-        recentlyAddedLoadingMore = true
-        defer { recentlyAddedLoadingMore = false }
-
-        do {
-            guard let page = recentlyAddedCursor.lastPage else { return }
-            let next = try await api.getNextPage(page)
-            recentlyAddedCursor.advance(to: next)
-            let visible = next.collection.filter { $0.track != nil || $0.playlist != nil || $0.systemPlaylist != nil }
-            var seen = Set(recentlyAdded.map(\.libraryID))
-            recentlyAdded.append(contentsOf: visible.filter { seen.insert($0.libraryID).inserted })
-        } catch {
-            print("Recently added load-more error: \(error)")
-        }
-    }
-
-    func loadMoreLikedPlaylists() async {
-        guard !likedPlaylistsLoadingMore, likedPlaylistsCursor.canLoadMore else { return }
-        likedPlaylistsLoadingMore = true
-        defer { likedPlaylistsLoadingMore = false }
-
-        do {
-            guard let page = likedPlaylistsCursor.lastPage else { return }
-            let next = try await api.getNextPage(page)
-            likedPlaylistsCursor.advance(to: next)
-            likedPlaylists.appendUnique(contentsOf: next.collection)
-        } catch {
-            print("Liked playlists load-more error: \(error)")
-        }
-    }
-
-    func loadMoreCollections() async {
-        await loadMore(section: .playlists)
-        await loadMoreLikedPlaylists()
-    }
-
-    func loadMoreArtists() async {
-        await loadMore(section: .likes)
-        await loadMore(section: .following)
-    }
+extension LibraryItem: Identifiable {
+    var id: String { libraryShelfID }
 }

@@ -1,97 +1,5 @@
 import Foundation
-
-enum DiscoveryEntry: Identifiable, Equatable, Codable {
-    case playlist(Playlist)
-    case station(SystemPlaylist)
-    case user(User)
-
-    var id: String {
-        switch self {
-        case .playlist(let p): return p.id
-        case .station(let s): return s.id
-        case .user(let u): return "user:\(u.id)"
-        }
-    }
-
-    var cardTitle: String {
-        switch self {
-        case .playlist(let p): return p.title
-        case .station(let s):
-            if let short = s.shortTitle, !short.isEmpty { return short }
-            return s.title
-        case .user(let u): return u.displayName
-        }
-    }
-
-    var cardSubtitle: String? {
-        switch self {
-        case .playlist(let p): return p.user.displayName
-        case .station(let s):
-            if let short = s.shortDescription, !short.isEmpty { return short }
-            return s.description
-        case .user(let u): return "\(u.formattedFollowers) followers"
-        }
-    }
-
-    var artworkURL: URL? {
-        switch self {
-        case .playlist(let p): return p.largeDisplayArtworkURL
-        case .station(let s): return s.artworkURL
-        case .user(let u): return u.largeAvatarURL ?? u.avatarURL
-        }
-    }
-
-    var crownUser: User? {
-        switch self {
-        case .playlist(let playlist): return playlist.user
-        case .user(let user): return user
-        case .station: return nil
-        }
-    }
-}
-
-struct DiscoveryShelf: Identifiable, Equatable, Codable {
-
-    enum Content: Equatable, Codable {
-        case tracks([Track])
-        case playlists([Playlist])
-
-        case stations([SystemPlaylist])
-
-        case users([User])
-
-        case mixed([DiscoveryEntry])
-    }
-
-    enum Kind: Equatable, Codable {
-        case editorial
-        case chartCollections
-        case trending
-        case related
-        case station
-    }
-
-    let id: String
-
-    let title: String
-
-    let subtitle: String?
-
-    let kind: Kind
-    let content: Content
-
-    var count: Int {
-        switch content {
-        case .tracks(let t): return t.count
-        case .playlists(let p): return p.count
-        case .stations(let s): return s.count
-        case .users(let u): return u.count
-        case .mixed(let e): return e.count
-        }
-    }
-
-    var isEmpty: Bool { count == 0 }
-}
+import Combine
 
 @MainActor
 final class DiscoveryHomeSource: ObservableObject {
@@ -122,6 +30,7 @@ final class DiscoveryHomeSource: ObservableObject {
         var trending = "Trending"
         var relatedFormat = "More Like %@"
         var relatedFallback = "More Like This"
+        var recentlyPlayed = "Recently Played"
 
         init() {}
     }
@@ -142,16 +51,100 @@ final class DiscoveryHomeSource: ObservableObject {
     }
 
     private let staleAfter: TimeInterval = 5 * 60
+    private let retryAfter: TimeInterval = 30
+    private var lastAttempt: Date?
 
     private let maxItemsPerShelf = 20
 
     private let api = SoundCloudAPI.shared
     private let cache = LibraryCache.shared
+    private let recentlyPlayed = RecentlyPlayed.shared
+    private var discoveryShelves: [DiscoveryShelf] = []
+    private var recentObservation: AnyCancellable?
     private var didHydrateCache = false
+    private var loadedAccountKey: String?
+    private var accountObservation: AnyCancellable?
+    private var identityObservation: AnyCancellable?
+    private var inflight: Task<Void, Never>?
+    private var personalAccountID: String?
+    private var accountEpoch = 0
     private static let cacheSection = "discovery.home"
+    private static let personalKinds: [DiscoveryShelf.Kind] = [.related, .station]
 
-    /// Makes the last useful Home snapshot available before network refreshes
-    /// begin. Callers can render it immediately while `load` updates quietly.
+    enum FeedAction: Equatable {
+        case load
+        case keepCached
+    }
+
+    static func feedAction(accountStatus: SoundCloudAccountStatus, canAuthenticate: Bool) -> FeedAction {
+        switch accountStatus {
+        case .signedOut: return .load
+        case .needsReconnect: return .keepCached
+        case .signedIn: return canAuthenticate ? .load : .keepCached
+        }
+    }
+
+    static func confirmedAccountKey(_ state: SoundCloudCredentialSource.PublishedAuthState) -> String? {
+        guard state.isAuthenticated, state.sessionHealth == .healthy, let id = state.currentUser?.id else { return nil }
+        return "\(id)#\(state.signInGeneration)"
+    }
+
+    init() {
+        hydrateCacheImmediately()
+        accountObservation = SoundCloudCredentialSource.shared.$state
+            .map(Self.confirmedAccountKey)
+            .removeDuplicates()
+            .compactMap { $0 }
+            .sink { [weak self] key in
+                guard let self, self.loadedAccountKey != key else { return }
+                Log.auth.notice("Home reloading for the confirmed account")
+                Task {
+                    await self.inflight?.value
+                    self.lastLoaded = nil
+                    await self.load(quietly: !self.shelves.isEmpty)
+                }
+            }
+        identityObservation = SoundCloudCredentialSource.shared.$state
+            .map { $0.isSignedOut ? "" : $0.currentUser?.id }
+            .removeDuplicates()
+            .sink { [weak self] id in
+                guard let self, let id else { return }
+                if id.isEmpty || self.personalAccountID.map({ $0 != id }) == true {
+                    self.forgetPersonalShelves()
+                }
+            }
+        recentObservation = recentlyPlayed.$items
+            .map { $0.map(\.track) }
+            .removeDuplicates()
+            .sink { [weak self] tracks in self?.compose(recent: tracks) }
+    }
+
+    private func publish(_ discovery: [DiscoveryShelf]) {
+        discoveryShelves = discovery
+        compose(recent: recentlyPlayed.tracks)
+    }
+
+    private func compose(recent: [Track]) {
+        #if DEBUG
+        if VisualFixtures.isEnabled { return }
+        #endif
+        shelves = Self.composed(discovery: discoveryShelves, recent: recent, title: titles.recentlyPlayed)
+    }
+
+    static func composed(discovery: [DiscoveryShelf], recent: [Track], title: String) -> [DiscoveryShelf] {
+        var composed = discovery.filter { $0.kind != .recent }
+        guard !recent.isEmpty else { return composed }
+        let shelf = DiscoveryShelf(
+            id: "discovery.recent",
+            title: title,
+            subtitle: nil,
+            kind: .recent,
+            content: .tracks(recent)
+        )
+        composed.insert(shelf, at: min(1, composed.count))
+        return composed
+    }
+
     func hydrateCachedContent() async {
         #if DEBUG
         if installVisualFixturesIfNeeded() { return }
@@ -165,58 +158,93 @@ final class DiscoveryHomeSource: ObservableObject {
         #endif
         await hydrateCacheIfNeeded()
         guard let lastLoaded else {
-            await load(seed: seed)
+            if let lastAttempt, Date().timeIntervalSince(lastAttempt) < retryAfter { return }
+            await load(seed: seed, quietly: !shelves.isEmpty)
             return
         }
         if Date().timeIntervalSince(lastLoaded) > staleAfter {
-            await load(seed: seed)
+            await load(seed: seed, quietly: !shelves.isEmpty)
         }
     }
 
-    func load(seed: Seed = Seed()) async {
+    func load(seed: Seed = Seed(), quietly: Bool = false) async {
         #if DEBUG
         if installVisualFixturesIfNeeded() { return }
         #endif
         await hydrateCacheIfNeeded()
-        if isLoading {
-            while isLoading, !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(50))
+        if let inflight {
+            await inflight.value
+            return
+        }
+        let intent: SoundCloudRequestIntent = quietly ? .autonomous : SoundCloudRequestEnvironment.intent
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await SoundCloudRequestEnvironment.$intent.withValue(intent) {
+                await self.performLoad(seed: seed)
+            }
+            self.inflight = nil
+        }
+        inflight = task
+        await task.value
+    }
+
+    private func performLoad(seed: Seed) async {
+        let credentials = SoundCloudCredentialSource.shared
+        if Self.feedAction(
+            accountStatus: credentials.accountStatus,
+            canAuthenticate: credentials.accessToken != nil
+        ) == .keepCached {
+            Log.auth.notice("Home kept its cached feed: account \(String(describing: credentials.accountStatus), privacy: .public)")
+            loadedAccountKey = nil
+            if shelves.isEmpty {
+                failures = [DiscoverySourceFailure(id: "account", reason: "sign-in needs reconnecting", isCredentialRejection: true)]
             }
             return
         }
         isLoading = true
+        lastAttempt = Date()
         defer { isLoading = false }
 
+        let epoch = accountEpoch
         var recorded: [DiscoverySourceFailure] = []
-        var built: [DiscoveryShelf] = []
+        var fresh: [(kind: DiscoveryShelf.Kind, shelves: [DiscoveryShelf])] = []
 
-        // Begin personal seed lookup concurrently, but never make public Home
-        // wait for it. Guests skip the lookup in resolvedSeed entirely.
         async let resolvedSeedValue = resolvedSeed(from: seed)
         async let editorial = fetchEditorial()
         async let chartCollections = fetchChartCollections()
         async let trending = fetchTrending()
 
-        for result in [await editorial, await chartCollections, await trending] {
-            built.append(contentsOf: result.shelves)
+        for (kind, result) in [(DiscoveryShelf.Kind.editorial, await editorial), (DiscoveryShelf.Kind.chartCollections, await chartCollections), (DiscoveryShelf.Kind.trending, await trending)] {
             recorded.append(contentsOf: result.failures)
+            let shelves = result.shelves.filter { !$0.isEmpty }
+            if !shelves.isEmpty { fresh.append((kind, shelves)) }
         }
-        let publicShelves = reorder(built.filter { !$0.isEmpty })
-        if !publicShelves.isEmpty { shelves = publicShelves }
+        if !fresh.isEmpty, !accountLostMidLoad { publish(Self.applying(fresh, to: discoveryShelves)) }
 
         let resolved = await resolvedSeedValue
         async let related = fetchRelated(seed: resolved)
         async let station = fetchStation(seed: resolved)
-        for result in [await related, await station] {
-            built.append(contentsOf: result.shelves)
+        var personal: [(kind: DiscoveryShelf.Kind, shelves: [DiscoveryShelf])] = []
+        for (kind, result) in [(DiscoveryShelf.Kind.related, await related), (DiscoveryShelf.Kind.station, await station)] {
             recorded.append(contentsOf: result.failures)
+            let shelves = result.shelves.filter { !$0.isEmpty }
+            if !shelves.isEmpty { personal.append((kind, shelves)) }
         }
+        if epoch == accountEpoch { fresh.append(contentsOf: personal) }
 
-        let refreshed = reorder(built.filter { !$0.isEmpty })
-        if !refreshed.isEmpty {
-            shelves = refreshed
+        if accountLostMidLoad {
+            Log.auth.notice("Home discarded a load that finished after the sign-in stopped working")
+            loadedAccountKey = nil
+            return
+        }
+        if !fresh.isEmpty {
+            publish(Self.applying(fresh, to: discoveryShelves))
             lastLoaded = Date()
-            await persistCache(refreshed)
+            loadedAccountKey = Self.confirmedAccountKey(SoundCloudCredentialSource.shared.state)
+            if epoch == accountEpoch, !personal.isEmpty, credentials.hasConfirmedAccount {
+                personalAccountID = credentials.currentUser?.id
+            }
+            await persistCache(discoveryShelves)
         }
         failures = recorded
 
@@ -230,17 +258,49 @@ final class DiscoveryHomeSource: ObservableObject {
         }
     }
 
+    static func applying(
+        _ fresh: [(kind: DiscoveryShelf.Kind, shelves: [DiscoveryShelf])],
+        to current: [DiscoveryShelf]
+    ) -> [DiscoveryShelf] {
+        var merged = current
+        for update in fresh where !update.shelves.isEmpty {
+            merged.removeAll { $0.kind == update.kind }
+            merged.append(contentsOf: update.shelves)
+        }
+        return ordered(merged.deduplicatedByID())
+    }
+
+    private func forgetPersonalShelves() {
+        accountEpoch += 1
+        personalAccountID = nil
+        loadedAccountKey = nil
+        let kept = discoveryShelves.filter { !Self.personalKinds.contains($0.kind) }
+        guard kept.count != discoveryShelves.count else { return }
+        publish(kept)
+    }
+
+    private var accountLostMidLoad: Bool {
+        let credentials = SoundCloudCredentialSource.shared
+        return Self.feedAction(
+            accountStatus: credentials.accountStatus,
+            canAuthenticate: credentials.accessToken != nil
+        ) == .keepCached
+    }
+
     private func hydrateCacheIfNeeded() async {
+        hydrateCacheImmediately()
+    }
+
+    private func hydrateCacheImmediately() {
         guard !didHydrateCache else { return }
         didHydrateCache = true
-        let rows = await cache.loadSection(Self.cacheSection)
+        let rows = cache.loadSection(Self.cacheSection, limit: 24)
         guard !rows.isEmpty else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
         let cached = rows.compactMap { try? decoder.decode(DiscoveryShelf.self, from: $0.payload) }
         guard !cached.isEmpty else { return }
-        shelves = cached
-        // A disk snapshot is immediately useful, but should always be refreshed in the background.
+        publish(Self.ordered(cached.filter { $0.kind != .recent }))
         lastLoaded = .distantPast
     }
 
@@ -256,7 +316,10 @@ final class DiscoveryHomeSource: ObservableObject {
     }
 
     func reset() {
-        shelves = []
+        accountEpoch += 1
+        personalAccountID = nil
+        loadedAccountKey = nil
+        publish([])
         failures = []
         lastLoaded = nil
     }
@@ -272,7 +335,7 @@ final class DiscoveryHomeSource: ObservableObject {
     }
     #endif
 
-    private func reorder(_ built: [DiscoveryShelf]) -> [DiscoveryShelf] {
+    static func ordered(_ built: [DiscoveryShelf]) -> [DiscoveryShelf] {
         func rank(_ kind: DiscoveryShelf.Kind) -> Int {
             switch kind {
             case .editorial: return 0
@@ -280,6 +343,7 @@ final class DiscoveryHomeSource: ObservableObject {
             case .station: return 2
             case .trending: return 3
             case .chartCollections: return 4
+            case .recent: return 5
             }
         }
         return built.enumerated()
@@ -288,18 +352,14 @@ final class DiscoveryHomeSource: ObservableObject {
     }
 
     private func resolvedSeed(from seed: Seed) async -> Seed {
-        guard seed.isEmpty else { return seed }
         guard SoundCloudCredentialSource.shared.hasConfirmedAccount else { return seed }
-        do {
-            let page = try await api.getPlayHistory(limit: 1)
-            guard let recent = page.collection.first else { return seed }
-            return Seed(track: recent.track)
-        } catch {
-            Log.ui.info(
-                "Home: no seed supplied and play history unavailable (\(DiscoverySourceFailure.withoutQueryValues(String(describing: error)), privacy: .public)); personal shelves will be absent"
-            )
+        await recentlyPlayed.refreshFromSoundCloud()
+        guard seed.isEmpty else { return seed }
+        guard let recent = recentlyPlayed.tracks.first(where: { !$0.isLocal }) else {
+            Log.ui.info("Home: no seed supplied and no recent SoundCloud play; personal shelves will be absent")
             return seed
         }
+        return Seed(track: recent)
     }
 
     private struct SourceResult {
@@ -461,4 +521,14 @@ extension Array where Element: Identifiable {
         var seen = Set<Element.ID>()
         return filter { seen.insert($0.id).inserted }
     }
+}
+
+@MainActor
+final class HomeStore {
+    static let shared = HomeStore()
+
+    let forYou = DiscoveryHomeSource()
+    private(set) lazy var following = FeedViewModel()
+
+    private init() {}
 }

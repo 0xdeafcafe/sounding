@@ -78,6 +78,8 @@ struct TrackMapView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
             Spacer(minLength: Space.base)
             PanelCloseButton { dismiss() }
         }
@@ -112,10 +114,12 @@ struct TrackMapView: View {
             .background(
                 RemoteScrubSurface(
                     isActive: timelineFocused && duration > 0,
+                    capturesExit: false,
                     onBegan: beginPan,
                     onChanged: { scrubPreview = panTime(for: $0) },
                     onEnded: endPan,
-                    onCancelled: cancelPan
+                    onCancelled: cancelPan,
+                    onExit: {}
                 )
                 .allowsHitTesting(false)
             )
@@ -128,8 +132,20 @@ struct TrackMapView: View {
                 }
             }
             .onTapGesture(perform: commitSeek)
-            .accessibilityLabel("Track timeline, \(DJFormat.time(markTime)) of \(DJFormat.time(duration))")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Track timeline")
+            .accessibilityValue("\(DJFormat.time(markTime)) of \(DJFormat.time(duration))")
             .accessibilityHint("Slide to move along the track, then click to seek.")
+            .accessibilityAdjustableAction { direction in
+                let step = max(5, duration / 50)
+                let base = scrubPreview ?? currentTime
+                switch direction {
+                case .increment: scrubPreview = min(max(duration, 0), base + step)
+                case .decrement: scrubPreview = max(0, base - step)
+                @unknown default: return
+                }
+                scheduleMarkClear()
+            }
 
             readout
         }
@@ -138,11 +154,11 @@ struct TrackMapView: View {
     private var readout: some View {
         HStack(spacing: Space.snug) {
             Text(DJFormat.time(markTime))
-                .foregroundStyle(scrubPreview == nil ? Color.scTextSecondary : palette.accent)
+                .foregroundStyle(scrubPreview == nil ? Color.scTextSecondary : .white)
 
             if isPanning {
                 Text(RemoteScrub.delta(markTime - currentTime))
-                    .foregroundStyle(palette.accent)
+                    .foregroundStyle(Color.scTextSecondary)
             } else if scrubPreview != nil {
                 Text("Click to seek here")
                     .foregroundStyle(Color.scTextSecondary)
@@ -171,6 +187,7 @@ struct TrackMapView: View {
                 .offset(x: x - (isLead ? 3 : 1.5))
                 .shadow(color: isLead ? entry.color.color.opacity(0.7) : .clear, radius: isLead ? 12 : 0)
                 .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .scMotion(Motion.focus, reduceMotion: reduceMotion, value: highlightedId)
     }
@@ -244,7 +261,7 @@ struct TrackMapView: View {
             mixPointRow(.inPoint)
 
             ScrollView {
-                VStack(spacing: Spacing.sm) {
+                LazyVStack(spacing: Spacing.sm) {
                     if moments.isEmpty {
                         emptyMoments
                     } else {
@@ -281,6 +298,7 @@ struct TrackMapView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Space.snug)
+        .accessibilityElement(children: .combine)
     }
 
     private var moments: [MapEntry] {
@@ -299,7 +317,6 @@ struct TrackMapView: View {
         TrackMapRow(
             glyph: TrackMapGlyph(shape: .diamond, style: state.glyphStyle, color: role.color),
             title: role.title,
-            isTitleUppercased: true,
             caption: caption(for: state, role: role),
             time: state.positionSeconds.map(DJFormat.time),
             isMuted: state.isMuted,
@@ -335,7 +352,6 @@ struct TrackMapView: View {
         TrackMapRow(
             glyph: TrackMapGlyph(shape: .circle, style: .solid, color: cue.color.color),
             title: cue.label.isEmpty ? "Moment" : cue.label,
-            isTitleUppercased: false,
             caption: momentCaption(cue),
             time: DJFormat.time(cue.positionSeconds),
             isMuted: false,
@@ -358,7 +374,6 @@ struct TrackMapView: View {
         TrackMapRow(
             glyph: TrackMapGlyph(shape: .circle, style: .hollow, color: suggestion.color.color),
             title: suggestion.label.isEmpty ? suggestion.kind.displayName.capitalized : suggestion.label,
-            isTitleUppercased: false,
             caption: suggestion.reasoning.isEmpty ? "Found automatically" : suggestion.reasoning,
             time: DJFormat.time(suggestion.positionSeconds),
             isMuted: true,
@@ -540,7 +555,6 @@ private struct TrackMapGlyph: View {
 private struct TrackMapRow<Actions: View>: View {
     let glyph: TrackMapGlyph
     let title: String
-    let isTitleUppercased: Bool
     let caption: String
     let time: String?
     let isMuted: Bool
@@ -552,53 +566,52 @@ private struct TrackMapRow<Actions: View>: View {
 
     private var isFocused: Bool { focusedRowId == rowId }
 
+    private var primaryColor: Color {
+        if isFocused { return Color.scChromeFocusOn }
+        return isMuted ? Color.scTextSecondary : .white
+    }
+
     var body: some View {
         HStack(spacing: Space.snug) {
-            glyph
+            Button { onSelect?() } label: {
+                HStack(spacing: Space.snug) {
+                    glyph
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.tvBodyEmph)
-                    .kerning(isTitleUppercased ? 1.2 : 0)
-                    .textCase(isTitleUppercased ? .uppercase : nil)
-                    .foregroundStyle(isMuted && !isFocused ? Color.scTextSecondary : .white)
-                    .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.tvBodyEmph)
+                            .foregroundStyle(primaryColor)
+                            .lineLimit(1)
 
-                Text(caption)
-                    .font(.tvCaption)
-                    .foregroundStyle(isFocused ? Color.scTextSecondary : Color.scTextTertiary)
-                    .lineLimit(1)
+                        Text(caption)
+                            .font(.tvCaption)
+                            .foregroundStyle(isFocused ? Color.scChromeFocusOn.opacity(0.65) : Color.scTextTertiary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: Space.snug)
+
+                    if let time {
+                        Text(time)
+                            .font(.tvBodyEmph)
+                            .monospacedDigit()
+                            .foregroundStyle(primaryColor)
+                    }
+                }
+                .padding(.horizontal, Space.snug)
+                .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
+                        .fill(isFocused ? Color.scChromeFocus : .clear)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
             }
-
-            Spacer(minLength: Space.snug)
-
-            if let time {
-                Text(time)
-                    .font(.tvBodyEmph)
-                    .monospacedDigit()
-                    .foregroundStyle(isMuted && !isFocused ? Color.scTextSecondary : .white)
-            }
+            .buttonStyle(SCCardButtonStyle(cornerRadius: Corner.control, sizeClass: .hero))
+            .disabled(onSelect == nil)
+            .focused($focusedRowId, equals: rowId)
 
             actions()
         }
-        .padding(.horizontal, Space.snug)
-        .padding(.vertical, Space.tight)
-        .frame(minHeight: 88)
-        .background(
-            RoundedRectangle(cornerRadius: Corner.card, style: .continuous)
-                .fill(Color.white.opacity(isFocused ? 0.17 : 0.05))
-        )
-        .shadow(
-            color: isFocused ? .scFocusShadow : .clear,
-            radius: isFocused ? Focus.shadowRadius : 0,
-            y: isFocused ? Focus.shadowY : 0
-        )
-        .scMotion(Motion.focus, reduceMotion: reduceMotion, value: isFocused)
-        .contentShape(RoundedRectangle(cornerRadius: Corner.card, style: .continuous))
-        .focusable(onSelect != nil)
-        .focused($focusedRowId, equals: rowId)
-        .focusEffectDisabled()
-        .onTapGesture { onSelect?() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
     }
@@ -649,34 +662,33 @@ private struct TrackMapPrimaryButton: View {
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        HStack(spacing: Space.snug) {
-            Image(systemName: icon)
-                .font(.system(size: 32, weight: .semibold))
-                .foregroundStyle(focused ? Color.scChromeFocusOn : accent)
+        Button(action: action) {
+            HStack(spacing: Space.snug) {
+                Image(systemName: icon)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(focused ? Color.scChromeFocusOn : .white)
 
-            Text(title)
-                .font(.tvBodyEmph)
-                .foregroundStyle(focused ? Color.scChromeFocusOn : .white)
+                Text(title)
+                    .font(.tvBodyEmph)
+                    .foregroundStyle(focused ? Color.scChromeFocusOn : .white)
 
-            Spacer(minLength: Space.snug)
+                Spacer(minLength: Space.snug)
 
-            Text(detail)
-                .font(.tvBodyEmph)
-                .monospacedDigit()
-                .foregroundStyle(focused ? Color.scChromeFocusOn.opacity(0.7) : Color.scTextSecondary)
+                Text(detail)
+                    .font(.tvBodyEmph)
+                    .monospacedDigit()
+                    .foregroundStyle(focused ? Color.scChromeFocusOn.opacity(0.7) : Color.scTextSecondary)
+            }
+            .padding(.horizontal, Space.base)
+            .frame(maxWidth: .infinity, minHeight: Control.circle + Space.tight)
+            .background(
+                Capsule().fill(focused ? Color.scChromeFocus : Color.white.opacity(0.08))
+            )
+            .opacity(isEnabled ? 1 : 0.4)
+            .contentShape(Capsule())
         }
-        .padding(.horizontal, Space.base)
-        .frame(maxWidth: .infinity, minHeight: Control.circle + Space.tight)
-        .background(
-            Capsule().fill(focused ? Color.scChromeFocus : Color.white.opacity(0.08))
-        )
-        .opacity(isEnabled ? 1 : 0.4)
-        .scFocus(focused, in: Capsule(), reduceMotion: reduceMotion, sizeClass: .hero)
-        .contentShape(Capsule())
-        .focusable(isEnabled)
+        .buttonStyle(SCShapeButtonStyle(shape: Capsule(), sizeClass: .hero))
         .focused($focused)
-        .focusEffectDisabled()
-        .onTapGesture(perform: action)
         .accessibilityLabel("\(title) at \(detail)")
     }
 }
@@ -699,15 +711,15 @@ enum TrackMapDemo {
     static func track() -> Track? {
         let json = """
         {"id": 900001, "title": "Sunset Drive (Extended Mix)",
-         "permalink_url": "https://soundcloud.com/nightform/sunset-drive",
+         "permalink_url": "https://soundcloud.com/glassdistrict/sunset-drive",
          "created_at": "2025-06-01T09:00:00Z",
-         "artwork_url": "https://picsum.photos/seed/soundingtrackmap/500",
+         "artwork_url": null,
          "playback_count": 128000, "likes_count": 9400, "reposts_count": 310,
          "genre": "Melodic House",
-         "user": {"id": 700, "username": "nightform", "permalink": "nightform",
-                  "permalink_url": "https://soundcloud.com/nightform",
-                  "avatar_url": "https://picsum.photos/seed/nightform/200",
-                  "full_name": "Nightform", "track_count": 42, "playlist_count": 3,
+         "user": {"id": 700, "username": "glassdistrict", "permalink": "glassdistrict",
+                  "permalink_url": "https://soundcloud.com/glassdistrict",
+                  "avatar_url": null,
+                  "full_name": "Glass District", "track_count": 42, "playlist_count": 3,
                   "followers_count": 88000, "followings_count": 120}}
         """
         let decoder = JSONDecoder()

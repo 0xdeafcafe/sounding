@@ -51,7 +51,6 @@ struct SoundCloudLoginView: View {
     @State private var pendingSession: StoredSession?
     @State private var capturedRefreshToken: String?
     @State private var capturedClientId: String?
-    @State private var completionTask: Task<Void, Never>?
     @State private var incompleteCaptureRetries = 0
     @State private var completionError: String?
     @State private var isVerifyingSession = false
@@ -62,13 +61,12 @@ struct SoundCloudLoginView: View {
     @State private var webAttempt = 0
     @State private var signinLivenessTask: Task<Void, Never>?
     @State private var lastWebLoadFinishedAt: Date?
-    private static let signinMountBudget: TimeInterval = 15
-    private static let signinPostLoadGrace: TimeInterval = 8
 
     @State private var webLoginPresentedAt: Date?
-    @State private var signedInWithoutInteraction = false
     @State private var authHandoffState: AuthHandoffState = .idle
-    private static let noInteractionThreshold: TimeInterval = 3
+    @State private var usesWebFallback = !SoundCloudPKCESignIn.isEnabled
+    @State private var isAuthenticating = false
+    @State private var pkceError: String?
 
     init(
         sessionId: String,
@@ -138,19 +136,14 @@ struct SoundCloudLoginView: View {
                 webLogin
             }
         }
-        .navigationTitle("Sign in to SoundCloud")
+        .navigationTitle("Sign In to SoundCloud")
         .navigationBarTitleDisplayMode(.inline)
+        .preferredColorScheme(.dark)
+        .presentationSizing(.form)
+        .interactiveDismissDisabled()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { cancelSignIn() }
-            }
-        }
-        .onChange(of: transferState) { _, newState in
-            switch newState {
-            case .completed:
-                scheduleCompletionIfNeeded()
-            default:
-                break
             }
         }
         .onAppear {
@@ -158,16 +151,9 @@ struct SoundCloudLoginView: View {
                 box.client?.startDiscovery()
             }
             if case .authHandoff = mode {
-                // An auth handoff must always capture a fresh token pair for the
-                // peer. Never reuse this phone's saved session.
-                webLoginPresentedAt = Date()
-                startSigninLivenessClock()
-                Task {
-                    await AuthWebSession.clear()
-                    webAttempt += 1
-                }
+                beginSignIn()
             } else if storedSession == nil, !forceWebLogin {
-                if let saved = DeviceSessionStore.load(), saved.isUsable {
+                if let saved = DeviceSessionStore.load() ?? LinkClient.fixtureSession, saved.isUsable {
                     guard saved.canSelfRefresh else {
                         Log.auth.error("[SignIn] Saved session is not refreshable; forcing re-authentication")
                         Task { await useDifferentAccount() }
@@ -176,33 +162,34 @@ struct SoundCloudLoginView: View {
                     storedSession = saved
                     switch mode {
                     case .link:
-                        // Matching the six-digit code is the user's consent to
-                        // share this already-saved session with that television.
                         startTransfer(with: saved)
                     case .standalone:
-                        signedInWithoutInteraction = true
-                        scheduleCompletionIfNeeded()
+                        finish()
                     case .authHandoff:
                         break
                     }
                 } else {
-                    webLoginPresentedAt = Date()
-                    startSigninLivenessClock()
-                    Task {
-                        await AuthWebSession.clear()
-                        webAttempt += 1
-                    }
+                    beginSignIn()
                 }
             }
         }
         .onDisappear {
             signinLivenessTask?.cancel()
         }
+        .task(id: isTransferCompleted) {
+            guard isTransferCompleted else { return }
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled else { return }
+            finish()
+        }
     }
 
     private func cancelSignIn() {
-        completionTask?.cancel()
         signinLivenessTask?.cancel()
+        finish()
+    }
+
+    private func finish() {
         if let onComplete {
             onComplete()
         } else {
@@ -210,7 +197,16 @@ struct SoundCloudLoginView: View {
         }
     }
 
+    @ViewBuilder
     private var webLogin: some View {
+        if usesPKCE {
+            pkceStatus
+        } else {
+            embeddedWebLogin
+        }
+    }
+
+    private var embeddedWebLogin: some View {
         ZStack {
             let isAuthHandoff = if case .authHandoff = mode { true } else { false }
             OAuthWebView(
@@ -262,99 +258,135 @@ struct SoundCloudLoginView: View {
                 loadingOverlay
             }
         }
+        .animation(.easeOut(duration: 0.2), value: isLoadingWeb)
         .onChange(of: isLoadingWeb) { _, loading in
             if !loading { lastWebLoadFinishedAt = Date() }
         }
     }
 
     private var loadingOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.35)
-
-            VStack(spacing: 16) {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .scaleEffect(1.3)
-                    .tint(.white)
-
-                Text("Loading SoundCloud…")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Color.white)
-            }
-            .padding(28)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        }
-        .ignoresSafeArea()
+        ProgressView()
+            .controlSize(.large)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemBackground))
+            .transition(.opacity)
     }
 
     private var verifyingOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.55)
-            VStack(spacing: 16) {
-                ProgressView().controlSize(.large).tint(.white)
-                Text("Verifying your SoundCloud sign-in…")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .padding(28)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        }
-        .ignoresSafeArea()
+        ProgressView("Checking your account…")
+            .controlSize(.large)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.regularMaterial)
     }
 
     private func completionErrorOverlay(_ message: String) -> some View {
-        ZStack {
-            Color.black.opacity(0.65)
-            VStack(spacing: 16) {
-                Image(systemName: "person.crop.circle.badge.exclamationmark.fill")
-                    .font(.system(size: 44, weight: .semibold))
-                    .foregroundStyle(Color.scAccent.gradient)
-                Text("Sign-In Didn't Finish")
-                    .font(.system(size: 22, weight: .heavy))
-                Text(message)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                primaryButton("Sign In Again") {
-                    completionError = nil
-                    retrySigninPage()
-                }
+        ContentUnavailableView {
+            Label("Couldn't Finish Signing In", systemImage: "person.crop.circle.badge.exclamationmark")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("Sign In Again") {
+                completionError = nil
+                retrySigninPage()
             }
-            .padding(28)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .padding(.horizontal, 20)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
         }
-        .ignoresSafeArea()
+        .background(.regularMaterial)
     }
 
     private var signinStalledOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.6)
-
-            VStack(spacing: 16) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 44, weight: .semibold))
-                    .foregroundStyle(Color.scAccent.gradient)
-
-                Text("Sign-In Isn't Loading")
-                    .font(.system(size: 22, weight: .heavy))
-                    .multilineTextAlignment(.center)
-
-                Text("SoundCloud loaded its app-promotion page, but its sign-in form did not start. Retry opens a clean SoundCloud sign-in page.")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-
-                primaryButton("Try Again") {
-                    retrySigninPage()
-                }
-                .padding(.top, 4)
-            }
-            .padding(28)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .padding(.horizontal, 20)
+        ContentUnavailableView {
+            Label("Sign In Didn't Load", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text("Check your connection and try again.")
+        } actions: {
+            Button("Try Again") { retrySigninPage() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
         }
-        .ignoresSafeArea()
+        .background(.regularMaterial)
+    }
+
+    private var usesPKCE: Bool { !usesWebFallback }
+
+    private var isAuthHandoff: Bool {
+        if case .authHandoff = mode { return true }
+        return false
+    }
+
+    private func beginSignIn() {
+        webLoginPresentedAt = Date()
+        if usesPKCE {
+            startPKCE()
+            return
+        }
+        startSigninLivenessClock()
+        let clearsDefaultStore = !isAuthHandoff
+        Task {
+            if clearsDefaultStore { await AuthWebSession.clear() }
+            webAttempt += 1
+        }
+    }
+
+    private func startPKCE() {
+        guard !isAuthenticating else { return }
+        pkceError = nil
+        isAuthenticating = true
+        let ephemeral = isAuthHandoff
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            do {
+                let session = try await SoundCloudPKCESignIn.signIn(ephemeral: ephemeral)
+                isAuthenticating = false
+                handleTokenReceived(
+                    token: session.oauthToken,
+                    refreshToken: session.refreshToken,
+                    clientId: session.clientId,
+                    expiry: session.expiresAt
+                )
+            } catch let failure as SoundCloudPKCESignIn.Failure {
+                isAuthenticating = false
+                if failure == .canceled {
+                    finish()
+                } else {
+                    pkceError = SoundCloudPKCESignIn.message(for: failure)
+                }
+            } catch {
+                isAuthenticating = false
+                pkceError = SoundCloudPKCESignIn.message(for: .unavailable)
+            }
+        }
+    }
+
+    private func useWebsiteInstead() {
+        pkceError = nil
+        usesWebFallback = true
+        isLoadingWeb = true
+        beginSignIn()
+    }
+
+    @ViewBuilder
+    private var pkceStatus: some View {
+        if let message = pkceError ?? completionError {
+            ContentUnavailableView {
+                Label("Couldn’t Finish Signing In", systemImage: "person.crop.circle.badge.exclamationmark")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("Try Again") {
+                    completionError = nil
+                    startPKCE()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                Button("Use SoundCloud Website") { useWebsiteInstead() }
+            }
+        } else {
+            ProgressView(isVerifyingSession ? "Checking your account…" : "")
+                .controlSize(.large)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     private func startSigninLivenessClock() {
@@ -371,6 +403,13 @@ struct SoundCloudLoginView: View {
     }
 
     private func retrySigninPage() {
+        guard !usesPKCE else {
+            completionError = nil
+            isVerifyingSession = false
+            incompleteCaptureRetries = 0
+            startPKCE()
+            return
+        }
         signinLivenessTask?.cancel()
         signinStalled = false
         isLoadingWeb = true
@@ -382,7 +421,6 @@ struct SoundCloudLoginView: View {
             webAttempt += 1
             lastWebLoadFinishedAt = nil
             webLoginPresentedAt = Date()
-            signedInWithoutInteraction = false
             startSigninLivenessClock()
         }
     }
@@ -395,170 +433,133 @@ struct SoundCloudLoginView: View {
         case .authHandoff:
             authHandoffStatusView
         case .standalone:
-            standaloneReadyView
-        }
-    }
-
-    private var standaloneReadyView: some View {
-        ZStack {
-            Color.scBackgroundGradient.ignoresSafeArea()
-
-            VStack(spacing: 20) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 84, weight: .heavy))
-                    .foregroundStyle(Color.green.gradient)
-
-                VStack(spacing: 8) {
-                    Text("You're Signed In")
-                        .font(.system(size: 28, weight: .heavy))
-                        .kerning(-0.5)
-
-                    if signedInWithoutInteraction {
-                        Text("SoundCloud remembered you were already signed in on this iPhone. Nothing else to do.")
-                            .font(.system(size: 15))
-                            .foregroundStyle(Color.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
-                    }
-                }
+            statusScreen(
+                symbol: "checkmark.circle.fill",
+                tint: .green,
+                title: "You're Signed In",
+                message: nil
+            ) {
+                Button("Done") { finish() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
             }
         }
     }
 
     private func readyToSendView(_ session: StoredSession) -> some View {
-        ZStack {
-            Color.scBackgroundGradient.ignoresSafeArea()
-
-            VStack(spacing: 28) {
-                Spacer()
-
-                Image(systemName: peerClass.symbolName)
-                    .font(.system(size: 84, weight: .heavy))
-                    .foregroundStyle(Color.scAccent.gradient)
-
-                VStack(spacing: 8) {
-                    Text("Ready to Sign In")
-                        .font(.system(size: 32, weight: .heavy))
-                        .kerning(-0.5)
-
-                    Text("You're already signed in to SoundCloud on this iPhone.")
-                        .font(.system(size: 17))
-                        .foregroundStyle(Color.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                }
-
-                primaryButton("Send to \(peerClass.displayName)") {
-                    startTransfer(with: session)
-                }
-
-                Button("Use a Different Account") {
-                    Task { await useDifferentAccount() }
-                }
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.secondary)
-
-                Spacer()
+        statusScreen(
+            symbol: peerClass.symbolName,
+            tint: .scAccent,
+            title: "Sign In \(peerClass.displayName)",
+            message: "Use the SoundCloud account on this \(DeviceClass.current.displayName)."
+        ) {
+            Button("Send to \(peerClass.displayName)") {
+                startTransfer(with: session)
             }
-            .padding()
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Button("Use a Different Account") {
+                Task { await useDifferentAccount() }
+            }
         }
     }
 
     private var transferStatusView: some View {
-        ZStack {
-            Color.scBackgroundGradient.ignoresSafeArea()
-
-            VStack(spacing: 28) {
-                Spacer()
-
-                statusIcon
-                    .font(.system(size: 96, weight: .heavy))
-
-                VStack(spacing: 8) {
-                    Text(statusTitle)
-                        .font(.system(size: 32, weight: .heavy))
-                        .kerning(-0.5)
-                        .multilineTextAlignment(.center)
-
-                    Text(statusMessage)
-                        .font(.system(size: 17, weight: .regular))
-                        .foregroundStyle(Color.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
+        statusScreen(
+            isWorking: isTransferWorking,
+            symbol: transferSymbol,
+            tint: transferTint,
+            title: statusTitle,
+            message: statusMessage
+        ) {
+            if case .rejected = transferState {
+                Button("Sign In Again") {
+                    Task { await useDifferentAccount() }
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
 
-                if case .rejected = transferState {
-                    primaryButton("Sign In Again") {
-                        Task { await useDifferentAccount() }
-                    }
-
-                    Button("Keep My iPhone Signed In") {
-                        cancelSignIn()
-                    }
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Color.secondary)
-                } else if case .failed = transferState {
-                    primaryButton("Try Again") {
-                        box.client?.startDiscovery()
-                        if let session = pendingSession {
-                            Task { await sendWhenReady(session) }
-                        } else {
-                            isTransferring = false
-                        }
-                    }
-
-                    Button("Sign In Again") {
-                        Task { await useDifferentAccount() }
-                    }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.secondary)
+                Button("Keep This \(DeviceClass.current.displayName) Signed In") {
+                    cancelSignIn()
                 }
+            } else if case .failed = transferState {
+                Button("Try Again") {
+                    box.client?.startDiscovery()
+                    if let session = pendingSession {
+                        startTransfer(with: session)
+                    } else {
+                        isTransferring = false
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
 
-                Spacer()
+                Button("Sign In Again") {
+                    Task { await useDifferentAccount() }
+                }
             }
-            .padding()
         }
     }
 
-    private func primaryButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(Color.scAccentGradient, in: Capsule(style: .continuous))
-                .shadow(color: Color.scAccent.opacity(0.4), radius: 16, y: 8)
+    private func statusScreen<Actions: View>(
+        isWorking: Bool = false,
+        symbol: String,
+        tint: Color,
+        title: String,
+        message: String?,
+        @ViewBuilder actions: () -> Actions
+    ) -> some View {
+        ContentUnavailableView {
+            if isWorking {
+                VStack(spacing: Spacing.md) {
+                    ProgressView().controlSize(.large)
+                    Text(title)
+                        .font(.title2.weight(.semibold))
+                }
+            } else {
+                Label {
+                    Text(title)
+                } icon: {
+                    Image(systemName: symbol)
+                        .foregroundStyle(tint)
+                }
+            }
+        } description: {
+            if let message, !message.isEmpty {
+                Text(message)
+            }
+        } actions: {
+            actions()
         }
-        .frame(maxWidth: 520)
-        .padding(.horizontal, 32)
     }
 
-    @ViewBuilder
-    private var statusIcon: some View {
+    private var isTransferCompleted: Bool {
+        guard isTransferring, case .completed = transferState else { return false }
+        return true
+    }
+
+    private var isTransferWorking: Bool {
         switch transferState {
-        case .idle, .discovering:
-            Image(systemName: "wifi")
-                .foregroundStyle(Color.scAccent.gradient)
-                .symbolEffect(.pulse)
-        case .connecting:
-            Image(systemName: "cable.connector")
-                .foregroundStyle(Color.scAccent.gradient)
-                .symbolEffect(.pulse)
-        case .sending:
-            ProgressView()
-                .progressViewStyle(.circular)
-                .scaleEffect(2)
-                .tint(.scAccent)
-        case .completed:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Color.green.gradient)
-        case .failed:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color.red.gradient)
-        case .rejected:
-            Image(systemName: "person.crop.circle.badge.exclamationmark.fill")
-                .foregroundStyle(Color.scAccent.gradient)
+        case .idle, .discovering, .connecting, .sending: return true
+        case .completed, .failed, .rejected:             return false
+        }
+    }
+
+    private var transferSymbol: String {
+        switch transferState {
+        case .completed: return "checkmark.circle.fill"
+        case .failed:    return "exclamationmark.triangle.fill"
+        case .rejected:  return "person.crop.circle.badge.exclamationmark"
+        default:         return peerClass.symbolName
+        }
+    }
+
+    private var transferTint: Color {
+        switch transferState {
+        case .completed: return .green
+        case .failed:    return .red
+        default:         return .scAccent
         }
     }
 
@@ -566,95 +567,65 @@ struct SoundCloudLoginView: View {
         switch transferState {
         case .idle, .discovering: return "Finding \(peerClass.displayName)…"
         case .connecting:         return "Connecting…"
-        case .sending:            return "Transferring…"
+        case .sending:            return "Signing In…"
         case .completed:          return "\(peerClass.displayName) Signed In"
-        case .failed:             return "Transfer Failed"
+        case .failed:             return "Couldn't Sign In"
         case .rejected:           return "\(peerClass.displayName) Couldn't Use This Login"
         }
     }
 
-    private var statusMessage: String {
+    private var statusMessage: String? {
         switch transferState {
-        case .idle, .discovering: return "Looking for your \(peerClass.displayName) on this network"
-        case .connecting:         return "Opening a secure connection"
-        case .sending:            return "Sending your sign-in securely"
-        case .completed:
-            return "Taking you to your remote…"
-        case .failed(let error):   return error
-        case .rejected(let error): return error
+        case .failed(let error), .rejected(let error): return error
+        default:                                       return nil
         }
     }
 
     private var authHandoffStatusView: some View {
-        ZStack {
-            Color.scBackgroundGradient.ignoresSafeArea()
-
-            VStack(spacing: 28) {
-                Spacer()
-
-                authHandoffStatusIcon
-                    .font(.system(size: 96, weight: .heavy))
-
-                VStack(spacing: 8) {
-                    Text(authHandoffStatusTitle)
-                        .font(.system(size: 32, weight: .heavy))
-                        .kerning(-0.5)
-                        .multilineTextAlignment(.center)
-
-                    Text(authHandoffStatusMessage)
-                        .font(.system(size: 17, weight: .regular))
-                        .foregroundStyle(Color.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
+        statusScreen(
+            isWorking: authHandoffIsWorking,
+            symbol: authHandoffSymbol,
+            tint: authHandoffTint,
+            title: authHandoffStatusTitle,
+            message: authHandoffStatusMessage
+        ) {
+            if case .failed = authHandoffState {
+                Button("Try Again") {
+                    authHandoffState = .idle
                 }
-
-                if case .failed = authHandoffState {
-                    primaryButton("Try Again") {
-                        authHandoffState = .idle
-                    }
-                }
-
-                Spacer()
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
-            .padding()
         }
     }
 
-    @ViewBuilder
-    private var authHandoffStatusIcon: some View {
-        switch authHandoffState {
-        case .idle:
-            EmptyView()
-        case .sending:
-            ProgressView()
-                .progressViewStyle(.circular)
-                .scaleEffect(2)
-                .tint(.scAccent)
-        case .completed:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Color.green.gradient)
-        case .failed:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color.red.gradient)
-        }
+    private var authHandoffIsWorking: Bool {
+        if case .sending = authHandoffState { return true }
+        return false
+    }
+
+    private var authHandoffSymbol: String {
+        if case .failed = authHandoffState { return "exclamationmark.triangle.fill" }
+        return "checkmark.circle.fill"
+    }
+
+    private var authHandoffTint: Color {
+        if case .failed = authHandoffState { return .red }
+        return .green
     }
 
     private var authHandoffStatusTitle: String {
         switch authHandoffState {
         case .idle:      return ""
-        case .sending:   return "Sending to \(peerClass.displayName)…"
+        case .sending:   return "Signing In \(peerClass.displayName)…"
         case .completed: return "\(peerClass.displayName) Signed In"
-        case .failed:    return "Couldn't Send Sign-In"
+        case .failed:    return "Couldn't Sign In"
         }
     }
 
-    private var authHandoffStatusMessage: String {
-        switch authHandoffState {
-        case .idle:      return ""
-        case .sending:   return "Your sign-in is being sent securely to your \(peerClass.displayName)."
-        case .completed: return "Your \(peerClass.displayName) can now use its own SoundCloud sign-in."
-        case .failed(let error): return error
-        }
+    private var authHandoffStatusMessage: String? {
+        if case .failed(let error) = authHandoffState { return error }
+        return nil
     }
 
     private func handleTokenReceived(token: String, refreshToken: String?, clientId: String?, expiry: Date?) {
@@ -687,11 +658,9 @@ struct SoundCloudLoginView: View {
 
         switch mode {
         case .authHandoff:
-            // This token pair is for the peer, not this phone. Send it over the
-            // existing companion link without touching this device's session.
             authHandoffState = .sending
             companionClient?.sendAuthHandoffSession(session)
-            scheduleCompletionIfNeeded()
+            finish()
             return
         case .link, .standalone:
             break
@@ -710,14 +679,12 @@ struct SoundCloudLoginView: View {
         isVerifyingSession = false
         guard health == .healthy else {
             if case .waiting = SoundCloudAPI.shared.trafficSafetyState() {
-                // The OAuth result is already stored. Do not frame a temporary
-                // service throttle as a bad account or force another login.
-                scheduleCompletionIfNeeded()
+                finish()
                 return
             }
             completionError = health.needsSignIn
-                ? "SoundCloud accepted the web form, but rejected the resulting authentication. Please sign in again."
-                : "The account could not be verified with SoundCloud. Check your connection and try again."
+                ? "SoundCloud didn't accept the sign-in. Try again."
+                : "Couldn't check your account. Check your connection and try again."
             return
         }
 
@@ -727,17 +694,13 @@ struct SoundCloudLoginView: View {
         }
         #endif
 
-        if let webLoginPresentedAt, Date().timeIntervalSince(webLoginPresentedAt) < Self.noInteractionThreshold {
-            signedInWithoutInteraction = true
-        }
-
         let verifiedSession = DeviceSessionStore.load() ?? session
         switch mode {
         case .link:
             startTransfer(with: verifiedSession)
         case .standalone:
             storedSession = verifiedSession
-            scheduleCompletionIfNeeded()
+            finish()
         case .authHandoff:
             break
         }
@@ -746,51 +709,39 @@ struct SoundCloudLoginView: View {
     private func startTransfer(with session: StoredSession) {
         pendingSession = session
         isTransferring = true
-        Task { await sendWhenReady(session) }
-    }
+        Task.detached { [weak client = box.client, session] in
+            waitForConnection: for _ in 0..<60 {
+                let state = await MainActor.run { client?.state ?? .idle }
+                switch state {
+                case .failed, .rejected:
+                    return
+                case .connecting, .sending, .completed:
+                    break waitForConnection
+                case .idle, .discovering:
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+            }
 
-    private func sendWhenReady(_ session: StoredSession) async {
-        waitForConnection: for _ in 0..<60 {
-            switch transferState {
-            case .failed, .rejected:
-                return
-            case .connecting, .sending, .completed:
-                break waitForConnection
-            case .idle, .discovering:
-                try? await Task.sleep(for: .milliseconds(500))
+            await MainActor.run { [session] in
+                client?.sendToken(
+                    session.oauthToken,
+                    refreshToken: session.refreshToken,
+                    clientId: session.clientId,
+                    expiresAt: session.expiresAt
+                )
             }
         }
-
-        box.client?.sendToken(
-            session.oauthToken,
-            refreshToken: session.refreshToken,
-            clientId: session.clientId,
-            expiresAt: session.expiresAt
-        )
     }
 
     private func useDifferentAccount() async {
-        // Only an explicit tap reaches this destructive account-reset path.
-        // A TV rejecting a transfer must never sign the phone out by itself.
         await SoundCloudCredentialSource.shared.signOut()
         pendingSession = nil
         storedSession = nil
         isTransferring = false
         forceWebLogin = true
-        webLoginPresentedAt = Date()
-        signedInWithoutInteraction = false
+        isLoadingWeb = true
         lastWebLoadFinishedAt = nil
-        startSigninLivenessClock()
-    }
-
-    private func scheduleCompletionIfNeeded() {
-        guard let onComplete else { return }
-        completionTask?.cancel()
-        completionTask = Task {
-            try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
-            onComplete()
-        }
+        beginSignIn()
     }
 }
 
@@ -827,447 +778,71 @@ struct OAuthWebView: UIViewRepresentable {
     let onSigninUiMounted: () -> Void
     let onUserInteraction: () -> Void
     let onSigninUnavailable: () -> Void
-
-    static var signinURL: URL? {
-        #if DEBUG
-        if let raw = ProcessInfo.processInfo.environment["SOUNDING_TV_SIGNIN_URL"],
-           let url = URL(string: raw) {
-            return url
-        }
-        #endif
-        return URL(string: "https://m.soundcloud.com/signin")
-    }
-
-    // Inspect only JSON returned by trusted SoundCloud origins and forward a
-    // response when it actually contains OAuth material. SoundCloud's current
-    // sign-in flow does not consistently use an /oauth/token path.
-    private static let tokenResponseCaptureScript = """
-    (function() {
-      if (window.__soundingTokenCaptureInstalled) return;
-      window.__soundingTokenCaptureInstalled = true;
-      function report(url, body, clientId) {
-        try {
-          var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.scAuth;
-          if (handler && url && body) handler.postMessage({
-            url: String(url), body: String(body), clientId: clientId ? String(clientId) : ''
-          });
-        } catch (_) {}
-      }
-      function isTrustedURL(url) {
-        try { var h = new URL(String(url || ''), location.href).hostname.toLowerCase();
-          return h === 'soundcloud.com' || h.endsWith('.soundcloud.com'); } catch (_) { return false; }
-      }
-      function tokenPayload(body) {
-        try {
-          function find(value, depth) {
-            if (!value || typeof value !== 'object' || depth > 5) return null;
-            if (typeof value.access_token === 'string' && value.access_token) return value;
-            for (var key in value) { var hit = find(value[key], depth + 1); if (hit) return hit; }
-            return null;
-          }
-          var hit = find(JSON.parse(body), 0);
-          return hit ? JSON.stringify(hit) : '';
-        } catch (_) { return ''; }
-      }
-      function clientIdFrom(body) {
-        try {
-          if (!body) return '';
-          if (typeof body === 'string') return new URLSearchParams(body).get('client_id') || '';
-          if (body instanceof URLSearchParams || body instanceof FormData) return body.get('client_id') || '';
-        } catch (_) {}
-        return '';
-      }
-
-      if (window.fetch) {
-        var fetch = window.fetch;
-        window.fetch = function(input, init) {
-          var url = typeof input === 'string' ? input : (input && input.url) || '';
-          var clientId = clientIdFrom(init && init.body);
-          var promise = fetch.apply(this, arguments);
-          if (clientId) report(url, '{}', clientId);
-          if (isTrustedURL(url)) {
-            promise.then(function(response) {
-              try { response.clone().text().then(function(body) {
-                var payload = tokenPayload(body); if (payload) report(url, payload, clientId);
-              }); } catch (_) {}
-            });
-          }
-          return promise;
-        };
-      }
-
-      var OriginalXHR = window.XMLHttpRequest;
-      if (OriginalXHR) {
-        window.XMLHttpRequest = function() {
-          var xhr = new OriginalXHR();
-          var url = '';
-          var open = xhr.open;
-          xhr.open = function(method, requestURL) {
-            url = requestURL || '';
-            return open.apply(xhr, arguments);
-          };
-          xhr.addEventListener('load', function() {
-            if (isTrustedURL(url) && xhr.status >= 200 && xhr.status < 300) {
-              var payload = tokenPayload(xhr.responseText);
-              if (payload) report(url, payload, xhr.__soundingClientId || '');
-            }
-          });
-          var send = xhr.send;
-          xhr.send = function(body) {
-            xhr.__soundingClientId = clientIdFrom(body);
-            if (xhr.__soundingClientId) report(url, '{}', xhr.__soundingClientId);
-            return send.apply(xhr, arguments);
-          };
-          return xhr;
-        };
-        window.XMLHttpRequest.prototype = OriginalXHR.prototype;
-      }
-    })();
-    """
+    @Environment(\.openURL) private var openURL
 
     func makeUIView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-
-        if let storeID = context.coordinator.isolatedStoreIdentifier {
-            config.websiteDataStore = WKWebsiteDataStore(forIdentifier: storeID)
-        } else {
-            config.websiteDataStore = .default()
-        }
-
-        config.preferences.javaScriptCanOpenWindowsAutomatically = true
-        let userContent = WKUserContentController()
-        userContent.add(context.coordinator, name: "scAuth")
-        userContent.addUserScript(WKUserScript(
-            source: Self.tokenResponseCaptureScript,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        ))
-        config.userContentController = userContent
-
-        let webView = WKWebView(frame: .zero, configuration: config)
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        webView.isOpaque = false
-        webView.backgroundColor = .systemBackground
-
-        webView.configuration.websiteDataStore.httpCookieStore.add(context.coordinator)
-        let interaction = UITapGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.userInteracted)
-        )
+        let signIn = context.coordinator.signIn
+        context.coordinator.parent = self
+        context.coordinator.bind()
+        let interaction = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userInteracted))
         interaction.cancelsTouchesInView = false
-        webView.addGestureRecognizer(interaction)
-
-        context.coordinator.resetCapture()
-        context.coordinator.lastLoadedAttempt = attempt
-        if let url = Self.signinURL {
-            webView.load(URLRequest(url: url))
-        }
-
-        return webView
+        signIn.webView.addGestureRecognizer(interaction)
+        context.coordinator.loadIfNeeded(attempt: attempt)
+        return signIn.webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        if context.coordinator.lastLoadedAttempt != attempt {
-            context.coordinator.resetCapture()
-            context.coordinator.lastLoadedAttempt = attempt
-            if let url = Self.signinURL {
-                webView.load(URLRequest(url: url))
-            }
-        }
+        context.coordinator.parent = self
+        context.coordinator.loadIfNeeded(attempt: attempt)
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
-        coordinator.teardown(webView: webView)
+        coordinator.signIn.teardown()
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(
-            parent: self,
-            isolatedStoreIdentifier: usesIsolatedDataStore ? UUID() : nil
-        )
+        Coordinator(parent: self, signIn: SoundCloudWebSignIn(usesIsolatedStore: usesIsolatedDataStore))
     }
 
-    class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKHTTPCookieStoreObserver, WKScriptMessageHandler {
+    @MainActor
+    final class Coordinator: NSObject {
+        var parent: OAuthWebView
+        let signIn: SoundCloudWebSignIn
+        private var loadedAttempt = 0
 
-        let parent: OAuthWebView
-        var lastLoadedAttempt = 0
-        let isolatedStoreIdentifier: UUID?
-        private var hasLoggedIn = false
-        private var capturedAccessToken: String?
-        private var capturedRefreshToken: String?
-        private var capturedClientId: String?
-        private var capturedExpiresAt: Date?
-        private weak var popupWebView: WKWebView?
-        private var signinCheckTask: Task<Void, Never>?
-        private var signinMounted = false
-        private var reachedSigninCallback = false
-
-        init(parent: OAuthWebView, isolatedStoreIdentifier: UUID?) {
+        init(parent: OAuthWebView, signIn: SoundCloudWebSignIn) {
             self.parent = parent
-            self.isolatedStoreIdentifier = isolatedStoreIdentifier
+            self.signIn = signIn
+        }
+
+        func bind() {
+            signIn.onFormReady = { [weak self] in
+                self?.parent.isLoading = false
+                self?.parent.onSigninUiMounted()
+            }
+            signIn.onLoadFailed = { [weak self] in
+                self?.parent.isLoading = false
+                self?.parent.onSigninUnavailable()
+            }
+            signIn.onRefreshMaterial = { [weak self] refresh, client in
+                self?.parent.onRefreshMaterial(refresh, client)
+            }
+            signIn.onCapture = { [weak self] capture in
+                self?.parent.onLogin(capture.accessToken, capture.refreshToken, capture.clientId, capture.expiresAt)
+            }
+            signIn.onOpenExternally = { [weak self] url in
+                self?.parent.openURL(url)
+            }
+        }
+
+        func loadIfNeeded(attempt: Int) {
+            guard attempt > 0, attempt != loadedAttempt else { return }
+            loadedAttempt = attempt
+            signIn.load(.signIn)
         }
 
         @objc func userInteracted() {
-            signinMounted = true
-            signinCheckTask?.cancel()
             parent.onUserInteraction()
         }
-
-        deinit { signinCheckTask?.cancel() }
-
-        func teardown(webView: WKWebView) {
-            signinCheckTask?.cancel()
-            webView.configuration.websiteDataStore.httpCookieStore.remove(self)
-            popupWebView?.stopLoading()
-            popupWebView?.navigationDelegate = nil
-            popupWebView?.uiDelegate = nil
-            popupWebView?.removeFromSuperview()
-            popupWebView = nil
-            webView.stopLoading()
-            webView.navigationDelegate = nil
-            webView.uiDelegate = nil
-        }
-
-        func resetCapture() {
-            hasLoggedIn = false
-            capturedAccessToken = nil
-            capturedRefreshToken = nil
-            capturedClientId = nil
-            capturedExpiresAt = nil
-            reachedSigninCallback = false
-        }
-
-        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard message.name == "scAuth",
-                  Self.isTrustedAuthOrigin(message.frameInfo.securityOrigin),
-                  let payload = message.body as? [String: Any],
-                  let url = payload["url"] as? String,
-                  let body = payload["body"] as? String,
-                  Self.isTrustedAuthURL(url),
-                  let data = body.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { return }
-
-            if let client = payload["clientId"] as? String, !client.isEmpty {
-                capturedClientId = client
-            }
-            if let access = json["access_token"] as? String, !access.isEmpty {
-                capturedAccessToken = access
-            }
-            if let refresh = json["refresh_token"] as? String, !refresh.isEmpty {
-                capturedRefreshToken = refresh
-            }
-            if let client = json["client_id"] as? String, !client.isEmpty {
-                capturedClientId = client
-            }
-            if let seconds = json["expires_in"] as? Double {
-                capturedExpiresAt = Date(timeIntervalSinceNow: seconds)
-            } else if let seconds = json["expires_in"] as? Int {
-                capturedExpiresAt = Date(timeIntervalSinceNow: TimeInterval(seconds))
-            }
-
-            parent.onRefreshMaterial(capturedRefreshToken, capturedClientId)
-            tryFireLogin()
-        }
-
-        private static func isTokenURL(_ url: String) -> Bool {
-            guard let parsed = URL(string: url),
-                  let host = parsed.host?.lowercased(),
-                  host == "soundcloud.com" || host.hasSuffix(".soundcloud.com") else { return false }
-            return parsed.path.contains("/oauth/token") || parsed.path.contains("/oauth2/token")
-        }
-
-        private static func isTrustedAuthURL(_ value: String) -> Bool {
-            guard let url = URL(string: value), let host = url.host?.lowercased() else { return false }
-            return host == "soundcloud.com" || host.hasSuffix(".soundcloud.com")
-        }
-
-        private static func isTrustedAuthOrigin(_ origin: WKSecurityOrigin) -> Bool {
-            let host = origin.host.lowercased()
-            return origin.protocol == "https" && (host == "soundcloud.com" || host.hasSuffix(".soundcloud.com"))
-        }
-
-        func scheduleSigninCheck(for webView: WKWebView) {
-            signinCheckTask?.cancel()
-            signinMounted = false
-            signinCheckTask = Task { @MainActor [weak self, weak webView] in
-                try? await Task.sleep(for: .seconds(12))
-                guard let self, let webView, !Task.isCancelled else { return }
-                guard !self.signinMounted else { return }
-                let script = """
-                (function() {
-                  var selector = 'input[type="email"],input[type="password"],input[autocomplete="username"],input[autocomplete="email"]';
-                  var mounted = Array.prototype.some.call(document.querySelectorAll(selector), function(el) {
-                    var r = el.getBoundingClientRect(); var s = window.getComputedStyle(el);
-                    return r.width >= 40 && r.height >= 20 && r.bottom > 0 && r.top < window.innerHeight &&
-                      r.right > 0 && r.left < window.innerWidth && s.display !== 'none' &&
-                      s.visibility !== 'hidden' && parseFloat(s.opacity || '1') > 0.05;
-                  });
-                  return mounted ? 'mounted' : 'missing';
-                })()
-                """
-                let result = (try? await webView.evaluateJavaScript(script)) as? String
-                guard result != "mounted" else { return }
-                Log.link.error("[SignIn] SoundCloud shell loaded without a visible sign-in form")
-                self.parent.onSigninUnavailable()
-            }
-        }
-
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            parent.isLoading = true
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            parent.isLoading = false
-            if let url = webView.url {
-                captureClientId(from: url)
-                if Self.isSigninCallback(url) { reachedSigninCallback = true }
-                if Self.isSoundCloudSignInPage(url), !signinMounted {
-                    signinMounted = true
-                    signinCheckTask?.cancel()
-                    parent.onSigninUiMounted()
-                }
-            }
-            if reachedSigninCallback {
-                checkForToken(in: webView.configuration.websiteDataStore.httpCookieStore)
-            }
-        }
-
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            parent.isLoading = false
-            Log.link.error("[SignIn] navigation failed: \(error.localizedDescription, privacy: .public)")
-            parent.onSigninUnavailable()
-        }
-
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            parent.isLoading = false
-            Log.link.error("[SignIn] provisional navigation failed: \(error.localizedDescription, privacy: .public)")
-            parent.onSigninUnavailable()
-        }
-
-        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-            parent.isLoading = false
-            Log.link.error("[SignIn] WebKit content process terminated")
-            parent.onSigninUnavailable()
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            createWebViewWith configuration: WKWebViewConfiguration,
-            for navigationAction: WKNavigationAction,
-            windowFeatures: WKWindowFeatures
-        ) -> WKWebView? {
-            let popup = WKWebView(frame: webView.bounds, configuration: configuration)
-            popup.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            popup.navigationDelegate = self
-            popup.uiDelegate = self
-            webView.addSubview(popup)
-            popupWebView = popup
-            return popup
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            decidePolicyFor navigationAction: WKNavigationAction
-        ) async -> WKNavigationActionPolicy {
-            if let url = navigationAction.request.url {
-                captureClientId(from: url)
-                if Self.isSigninCallback(url) { reachedSigninCallback = true }
-            }
-            return .allow
-        }
-
-        func webViewDidClose(_ webView: WKWebView) {
-            guard webView === popupWebView else { return }
-            webView.removeFromSuperview()
-            popupWebView = nil
-        }
-
-        func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
-            checkForToken(in: cookieStore)
-        }
-
-        private func checkForToken(in cookieStore: WKHTTPCookieStore) {
-            guard !hasLoggedIn, reachedSigninCallback else { return }
-            cookieStore.getAllCookies { [weak self] cookies in
-                guard let self else { return }
-
-                let isSC: (HTTPCookie) -> Bool = { $0.domain.lowercased().contains("soundcloud") }
-
-                let tokenNames: Set<String> = ["oauth_token", "OAuth-Token", "sc-token"]
-                let tokenCookie = cookies.first { c in
-                    isSC(c)
-                        && tokenNames.contains(where: { $0.caseInsensitiveCompare(c.name) == .orderedSame })
-                        && !c.value.isEmpty
-                }
-
-                let refreshNames: Set<String> = ["oauth_refresh_token", "oauth-refresh-token", "sc-refresh-token"]
-                let refreshCookie = cookies.first { c in
-                    isSC(c)
-                        && refreshNames.contains(where: { $0.caseInsensitiveCompare(c.name) == .orderedSame })
-                        && !c.value.isEmpty
-                }
-
-                if let refreshCookie, self.capturedRefreshToken == nil {
-                    self.capturedRefreshToken = refreshCookie.value
-                }
-
-                guard let tokenCookie else { return }
-
-                if self.capturedAccessToken == nil {
-                    self.capturedAccessToken = tokenCookie.value
-                }
-                DispatchQueue.main.async {
-                    self.tryFireLogin()
-                }
-            }
-        }
-
-        private func tryFireLogin() {
-            guard !hasLoggedIn,
-                  capturedAccessToken?.isEmpty == false,
-                  capturedRefreshToken?.isEmpty == false,
-                  capturedClientId?.isEmpty == false else { return }
-            fireLogin()
-        }
-
-        private func fireLogin() {
-            guard !hasLoggedIn, let token = capturedAccessToken else { return }
-            hasLoggedIn = true
-            parent.onLogin(token, capturedRefreshToken, capturedClientId, capturedExpiresAt)
-            removeIsolatedStoreIfNeeded()
-        }
-
-        private func removeIsolatedStoreIfNeeded() {
-            guard let isolatedStoreIdentifier else { return }
-            Task {
-                try? await WKWebsiteDataStore.remove(forIdentifier: isolatedStoreIdentifier)
-            }
-        }
-
-        private static func extractClientId(from url: String) -> String? {
-            guard let comps = URLComponents(string: url) else { return nil }
-            return comps.queryItems?.first(where: { $0.name == "client_id" })?.value
-        }
-
-        private func captureClientId(from url: URL) {
-            guard capturedClientId == nil,
-                  let clientID = Self.extractClientId(from: url.absoluteString),
-                  !clientID.isEmpty else { return }
-            capturedClientId = clientID
-            parent.onRefreshMaterial(capturedRefreshToken, capturedClientId)
-        }
-
-        private static func isSigninCallback(_ url: URL) -> Bool {
-            (url.host ?? "").lowercased() == "m.soundcloud.com"
-                && url.path.hasPrefix("/signin/callback")
-        }
-
-        private static func isSoundCloudSignInPage(_ url: URL) -> Bool {
-            let host = (url.host ?? "").lowercased()
-            return host == "m.soundcloud.com" || host == "secure.soundcloud.com"
-        }
-
     }
 }

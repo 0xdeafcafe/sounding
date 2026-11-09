@@ -1,4 +1,4 @@
-# SoundingCloud on iPad — plan, with the CDJ console as the centrepiece
+# Sounding on iPad — plan, with the CDJ console as the centrepiece
 
 **Status:** design only. Nothing in the repo was edited.
 **Author:** planning agent, job 3fc7cb5a.

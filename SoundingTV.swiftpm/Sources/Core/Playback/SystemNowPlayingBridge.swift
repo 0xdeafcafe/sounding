@@ -37,6 +37,11 @@ protocol SystemNowPlayingBridge: AnyObject {
     func deactivate()
     func publishNowPlaying(_ item: SystemNowPlayingItem?)
     func publishPlayback(_ playback: SystemPlaybackStatus)
+    func publishTransportAvailability(hasNext: Bool)
+}
+
+extension SystemNowPlayingBridge {
+    func publishTransportAvailability(hasNext: Bool) {}
 }
 
 @MainActor
@@ -45,6 +50,10 @@ final class MediaPlayerNowPlayingBridge: SystemNowPlayingBridge {
     private var artworkTask: Task<Void, Never>?
     private var currentItem: SystemNowPlayingItem?
     private var isActive = false
+    private var publishedIsPlaying: Bool?
+    private var publishedDuration: TimeInterval = 0
+    private var anchorElapsed: TimeInterval = 0
+    private var anchorDate = Date.distantPast
     weak var artworkProvider: (any NowPlayingArtworkProvider)?
 
     func activate(handlers: SystemTransportHandlers) {
@@ -102,6 +111,8 @@ final class MediaPlayerNowPlayingBridge: SystemNowPlayingBridge {
         artworkTask?.cancel()
         artworkTask = nil
         currentItem = item
+        publishedIsPlaying = nil
+        publishedDuration = 0
 
         guard let item else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -113,6 +124,7 @@ final class MediaPlayerNowPlayingBridge: SystemNowPlayingBridge {
         info[MPMediaItemPropertyArtist] = item.artist
         info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
         info[MPNowPlayingInfoPropertyIsLiveStream] = false
+        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         if let queueIndex = item.queueIndex, let queueCount = item.queueCount {
             info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = queueIndex
             info[MPNowPlayingInfoPropertyPlaybackQueueCount] = queueCount
@@ -133,11 +145,37 @@ final class MediaPlayerNowPlayingBridge: SystemNowPlayingBridge {
         }
     }
 
+    func publishTransportAvailability(hasNext: Bool) {
+        guard isActive else { return }
+        let command = MPRemoteCommandCenter.shared().nextTrackCommand
+        if command.isEnabled != hasNext { command.isEnabled = hasNext }
+    }
+
     func publishPlayback(_ playback: SystemPlaybackStatus) {
         guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = playback.elapsed
+
+        // Skip the XPC write when nothing observable changed: while playing,
+        // mediaserverd extrapolates elapsed time from the rate itself, so a
+        // sub-second drift from the last anchor does not need a rewrite.
+        if publishedIsPlaying == playback.isPlaying,
+           abs(playback.duration - publishedDuration) <= 1 {
+            let predicted = playback.isPlaying
+                ? anchorElapsed + Date().timeIntervalSince(anchorDate)
+                : anchorElapsed
+            if abs(predicted - playback.elapsed) < 1 { return }
+        }
+        publishedIsPlaying = playback.isPlaying
+        publishedDuration = playback.duration
+        anchorElapsed = playback.elapsed
+        anchorDate = Date()
+
+        // NaN (e.g. from an invalid CMTime) raises an uncatchable
+        // NSInvalidArgumentException inside MediaPlayer.
+        let elapsed = playback.elapsed.isFinite ? max(0, playback.elapsed) : 0
+        let duration = playback.duration.isFinite ? max(0, playback.duration) : 0
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
         info[MPNowPlayingInfoPropertyPlaybackRate] = playback.isPlaying ? 1.0 : 0.0
-        info[MPMediaItemPropertyPlaybackDuration] = playback.duration
+        info[MPMediaItemPropertyPlaybackDuration] = duration
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 }

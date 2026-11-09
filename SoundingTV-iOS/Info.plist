@@ -2,10 +2,57 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Sounding Track</string>
+			<key>UTTypeIdentifier</key>
+			<string>red.forbes.sounding.track</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Sounding Playlist</string>
+			<key>UTTypeIdentifier</key>
+			<string>red.forbes.sounding.playlist-reference</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Sounding Local Track</string>
+			<key>UTTypeIdentifier</key>
+			<string>red.forbes.sounding.local-track</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Sounding Collection</string>
+			<key>UTTypeIdentifier</key>
+			<string>red.forbes.sounding.collection</string>
+		</dict>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>red.forbes.sounding.scout.refresh</string>
+	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>SoundingCloud</string>
+	<string>Sounding</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconName</key>
@@ -15,32 +62,95 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>SoundingCloud</string>
+	<string>Sounding</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>red.forbes.sounding.widget</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>soundingtv</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>INIntentsSupported</key>
+	<array>
+		<string>INPlayMediaIntent</string>
+	</array>
+	<key>INSupportedMediaCategories</key>
+	<array>
+		<string>INMediaCategoryMusic</string>
+	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Sounding sets alarms that wake you with the track, playlist or station you choose.</string>
+	<key>NSApplicationServices</key>
+	<dict>
+		<key>Advertises</key>
+		<array>
+			<dict>
+				<key>NSApplicationServiceIdentifier</key>
+				<string>SoundingSignIn</string>
+			</dict>
+		</array>
+	</dict>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_polyphony._tcp</string>
 		<string>_soundingtv._tcp</string>
+		<string>_sonos._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Scan the code on your Apple TV to link it.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Auto Mix reads your heart rate from Apple Watch during a workout to set the energy of the music.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Sounding saves the workouts you start from Apple Watch to Health, and reads your heart rate only while Match My Workout is on.</string>
+	<key>NSHomeKitUsageDescription</key>
+	<string>Sounding sets the lights you choose to follow the music: colours from the artwork, brightness from the energy.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Find nearby Polyphony sessions, play in sync with friends, and connect to your Apple TV over your local network.</string>
+	<string>Connect to your Apple TV and Sonos speakers over your local network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Sounding listens only when you ask: to name a song playing around you with Shazam, or to hear your Apple TV’s chime when you sign it in. No audio is kept.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>red.forbes.sounding.pairing</string>
 		<string>red.forbes.sounding.nowplaying</string>
+		<string>red.forbes.sounding.playing</string>
 	</array>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>CPTemplateApplicationSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>CPTemplateApplicationScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>CarPlay</string>
+					<key>UISceneDelegateClassName</key>
+					<string>SoundingCarPlaySceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>fetch</string>
+		<string>remote-notification</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
@@ -57,5 +167,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSSupportsGroupActivities</key>
+	<true/>
 </dict>
 </plist>

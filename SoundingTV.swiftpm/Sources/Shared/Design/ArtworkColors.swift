@@ -32,20 +32,24 @@ final class ArtworkColors: ObservableObject {
             return
         }
 
-        Task { [url] in
+        // Download, decode, and CoreImage filtering all run on a background
+        // queue so the main actor is not blocked by artwork color extraction.
+        Task.detached(priority: .utility) { [weak self, url] in
             guard let palette = await Self.extract(from: url) else { return }
-            guard self.lastRequestedURL == url else { return }
-            self.cache[url] = palette
-            withAnimation(.easeInOut(duration: 0.55)) {
-                self.current = palette
+            await MainActor.run {
+                guard let self, self.lastRequestedURL == url else { return }
+                self.cache[url] = palette
+                withAnimation(.easeInOut(duration: 0.55)) {
+                    self.current = palette
+                }
             }
         }
     }
 
-    private static func extract(from url: URL) async -> Palette? {
-        guard let (data, _) = try? await URLSession.shared.data(from: url),
-              let image = UIImage(data: data),
-              let cg = image.cgImage else { return nil }
+    nonisolated private static let ciContext = CIContext(options: [.workingColorSpace: NSNull()])
+
+    nonisolated private static func extract(from url: URL) async -> Palette? {
+        guard let cg = await SCArtworkStore.shared.cgImage(for: url, variant: .standard) else { return nil }
 
         let ci = CIImage(cgImage: cg)
         let extent = ci.extent
@@ -57,15 +61,14 @@ final class ArtworkColors: ObservableObject {
             CGRect(x: extent.minX, y: extent.midY, width: extent.width / 2, height: extent.height / 2),
             CGRect(x: extent.midX, y: extent.midY, width: extent.width / 2, height: extent.height / 2)
         ]
-        let context = CIContext(options: [.workingColorSpace: NSNull()])
         let colors = regions.compactMap { rect in
-            averageColor(of: ci, in: rect, context: context)
+            Self.averageColor(of: ci, in: rect, context: Self.ciContext)
         }
         guard let primary = colors.first else { return nil }
 
         let candidates = Array(colors.dropFirst())
-        let mostVibrant = candidates.max(by: { saturation(of: $0) < saturation(of: $1) }) ?? primary
-        let other = candidates.min(by: { saturation(of: $0) < saturation(of: $1) }) ?? primary
+        let mostVibrant = candidates.max(by: { Self.saturation(of: $0) < Self.saturation(of: $1) }) ?? primary
+        let other = candidates.min(by: { Self.saturation(of: $0) < Self.saturation(of: $1) }) ?? primary
 
         let background = SCAmbient.background(from: mostVibrant)
         return Palette(
@@ -74,15 +77,15 @@ final class ArtworkColors: ObservableObject {
             average:   SCAmbient.background(from: primary),
             accent:    SCAmbient.accent(from: mostVibrant, on: background),
             rawMean:   SCAmbient.components(primary),
-            artwork:   Image(uiImage: image)
+            artwork:   Image(decorative: cg, scale: 1)
         )
     }
 
-    private static func saturation(of color: Color) -> CGFloat {
+    nonisolated private static func saturation(of color: Color) -> CGFloat {
         SCAmbient.hsb(SCAmbient.components(color)).saturation
     }
 
-    private static func averageColor(of image: CIImage, in rect: CGRect, context: CIContext) -> Color? {
+    nonisolated private static func averageColor(of image: CIImage, in rect: CGRect, context: CIContext) -> Color? {
         guard let filter = CIFilter(name: "CIAreaAverage", parameters: [
             kCIInputImageKey: image,
             kCIInputExtentKey: CIVector(cgRect: rect)

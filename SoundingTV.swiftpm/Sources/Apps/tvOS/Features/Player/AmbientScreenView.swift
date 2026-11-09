@@ -8,8 +8,10 @@ struct AmbientScreenView: View {
     var mixOverride: AmbientMixSnapshot?
 
     @ObservedObject private var player = PlayerService.shared
+    @ObservedObject private var clock = PlayerService.shared.clock
     @ObservedObject private var artworkColors = ArtworkColors.shared
     @ObservedObject private var waveforms = WaveformService.shared
+    @ObservedObject private var setlistStore = SetlistIntelligenceStore.shared
 
     @State private var driftX: CGFloat = -1
     @State private var driftY: CGFloat = -1
@@ -25,9 +27,26 @@ struct AmbientScreenView: View {
     @State private var laneFade: Double = 1
 
     @FocusState private var absorbingInput: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     private let artworkSize: CGFloat = 560
     private let laneWidth: CGFloat = 900
+
+    private var accessibilitySummary: String {
+        var parts: [String] = []
+        if let mix, mix.isActive {
+            parts.append(mix.eyebrowText)
+            if let outgoing = mix.outgoing { parts.append("\(outgoing.title) by \(outgoing.user.displayName)") }
+            parts.append(mix.countdownText(at: clock.currentTime))
+            if let next = mix.nextText { parts.append(next) }
+        } else {
+            parts.append("Now Playing")
+            if let track = player.currentTrack { parts.append("\(track.title) by \(track.user.displayName)") }
+        }
+        parts.append("\(AmbientClock.string(clock.currentTime)) of \(AmbientClock.string(clock.duration))")
+        return parts.joined(separator: ", ")
+    }
 
     private var mix: AmbientMixSnapshot? {
         if let mixOverride { return mixOverride }
@@ -42,11 +61,23 @@ struct AmbientScreenView: View {
     private var primaryTrack: Track? { mix?.outgoing ?? player.currentTrack }
     private var secondaryTrack: Track? { mix?.incoming }
 
+    private var setlistContext: AmbientSetlistContext? {
+        guard let track = primaryTrack,
+              let setlist = setlistStore.setlist(for: track.id),
+              let segment = setlist.segment(at: clock.currentTime) else { return nil }
+        let segments = setlist.activeSegments
+        guard let index = segments.firstIndex(where: { $0.id == segment.id }) else { return nil }
+        return AmbientSetlistContext(
+            itemNumber: index + 1,
+            itemCount: segments.count,
+            label: segment.displayLabel
+        )
+    }
+
     var body: some View {
         composition
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .background(backdrop)
-            .environment(\.colorScheme, .dark)
             .opacity(revealed ? 1 : 0)
             .focusable()
             .focused($absorbingInput)
@@ -56,6 +87,11 @@ struct AmbientScreenView: View {
             .onMoveCommand { _ in onDismiss() }
             .onExitCommand(perform: onDismiss)
             .onPlayPauseCommand(perform: onDismiss)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilitySummary)
+            .accessibilityHint("Press any button to return to the app")
+            .accessibilityAddTraits(.updatesFrequently)
+            .accessibilityIdentifier("ambient.screen")
             .onAppear(perform: startMotion)
             .task(id: primaryTrack?.id) {
                 if let primaryTrack { waveforms.load(primaryTrack) }
@@ -73,7 +109,9 @@ struct AmbientScreenView: View {
                 AmbientMixComposition(
                     mix: mix,
                     palette: artworkColors.current,
-                    currentTime: player.currentTime,
+                    currentTime: clock.currentTime,
+                    duration: max(mix.outgoing?.duration ?? clock.duration, clock.duration),
+                    setlist: setlistContext,
                     artworkSize: artworkSize,
                     laneWidth: laneWidth,
                     lane: laneModel(for: mix),
@@ -85,9 +123,9 @@ struct AmbientScreenView: View {
                 AmbientNowPlayingComposition(
                     track: player.currentTrack,
                     palette: artworkColors.current,
-                    currentTime: player.currentTime,
-                    duration: player.duration,
-                    progress: player.progress,
+                    currentTime: clock.currentTime,
+                    duration: clock.duration,
+                    setlist: setlistContext,
                     artworkSize: artworkSize,
                     laneWidth: laneWidth,
                     lane: laneModel(for: nil),
@@ -104,32 +142,28 @@ struct AmbientScreenView: View {
     }
 
     private var backdrop: some View {
-        AmbientArtworkBackdrop(seed: ambientSeed)
-            .scaleEffect(1.20)
-            .offset(x: driftX * 76, y: driftY * 48)
-            .overlay(
-                RadialGradient(
-                    colors: [Color.clear, Color.black.opacity(0.55)],
-                    center: UnitPoint(x: 0.34, y: 0.44),
-                    startRadius: 320,
-                    endRadius: 1500
-                )
-            )
-            .ignoresSafeArea()
-    }
-
-    private var ambientSeed: AmbientArtworkSeed {
         let palette = artworkColors.current
-        return AmbientArtworkSeed(
-            artwork: palette.artwork,
-            colors: [palette.primary, palette.secondary, palette.average],
-            accent: palette.accent,
-            scrim: palette.backdropScrim(layerOpacity: 0.55, additiveHeadroom: 1.15)
-        )
+        return ZStack {
+            NPBackdrop(
+                artworkURL: primaryTrack?.artworkURL,
+                palette: palette,
+                isAnimating: revealed && !reduceMotion && scenePhase == .active
+            )
+            NPLegibilityScrim(palette: palette)
+            RadialGradient(
+                colors: [Color.clear, Color.black.opacity(0.55)],
+                center: UnitPoint(x: 0.34, y: 0.44),
+                startRadius: 320,
+                endRadius: 1500
+            )
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func laneModel(for mix: AmbientMixSnapshot?) -> AmbientWaveLane.Model {
-        let duration = max(primaryTrack?.duration ?? player.duration, 1)
+        let duration = max(primaryTrack?.duration ?? clock.duration, 1)
         var lanes: [AmbientWaveLane.Lane] = [
             AmbientWaveLane.Lane(
                 bars: primaryBars,
@@ -162,7 +196,7 @@ struct AmbientScreenView: View {
         return AmbientWaveLane.Model(
             lanes: lanes,
             total: duration,
-            playhead: player.currentTime,
+            playhead: clock.currentTime,
             band: band,
             bandTint: artworkColors.current.accent
         )
@@ -193,7 +227,7 @@ struct AmbientScreenView: View {
             secondaryBars = []
             return
         }
-        let total = max(primaryTrack?.duration ?? player.duration, 1)
+        let total = max(primaryTrack?.duration ?? clock.duration, 1)
         let entry = mix?.entrySeconds ?? 0
         let audible = max(1, cued.duration - entry)
         let share = min(barCount * 2, max(8, Int(Double(barCount) * (audible / total))))
@@ -213,17 +247,22 @@ struct AmbientScreenView: View {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(AmbientWaveLane.barRotationSeconds))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: AmbientWaveLane.barCrossfadeSeconds)) { laneFade = 0 }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: AmbientWaveLane.barCrossfadeSeconds)) { laneFade = 0 }
             try? await Task.sleep(for: .seconds(AmbientWaveLane.barCrossfadeSeconds))
             guard !Task.isCancelled else { return }
             barCountIndex = (barCountIndex + 1) % AmbientWaveLane.barCounts.count
             barCount = AmbientWaveLane.barCounts[barCountIndex]
-            withAnimation(.easeInOut(duration: AmbientWaveLane.barCrossfadeSeconds)) { laneFade = 1 }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: AmbientWaveLane.barCrossfadeSeconds)) { laneFade = 1 }
         }
     }
 
     private func startMotion() {
-        withAnimation(Motion.settle) { revealed = true }
+        withAnimation(reduceMotion ? nil : Motion.settle) { revealed = true }
+        guard !reduceMotion else {
+            driftX = 0
+            driftY = 0
+            return
+        }
         withAnimation(.easeInOut(duration: 61).repeatForever(autoreverses: true)) { driftX = 1 }
         withAnimation(.easeInOut(duration: 43).repeatForever(autoreverses: true)) { driftY = 1 }
         withAnimation(.easeInOut(duration: 97).repeatForever(autoreverses: true)) { kenBurns = 1.06 }
@@ -237,7 +276,7 @@ private struct AmbientNowPlayingComposition: View {
     let palette: ArtworkColors.Palette
     let currentTime: TimeInterval
     let duration: TimeInterval
-    let progress: Double
+    let setlist: AmbientSetlistContext?
     let artworkSize: CGFloat
     let laneWidth: CGFloat
     let lane: AmbientWaveLane.Model
@@ -247,26 +286,26 @@ private struct AmbientNowPlayingComposition: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: Space.section + Space.roomy) {
-            AmbientArtwork(url: track?.artworkURL, size: artworkSize, palette: palette, kenBurns: kenBurns)
+            AmbientArtwork(url: track?.artworkURL, identity: track?.id ?? "Sounding", size: artworkSize, palette: palette, kenBurns: kenBurns)
             details
         }
     }
 
     private var details: some View {
         VStack(alignment: .leading, spacing: Space.base) {
-            Eyebrow(text: "Now Playing", tint: .white.opacity(0.40))
+            Eyebrow(text: "Now Playing", tint: .whiteInk(0.52))
 
             Text(track?.title ?? "")
                 .font(.tvDisplay)
                 .kerning(-2.0)
                 .lineLimit(3)
                 .minimumScaleFactor(0.55)
-                .foregroundStyle(.white.opacity(0.90))
+                .foregroundStyle(.whiteInk(0.90, increased: 1))
                 .shadow(color: .black.opacity(0.45), radius: 26, y: 8)
 
             Text(track?.user.displayName ?? "")
                 .font(.tvLargeTitle)
-                .foregroundStyle(.white.opacity(0.60))
+                .foregroundStyle(.whiteInk(0.64))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .shadow(color: .black.opacity(0.30), radius: 12, y: 4)
@@ -274,24 +313,21 @@ private struct AmbientNowPlayingComposition: View {
             elapsedIndicator
                 .padding(.top, Space.snug)
         }
-        .frame(maxWidth: 940, alignment: .leading)
+        .frame(width: laneWidth, alignment: .leading)
     }
 
     private var elapsedIndicator: some View {
         VStack(alignment: .leading, spacing: Space.snug) {
             AmbientWaveLane(model: lane, width: laneWidth, height: 96, fade: laneFade)
 
-            HStack(alignment: .firstTextBaseline, spacing: Space.roomy) {
-                Text(AmbientClock.string(currentTime))
-                Spacer(minLength: Space.snug)
-                Text("-\(AmbientClock.string(max(0, duration - currentTime)))")
-            }
-            .font(.tvCaptionEmph)
-            .monospacedDigit()
-            .foregroundStyle(.white.opacity(0.42))
-            .frame(width: laneWidth)
+            AmbientPlaybackContext(
+                currentTime: currentTime,
+                duration: duration,
+                setlist: setlist,
+                width: laneWidth
+            )
         }
-        .offset(x: lanePhase * 20, y: lanePhase * 8)
+        .offset(y: lanePhase * 4)
     }
 }
 
@@ -299,6 +335,8 @@ private struct AmbientMixComposition: View {
     let mix: AmbientMixSnapshot
     let palette: ArtworkColors.Palette
     let currentTime: TimeInterval
+    let duration: TimeInterval
+    let setlist: AmbientSetlistContext?
     let artworkSize: CGFloat
     let laneWidth: CGFloat
     let lane: AmbientWaveLane.Model
@@ -310,6 +348,7 @@ private struct AmbientMixComposition: View {
         HStack(alignment: .center, spacing: Space.section + Space.roomy) {
             AmbientArtwork(
                 url: mix.outgoing?.artworkURL,
+                identity: mix.outgoing?.id ?? "Sounding",
                 size: artworkSize,
                 palette: palette,
                 kenBurns: kenBurns
@@ -324,7 +363,7 @@ private struct AmbientMixComposition: View {
                 Circle()
                     .fill(palette.accent.opacity(0.85))
                     .frame(width: 14, height: 14)
-                Eyebrow(text: mix.eyebrowText, tint: .white.opacity(0.42))
+                Eyebrow(text: mix.eyebrowText, tint: .whiteInk(0.52))
             }
 
             Text(mix.outgoing?.title ?? "")
@@ -332,12 +371,12 @@ private struct AmbientMixComposition: View {
                 .kerning(-2.0)
                 .lineLimit(2)
                 .minimumScaleFactor(0.55)
-                .foregroundStyle(.white.opacity(0.90))
+                .foregroundStyle(.whiteInk(0.90, increased: 1))
                 .shadow(color: .black.opacity(0.45), radius: 26, y: 8)
 
             Text(mix.outgoing?.user.displayName ?? "")
                 .font(.tvLargeTitle)
-                .foregroundStyle(.white.opacity(0.60))
+                .foregroundStyle(.whiteInk(0.64))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .shadow(color: .black.opacity(0.30), radius: 12, y: 4)
@@ -345,7 +384,7 @@ private struct AmbientMixComposition: View {
             mixIndicator
                 .padding(.top, Space.snug)
         }
-        .frame(maxWidth: 940, alignment: .leading)
+        .frame(width: laneWidth, alignment: .leading)
     }
 
     private var mixIndicator: some View {
@@ -356,22 +395,29 @@ private struct AmbientMixComposition: View {
                 Text(mix.countdownText(at: currentTime))
                     .font(.tvSection)
                     .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.74))
+                    .foregroundStyle(.whiteInk(0.78))
                 Spacer(minLength: Space.snug)
                 if let nextText = mix.nextText {
                     Text(nextText)
                         .font(.tvCaptionEmph)
-                        .foregroundStyle(.white.opacity(0.42))
+                        .foregroundStyle(.whiteInk(0.56))
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
             }
             .frame(width: laneWidth)
 
+            AmbientPlaybackContext(
+                currentTime: currentTime,
+                duration: duration,
+                setlist: setlist,
+                width: laneWidth
+            )
+
             if !mix.reasoning.isEmpty {
                 Text(mix.reasoning)
                     .font(.tvCallout)
-                    .foregroundStyle(.white.opacity(0.44))
+                    .foregroundStyle(.whiteInk(0.58))
                     .lineLimit(2)
                     .lineSpacing(4)
                     .fixedSize(horizontal: false, vertical: true)
@@ -379,31 +425,65 @@ private struct AmbientMixComposition: View {
                     .padding(.top, Space.hair)
             }
         }
-        .offset(x: lanePhase * 20, y: lanePhase * 8)
+        .offset(y: lanePhase * 4)
+    }
+}
+
+private struct AmbientSetlistContext: Equatable {
+    let itemNumber: Int
+    let itemCount: Int
+    let label: String
+}
+
+private struct AmbientPlaybackContext: View {
+    let currentTime: TimeInterval
+    let duration: TimeInterval
+    let setlist: AmbientSetlistContext?
+    let width: CGFloat
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.base) {
+            if let setlist {
+                Image(systemName: "music.note.list")
+                    .foregroundStyle(.whiteInk(0.50))
+                Text("Set \(setlist.itemNumber) of \(setlist.itemCount) · \(setlist.label)")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(.whiteInk(0.62))
+            } else {
+                Text("Set progress")
+                    .foregroundStyle(.whiteInk(0.50))
+            }
+
+            Spacer(minLength: Space.snug)
+
+            Text("\(AmbientClock.string(currentTime)) / \(AmbientClock.string(duration))")
+                .monospacedDigit()
+                .foregroundStyle(.whiteInk(0.62))
+        }
+        .font(.tvCaptionEmph)
+        .frame(width: width, alignment: .leading)
+        .transaction { $0.animation = nil }
     }
 }
 
 private struct AmbientArtwork: View {
     let url: URL?
+    let identity: String
     let size: CGFloat
     let palette: ArtworkColors.Palette
     let kenBurns: CGFloat
 
     var body: some View {
         ArtworkImage(url: url, variant: .hero) {
-            RoundedRectangle(cornerRadius: Corner.hero, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-                .overlay(
-                    Image(systemName: "music.note")
-                        .font(.system(size: 140, weight: .heavy))
-                        .foregroundStyle(.white.opacity(0.22))
-                )
+            SoundingArtworkView(identity: identity, colorScheme: .dark)
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: Corner.hero, style: .continuous))
         .shadow(color: palette.primary.opacity(0.45), radius: 130, y: 70)
         .shadow(color: .black.opacity(0.50), radius: 70, y: 40)
         .scaleEffect(kenBurns)
+        .accessibilityHidden(true)
     }
 }
 
@@ -457,7 +537,9 @@ struct AmbientWaveLane: View {
             .frame(width: width, height: height)
         }
         .frame(width: width, height: height, alignment: .topLeading)
+        .clipped()
         .opacity(fade)
+        .accessibilityHidden(true)
     }
 
     private func draw(lane: Lane, in context: GraphicsContext, size: CGSize) {
@@ -585,17 +667,15 @@ struct AmbientMixSnapshot: Equatable {
     var cuedIsReady: Bool
 
     var eyebrowText: String {
-        guard isActive else { return "DJ is detoxing" }
-        let deck = "Deck \(liveDeckLabel) on air"
-        guard let profileName else { return deck }
-        return "\(profileName) · \(deck)"
+        guard isActive else { return "Now Playing" }
+        guard let profileName, profileName != "Auto Mix" else { return "Auto Mix" }
+        return "\(profileName) · Auto Mix"
     }
 
     var nextText: String? {
         guard isActive else { return nil }
-        guard let incoming else { return "Deck \(cuedDeckLabel) · nothing cued" }
-        guard cuedIsReady else { return "Deck \(cuedDeckLabel) · \(cuedStatus.lowercased())" }
-        return "Deck \(cuedDeckLabel) · \(incoming.title)"
+        guard let incoming else { return nil }
+        return "Up next · \(incoming.title)"
     }
 
     func countdownText(at currentTime: TimeInterval) -> String {
@@ -627,28 +707,21 @@ struct AmbientMixSnapshot: Equatable {
         let window = player.mixWindow
         let profileName = player.djProfile?.displayName
 
-        let sessionIsLive = player.isAutoMixEnabled
+        let sessionIsLive = player.isDJSessionEnabled
             || player.isMixEngineLive
             || window != nil
             || activity != .idle
 
-        if !sessionIsLive {
-            return AmbientMixSnapshot(
-                phase: .waiting,
-                isActive: false,
-                profileName: nil,
-                liveDeckLabel: player.liveDeck.label,
-                cuedDeckLabel: player.liveDeck.other.label,
-                outgoing: outgoing,
-                incoming: nil,
-                mixPointSeconds: nil,
-                transitionSeconds: nil,
-                reasoning: "",
-                mixProgress: nil,
-                cuedStatus: "",
-                cuedIsReady: false
-            )
-        }
+        // Auto DJ is on by default, but it has no useful deck information to
+        // show until there is an incoming track or a transition in progress.
+        // In that common single-track state, use the cleaner Now Playing
+        // composition instead of announcing empty decks.
+        let hasMixContext = player.upcomingTrack != nil
+            || player.isMixEngineLive
+            || window != nil
+            || activity != .idle
+
+        guard sessionIsLive, hasMixContext else { return nil }
 
         var phase: Phase = .waiting
         var reasoning = ""
@@ -720,11 +793,16 @@ struct AmbientMixSnapshot: Equatable {
         case .preparing(let progress):
             return "Getting this track onto a deck, \(Int((progress * 100).rounded()))%."
         case .unavailable(let reason):
-            return reason
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["SOUNDING_TV_LOG_MIX_IMPORT"] == "1" {
+                return reason
+            }
+            #endif
+            return "Auto Mix couldn't prepare a clean transition. Playback will continue normally."
         case .off:
             return hasProfile
-                ? "Waiting for a live mix session before planning a transition."
-                : "Auto mix is on. No transition planned for this track yet."
+                ? "Auto Mix starts with the next track."
+                : "Auto Mix is on. No transition planned for this track yet."
         case .live:
             if player.upcomingTrack == nil {
                 return "Nothing queued after this. It plays out to the end."
@@ -742,7 +820,7 @@ extension AmbientMixSnapshot {
         let point = max(player.currentTime + 84, duration * 0.78)
         return AmbientMixSnapshot(
             phase: .armed,
-            profileName: "Wedding DJ",
+            profileName: "Smooth",
             liveDeckLabel: "A",
             cuedDeckLabel: "B",
             outgoing: player.currentTrack,
@@ -759,6 +837,11 @@ extension AmbientMixSnapshot {
     }
 }
 #endif
+
+@MainActor
+enum NowPlayingIdleHold {
+    static var isActive = false
+}
 
 @MainActor
 final class AmbientIdleMonitor: ObservableObject {
@@ -820,14 +903,19 @@ final class AmbientIdleMonitor: ObservableObject {
 
         let player = PlayerService.shared
 
-        guard player.isPlaying, player.currentTrack != nil else {
-            setIdleTimer(disabled: false)
+        guard player.isPlaying, player.currentTrack != nil, !TVDecksPresence.isOnScreen else {
+            setIdleTimer(disabled: player.isPlaying && TVDecksPresence.isOnScreen)
             if isShowingAmbient { isShowingAmbient = false }
             lastInputAt = .now
             return
         }
 
         setIdleTimer(disabled: true)
+
+        if NowPlayingIdleHold.isActive, !isShowingAmbient {
+            lastInputAt = .now
+            return
+        }
 
         if !isShowingAmbient, Date.now.timeIntervalSince(lastInputAt) >= timeout {
             isShowingAmbient = true
@@ -886,7 +974,7 @@ final class AmbientIdleMonitor: ObservableObject {
     }
 }
 
-private final class InputSpyRecognizer: UIGestureRecognizer {
+final class InputSpyRecognizer: UIGestureRecognizer {
     var onInput: (() -> Void)?
 
     init() {
@@ -985,7 +1073,7 @@ private struct AmbientScreenPresenter: ViewModifier {
     AmbientScreenView(
         mixOverride: AmbientMixSnapshot(
             phase: .armed,
-            profileName: "Wedding DJ",
+            profileName: "Smooth",
             liveDeckLabel: "A",
             cuedDeckLabel: "B",
             outgoing: nil,

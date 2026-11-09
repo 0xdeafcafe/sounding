@@ -31,14 +31,14 @@ struct CueColor: Codable, Hashable, Sendable {
     var blue: UInt8 { UInt8(rgb & 0xFF) }
 
     static let hotCuePalette: [CueColor] = [
-        CueColor(red: 40, green: 226, blue: 20),    // A — rekordbox's default green
-        CueColor(red: 224, green: 100, blue: 27),   // B — orange-red
-        CueColor(red: 195, green: 175, blue: 4),    // C — yellow
-        CueColor(red: 48, green: 90, blue: 255),    // D — rekordbox blue
-        CueColor(red: 0, green: 200, blue: 200),    // E — cyan
-        CueColor(red: 222, green: 68, blue: 207),   // F — pink
-        CueColor(red: 136, green: 0, blue: 204),    // G — purple
-        CueColor(red: 255, green: 255, blue: 255),  // H — white
+        CueColor(red: 40, green: 226, blue: 20),
+        CueColor(red: 224, green: 100, blue: 27),
+        CueColor(red: 195, green: 175, blue: 4),
+        CueColor(red: 48, green: 90, blue: 255),
+        CueColor(red: 0, green: 200, blue: 200),
+        CueColor(red: 222, green: 68, blue: 207),
+        CueColor(red: 136, green: 0, blue: 204),
+        CueColor(red: 255, green: 255, blue: 255),
     ]
 
     static let mixIn = CueColor(rgb: 0x2E_D5_7B)
@@ -97,6 +97,7 @@ enum CueKind: String, Codable, Sendable, CaseIterable {
 enum CueOrigin: String, Codable, Sendable {
     case user
     case suggested
+    case imported
 }
 
 struct CueSuggesterIdentity: Codable, Hashable, Sendable {
@@ -126,21 +127,27 @@ struct CuePoint: Codable, Hashable, Sendable, Identifiable {
     var promotedFrom: CueSuggesterIdentity?
 
     var writerId: String
+    var origin: CueOrigin
 
     var positionSeconds: TimeInterval { CueTime.seconds(fromMillis: positionMillis) }
     var endSeconds: TimeInterval? { endMillis.map(CueTime.seconds(fromMillis:)) }
-    var origin: CueOrigin { .user }
+    var isHotLoop: Bool { kind == .loop && hotCueIndex != nil }
 
     static func slotId(trackId: String, kind: CueKind, hotCueIndex: Int?) -> String? {
         switch kind {
         case .mixIn:  return "\(trackId)#mixin"
         case .mixOut: return "\(trackId)#mixout"
-        case .hotCue:
+        case .hotCue, .loop:
             guard let hotCueIndex else { return nil }
             return "\(trackId)#hot#\(hotCueIndex)"
-        case .memory, .loop:
+        case .memory:
             return nil
         }
+    }
+
+    static func slotLetter(_ index: Int) -> String {
+        guard (0..<hotCueSlotCount).contains(index), let scalar = UnicodeScalar(65 + index) else { return "" }
+        return String(Character(scalar))
     }
 
     static let hotCueSlotCount = 8
@@ -158,11 +165,18 @@ struct CuePoint: Codable, Hashable, Sendable, Identifiable {
         updatedAtMillis: Int64? = nil,
         isDeleted: Bool = false,
         promotedFrom: CueSuggesterIdentity? = nil,
-        writerId: String = ""
+        writerId: String = "",
+        origin: CueOrigin = .user
     ) {
-        let normalisedIndex: Int? = kind == .hotCue
-            ? min(max(0, hotCueIndex ?? 0), CuePoint.hotCueSlotCount - 1)
-            : nil
+        let normalisedIndex: Int?
+        switch kind {
+        case .hotCue:
+            normalisedIndex = min(max(0, hotCueIndex ?? 0), CuePoint.hotCueSlotCount - 1)
+        case .loop:
+            normalisedIndex = hotCueIndex.map { min(max(0, $0), CuePoint.hotCueSlotCount - 1) }
+        case .mixIn, .mixOut, .memory:
+            normalisedIndex = nil
+        }
         let position = max(0, positionMillis)
         let normalisedEnd: Int64? = kind == .loop
             ? max(position + 1, endMillis ?? (position + 1))
@@ -180,6 +194,7 @@ struct CuePoint: Codable, Hashable, Sendable, Identifiable {
         self.isDeleted = isDeleted
         self.promotedFrom = promotedFrom
         self.writerId = writerId
+        self.origin = origin
         self.id = id
             ?? CuePoint.slotId(trackId: trackId, kind: kind, hotCueIndex: normalisedIndex)
             ?? "\(trackId)#\(kind.rawValue)#\(UUID().uuidString)"
@@ -395,7 +410,6 @@ struct CueSheet: Sendable, Equatable {
     var mixIn: ResolvedCue? { entries.first { $0.kind == .mixIn } }
     var mixOut: ResolvedCue? { entries.first { $0.kind == .mixOut } }
     var loops: [ResolvedCue] { entries.filter { $0.kind == .loop } }
-    var memoryCues: [ResolvedCue] { entries.filter { $0.kind == .memory } }
 
     func first(kind: CueKind, origin: CueOrigin) -> ResolvedCue? {
         entries.first { $0.kind == kind && $0.origin == origin }

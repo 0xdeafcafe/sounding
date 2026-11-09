@@ -3,7 +3,10 @@ import SwiftUI
 struct TrackMapSheet: View {
     let trackTitle: String
     let trackId: String
-    let currentPosition: TimeInterval
+    let fallbackPosition: TimeInterval
+    @ObservedObject var playbackClock: PlaybackClock
+    let usesLiveClock: Bool
+    let isPlaying: Bool
     let duration: TimeInterval
     let envelope: [Float]
     @ObservedObject var board: CueBoard
@@ -15,24 +18,56 @@ struct TrackMapSheet: View {
     @State private var renamingCue: CuePoint?
     @State private var renameText = ""
 
-    private static let laneHeight: CGFloat = 72
+    @ScaledMetric(relativeTo: .body) private var laneHeight: CGFloat = 72
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                timeline
-                mapList
-                footer
+            List {
+                Section {
+                    timeline
+                        .listRowInsets(EdgeInsets(top: Space.tight, leading: Space.base, bottom: Space.tight, trailing: Space.base))
+                        .listRowBackground(Color.clear)
+                } header: {
+                    Text(trackTitle)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .textCase(nil)
+                        .lineLimit(2)
+                }
+
+                Section("Mix Points") {
+                    mixPointRow(.inPoint)
+                    mixPointRow(.outPoint)
+                }
+
+                Section("Cue Points") {
+                    if cuePoints.isEmpty {
+                        ContentUnavailableView(
+                            "No Cue Points",
+                            systemImage: "bookmark",
+                            description: Text("Drag the waveform to a moment, then save it.")
+                        )
+                        .listRowBackground(Color.clear)
+                    } else {
+                        ForEach(cuePoints) { entry in
+                            switch entry {
+                            case .cue(let cue):              cueRow(cue)
+                            case .suggestion(let suggestion): suggestionRow(suggestion)
+                            }
+                        }
+                    }
+                }
             }
-            .background(Color.scBgBase.ignoresSafeArea())
+            .listStyle(.insetGrouped)
+            .safeAreaBar(edge: .bottom) { footer }
             .navigationTitle("Cue Points")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button(role: .close) { dismiss() }
                 }
             }
-            .alert("Rename Moment", isPresented: renamingBinding) {
+            .alert("Rename Cue Point", isPresented: renamingBinding) {
                 TextField("Name", text: $renameText)
                 Button("Save") {
                     if let cue = renamingCue {
@@ -49,6 +84,14 @@ struct TrackMapSheet: View {
         Binding(get: { renamingCue != nil }, set: { if !$0 { renamingCue = nil } })
     }
 
+    private var currentPosition: TimeInterval {
+        guard usesLiveClock else { return fallbackPosition }
+        let base = playbackClock.currentTime
+        guard isPlaying else { return base }
+        let ceiling = duration > 0 ? duration : .infinity
+        return min(ceiling, base + max(0, Date().timeIntervalSince(playbackClock.updatedAt)))
+    }
+
     private var markTime: TimeInterval { scrubPreview ?? currentPosition }
 
     private var progress: Double {
@@ -58,11 +101,6 @@ struct TrackMapSheet: View {
 
     private var timeline: some View {
         VStack(alignment: .leading, spacing: Space.tight) {
-            Text(trackTitle)
-                .font(.scHeadline)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-
             GeometryReader { geo in
                 let width = geo.size.width
                 ZStack(alignment: .topLeading) {
@@ -74,11 +112,11 @@ struct TrackMapSheet: View {
                         identity: trackId,
                         style: laneStyle
                     )
-                    .frame(width: width, height: Self.laneHeight)
+                    .frame(width: width, height: laneHeight)
 
                     markerOverlay(width: width)
                 }
-                .frame(width: width, height: Self.laneHeight)
+                .frame(width: width, height: laneHeight)
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 0)
@@ -89,36 +127,41 @@ struct TrackMapSheet: View {
                         }
                 )
             }
-            .frame(height: Self.laneHeight)
+            .frame(height: laneHeight)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Timeline")
+            .accessibilityValue("\(DJFormat.time(markTime)) of \(DJFormat.time(duration))")
+            .accessibilityHint("Adjust to pick a moment")
+            .accessibilityAdjustableAction { direction in
+                let delta: TimeInterval = direction == .increment ? 10 : -10
+                scrubPreview = min(duration, max(0, markTime + delta))
+            }
 
             readout
         }
-        .padding(.horizontal, Space.page)
-        .padding(.bottom, Space.base)
     }
 
     private var readout: some View {
-        HStack(spacing: Space.tight) {
+        HStack(spacing: Space.snug) {
             Text(DJFormat.time(markTime))
-                .foregroundStyle(scrubPreview == nil ? Color.scTextSecondary : accent)
+                .foregroundStyle(scrubPreview == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
 
             if scrubPreview != nil {
                 Button("Seek Here") {
                     onSeek(markTime)
                     scrubPreview = nil
                 }
-                .font(.scCaption)
-                .buttonStyle(.borderless)
-                .tint(accent)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
             }
 
             Spacer(minLength: 0)
 
             Text(DJFormat.time(duration))
-                .foregroundStyle(Color.scTextTertiary)
+                .foregroundStyle(.secondary)
         }
-        .font(.scNumeric)
-        .monospacedDigit()
+        .font(.subheadline.monospacedDigit())
     }
 
     @ViewBuilder
@@ -140,108 +183,76 @@ struct TrackMapSheet: View {
         return style
     }
 
-    private var mapList: some View {
-        List {
-            mixPointRow(.inPoint)
-
-            if moments.isEmpty {
-                emptyMoments
-            } else {
-                ForEach(moments) { entry in
-                    switch entry {
-                    case .moment(let cue):       momentRow(cue)
-                    case .suggestion(let s):     suggestionRow(s)
-                    }
-                }
-            }
-
-            mixPointRow(.outPoint)
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .environment(\.defaultMinListRowHeight, 0)
-    }
-
-    private var moments: [MapEntry] {
+    private var cuePoints: [MapEntry] {
         board.sheet.entries.compactMap { entry in
             guard entry.kind != .mixIn, entry.kind != .mixOut else { return nil }
-            if let cue = entry.userCue { return .moment(cue) }
+            if let cue = entry.userCue { return .cue(cue) }
             if let suggestion = entry.suggestion { return .suggestion(suggestion) }
             return nil
         }
-    }
-
-    private var emptyMoments: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Nothing marked in this track yet")
-                .font(.scSubhead)
-                .foregroundStyle(Color.scTextSecondary)
-            Text("Drag the timeline above, then save the moment below.")
-                .font(.scCaption)
-                .foregroundStyle(Color.scTextTertiary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .rowChrome()
     }
 
     @ViewBuilder
     private func mixPointRow(_ role: MixRole) -> some View {
         let state = mixState(role)
 
-        TrackMapRow(
-            glyph: TrackMapGlyph(shape: .diamond, style: state.glyphStyle, color: role.color),
-            title: role.title,
-            isTitleUppercased: true,
-            caption: caption(for: state, role: role),
-            time: state.positionSeconds.map(DJFormat.time),
-            isMuted: state.isMuted
-        ) {
+        HStack(spacing: Space.snug) {
+            seekButton(
+                time: state.positionSeconds,
+                label: {
+                    TrackMapRowLabel(
+                        glyph: TrackMapGlyph(shape: .diamond, style: state.glyphStyle, color: role.color),
+                        title: role.title,
+                        caption: caption(for: state, role: role),
+                        time: state.positionSeconds.map(DJFormat.time),
+                        isMuted: state.isMuted
+                    )
+                }
+            )
+
             switch state {
             case .set(let cue):
                 Menu {
-                    Button("Move to \(DJFormat.time(markTime))") { setMixPoint(role) }
-                    Button("Clear", role: .destructive) { Task { await board.delete(cue) } }
+                    Button("Move to \(DJFormat.time(markTime))", systemImage: "arrow.right.to.line") { setMixPoint(role) }
+                    Button("Clear", systemImage: "xmark", role: .destructive) { Task { await board.delete(cue) } }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Label("Options", systemImage: "ellipsis.circle")
+                        .labelStyle(.iconOnly)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
-                .tint(accent)
+                .buttonStyle(.borderless)
+                .accessibilityLabel("\(role.title) options")
             case .suggested(let suggestion):
                 Menu {
-                    Button("Keep Suggestion") { Task { await board.promote(suggestion) } }
-                    Button("Set to \(DJFormat.time(markTime))") { setMixPoint(role) }
+                    Button("Keep Suggestion", systemImage: "checkmark") { Task { await board.promote(suggestion) } }
+                    Button("Set to \(DJFormat.time(markTime))", systemImage: "arrow.right.to.line") { setMixPoint(role) }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Label("Options", systemImage: "ellipsis.circle")
+                        .labelStyle(.iconOnly)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
-                .tint(accent)
+                .buttonStyle(.borderless)
+                .accessibilityLabel("\(role.title) options")
             case .unset:
-                Button("Set \(DJFormat.time(markTime))") { setMixPoint(role) }
-                    .font(.scCaption)
+                Button("Set") { setMixPoint(role) }
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
-                    .tint(accent)
+                    .controlSize(.small)
+                    .accessibilityLabel("Set \(role.title) to \(DJFormat.time(markTime))")
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if let seconds = state.positionSeconds { jump(to: seconds) }
-        }
-        .rowChrome()
     }
 
-    private func momentRow(_ cue: CuePoint) -> some View {
-        TrackMapRow(
-            glyph: TrackMapGlyph(shape: .circle, style: .solid, color: cue.color.color),
-            title: cue.label.isEmpty ? "Moment" : cue.label,
-            isTitleUppercased: false,
-            caption: momentCaption(cue),
-            time: DJFormat.time(cue.positionSeconds),
-            isMuted: false
-        ) {
-            EmptyView()
+    private func cueRow(_ cue: CuePoint) -> some View {
+        seekButton(time: cue.positionSeconds) {
+            TrackMapRowLabel(
+                glyph: TrackMapGlyph(shape: .circle, style: .solid, color: cue.color.color),
+                title: cue.label.isEmpty ? "Cue Point" : cue.label,
+                caption: cueCaption(cue),
+                time: DJFormat.time(cue.positionSeconds),
+                isMuted: false
+            )
         }
-        .contentShape(Rectangle())
-        .onTapGesture { jump(to: cue.positionSeconds) }
-        .rowChrome()
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
                 Task { await board.delete(cue) }
@@ -257,35 +268,102 @@ struct TrackMapSheet: View {
                 Label("Rename", systemImage: "pencil")
             }
         }
+        .contextMenu {
+            Button("Rename", systemImage: "pencil") {
+                renameText = cue.label
+                renamingCue = cue
+            }
+            Button("Move to \(DJFormat.time(markTime))", systemImage: "arrow.right.to.line") {
+                Task { await board.reposition(cue, toMillis: CueTime.millis(fromSeconds: markTime)) }
+            }
+            slotMenu(for: cue)
+            Button("Delete", systemImage: "trash", role: .destructive) {
+                Task { await board.delete(cue) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func slotMenu(for cue: CuePoint) -> some View {
+        if cue.kind == .hotCue || cue.kind == .memory || cue.kind == .loop {
+            let taken = Set(board.sheet.userCues.compactMap(\.hotCueIndex))
+            Menu("Hot Cue", systemImage: "square.grid.2x2") {
+                ForEach(0..<CuePoint.hotCueSlotCount, id: \.self) { slot in
+                    Button {
+                        Task { await board.assignHotSlot(cue, slot: slot) }
+                    } label: {
+                        if cue.hotCueIndex == slot {
+                            Label(CuePoint.slotLetter(slot), systemImage: "checkmark")
+                        } else {
+                            Text(CuePoint.slotLetter(slot))
+                        }
+                    }
+                    .disabled(taken.contains(slot) && cue.hotCueIndex != slot)
+                }
+            }
+        }
     }
 
     private func suggestionRow(_ suggestion: CueSuggestion) -> some View {
-        TrackMapRow(
-            glyph: TrackMapGlyph(shape: .circle, style: .hollow, color: suggestion.color.color),
-            title: suggestion.label.isEmpty ? suggestion.kind.displayName.capitalized : suggestion.label,
-            isTitleUppercased: false,
-            caption: suggestion.reasoning.isEmpty ? "Found automatically" : suggestion.reasoning,
-            time: DJFormat.time(suggestion.positionSeconds),
-            isMuted: true
-        ) {
-            Button {
+        HStack(spacing: Space.snug) {
+            seekButton(time: suggestion.positionSeconds) {
+                TrackMapRowLabel(
+                    glyph: TrackMapGlyph(shape: .circle, style: .hollow, color: suggestion.color.color),
+                    title: suggestion.label.isEmpty ? suggestion.kind.displayName.capitalized : suggestion.label,
+                    caption: suggestion.reasoning.isEmpty ? "Suggested" : "Suggested · \(suggestion.reasoning)",
+                    time: DJFormat.time(suggestion.positionSeconds),
+                    isMuted: true
+                )
+            }
+
+            Button("Accept") {
                 Task { await board.promote(suggestion) }
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .controlSize(.small)
+            .accessibilityLabel("Accept suggested cue point")
+
+            Button {
+                Task { await board.dismiss(suggestion) }
             } label: {
-                Image(systemName: "plus")
+                Label("Dismiss", systemImage: "xmark")
+                    .labelStyle(.iconOnly)
+                    .frame(minWidth: 44, minHeight: 44)
             }
             .buttonStyle(.borderless)
-            .tint(accent)
+            .accessibilityLabel("Dismiss suggested cue point")
         }
-        .contentShape(Rectangle())
-        .onTapGesture { jump(to: suggestion.positionSeconds) }
-        .rowChrome()
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
                 Task { await board.dismiss(suggestion) }
             } label: {
-                Label("Hide", systemImage: "xmark")
+                Label("Dismiss", systemImage: "xmark")
             }
         }
+        .contextMenu {
+            Button("Accept", systemImage: "checkmark") { Task { await board.promote(suggestion) } }
+            if board.freeHotSlot() != nil {
+                Button("Accept as Hot Cue \(CuePoint.slotLetter(board.freeHotSlot() ?? 0))", systemImage: "square.grid.2x2") {
+                    Task { await board.acceptAsHotCue(suggestion) }
+                }
+            }
+            Button("Dismiss", systemImage: "xmark", role: .destructive) { Task { await board.dismiss(suggestion) } }
+        }
+    }
+
+    private func seekButton<Label: View>(time: TimeInterval?, @ViewBuilder label: () -> Label) -> some View {
+        Button {
+            if let time { jump(to: time) }
+        } label: {
+            label()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(time == nil)
+        .accessibilityHint(time == nil ? "" : "Plays from here")
     }
 
     private var footer: some View {
@@ -297,26 +375,17 @@ struct TrackMapSheet: View {
                 )
             }
         } label: {
-            HStack(spacing: Space.tight) {
-                Image(systemName: "plus.circle.fill")
-                Text("Save This Moment")
-                Spacer(minLength: Space.tight)
-                Text(DJFormat.time(markTime))
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-            .font(.scHeadline)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, Space.snug)
-            .padding(.horizontal, Space.base)
+            Label("Save Cue Point at \(DJFormat.time(markTime))", systemImage: "plus")
+                .font(.headline)
+                .monospacedDigit()
+                .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.glassProminent)
         .buttonBorderShape(.capsule)
-        .tint(accent)
-        .padding(.horizontal, Space.page)
-        .padding(.top, Space.snug)
-        .padding(.bottom, Space.base)
-        .background(Color.scBgBase)
+        .controlSize(.large)
+        .padding(.horizontal, Space.base)
+        .padding(.vertical, Space.tight)
+        .sensoryFeedback(.selection, trigger: board.sheet.entries.count)
     }
 
     private func jump(to seconds: TimeInterval) {
@@ -342,24 +411,25 @@ struct TrackMapSheet: View {
         return .unset
     }
 
-    private func caption(for state: MixState, role: MixRole) -> String {
+    private func caption(for state: MixState, role: MixRole) -> String? {
         switch state {
         case .set:
             return role.setCaption
         case .suggested(let suggestion):
-            return suggestion.reasoning.isEmpty ? "Suggested. Keep it to lock it in" : "Suggested · \(suggestion.reasoning)"
+            return suggestion.reasoning.isEmpty ? "Suggested" : "Suggested · \(suggestion.reasoning)"
         case .unset:
-            return role.unsetCaption
+            return "Not set"
         }
     }
 
-    private func momentCaption(_ cue: CuePoint) -> String {
-        if let from = cue.promotedFrom { return "Kept from a \(from.name) suggestion" }
-        if let index = cue.hotCueIndex, let scalar = UnicodeScalar(65 + index) {
-            return "Saved by you · Pad \(Character(scalar))"
+    private func cueCaption(_ cue: CuePoint) -> String? {
+        var parts: [String] = []
+        if let index = cue.hotCueIndex {
+            parts.append(cue.kind == .loop ? "Hot Loop \(CuePoint.slotLetter(index))" : "Hot Cue \(CuePoint.slotLetter(index))")
         }
-        if let end = cue.endSeconds { return "Saved by you · runs to \(DJFormat.time(end))" }
-        return "Saved by you"
+        if let end = cue.endSeconds { parts.append("to \(DJFormat.time(end))") }
+        if cue.origin == .imported { parts.append("From rekordbox") } else if cue.promotedFrom != nil { parts.append("From a suggestion") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 
@@ -371,13 +441,7 @@ private enum MixRole: Equatable {
     var color: Color { (self == .inPoint ? CueColor.mixIn : CueColor.mixOut).color }
 
     var setCaption: String {
-        self == .inPoint ? "The DJ starts this track here" : "The DJ leaves this track here"
-    }
-
-    var unsetCaption: String {
-        self == .inPoint
-            ? "Not set. The DJ picks where to come in"
-            : "Not set. The DJ picks where to leave"
+        self == .inPoint ? "The mix starts this track here" : "The mix leaves this track here"
     }
 }
 
@@ -409,27 +473,18 @@ private enum MixState {
 }
 
 private enum MapEntry: Identifiable {
-    case moment(CuePoint)
+    case cue(CuePoint)
     case suggestion(CueSuggestion)
 
     var id: String {
         switch self {
-        case .moment(let cue):            return cue.id
+        case .cue(let cue):               return cue.id
         case .suggestion(let suggestion): return suggestion.id
         }
     }
 }
 
 // MARK: - Components
-
-private extension View {
-    func rowChrome() -> some View {
-        self
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 4, leading: Space.page, bottom: 4, trailing: Space.page))
-    }
-}
 
 private struct TrackMapGlyph: View {
     enum Shape { case diamond, circle }
@@ -439,7 +494,10 @@ private struct TrackMapGlyph: View {
     let style: Style
     let color: Color
 
-    private var side: CGFloat { shape == .diamond ? 13 : 11 }
+    @ScaledMetric(relativeTo: .body) private var diamondSide: CGFloat = 13
+    @ScaledMetric(relativeTo: .body) private var circleSide: CGFloat = 11
+
+    private var side: CGFloat { shape == .diamond ? diamondSide : circleSide }
 
     var body: some View {
         Group {
@@ -455,6 +513,7 @@ private struct TrackMapGlyph: View {
         .frame(width: side, height: side)
         .rotationEffect(.degrees(shape == .diamond ? 45 : 0))
         .frame(width: 22)
+        .accessibilityHidden(true)
     }
 
     private var base: some InsettableShape {
@@ -462,50 +521,34 @@ private struct TrackMapGlyph: View {
     }
 }
 
-private struct TrackMapRow<Accessory: View>: View {
+private struct TrackMapRowLabel: View {
     let glyph: TrackMapGlyph
     let title: String
-    let isTitleUppercased: Bool
-    let caption: String
+    let caption: String?
     let time: String?
     let isMuted: Bool
-    @ViewBuilder let accessory: () -> Accessory
 
     var body: some View {
-        HStack(spacing: Space.snug) {
-            glyph
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.scSubhead)
-                    .kerning(isTitleUppercased ? 0.8 : 0)
-                    .textCase(isTitleUppercased ? .uppercase : nil)
-                    .foregroundStyle(isMuted ? Color.scTextSecondary : .white)
-                    .lineLimit(1)
-
-                Text(caption)
-                    .font(.scCaption)
-                    .foregroundStyle(Color.scTextTertiary)
-                    .lineLimit(2)
-            }
-
-            Spacer(minLength: Space.tight)
-
+        LabeledContent {
             if let time {
                 Text(time)
-                    .font(.scSubhead)
                     .monospacedDigit()
-                    .foregroundStyle(isMuted ? Color.scTextSecondary : .white)
             }
-
-            accessory()
+        } label: {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .foregroundStyle(isMuted ? .secondary : .primary)
+                    if let caption, !caption.isEmpty {
+                        Text(caption)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } icon: {
+                glyph
+            }
         }
-        .padding(.vertical, Space.snug)
-        .padding(.horizontal, Space.base)
-        .background(
-            RoundedRectangle(cornerRadius: Corner.card, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-        )
         .accessibilityElement(children: .combine)
     }
 }
@@ -514,6 +557,7 @@ private struct TrackMapRow<Accessory: View>: View {
 
 enum TrackMapSheetDemo {
     static let duration: TimeInterval = 214
+    static let store = makeStore()
 
     static func makeStore() -> CueStore {
         let directory = FileManager.default.temporaryDirectory
@@ -540,7 +584,7 @@ enum TrackMapSheetDemo {
 }
 
 struct TrackMapSheetDemoView: View {
-    @StateObject private var board = CueBoard(store: TrackMapSheetDemo.makeStore())
+    @StateObject private var board = CueBoard(store: TrackMapSheetDemo.store)
     @State private var seeded = false
 
     private let envelope = TrackMapSheetDemo.envelope()
@@ -549,7 +593,10 @@ struct TrackMapSheetDemoView: View {
         TrackMapSheet(
             trackTitle: "Sunset Drive (Extended Mix)",
             trackId: "demo-track",
-            currentPosition: 164,
+            fallbackPosition: 164,
+            playbackClock: PlaybackClock(),
+            usesLiveClock: false,
+            isPlaying: false,
             duration: TrackMapSheetDemo.duration,
             envelope: envelope,
             board: board,
@@ -567,6 +614,15 @@ struct TrackMapSheetDemoView: View {
             try? await Task.sleep(for: .milliseconds(500))
             await board.setMixIn(trackId: "demo-track", positionMillis: 18_000)
             await board.addMemoryCue(trackId: "demo-track", positionMillis: 108_000, label: "Vocal comes back")
+            await board.setHotCue(trackId: "demo-track", index: 0, positionMillis: 96_000, label: "Drop")
+            for suggestion in board.sheet.suggestions where suggestion.kind == .memory {
+                await board.dismiss(suggestion)
+            }
+            await TrackMapSheetDemo.store.setHotLoop(trackId: "demo-track", index: 2, startMillis: 132_000, endMillis: 139_500, label: "Roll")
+            for session in ["s1", "s1", "s2"] {
+                await TrackMapSheetDemo.store.recordListening(trackId: "demo-track", positionMillis: 162_000, sessionId: session)
+            }
+            await board.refresh()
         }
     }
 }

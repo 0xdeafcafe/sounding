@@ -5,99 +5,32 @@ import CoreImage
 import CoreGraphics
 
 @MainActor
-final class ArtworkCache {
-    static let shared = ArtworkCache()
+private final class MacArtworkPalettes {
+    static let shared = MacArtworkPalettes()
 
-    private let cache = NSCache<NSString, NSImage>()
-    private var prefetchTasks: [String: Task<Void, Never>] = [:]
+    var resolved: [URL: ArtworkPalette] = [:]
+    var inFlight: [URL: Task<ArtworkPalette, Never>] = [:]
+}
 
-    private init() {
-        cache.countLimit = 160
-        cache.totalCostLimit = 128 * 1024 * 1024
-    }
-
-    func image(for url: URL, variant: ArtworkVariant) async -> NSImage? {
-        let key = SCArtworkStore.key(for: url, variant: variant)
-        if let cached = cache.object(forKey: key as NSString) {
-            return cached
-        }
-        guard let cg = await SCArtworkStore.shared.cgImage(for: url, variant: variant) else {
-            return nil
-        }
-        let image = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
-        cache.setObject(image, forKey: key as NSString, cost: cg.bytesPerRow * cg.height)
-        #if DEBUG
-        SCArtworkMetrics.event("SHOW", key)
-        #endif
-        return image
-    }
-
-    func cachedImage(for url: URL, variant: ArtworkVariant) -> NSImage? {
-        cache.object(forKey: SCArtworkStore.key(for: url, variant: variant) as NSString)
-    }
-
-    func heroImage(for url: URL) async -> Image? {
-        guard let nsImage = await image(for: url, variant: .hero) else { return nil }
-        return Image(nsImage: nsImage)
-    }
-
-    func prefetch(_ urls: [URL], variant: ArtworkVariant = .standard) {
-        for url in urls {
-            let key = SCArtworkStore.key(for: url, variant: variant)
-            guard prefetchTasks[key] == nil,
-                  cache.object(forKey: key as NSString) == nil else { continue }
-            prefetchTasks[key] = Task(priority: .utility) { [weak self] in
-                if let cg = await SCArtworkStore.shared.prefetchImage(for: url, variant: variant),
-                   !Task.isCancelled, let self {
-                    self.cache.setObject(
-                        NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)),
-                        forKey: key as NSString,
-                        cost: cg.bytesPerRow * cg.height
-                    )
-                }
-                self?.prefetchTasks[key] = nil
-            }
-        }
-    }
-
-    func cancelPrefetch(_ urls: [URL], variant: ArtworkVariant = .standard) {
-        for url in urls {
-            let key = SCArtworkStore.key(for: url, variant: variant)
-            prefetchTasks[key]?.cancel()
-            prefetchTasks[key] = nil
-        }
-    }
-
-    private var paletteCache: [URL: ArtworkPalette] = [:]
-    private var paletteInFlight: [URL: Task<ArtworkPalette, Never>] = [:]
-
+extension ArtworkCache {
     func palette(for url: URL) async -> ArtworkPalette {
-        if let cached = paletteCache[url] { return cached }
-        if let running = paletteInFlight[url] { return await running.value }
+        let palettes = MacArtworkPalettes.shared
+        if let cached = palettes.resolved[url] { return cached }
+        if let running = palettes.inFlight[url] { return await running.value }
 
         let task = Task<ArtworkPalette, Never> {
             guard let cgImage = await SCArtworkStore.shared.cgImage(for: url, variant: .hero) else {
                 return .fallback
             }
-            cacheHeroImage(cgImage, for: url)
-            return extractArtworkPalette(from: cgImage)
+            ArtworkCache.shared.store(cgImage, for: url, variant: .hero)
+            return await Task.detached(priority: .userInitiated) { extractArtworkPalette(from: cgImage) }.value
         }
-        paletteInFlight[url] = task
+        palettes.inFlight[url] = task
         let palette = await task.value
-        paletteInFlight[url] = nil
+        palettes.inFlight[url] = nil
 
-        paletteCache[url] = palette
+        palettes.resolved[url] = palette
         return palette
-    }
-
-    private func cacheHeroImage(_ cgImage: CGImage, for url: URL) {
-        let key = SCArtworkStore.key(for: url, variant: .hero) as NSString
-        guard cache.object(forKey: key) == nil else { return }
-        cache.setObject(
-            NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)),
-            forKey: key,
-            cost: cgImage.bytesPerRow * cgImage.height
-        )
     }
 }
 
@@ -247,7 +180,7 @@ func extractArtworkPalette(from image: CGImage) -> ArtworkPalette {
     let vivid = [topLeading, bottomTrailing, whole].max(by: { $0.hsb.s < $1.hsb.s }) ?? whole
     let clampedAccent = clampForAccent(vivid, against: washBottom)
     let accentMeetsContrast = clampedAccent.contrastRatio(against: washBottom) >= ArtworkPalette.accentContrastFloor
-    let accent = accentMeetsContrast ? clampedAccent.color : Color.accentColor
+    let accent = accentMeetsContrast ? clampedAccent.color : Color.scAccent
 
     let localScrim = min(0.62, max(0.22, titleRegion.relativeLuminance * 1.8))
 

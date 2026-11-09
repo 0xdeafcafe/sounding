@@ -1,4 +1,4 @@
-# SoundingCloud for iPhone — Design Spec
+# Sounding for iPhone — Design Spec
 
 *Raising the phone to the TV's bar, using Apple Music's craft as the yardstick — and making the things Apple Music can't do the reason to open our app instead.*
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 extension Color {
 
@@ -8,8 +9,20 @@ extension Color {
     static let scSeparator = Color.white.opacity(0.14)
 
     static let scTextPrimary = Color.white
-    static let scTextSecondary = Color.white.opacity(0.68)
-    static let scTextTertiary = Color.white.opacity(0.46)
+    static let scTextSecondary = contrastAware(standard: 0.68, increased: 0.82)
+    static let scTextTertiary = contrastAware(standard: 0.46, increased: 0.66)
+
+    static let scGlassFill = Color(white: 0.16)
+
+    static func contrastAware(standard: CGFloat, increased: CGFloat) -> Color {
+        Color(uiColor: UIColor { traits in
+            UIColor(white: 1, alpha: traits.accessibilityContrast == .high ? increased : standard)
+        })
+    }
+
+    static func whiteInk(_ opacity: CGFloat, increased: CGFloat? = nil) -> Color {
+        contrastAware(standard: opacity, increased: increased ?? min(1, opacity + 0.2))
+    }
 
 
     static let scDestructive = Color(red: 1.00, green: 0.31, blue: 0.27)
@@ -26,21 +39,18 @@ extension Color {
     static let scChromeFocus = Color(white: 0.94)
     static let scChromeFocusOn = Color(white: 0.05)
 
-    static func scCardTitle(_ isFocused: Bool) -> Color {
-        isFocused ? scTextPrimary : scTextSecondary
-    }
-
-    static func scCardSubtitle(_ isFocused: Bool) -> Color {
-        isFocused ? scTextSecondary : scTextTertiary
-    }
-
     static let scBackground = scBgBase
     static let scError = scDestructive
 
 }
 
+extension ShapeStyle where Self == Color {
+    static func whiteInk(_ opacity: CGFloat, increased: CGFloat? = nil) -> Color {
+        Color.whiteInk(opacity, increased: increased)
+    }
+}
+
 extension Font {
-    static let tvHero        = Font.system(size: 96, weight: .black,    design: .default)
     static let tvDisplay     = Font.system(size: 76, weight: .black,    design: .default)
     static let tvLargeTitle  = Font.system(size: 58, weight: .heavy,    design: .default)
     static let tvTitle       = Font.system(size: 48, weight: .heavy,    design: .default)
@@ -103,10 +113,8 @@ enum Motion {
 }
 
 extension Animation {
-    static let tvFocusSpring = Motion.focus
     static let quickSpring = Motion.press
     static let glassMorph = Motion.settle
-    static let slowFade = Motion.ambient
     static let smoothEase = Animation.easeInOut(duration: 0.30)
 }
 
@@ -142,7 +150,6 @@ enum Focus {
 
     static let shadowRadius: CGFloat = 24
     static let shadowY: CGFloat = 12
-    static let selectionRingWidth: CGFloat = 2
 }
 
 private struct SCFocusEffect<S: InsettableShape>: ViewModifier {
@@ -183,22 +190,6 @@ private struct SCFocusEffect<S: InsettableShape>: ViewModifier {
     }
 }
 
-private struct SCSelection<S: InsettableShape>: ViewModifier {
-    let isSelected: Bool
-    let shape: S
-
-    func body(content: Content) -> some View {
-        content
-            .background { shape.fill(isSelected ? Color.scAccentMuted : .clear) }
-            .overlay {
-                shape.strokeBorder(
-                    isSelected ? Color.scAccent.opacity(0.5) : .clear,
-                    lineWidth: Focus.selectionRingWidth
-                )
-            }
-    }
-}
-
 extension View {
     func scFocus<S: InsettableShape>(
         _ isFocused: Bool,
@@ -232,10 +223,6 @@ extension View {
     func focusSection(when condition: Bool) -> some View {
         if condition { self.focusSection() } else { self }
     }
-
-    func scSelected<S: InsettableShape>(_ isSelected: Bool, in shape: S) -> some View {
-        modifier(SCSelection(isSelected: isSelected, shape: shape))
-    }
 }
 
 struct SCCardButtonStyle: ButtonStyle {
@@ -265,6 +252,29 @@ struct SCCardButtonStyle: ButtonStyle {
                     reduceMotion: reduceMotion,
                     sizeClass: sizeClass
                 )
+                .opacity(configuration.isPressed ? 0.85 : 1)
+        }
+    }
+}
+
+struct SCShapeButtonStyle<S: InsettableShape>: ButtonStyle {
+    let shape: S
+    var sizeClass: Focus.SizeClass?
+
+    func makeBody(configuration: Configuration) -> some View {
+        FocusedLabel(configuration: configuration, shape: shape, sizeClass: sizeClass)
+    }
+
+    private struct FocusedLabel: View {
+        let configuration: Configuration
+        let shape: S
+        let sizeClass: Focus.SizeClass?
+        @Environment(\.isFocused) private var isFocused
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+        var body: some View {
+            configuration.label
+                .scFocus(isFocused, in: shape, reduceMotion: reduceMotion, sizeClass: sizeClass)
                 .opacity(configuration.isPressed ? 0.85 : 1)
         }
     }

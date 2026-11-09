@@ -2,13 +2,15 @@ import SwiftUI
 
 struct WatchDJView: View {
     @EnvironmentObject private var link: WatchLinkClient
+    @ObservedObject private var workout = WatchWorkoutEnergy.shared
+    @State private var showsHealthAlert = false
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { context in
+        TimelineView(.animation(minimumInterval: 0.5, paused: link.djState.mixInSeconds == nil && link.djState.live == nil)) { context in
             content(at: context.date)
         }
-        .navigationTitle("Auto DJ")
-        .containerBackground(WatchStyle.style.accent.gradient.opacity(0.22), for: .navigation)
+        .navigationTitle("Auto Mix")
+        .task { workout.attach(link) }
     }
 
     @ViewBuilder
@@ -16,99 +18,106 @@ struct WatchDJView: View {
         let dj = link.djState
         let mixIn = dj.projectedMixIn(at: date, since: link.djStateReceivedAt)
 
-        ScrollView {
-            VStack(spacing: WatchStyle.style.spaceSnug) {
-                engineStatusPanel(dj)
-                nextTrackPanel(dj, mixIn: mixIn)
-                controlsPanel(dj)
+        ScrollViewReader { proxy in
+            List {
+                Section {
+                    Toggle("Auto Mix", isOn: Binding(
+                        get: { dj.isAutoEnabled },
+                        set: { link.dj($0 ? .autoEnable : .autoDisable) }
+                    ))
+                    LabeledContent("Status", value: dj.isEngineLive ? "Mixing" : "Idle")
+                        .accessibilityElement(children: .combine)
+                } footer: {
+                    if !link.isReachable {
+                        Text("iPhone not reachable.")
+                    }
+                }
+
+                Section("Next") {
+                    if let nextTitle = dj.nextTitle {
+                        WatchTrackRow(
+                            title: nextTitle,
+                            subtitle: dj.nextArtist ?? "",
+                            artworkURL: dj.nextArtworkURL
+                        )
+                        if let live = AutoMixLiveState.decode(dj.live) {
+                            WatchAutoMixLine(state: live, date: date)
+                        }
+                        if let mixIn {
+                            LabeledContent("Mixing In", value: mixIn.watchClockString)
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel("Mixing in")
+                                .accessibilityValue(mixIn.watchSpokenDuration)
+                        }
+                        if let reasoning = dj.reasoning, !reasoning.isEmpty {
+                            Text(reasoning)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button {
+                            link.dj(.mixNow)
+                        } label: {
+                            Label("Mix Now", systemImage: "bolt.fill")
+                        }
+                        .accessibilityHint("Mixes into the next track immediately")
+                        Button {
+                            link.dj(.extend)
+                        } label: {
+                            Label("Extend", systemImage: "arrow.right.to.line")
+                        }
+                        .accessibilityHint("Plays eight more bars before the mix")
+                        .id("extend")
+                    } else {
+                        Text("Nothing queued")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if workout.isAvailable {
+                    Section {
+                        Toggle("Match My Workout", isOn: Binding(
+                            get: { workout.isRunning },
+                            set: { enabled in
+                                Task {
+                                    if enabled {
+                                        await workout.start()
+                                        showsHealthAlert = workout.failure == .denied
+                                    } else {
+                                        await workout.stop()
+                                    }
+                                }
+                            }
+                        ))
+                        .id("workout")
+                        if let bpm = workout.heartRate {
+                            LabeledContent("Heart Rate", value: "\(Int(bpm.rounded())) BPM")
+                        }
+                    } header: {
+                        Text("Energy")
+                    } footer: {
+                        switch workout.failure {
+                        case .denied:
+                            Text("Allow Health access in the Health app on iPhone.")
+                        case .couldNotStart:
+                            Text("Couldn’t start a workout. Try again.")
+                        case nil:
+                            Text("Starts a workout. Your heart rate sets the energy.")
+                        }
+                    }
+                }
             }
-            .padding(.horizontal, WatchStyle.style.spaceSnug)
-            .padding(.vertical, WatchStyle.style.spaceTight)
-        }
-    }
-
-    private func engineStatusPanel(_ dj: WatchDJState) -> some View {
-        WatchGlassPanel(corner: WatchStyle.style.cornerCard) {
-            HStack(spacing: WatchStyle.style.spaceTight) {
-                WatchArtwork(url: link.nowPlaying.artworkURL, size: 36, corner: 9)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(dj.isEngineLive ? "Engine Live" : "Engine Idle")
-                        .font(WatchStyle.style.fontBodyEmphasis)
-                        .foregroundStyle(WatchStyle.style.textPrimary)
-                    Text(dj.isEngineLive ? "Mixing on iPhone" : "Not mixing")
-                        .font(WatchStyle.style.fontCaption)
-                        .foregroundStyle(WatchStyle.style.textSecondary)
-                }
-
-                Spacer(minLength: 0)
+            .disabled(!link.isReachable)
+            .alert("Health Access Needed", isPresented: $showsHealthAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Allow Health access in the Health app on iPhone.")
             }
-        }
-    }
-
-    private func controlsPanel(_ dj: WatchDJState) -> some View {
-        WatchGlassPanel(corner: WatchStyle.style.cornerCard) {
-            VStack(spacing: WatchStyle.style.spaceSnug) {
-                Toggle(isOn: Binding(
-                    get: { dj.isAutoEnabled },
-                    set: { link.dj($0 ? .autoEnable : .autoDisable) }
-                )) {
-                    Text("Auto DJ")
-                        .font(WatchStyle.style.fontBodyEmphasis)
-                        .foregroundStyle(WatchStyle.style.textPrimary)
+            .task {
+                if let target = WatchUIPreview.value(for: "-SoundingWatchUIScrollTo") {
+                    try? await Task.sleep(for: .milliseconds(600))
+                    proxy.scrollTo(target, anchor: .top)
                 }
-                .tint(WatchStyle.style.accent)
             }
-        }
-    }
-
-    private func nextTrackPanel(_ dj: WatchDJState, mixIn: TimeInterval?) -> some View {
-        WatchGlassPanel(corner: WatchStyle.style.cornerCard) {
-            VStack(alignment: .leading, spacing: WatchStyle.style.spaceTight) {
-                WatchSectionHeader(title: "Next")
-
-                if let nextTitle = dj.nextTitle {
-                    WatchTrackRow(
-                        title: nextTitle,
-                        subtitle: dj.nextArtist ?? "",
-                        artworkURL: dj.nextArtworkURL,
-                        trailingSystemImage: "arrow.turn.down.right"
-                    )
-                } else {
-                    Text("Nothing queued yet")
-                        .font(WatchStyle.style.fontBody)
-                        .foregroundStyle(WatchStyle.style.textSecondary)
-                }
-
-                if let mixIn {
-                    Text("Mixing in \(mixIn.watchClockString)")
-                        .font(WatchStyle.style.fontCaptionEmphasis)
-                        .foregroundStyle(WatchStyle.style.accent)
-                } else {
-                    Text("Mix not planned yet")
-                        .font(WatchStyle.style.fontCaption)
-                        .foregroundStyle(WatchStyle.style.textTertiary)
-                }
-
-                if let reasoning = dj.reasoning, !reasoning.isEmpty {
-                    Text(reasoning)
-                        .font(WatchStyle.style.fontCaption)
-                        .foregroundStyle(WatchStyle.style.textSecondary)
-                }
-
-                Button {
-                    link.dj(.mixNow)
-                } label: {
-                    Label("Mix Now", systemImage: "bolt.fill")
-                        .font(WatchStyle.style.fontCaptionEmphasis)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(WatchStyle.style.accent)
-                .disabled(dj.nextTitle == nil)
-                .accessibilityHint("Starts the transition immediately")
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

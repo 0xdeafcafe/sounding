@@ -4,15 +4,6 @@ import Network
 enum DownloadHLSAssembler {
     static let maxPlaylistDepth = 3
 
-    private static let session: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 600
-        config.httpMaximumConnectionsPerHost = 4
-        return URLSession(configuration: config)
-    }()
-
     static func assemble(
         playlistURL: URL,
         scratchDirectory: URL,
@@ -123,7 +114,13 @@ enum DownloadHLSAssembler {
 
         let assembled = directory.appendingPathComponent("\(trackId)-assembled-\(UUID().uuidString).\(ext)")
         let writer = try FileWriter(url: assembled)
-        defer { writer.close() }
+        var completedSuccessfully = false
+        defer {
+            writer.close()
+            if !completedSuccessfully {
+                try? FileManager.default.removeItem(at: assembled)
+            }
+        }
 
         if !head.isEmpty { try writer.write(head) }
         try writer.write(firstSegmentData)
@@ -134,6 +131,7 @@ enum DownloadHLSAssembler {
 
         guard total > 1 else {
             try writer.synchronize()
+            completedSuccessfully = true
             return assembled
         }
 
@@ -177,12 +175,19 @@ enum DownloadHLSAssembler {
         }
 
         try writer.synchronize()
+        completedSuccessfully = true
         return assembled
     }
 
     private static func fetchData(_ url: URL) async throws -> Data {
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 30
+        let (data, response) = try await SoundCloudGateway.shared.data(
+            for: request,
+            context: .init(intent: .playback, lane: .media, allowsBackground: true)
+        )
+        guard (200..<300).contains(response.statusCode) else {
             throw DownloadError.streamResolutionFailed
         }
         return data

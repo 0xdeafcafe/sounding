@@ -191,7 +191,7 @@ add_group.call('SoundingTV-macOS/Sources', 'SoundingTV-macOS/Sources/Design', %w
   MacArtworkCache.swift MacMaterials.swift MacPaneHeader.swift MacWindowChrome.swift
 ])
 add_group.call('SoundingTV-macOS/Sources', 'SoundingTV-macOS/Sources/Features/DJ', %w[
-  MIDIControllerHub.swift MIDIMixerBridge.swift MacConsoleView.swift MacDeckPanel.swift
+  MacDeckControlSurface.swift MacConsoleView.swift MacDeckPanel.swift
   MacMixerControls.swift MacWaveformViews.swift
 ])
 add_group.call('SoundingTV-macOS/Sources', 'SoundingTV-macOS/Sources/Features/Feed', %w[MacFeedView.swift])
@@ -210,15 +210,6 @@ add_group.call('SoundingTV-macOS/Sources', 'SoundingTV-macOS/Sources/Services', 
 ])
 
 # Extensions and UI tests.
-add_group.call('SoundingTV-Widget/Sources', 'SoundingTV-Widget/Sources/App', %w[SoundingWidgetBundle.swift])
-add_group.call('SoundingTV-Widget/Sources', 'SoundingTV-Widget/Sources/Intents', %w[PlaybackControlIntents.swift])
-add_group.call('SoundingTV-Widget/Sources', 'SoundingTV.swiftpm/Sources/Shared/LiveActivity', %w[
-  NowPlayingActivityAttributes.swift NowPlayingLiveActivity.swift
-])
-add_group.call('SoundingTV-Widget/Sources', 'SoundingTV-Widget/Sources/Services', %w[WidgetControlSender.swift])
-add_group.call('SoundingTV-Widget/Sources', 'SoundingTV-Widget/Sources/Views', %w[
-  NowPlayingLiveActivityWidget.swift
-])
 add_group.call('SoundingTV-Share/Sources', 'SoundingTV-Share/Sources/App', %w[ShareViewController.swift])
 add_group.call('SoundingTV-Share/Sources', 'SoundingTV-Share/Sources/Models', %w[ShareDestination.swift])
 add_group.call('SoundingTV-TopShelf', 'SoundingTV-TopShelf/Sources', %w[ContentProvider.swift DefaultShelf.swift])
@@ -236,7 +227,6 @@ legacy_patterns = %w[
   SoundingTV-Shared/Sources/*.{swift,metal}
   SoundingTV-iOS/Sources/*.{swift,metal}
   SoundingTV-macOS/Sources/*.{swift,metal}
-  SoundingTV-Widget/Sources/*.{swift,metal}
   SoundingTV-Share/Sources/*.{swift,metal}
   SoundingTV-TopShelf/*.{swift,metal}
   SoundingTV-UITests/*.{swift,metal}

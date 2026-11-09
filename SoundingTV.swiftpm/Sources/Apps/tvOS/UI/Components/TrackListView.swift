@@ -6,20 +6,48 @@ struct TrackListView: View {
     var dateAdded: (Track) -> Date = { $0.createdAt }
     var emptyIcon = "music.note.list"
     var emptyTitle = "No tracks"
-    var onNearEnd: (() -> Void)?
-    var isLoadingMore = false
-    /// Optional parent-specific actions rendered in the same toolbar as search and sort.
+    var paging: TVPaging?
     var toolbarActions: AnyView? = nil
-    /// Lets a parent title/action header share the same visual toolbar row.
     var toolbarHeaderOverlap: CGFloat = 0
 
-    @EnvironmentObject var playerService: PlayerService
+    private var playerService: PlayerService { .shared }
     @StateObject private var analysisStore = TrackAnalysisStore()
+    @ObservedObject private var setlists = SetlistIntelligenceStore.shared
 
     @State private var searchText = ""
     @State private var sortKey: TrackSortKey = .dateAdded
     @State private var ascending = false
+    @State private var setlistTrack: Track?
+    @State private var cachedVisibleTracks: [Track] = []
     @FocusState private var toolbarFocus: ToolbarFocus?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(
+        tracks: [Track],
+        collectionId: String? = nil,
+        dateAdded: @escaping (Track) -> Date = { $0.createdAt },
+        emptyIcon: String = "music.note.list",
+        emptyTitle: String = "No tracks",
+        paging: TVPaging? = nil,
+        toolbarActions: AnyView? = nil,
+        toolbarHeaderOverlap: CGFloat = 0
+    ) {
+        self.tracks = tracks
+        self.collectionId = collectionId
+        self.dateAdded = dateAdded
+        self.emptyIcon = emptyIcon
+        self.emptyTitle = emptyTitle
+        self.paging = paging
+        self.toolbarActions = toolbarActions
+        self.toolbarHeaderOverlap = toolbarHeaderOverlap
+        _cachedVisibleTracks = State(initialValue: TrackSort.sorted(
+            tracks,
+            by: .dateAdded,
+            ascending: false,
+            analysis: [:],
+            dateAdded: dateAdded
+        ))
+    }
 
     private enum ToolbarFocus: Hashable { case search, sort, direction }
 
@@ -30,7 +58,7 @@ struct TrackListView: View {
     private static let artworkLookahead = 10
 
     var body: some View {
-        let visible = visibleTracks
+        let visible = cachedVisibleTracks
 
         VStack(alignment: .leading, spacing: Space.snug) {
             if tracks.count > 1 {
@@ -46,17 +74,23 @@ struct TrackListView: View {
                     title: searchText.isEmpty ? emptyTitle : "No matches for \u{201C}\(searchText)\u{201D}",
                     minHeight: 320
                 )
+                if searchText.isEmpty, let paging {
+                    TVPagedFooter(paging: paging)
+                }
             } else {
-                LazyVStack(spacing: Space.tight) {
+                LazyVStack(spacing: Space.hair) {
                     ForEach(Array(visible.enumerated()), id: \.element.id) { index, track in
                         TrackRow(
                             track: track,
                             analysis: analysisStore.summaries[track.id],
-                            action: { Task { await playerService.play(track, in: visible, collectionId: collectionId) } }
+                            hasSetlist: DeckIdentityResolver.isLikelyMix(track)
+                                || setlists.setlist(for: track.id) != nil,
+                            action: { Task { await playerService.play(track, in: visible, collectionId: collectionId) } },
+                            showSetlist: { setlistTrack = track }
                         )
                         .onAppear {
-                            guard let onNearEnd, visible.isNearEnd(track, lead: 6) else { return }
-                            onNearEnd()
+                            guard searchText.isEmpty, visible.isNearEnd(track, lead: 10) else { return }
+                            paging?.loadMore()
                         }
                         .onAppear {
                             let lookahead = visible[index..<min(index + Self.artworkLookahead, visible.count)]
@@ -64,13 +98,11 @@ struct TrackListView: View {
                         }
                     }
 
-                    if isLoadingMore {
-                        LoadingMoreRow()
-                            .frame(maxWidth: .infinity)
+                    if searchText.isEmpty, let paging {
+                        TVPagedFooter(paging: paging)
                     }
                 }
-                .buttonStyle(SCCardButtonStyle(cornerRadius: Corner.control))
-                .focusEffectDisabled()
+                .focusSection()
             }
         }
         .task(id: tracks.map(\.id)) {
@@ -78,6 +110,31 @@ struct TrackListView: View {
             if let collectionId {
                 DownloadManager.shared.applyCollectionPolicy(tracks: tracks, collectionId: collectionId)
             }
+        }
+        .onChange(of: tracks) { _, _ in recomputeVisibleTracks() }
+        .onChange(of: searchText) { _, _ in recomputeVisibleTracks() }
+        .onChange(of: sortKey) { _, _ in recomputeVisibleTracks() }
+        .onChange(of: ascending) { _, _ in recomputeVisibleTracks() }
+        .onReceive(analysisStore.$summaries) { _ in recomputeVisibleTracks() }
+        .fullScreenCover(item: $setlistTrack) { track in
+            SetlistEditorView(
+                track: track,
+                currentPosition: playerService.currentTrack?.id == track.id ? playerService.currentTime : 0,
+                comments: [],
+                localFileURL: playerService.localAudioURL(for: track),
+                onSeek: { position in
+                    Task {
+                        if playerService.currentTrack?.id != track.id {
+                            await playerService.play(track, in: [track])
+                        }
+                        playerService.seek(to: position)
+                    }
+                },
+                onDownload: { DownloadManager.shared.download(track: track, confirmed: true) },
+                onPlaySearchResult: { result in
+                    Task { await playerService.play(result, in: [result]) }
+                }
+            )
         }
     }
 
@@ -107,7 +164,7 @@ struct TrackListView: View {
             )
             .contentShape(Capsule(style: .continuous))
             .focused($toolbarFocus, equals: .search)
-            .animation(.easeInOut(duration: 0.20), value: searchIsExpanded)
+            .scMotion(.easeInOut(duration: 0.20), reduceMotion: reduceMotion, value: searchIsExpanded)
 
             Menu {
                 ForEach(TrackSortKey.allCases) { key in
@@ -119,11 +176,13 @@ struct TrackListView: View {
                     }
                 }
             } label: {
-                toolbarCircle(icon: "line.3.horizontal.decrease", isFocused: toolbarFocus == .sort)
+                toolbarCircle(icon: "line.3.horizontal.decrease", label: "Sort by", isFocused: toolbarFocus == .sort)
             }
             .buttonStyle(SCPlainButtonStyle())
             .focusEffectDisabled()
             .accessibilityIdentifier("tracklist.sort")
+            .accessibilityLabel("Sort by")
+            .accessibilityValue(sortKey.rawValue)
             .focused($toolbarFocus, equals: .sort)
 
             Button {
@@ -131,26 +190,31 @@ struct TrackListView: View {
             } label: {
                 toolbarCircle(
                     icon: ascending ? "arrow.up" : "arrow.down",
+                    label: "Sort order",
                     isFocused: toolbarFocus == .direction
                 )
             }
             .buttonStyle(SCPlainButtonStyle())
             .focusEffectDisabled()
             .focused($toolbarFocus, equals: .direction)
+            .accessibilityLabel("Sort order")
+            .accessibilityValue(ascending ? "Ascending" : "Descending")
+            .accessibilityHint("Reverses the sort order")
         }
         .focusSection()
     }
 
-    private func toolbarCircle(icon: String, isFocused: Bool) -> some View {
+    private func toolbarCircle(icon: String, label: String, isFocused: Bool) -> some View {
         Image(systemName: icon)
-            .font(.system(size: Control.circleIcon, weight: .semibold))
+            .font(.body.weight(.semibold))
+            .accessibilityLabel(label)
             .foregroundStyle(isFocused ? Color.scChromeFocusOn : Color.scTextPrimary)
             .frame(width: 68, height: 68)
             .background(isFocused ? Color.scChromeFocus : Color.white.opacity(0.10), in: Circle())
             .shadow(color: isFocused ? Color.scFocusShadow : .clear, radius: 14, y: 7)
     }
 
-    private var visibleTracks: [Track] {
+    private func recomputeVisibleTracks() {
         let filtered: [Track]
         if searchText.isEmpty {
             filtered = tracks
@@ -160,7 +224,7 @@ struct TrackListView: View {
                 $0.title.lowercased().contains(needle) || $0.user.displayName.lowercased().contains(needle)
             }
         }
-        return TrackSort.sorted(
+        cachedVisibleTracks = TrackSort.sorted(
             filtered,
             by: sortKey,
             ascending: ascending,
@@ -170,65 +234,56 @@ struct TrackListView: View {
     }
 }
 
+struct TVPlaybackPrewarmModifier: ViewModifier {
+    let track: Track?
+    private var playerService: PlayerService { .shared }
+    @Environment(\.isFocused) private var isFocused
+
+    func body(content: Content) -> some View {
+        content.onChange(of: isFocused, initial: true) { _, focused in
+            if focused, let track { playerService.preparePlayback(for: track) }
+        }
+    }
+}
+
+extension View {
+    func prewarmPlaybackOnFocus(_ track: Track?) -> some View {
+        modifier(TVPlaybackPrewarmModifier(track: track))
+    }
+}
+
 private struct TrackRow: View {
     let track: Track
     let analysis: TrackAnalysisSummary?
+    let hasSetlist: Bool
     let action: () -> Void
-
-    @EnvironmentObject private var playerService: PlayerService
-    @FocusState private var isFocused: Bool
-
-    private var isPlayable: Bool { track.streamURL != nil }
+    let showSetlist: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: Space.snug) {
-                ArtworkImage(url: track.artworkURL)
-                    .frame(width: 84, height: 84)
-                    .clipShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
-                    .kyleCrowned(user: track.user, context: track.title)
-
-                VStack(alignment: .leading, spacing: Space.hair) {
-                    Text(track.title)
-                        .font(.tvBodyEmph)
-                        .foregroundStyle(Color.scTextPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Text(track.user.displayName)
-                        .font(.tvCaption)
-                        .foregroundStyle(Color.scTextSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if let analysis, !analysis.isEmpty {
-                        analysis.badgeRow(style: .tv)
-                            .padding(.top, Space.hair / 2)
-                    }
-                }
-
-                Spacer(minLength: Space.snug)
-
-                if isPlayable {
-                    Text(track.formattedDuration)
-                        .font(.tvCaption)
-                        .foregroundStyle(Color.scTextTertiary)
-                } else {
-                    Label("Unavailable", systemImage: "lock.fill")
-                        .font(.tvCaption)
-                        .foregroundStyle(Color.scTextTertiary)
-                        .labelStyle(.titleAndIcon)
+        let item = SCTrackListItem(track: track, analysis: analysis)
+        Button {
+            if item.isPlayable { action() }
+        } label: {
+            SCTrackListRow(item: item, leading: .artwork, metrics: .tv, crownUser: track.user)
+        }
+        .buttonStyle(TVTrackRowStyle())
+        .contextMenu {
+            StartStationMenuButton(track: track)
+            if hasSetlist {
+                Button(action: showSetlist) {
+                    Label("View Setlist", systemImage: "list.number")
                 }
             }
-            .padding(Space.snug)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .opacity(isPlayable ? 1 : 0.5)
+            TVTrackMenuItems(track: track)
         }
-        .disabled(!isPlayable)
-        .focused($isFocused)
-        .onChange(of: isFocused) { _, focused in
-            // Focusing a row is the tvOS form of selection; warm the stream
-            // URL so pressing play skips the blocking resolve.
-            if focused { playerService.warmStreamURL(for: track) }
+        .accessibilityActions {
+            if hasSetlist {
+                Button(action: showSetlist) {
+                    Label("View Setlist", systemImage: "list.number")
+                }
+            }
         }
+        .accessibilityLabel(item.accessibilityLabel)
+        .prewarmPlaybackOnFocus(item.isPlayable ? track : nil)
     }
-
 }

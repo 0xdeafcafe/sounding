@@ -1,28 +1,74 @@
 import Foundation
+import Combine
 import os
 
 @MainActor
 final class FeedViewModel: ObservableObject {
-    @Published var items: [FeedActivity] = []
     @Published var isLoading = false
-    @Published var isLoadingMore = false
     @Published var loadedOnce = false
-    @Published var error: Error?
+
+    let pager: Paginator<FeedActivity>
+
+    var items: [FeedActivity] { pager.items }
+    var isLoadingMore: Bool { pager.isLoadingMore }
+    var error: Error? { pager.firstError }
 
     private let api = SoundCloudAPI.shared
     private let cache = LibraryCache.shared
-    private var cursor = PageCursor<FeedActivity>()
     private var lastLoaded: Date?
     private var isFetching = false
     private var didHydrateCache = false
 
     private let staleAfter: TimeInterval = 5 * 60
+    private var loadedWithConfirmedAccount = false
+    private var accountObservation: AnyCancellable?
+    private var signOutObservation: AnyCancellable?
+    private var pagerObservation: AnyCancellable?
+    private var inflight: Task<Void, Never>?
+    private var inflightToken: UUID?
     private static let cacheSection = "feed.activities"
 
+    init() {
+        pager = Paginator(soundCloudSource: PagedSource(first: { PagedChunk(items: []) }, next: { _ in PagedChunk(items: []) }))
+        pager.setSource(PagedSource(
+            first: { [weak self] in
+                guard let self else { return PagedChunk(items: []) }
+                return try await self.fetchFirstPage()
+            },
+            next: { [weak self] cursor in
+                guard let self else { return PagedChunk(items: []) }
+                guard case .url(let url) = cursor else { return try await self.fetchFirstPage() }
+                let page = try await self.api.getPage(FeedActivity.self, from: url)
+                return PagedChunk(items: page.collection, next: page.nextHref.map { .url($0) })
+            }
+        ))
+        pagerObservation = pager.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        hydrateCacheImmediately()
+        accountObservation = SoundCloudCredentialSource.shared.$state
+            .map { $0.isAuthenticated && $0.sessionHealth == .healthy && $0.currentUser != nil }
+            .removeDuplicates()
+            .filter { $0 }
+            .sink { [weak self] _ in
+                guard let self, !self.loadedWithConfirmedAccount else { return }
+                Task {
+                    await self.inflight?.value
+                    self.lastLoaded = nil
+                    await self.loadContent()
+                }
+            }
+        signOutObservation = SoundCloudCredentialSource.shared.$state
+            .map(\.isSignedOut)
+            .removeDuplicates()
+            .filter { $0 }
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.loadedWithConfirmedAccount = false
+                self.reset()
+            }
+    }
+
     func loadContentIfNeeded() async {
-        await hydrateCacheIfNeeded()
-        guard !loadedOnce else { return }
-        await loadContent()
+        await refreshIfStale()
     }
 
     func refreshIfStale() async {
@@ -37,25 +83,40 @@ final class FeedViewModel: ObservableObject {
     }
 
     func reset() {
-        items = []
-        error = nil
+        inflight?.cancel()
+        inflight = nil
+        pager.reset()
         lastLoaded = nil
         loadedOnce = false
-        cursor.reset()
     }
 
     func loadContent() async {
         #if DEBUG
         if VisualFixtures.isEnabled {
-            items = VisualFixtures.feed
+            pager.prime(items: VisualFixtures.feed, cursor: nil)
             loadedOnce = true
-            error = nil
             lastLoaded = Date()
             return
         }
         #endif
 
         await hydrateCacheIfNeeded()
+        if let inflight {
+            await inflight.value
+            return
+        }
+        let token = UUID()
+        inflightToken = token
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performLoad()
+            if self.inflightToken == token { self.inflight = nil }
+        }
+        inflight = task
+        await task.value
+    }
+
+    private func performLoad() async {
         guard !isFetching else { return }
         isFetching = true
         defer { isFetching = false }
@@ -64,38 +125,51 @@ final class FeedViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        do {
-            let page = try await api.getFeed(limit: 20)
-            items = page.collection
-            cursor.advance(to: page)
-            error = nil
+        await pager.reload()
+
+        if pager.firstError == nil, pager.hasLoadedFirst, !Task.isCancelled {
             lastLoaded = Date()
-            await persistCache(page.collection)
-        } catch {
-            if Self.isCancellation(error) {
-                loadedOnce = false
-                return
-            }
-            self.error = error
+            loadedWithConfirmedAccount = SoundCloudCredentialSource.shared.hasConfirmedAccount
         }
     }
 
-    /// Keeps the most recently seen stream available while the network wakes
-    /// up.  This is deliberately cache-first: a transient offline response
-    /// must never replace a useful stream with an empty/error screen.
+    private func fetchFirstPage() async throws -> PagedChunk<FeedActivity> {
+        let page = try await api.getFeed(limit: 20)
+        if page.collection.isEmpty, !pager.items.isEmpty {
+            return PagedChunk(items: pager.items, next: pager.cursor)
+        }
+        #if os(iOS) || os(macOS)
+        ScoutMonitor.shared.observe(feed: page.collection)
+        #endif
+        await persistCache(page.collection)
+        await cache.markSectionProgress(Self.cacheSection, nextHref: page.nextHref, completed: page.nextHref == nil)
+        return PagedChunk(items: page.collection, next: page.nextHref.map { .url($0) })
+    }
+
     private func hydrateCacheIfNeeded() async {
+        hydrateCacheImmediately()
+    }
+
+    private func hydrateCacheImmediately() {
         guard !didHydrateCache else { return }
         didHydrateCache = true
 
-        let rows = await cache.loadSection(Self.cacheSection)
+        let rows = cache.loadSection(Self.cacheSection, limit: 20)
         let decoder = JSONDecoder()
         let cached = rows.compactMap { try? decoder.decode(FeedActivity.self, from: $0.payload) }
         guard !cached.isEmpty else { return }
 
-        items = cached
+        pager.prime(items: cached, cursor: nil)
         loadedOnce = true
-        error = nil
         lastLoaded = .distantPast
+
+        Task { [weak self] in
+            guard let self else { return }
+            let next = await self.cache.sectionState(Self.cacheSection).nextHref
+            guard let next, self.pager.cursor == nil, !self.pager.isLoadingFirst,
+                  self.pager.items.count == cached.count else { return }
+            self.pager.prime(items: cached, cursor: .url(next))
+        }
     }
 
     private func persistCache(_ activities: [FeedActivity]) async {
@@ -108,35 +182,18 @@ final class FeedViewModel: ObservableObject {
     }
 
     func loadMore() async {
-        guard !isLoading, !isLoadingMore, cursor.canLoadMore, let page = cursor.lastPage else { return }
-
-        isLoadingMore = true
-        defer { isLoadingMore = false }
-
-        do {
-            let next = try await api.getNextPage(page)
-            cursor.advance(to: next)
-            items.appendUnique(contentsOf: next.collection)
-        } catch {
-            Log.ui.error("Feed load-more error: \(error.localizedDescription, privacy: .public)")
-        }
+        guard !isLoading else { return }
+        await pager.loadMore()
     }
 
-    private static func isCancellation(_ error: Error) -> Bool {
-        if error is CancellationError { return true }
-        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
-        if let apiError = error as? APIError, case .networkError(let underlying) = apiError {
-            return isCancellation(underlying)
-        }
-        return false
+    func requestMore() {
+        guard !isLoading else { return }
+        pager.requestMore()
     }
 }
 
 // MARK: - Conservative account activity polling
 
-/// A local inbox item synthesized from authenticated SoundCloud surfaces.
-/// SoundCloud does not expose a public push-notification API, so these events
-/// are deliberately cursor-backed and never intercept SoundCloud web push.
 struct SoundCloudInboxEvent: Identifiable, Codable, Hashable, Sendable {
     enum Kind: String, Codable, Sendable {
         case feed
@@ -183,9 +240,8 @@ final class SoundCloudActivityPoller: ObservableObject {
     private var snapshot = Snapshot()
 
     private static let purpose = "soundcloud.activity-poller.v1"
-    private static let feedInterval: TimeInterval = 10 * 60
-    private static let followerInterval: TimeInterval = 60 * 60
-    private static let messageInterval: TimeInterval = 5 * 60
+    private static let feedInterval: TimeInterval = 60 * 60
+    private static let followerInterval: TimeInterval = 12 * 60 * 60
 
     var unreadCount: Int { inbox.lazy.filter { $0.readAt == nil }.count }
 
@@ -205,10 +261,13 @@ final class SoundCloudActivityPoller: ObservableObject {
         publishSnapshot()
     }
 
-    /// Returns only newly synthesized events, making platform delivery a
-    /// simple, idempotent operation. The first successful request for each
-    /// source establishes a baseline and intentionally emits nothing.
     func poll(accountID: String, now: Date = Date(), force: Bool = false) async -> [SoundCloudInboxEvent] {
+        await SoundCloudRequestEnvironment.autonomous(lane: .feed) {
+            await self.performPoll(accountID: accountID, now: now, force: force)
+        }
+    }
+
+    private func performPoll(accountID: String, now: Date, force: Bool) async -> [SoundCloudInboxEvent] {
         activate(accountID: accountID)
         guard snapshot.circuitOpenUntil.map({ $0 <= now }) ?? true else { return [] }
 
@@ -221,10 +280,13 @@ final class SoundCloudActivityPoller: ObservableObject {
 
         if force || isDue(snapshot.lastFeedPoll, interval: Self.feedInterval, now: now) {
             dueSources += 1
+            snapshot.lastFeedPoll = now
             do {
                 let page = try await api.getFeed(limit: 50)
                 candidates.append(contentsOf: ingestFeed(page.collection))
-                snapshot.lastFeedPoll = now
+                #if os(iOS) || os(macOS)
+                ScoutMonitor.shared.observe(feed: page.collection, now: now)
+                #endif
                 successfulSources += 1
             } catch {
                 Log.api.error("[ActivityPoller] Feed poll failed: \(error.localizedDescription, privacy: .public)")
@@ -233,25 +295,13 @@ final class SoundCloudActivityPoller: ObservableObject {
 
         if force || isDue(snapshot.lastFollowerPoll, interval: Self.followerInterval, now: now) {
             dueSources += 1
+            snapshot.lastFollowerPoll = now
             do {
                 let page = try await api.getUserFollowers(userId: accountID, limit: 100)
                 candidates.append(contentsOf: ingestFollowers(page.collection, currentUserID: accountID, now: now))
-                snapshot.lastFollowerPoll = now
                 successfulSources += 1
             } catch {
                 Log.api.error("[ActivityPoller] Follower poll failed: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-
-        if force || isDue(snapshot.lastMessagePoll, interval: Self.messageInterval, now: now) {
-            dueSources += 1
-            do {
-                let page = try await api.getConversations(limit: 50)
-                candidates.append(contentsOf: ingestMessages(page.collection, currentUserID: accountID))
-                snapshot.lastMessagePoll = now
-                successfulSources += 1
-            } catch {
-                Log.api.error("[ActivityPoller] Message poll failed: \(error.localizedDescription, privacy: .public)")
             }
         }
 
@@ -334,35 +384,6 @@ final class SoundCloudActivityPoller: ObservableObject {
                 body: "\(follower.displayName) followed you",
                 date: now,
                 destination: follower.permalinkURL,
-                readAt: nil
-            )
-        }
-    }
-
-    private func ingestMessages(
-        _ conversations: [SoundCloudConversation], currentUserID: String
-    ) -> [SoundCloudInboxEvent] {
-        let messages = conversations.compactMap { conversation -> (SoundCloudConversation, SoundCloudDirectMessage)? in
-            guard conversation.unreadCount > 0, let message = conversation.latestMessage else { return nil }
-            return (conversation, message)
-        }
-        let prior = snapshot.messageIDs
-        snapshot.messageIDs = Set(messages.map { $0.1.id })
-        guard snapshot.messageBaselineComplete else {
-            snapshot.messageBaselineComplete = true
-            return []
-        }
-        return messages.compactMap { conversation, message in
-            guard !prior.contains(message.id), message.sender?.id != currentUserID else { return nil }
-            let sender = message.sender?.username
-                ?? conversation.participants.first(where: { $0.id != currentUserID })?.username
-                ?? "SoundCloud user"
-            return SoundCloudInboxEvent(
-                id: "message:\(message.id)", kind: .message,
-                title: sender,
-                body: message.body.isEmpty ? "Sent you a message" : message.body,
-                date: message.createdAt,
-                destination: SoundCloudAPI.webInboxURL,
                 readAt: nil
             )
         }

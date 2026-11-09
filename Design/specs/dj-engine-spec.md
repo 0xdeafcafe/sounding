@@ -1,4 +1,4 @@
-# SoundingCloud Auto-DJ - Architecture Spec
+# Sounding Auto-DJ - Architecture Spec
 
 **Status:** design only, no code written. Nothing in the repo was edited.
 **Author:** design agent, job 3fc7cb5a.

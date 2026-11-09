@@ -87,16 +87,18 @@ struct MacVisualEffect<Content: View>: NSViewRepresentable {
 
 struct MacVisualEffectBackground: NSViewRepresentable {
     var role: MacMaterialRole
+    var blending: NSVisualEffectView.BlendingMode = .behindWindow
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = role.material
-        view.blendingMode = .behindWindow
+        view.blendingMode = blending
         view.state = .active
         return view
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.material = role.material
+        nsView.blendingMode = blending
     }
 }

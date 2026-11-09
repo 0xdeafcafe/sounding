@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct UtilityActionButton: View {
     let icon: String
@@ -11,136 +12,60 @@ struct UtilityActionButton: View {
 
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ObservedObject private var artworkColors = ArtworkColors.shared
     @State private var didActivate = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            if isBusy {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .tint(.white)
-                    .scaleEffect(0.7)
-            } else {
-                Image(systemName: icon)
-                    .font(.system(size: 24, weight: .semibold))
-                    .symbolEffect(.bounce, value: reduceMotion ? false : didActivate)
-            }
-            if let label {
-                Text(label)
-                    .font(.tvBodyEmph)
-            }
-            if let badge {
-                Text(badge)
-                    .font(.tvMini)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Color.white.opacity(0.12), in: Capsule())
-            }
-        }
-        .foregroundStyle(isActive || focused ? Color.scTextPrimary : Color.scTextSecondary)
-        .padding(.horizontal, label == nil ? Spacing.sm + 2 : Space.snug)
-        .padding(.vertical, Space.tight)
-        .frame(minWidth: label == nil ? Control.circle : nil, minHeight: Control.circle)
-        .background(Capsule().fill(Color.white.opacity(0.06)))
-        .scSelected(isActive, in: Capsule())
-        .scFocus(focused, in: Capsule(), reduceMotion: reduceMotion)
-        .contentShape(Capsule())
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .onTapGesture {
+        Button {
             didActivate.toggle()
             action()
-        }
-        .accessibilityLabel(accessibilityLabel ?? label ?? icon)
-    }
-}
-
-/// The compact control used only by the Now Playing metadata surface. Its name
-/// is revealed on focus; state remains visible through its symbol and accent.
-struct PlayerMetadataActionButton: View {
-    let icon: String
-    let title: String
-    var badge: String? = nil
-    var isActive = false
-    var isBusy = false
-    var accessibilityLabel: String? = nil
-    let action: () -> Void
-
-    @FocusState private var focused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ObservedObject private var artworkColors = ArtworkColors.shared
-    @State private var didActivate = false
-
-    var body: some View {
-        HStack(spacing: Space.tight) {
-            Group {
+        } label: {
+            HStack(spacing: 6) {
                 if isBusy {
                     ProgressView()
                         .progressViewStyle(.circular)
-                        .scaleEffect(0.72)
+                        .tint(focused ? Color.scChromeFocusOn : .white)
+                        .scaleEffect(0.7)
                 } else {
                     Image(systemName: icon)
+                        .font(.caption.weight(.semibold))
                         .symbolEffect(.bounce, value: reduceMotion ? false : didActivate)
+                        .accessibilityLabel(accessibilityLabel ?? label ?? icon)
+                }
+                if let label {
+                    Text(label)
+                        .font(.tvBodyEmph)
+                }
+                if let badge {
+                    Text(badge)
+                        .font(.tvMini)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.white.opacity(0.12), in: Capsule())
                 }
             }
-            .font(.system(size: 24, weight: .semibold))
-            .foregroundStyle(isActive ? artworkColors.current.accent : (focused ? .white : Color.scTextSecondary))
-
-            if let badge {
-                Text(badge)
-                    .font(.system(size: 21, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.scTextTertiary)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+            .foregroundStyle(foreground)
+            .padding(.horizontal, label == nil ? Spacing.sm + 2 : Space.snug)
+            .padding(.vertical, Space.tight)
+            .frame(minWidth: label == nil ? Control.circle : nil, minHeight: Control.circle)
+            .background {
+                Capsule()
+                    .fill(Color.scChromeFocus)
+                    .opacity(focused ? 1 : 0)
             }
+            .liquidGlass(in: Capsule(), tint: isActive && !focused ? Color.white.opacity(0.24) : nil)
+            .contentShape(Capsule())
         }
-        .padding(.horizontal, badge == nil ? 0 : Space.snug)
-        .frame(width: badge == nil ? Control.circle : 94, height: Control.circle)
-        .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
-        .liquidGlass(
-            in: RoundedRectangle(cornerRadius: Corner.control, style: .continuous),
-            interactive: false
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
-                .strokeBorder(Color.white.opacity(focused ? 0.28 : 0), lineWidth: 1.5)
-                .allowsHitTesting(false)
-        }
-        .overlay(alignment: .bottom) {
-            if focused {
-                Text(expandedTitle)
-                    .font(.system(size: 21, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .shadow(color: .black.opacity(0.55), radius: 5, y: 2)
-                    .offset(y: 34)
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-            }
-        }
-        .scaleEffect(focused ? 1.04 : 1)
-        .shadow(color: focused ? .black.opacity(0.32) : .clear, radius: 12, y: 5)
-        .focusable()
+        .buttonStyle(SCShapeButtonStyle(shape: Capsule(), sizeClass: .card))
         .focused($focused)
-        .focusEffectDisabled()
-        .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: focused)
-        .onTapGesture {
-            didActivate.toggle()
-            action()
-        }
-        .accessibilityLabel(accessibilityLabel ?? title)
+        .accessibilityLabel(accessibilityLabel ?? label ?? icon)
+        .accessibilityValue(isBusy ? "Busy" : (isActive ? "On" : ""))
     }
 
-    private var expandedTitle: String {
-        guard let badge else { return title }
-        return "\(title)\u{00a0}\(badge)"
+    private var foreground: Color {
+        if focused { return Color.scChromeFocusOn }
+        return Color.scTextPrimary
     }
 }
 
@@ -175,37 +100,10 @@ final class TrackEngagementStore: ObservableObject {
         defer { pendingTrackIds.remove(track.id) }
 
         do {
-            if next {
-                try await SoundCloudAPI.shared.likeTrack(track)
-            } else {
-                try await SoundCloudAPI.shared.unlikeTrack(track)
-            }
+            try await LikeRequest.send(next, track: track)
         } catch {
             likedOverrides[track.id] = previous
             locallyMutatedTrackIds.remove(track.id)
-        }
-    }
-}
-
-struct LikeActionButton: View {
-    let track: Track
-    @ObservedObject var engagement: TrackEngagementStore
-
-    var body: some View {
-        PlayerMetadataActionButton(
-            icon: engagement.isLiked(track) ? "heart.fill" : "heart",
-            title: engagement.isLiked(track) ? "Liked" : "Like",
-            isActive: engagement.isLiked(track),
-            isBusy: engagement.isPending(track),
-            accessibilityLabel: engagement.isLiked(track) ? "Unlike" : "Like"
-        ) {
-            Task { await engagement.toggleLike(track) }
-        }
-        .task(id: track.id) {
-            await engagement.refreshLikeState(track)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .likesIndexDidChange)) { _ in
-            Task { await engagement.refreshLikeState(track) }
         }
     }
 }
@@ -236,183 +134,12 @@ struct QueueActionButton: View {
 struct AddToPlaylistActionButton: View {
     let track: Track
 
-    @State private var showingSheet = false
+    @Environment(\.presentAddToPlaylist) private var present
 
     var body: some View {
-        UtilityActionButton(icon: "plus.square.on.square", accessibilityLabel: "Add to Playlist") {
-            showingSheet = true
+        UtilityActionButton(icon: "text.badge.plus", accessibilityLabel: "Add to Playlist") {
+            present(PlaylistTrackRef(track: track))
         }
-        .fullScreenCover(isPresented: $showingSheet) {
-            AddToPlaylistView(track: track)
-        }
-    }
-}
-
-private struct AddToPlaylistView: View {
-    let track: Track
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var playlists: [PlaylistSummary] = []
-    @State private var state: CommentsLoadState = .loading
-    @State private var addedPlaylistId: String?
-    @FocusState private var closeFocused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.base) {
-            HStack {
-                VStack(alignment: .leading, spacing: Space.tight) {
-                    Eyebrow(text: "Add to Playlist")
-                    Text(track.title)
-                        .font(.tvTitle)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                }
-                Spacer()
-                PanelCloseButton { dismiss() }
-                    .focused($closeFocused)
-            }
-
-            Group {
-                switch state {
-                case .idle, .loading:
-                    StatusPanel(kind: .loading, title: "Loading Playlists…")
-                case .failed:
-                    StatusPanel(
-                        kind: .error,
-                        title: "Couldn't Load Playlists",
-                        message: "Check this Apple TV's network connection.",
-                        actionTitle: "Try Again",
-                        action: { Task { await load() } }
-                    )
-                case .loaded where playlists.isEmpty:
-                    StatusPanel(
-                        kind: .empty,
-                        icon: "music.note.list",
-                        title: "No Playlists Yet",
-                        message: "Create a playlist in the SoundCloud app first."
-                    )
-                case .loaded:
-                    playlistList
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .padding(Space.page)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.scBackground.ignoresSafeArea())
-        .defaultFocus($closeFocused, true)
-        .task { await load() }
-    }
-
-    private var playlistList: some View {
-        ScrollView {
-            VStack(spacing: Spacing.sm) {
-                ForEach(playlists) { playlist in
-                    PlaylistPickRow(
-                        playlist: playlist,
-                        isAdded: addedPlaylistId == playlist.id
-                    ) {
-                        Task { await add(to: playlist) }
-                    }
-                }
-            }
-        }
-        .focusSection()
-    }
-
-    private func load() async {
-        state = .loading
-        do {
-            let page = try await SoundCloudAPI.shared.getMyPlaylists()
-            playlists = page.collection
-            state = .loaded
-        } catch {
-            state = .failed
-        }
-    }
-
-    private func add(to playlist: PlaylistSummary) async {
-        guard addedPlaylistId == nil else { return }
-        do {
-            try await SoundCloudAPI.shared.addTrack(track.id, toPlaylist: playlist.id)
-            addedPlaylistId = playlist.id
-            try? await Task.sleep(for: .milliseconds(700))
-            dismiss()
-        } catch {
-        }
-    }
-}
-
-private struct PlaylistPickRow: View {
-    let playlist: PlaylistSummary
-    let isAdded: Bool
-    let action: () -> Void
-
-    @FocusState private var focused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        HStack(spacing: Space.snug) {
-            ArtworkImage(
-                url: playlist.artworkURL ?? SoundCloudCredentialSource.shared.currentUser?.avatarURL,
-                icon: "music.note.list"
-            )
-                .aspectRatio(1, contentMode: .fill)
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.sm, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(playlist.title)
-                    .font(.tvBodyEmph)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text("\(playlist.trackCount) tracks")
-                    .font(.tvCaption)
-                    .foregroundStyle(Color.scTextSecondary)
-            }
-
-            Spacer(minLength: 0)
-
-            if isAdded {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(Color.scSuccess)
-            }
-        }
-        .padding(Space.snug)
-        .background(
-            RoundedRectangle(cornerRadius: Corner.card, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-        )
-        .scFocus(focused, cornerRadius: Corner.card, reduceMotion: reduceMotion)
-        .contentShape(RoundedRectangle(cornerRadius: Corner.card, style: .continuous))
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .onTapGesture(perform: action)
-    }
-}
-
-struct TrackMapButton: View {
-    @ObservedObject var board: CueBoard
-    let action: () -> Void
-
-    var body: some View {
-        PlayerMetadataActionButton(
-            icon: "bookmark",
-            title: "Cues",
-            badge: markedCount == 0 ? nil : "\(markedCount)",
-            accessibilityLabel: accessibilityLabel
-        ) {
-            action()
-        }
-    }
-
-    private var markedCount: Int { board.sheet.userCues.count }
-
-    private var accessibilityLabel: String {
-        guard markedCount > 0 else { return "Cue Points" }
-        return markedCount == 1 ? "Cue Points, 1 marked" : "Cue Points, \(markedCount) marked"
     }
 }
 
@@ -433,6 +160,8 @@ struct ShareActionButton: View {
 
 struct ShareTrackView: View {
     let track: Track
+    var url: URL?
+    var eyebrow = "Share"
 
     @Environment(\.dismiss) private var dismiss
     @State private var matrix: QRMatrix?
@@ -443,12 +172,14 @@ struct ShareTrackView: View {
         VStack(spacing: Space.roomy) {
             HStack {
                 VStack(alignment: .leading, spacing: Space.tight) {
-                    Eyebrow(text: "Share")
+                    Eyebrow(text: eyebrow)
                     Text(track.title)
                         .font(.tvTitle)
                         .foregroundStyle(.white)
                         .lineLimit(2)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isHeader)
                 Spacer()
                 PanelCloseButton { dismiss() }
                     .focused($closeFocused)
@@ -479,6 +210,8 @@ struct ShareTrackView: View {
                             }
                         }
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(matrix == nil ? "Preparing QR code" : "QR code linking to \(track.title) on SoundCloud")
                 Text("Scan to open “\(track.title)” on your phone")
                     .font(.tvBody)
                     .foregroundStyle(Color.scTextSecondary)
@@ -494,7 +227,7 @@ struct ShareTrackView: View {
         .background(Color.scBackground.ignoresSafeArea())
         .defaultFocus($closeFocused, true)
         .task {
-            matrix = QRCodeGenerator.matrix(for: track.permalinkURL.absoluteString)
+            matrix = QRCodeGenerator.matrix(for: (url ?? track.permalinkURL).absoluteString)
         }
     }
 }
@@ -505,16 +238,18 @@ struct PanelCloseButton: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Image(systemName: "xmark")
-            .font(.system(size: Control.circleIcon, weight: .bold))
-            .foregroundStyle(Color.scTextPrimary)
-            .frame(width: Control.circle, height: Control.circle)
-            .liquidGlass(in: Circle(), interactive: true)
-            .scFocus(focused, in: Circle(), reduceMotion: reduceMotion)
-            .contentShape(Circle())
-            .focusable()
-            .focused($focused)
-            .focusEffectDisabled()
-            .onTapGesture(perform: action)
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.body.weight(.bold))
+                .accessibilityLabel("Close")
+                .foregroundStyle(focused ? Color.scChromeFocusOn : Color.scTextPrimary)
+                .frame(width: Control.circle, height: Control.circle)
+                .background(Circle().fill(focused ? Color.scChromeFocus : .clear))
+                .liquidGlass(in: Circle(), interactive: true)
+                .contentShape(Circle())
+        }
+        .buttonStyle(SCShapeButtonStyle(shape: Circle()))
+        .focused($focused)
+        .accessibilityLabel("Close")
     }
 }

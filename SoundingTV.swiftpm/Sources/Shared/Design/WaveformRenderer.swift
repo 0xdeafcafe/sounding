@@ -1,16 +1,100 @@
 import SwiftUI
 
+enum SCWaveformMarkerShape: Equatable {
+    /// Full-height vertical line (the in-waveform cue treatment; DJ consoles).
+    case line
+    /// Filled rotated square — cue points in a merged marker lane.
+    case diamond
+    /// Filled circle — timed comments in a merged marker lane.
+    case dot
+    /// Stroked circle — suggested (unconfirmed) cue points.
+    case ring
+}
+
 struct SCWaveformMarker: Identifiable, Equatable {
     let id: String
     var position: Double
     var color: Color?
     var label: String?
+    var shape: SCWaveformMarkerShape
 
-    init(id: String, position: Double, color: Color? = nil, label: String? = nil) {
+    init(
+        id: String,
+        position: Double,
+        color: Color? = nil,
+        label: String? = nil,
+        shape: SCWaveformMarkerShape = .line
+    ) {
         self.id = id
         self.position = position.scUnitClamped
         self.color = color
         self.label = label
+        self.shape = shape
+    }
+}
+
+/// A neighboring queue track's envelope rendered past the current track's
+/// boundary (DJ-software continuity). `mode: .centered` only — a fixed
+/// whole-track lane has no timeline past its edges to extend into.
+struct SCWaveformNeighbor: Equatable {
+    var envelope: [Float]
+    var duration: TimeInterval
+    /// Current-track time at which this neighbor starts sounding. Plain
+    /// adjacency: `-duration` for the previous track (it plays up to the
+    /// boundary), the current track's duration for the next. With a mix
+    /// plan: the previous track's mix-out point mapped into the current
+    /// timeline (negative), or the current track's mix point for the next.
+    var startSecondsInCurrent: TimeInterval
+    /// Neighbor-local time sounded at `startSecondsInCurrent` (the plan's
+    /// entry point; 0 when the neighbor plays from its own start/end).
+    var entrySeconds: TimeInterval = 0
+
+    /// Neighbor-local time heard at current-track time `t`, if audible.
+    func localTime(atCurrentTime t: TimeInterval) -> TimeInterval? {
+        let n = entrySeconds + (t - startSecondsInCurrent)
+        guard n >= 0, n <= duration else { return nil }
+        return n
+    }
+
+    /// Previous-track neighbor. `mixIn` carries the boundary plan's exit
+    /// point (in the previous track) and entry point (in the current track);
+    /// pass nil for plain adjacency when no mix data exists.
+    static func leading(
+        envelope: [Float],
+        duration: TimeInterval,
+        mixIn: (exitSeconds: TimeInterval, entrySeconds: TimeInterval)? = nil
+    ) -> SCWaveformNeighbor {
+        if let mixIn {
+            return SCWaveformNeighbor(
+                envelope: envelope, duration: duration,
+                startSecondsInCurrent: mixIn.entrySeconds - mixIn.exitSeconds
+            )
+        }
+        return SCWaveformNeighbor(
+            envelope: envelope, duration: duration,
+            startSecondsInCurrent: -duration
+        )
+    }
+
+    /// Next-track neighbor. `mixOut` carries the current track's mix point
+    /// and the incoming entry point; pass nil for plain adjacency.
+    static func trailing(
+        envelope: [Float],
+        duration: TimeInterval,
+        currentDuration: TimeInterval,
+        mixOut: (mixPointSeconds: TimeInterval, entrySeconds: TimeInterval)? = nil
+    ) -> SCWaveformNeighbor {
+        if let mixOut {
+            return SCWaveformNeighbor(
+                envelope: envelope, duration: duration,
+                startSecondsInCurrent: mixOut.mixPointSeconds,
+                entrySeconds: mixOut.entrySeconds
+            )
+        }
+        return SCWaveformNeighbor(
+            envelope: envelope, duration: duration,
+            startSecondsInCurrent: currentDuration
+        )
     }
 }
 
@@ -73,6 +157,18 @@ struct SCWaveformStyle {
     var placeholderHighlightColor: Color
     var placeholderRestFraction: CGFloat
     var lowerHalfOpacity: Double = 1
+    /// De-emphasis for neighboring queue tracks rendered past the current
+    /// track's bounds (plain adjacency). The mix-overlap region uses
+    /// `neighborMixOpacity` instead — both tracks are genuinely sounding
+    /// there, so the neighbor reads closer to full strength.
+    var neighborOpacity: Double = 0.50
+    var neighborMixOpacity: Double = 0.78
+    /// Directional tints make the context beyond the current track boundary
+    /// unmistakable even when the neighboring envelope has a similar shape.
+    /// Previous is cool blue; next is violet. Opacity still distinguishes
+    /// context from the current track, while overlap remains more prominent.
+    var leadingNeighborColor = Color(red: 0.28, green: 0.72, blue: 1.00)
+    var trailingNeighborColor = Color(red: 0.64, green: 0.48, blue: 1.00)
 
     static let tv: SCWaveformStyle = {
         var style = derived(from: .tv, dense: false)
@@ -393,8 +489,11 @@ enum SCWaveformSampler {
     static func amplitude(in samples: [Float], duration: TimeInterval, at time: TimeInterval) -> Float {
         guard !samples.isEmpty, duration > 0 else { return 0 }
         let t = max(0, min(duration, time))
-        let idx = Int((t / duration) * Double(samples.count - 1))
-        return samples[max(0, min(samples.count - 1, idx))]
+        let sourcePosition = (t / duration) * Double(samples.count - 1)
+        let lower = max(0, min(samples.count - 1, Int(sourcePosition.rounded(.down))))
+        let upper = min(samples.count - 1, lower + 1)
+        let fraction = Float(sourcePosition - Double(lower))
+        return samples[lower] * (1 - fraction) + samples[upper] * fraction
     }
 }
 
@@ -424,6 +523,8 @@ struct SCWaveformRenderer: View {
     var showsPlayhead: Bool = true
     var beatGrid: SCBeatGrid?
     var cueMarkers: [SCWaveformMarker] = []
+    var leadingNeighbor: SCWaveformNeighbor?
+    var trailingNeighbor: SCWaveformNeighbor?
     var playheadEmphasis: Double = 0
     var pulseEnergy: Double = 0
     var placeholder: SCWaveformPlaceholder = .unavailable
@@ -715,17 +816,45 @@ struct SCWaveformRenderer: View {
         let emphasisGain = CGFloat(playheadEmphasis.scUnitClamped) * (1 - style.restFraction) / max(0.01, style.restFraction)
 
         let totalPitch = style.barPitch + style.barGap
+        let secondsPerBar = secondsPerPoint * Double(totalPitch)
+        // Anchor the bar lattice to track time, then move that lattice under
+        // the fixed playhead. Starting a fresh bar at x=0 on every frame made
+        // heights swap in place one at a time even when playback time itself
+        // was interpolated smoothly.
+        let firstBarIndex = Int((start / secondsPerBar).rounded(.down))
+
+        func neighborAmplitude(_ neighbor: SCWaveformNeighbor?, at t: Double) -> Float? {
+            guard let neighbor, !neighbor.envelope.isEmpty, neighbor.duration > 0,
+                  let n = neighbor.localTime(atCurrentTime: t) else { return nil }
+            return SCWaveformSampler.amplitude(in: neighbor.envelope, duration: neighbor.duration, at: n)
+        }
+
         for layerIndex in style.shellDepths.indices {
             let depth = style.shellDepths[layerIndex]
             var playedPath = Path()
             var futurePath = Path()
             var nearPath = Path()
-            var x: CGFloat = 0
-            while x < size.width {
-                let t = start + Double(x) * secondsPerPoint
-                let amplitude = (t < 0 || t > duration)
-                    ? 0
-                    : SCWaveformSampler.amplitude(in: envelope, duration: duration, at: t)
+            // Neighboring queue tracks extend the lane past the current
+            // track's bounds. Outside the current timeline they render
+            // dimmed; inside it (a mix's overlap span) both tracks draw at
+            // near-full strength, honestly superimposed.
+            var leadingPath = Path()
+            var leadingMixPath = Path()
+            var trailingPath = Path()
+            var trailingMixPath = Path()
+            var barIndex = firstBarIndex
+            while true {
+                let t = Double(barIndex) * secondsPerBar
+                let x = xFor(t)
+                if x >= size.width { break }
+                defer { barIndex += 1 }
+                guard x + style.barPitch > 0 else { continue }
+                let inCurrent = t >= 0 && t <= duration
+                let amplitude = inCurrent
+                    ? SCWaveformSampler.amplitude(in: envelope, duration: duration, at: t)
+                    : 0
+                let leadAmplitude = neighborAmplitude(leadingNeighbor, at: t)
+                let trailAmplitude = neighborAmplitude(trailingNeighbor, at: t)
 
                 var scale: CGFloat = 1
                 var nearness: CGFloat = 0
@@ -738,24 +867,64 @@ struct SCWaveformRenderer: View {
                     }
                 }
 
-                var half = CGFloat(amplitude) * usableHalf * style.restFraction * scale * depth
-                if growing {
-                    half = reveal.half(
-                        from: seedHalf * depth, to: half, atFraction: Double(x * inverseWidth)
-                    )
+                func barPath(for sample: Float) -> Path {
+                    var half = CGFloat(sample) * usableHalf * style.restFraction * scale * depth
+                    if growing {
+                        half = reveal.half(
+                            from: seedHalf * depth, to: half, atFraction: Double(x * inverseWidth)
+                        )
+                    }
+                    let height = max(style.minBarHalfHeight, half)
+                    let rect = CGRect(x: x, y: mid - height, width: max(1, style.barPitch), height: height * 2)
+                    return Path(roundedRect: rect, cornerRadius: style.barCornerRadius)
                 }
-                let height = max(style.minBarHalfHeight, half)
-                let rect = CGRect(x: x, y: mid - height, width: max(1, style.barPitch), height: height * 2)
-                let path = Path(roundedRect: rect, cornerRadius: style.barCornerRadius)
-                if t <= position {
-                    playedPath.addPath(path)
-                } else {
-                    futurePath.addPath(path)
+
+                // With no neighbor covering this time, keep the historical
+                // minimum-height fence past the current track's bounds.
+                if inCurrent || (leadAmplitude == nil && trailAmplitude == nil) {
+                    let path = barPath(for: amplitude)
+                    if t <= position {
+                        playedPath.addPath(path)
+                    } else {
+                        futurePath.addPath(path)
+                    }
+                    if layerIndex == 0, nearness > 0.05 {
+                        nearPath.addPath(path)
+                    }
                 }
-                if layerIndex == 0, nearness > 0.05 {
-                    nearPath.addPath(path)
+                if let leadAmplitude {
+                    let path = barPath(for: leadAmplitude)
+                    if inCurrent {
+                        leadingMixPath.addPath(path)
+                    } else {
+                        leadingPath.addPath(path)
+                    }
                 }
-                x += totalPitch
+                if let trailAmplitude {
+                    let path = barPath(for: trailAmplitude)
+                    if inCurrent {
+                        trailingMixPath.addPath(path)
+                    } else {
+                        trailingPath.addPath(path)
+                    }
+                }
+            }
+
+            let unplayedColor = style.unplayedShellColors[safe: layerIndex] ?? style.unplayedShellColors.last ?? .gray
+            let playedColor = style.playedShellColors[safe: layerIndex] ?? style.playedShellColors.last ?? .orange
+
+            // Neighbors draw beneath the current track's bars.
+            if !leadingPath.isEmpty || !trailingPath.isEmpty {
+                var dim = ink
+                dim.opacity = style.neighborOpacity * (growing ? reveal.inkOpacity : 1)
+                if !leadingPath.isEmpty { dim.fill(leadingPath, with: .color(style.leadingNeighborColor)) }
+                if !trailingPath.isEmpty { dim.fill(trailingPath, with: .color(style.trailingNeighborColor)) }
+            }
+            if !leadingMixPath.isEmpty || !trailingMixPath.isEmpty {
+                var dim = ink
+                dim.opacity = style.neighborMixOpacity * (growing ? reveal.inkOpacity : 1)
+                if !leadingMixPath.isEmpty { dim.fill(leadingMixPath, with: .color(style.leadingNeighborColor)) }
+                if !trailingMixPath.isEmpty { dim.fill(trailingMixPath, with: .color(style.trailingNeighborColor)) }
             }
 
             if layerIndex == 0, drawsBlurredGlow, !playedPath.isEmpty {
@@ -767,8 +936,6 @@ struct SCWaveformRenderer: View {
                 }
             }
 
-            let unplayedColor = style.unplayedShellColors[safe: layerIndex] ?? style.unplayedShellColors.last ?? .gray
-            let playedColor = style.playedShellColors[safe: layerIndex] ?? style.playedShellColors.last ?? .orange
             fillLane(
                 unplayedPath: futurePath, playedPath: playedPath,
                 unplayedColor: unplayedColor, playedColor: playedColor,
@@ -929,5 +1096,74 @@ struct SCWaveformRenderer: View {
 private extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+/// One combined marker row for a waveform lane: cue diamonds (rings for
+/// suggested cues) and comment dots on a single line, sharing the waveform's
+/// time→x mapping so markers stay glued to the bars under them. This is the
+/// merged replacement for stacking a cue row above a comment row. The lane
+/// is presentational; interaction (tap-to-seek, cue repositioning) stays in
+/// the per-platform shell, overlaid on top.
+struct SCWaveformMarkerLane: View {
+    var markers: [SCWaveformMarker]
+    var duration: TimeInterval
+    var mode: SCWaveformPlayheadMode = .fixed
+    /// Playhead time; only used by `.centered` modes.
+    var center: TimeInterval = 0
+    var style: SCWaveformStyle = .tv
+    var markerSize: CGFloat = 9
+
+    var body: some View {
+        Canvas { context, size in
+            guard size.width > 0, size.height > 0, duration > 0 else { return }
+            let mid = size.height / 2
+
+            var baseline = Path()
+            baseline.addRect(CGRect(x: 0, y: mid - 0.5, width: size.width, height: 1))
+            context.fill(baseline, with: .color(style.axisColor))
+
+            for marker in markers {
+                let x = xFor(marker.position * duration, width: size.width)
+                guard x >= -markerSize, x <= size.width + markerSize else { continue }
+                let color = marker.color ?? style.cueColor
+                let half = markerSize / 2
+
+                switch marker.shape {
+                case .line:
+                    var line = Path()
+                    let lineHalf = style.cueLineWidth / 2
+                    line.addRect(CGRect(x: x - lineHalf, y: 0, width: style.cueLineWidth, height: size.height))
+                    context.fill(line, with: .color(color))
+                case .diamond:
+                    let rect = CGRect(x: x - half, y: mid - half, width: markerSize, height: markerSize)
+                    let diamond = Path(roundedRect: rect, cornerRadius: markerSize * 0.22)
+                    var transform = CGAffineTransform(translationX: x, y: mid)
+                    transform = transform.rotated(by: .pi / 4)
+                    context.fill(diamond.applying(transform.translatedBy(x: -x, y: -mid)), with: .color(color))
+                case .dot:
+                    context.fill(
+                        Path(ellipseIn: CGRect(x: x - half, y: mid - half, width: markerSize, height: markerSize)),
+                        with: .color(color)
+                    )
+                case .ring:
+                    context.stroke(
+                        Path(ellipseIn: CGRect(x: x - half, y: mid - half, width: markerSize, height: markerSize)),
+                        with: .color(color),
+                        lineWidth: max(1, style.cueLineWidth * 0.8)
+                    )
+                }
+            }
+        }
+    }
+
+    private func xFor(_ t: TimeInterval, width: CGFloat) -> CGFloat {
+        switch mode {
+        case .fixed:
+            return CGFloat(min(1, max(0, t / duration))) * width
+        case .centered(let windowSeconds):
+            guard windowSeconds > 0 else { return width / 2 }
+            return CGFloat((t - (center - windowSeconds / 2)) / windowSeconds) * width
+        }
     }
 }
