@@ -21,22 +21,28 @@
   </header>
   <main id="main" class="page">
     <h1>Privacy policy</h1>
-    <p class="intro">Short version: Sounding doesn’t collect anything. Last updated 7 November 2026.</p>
+    <p class="intro">Short version: Sounding doesn’t collect anything. Last updated 9 November 2026.</p>
     <p>Sounding is an independent app made by Alexander Forbes-Reed. It isn’t affiliated with or endorsed by SoundCloud.</p>
     <h2>What Sounding collects</h2>
-    <p>Nothing. There are no Sounding servers, no Sounding accounts, no analytics, no ads and no third-party SDKs. I don’t get any data about you or how you use the app. The app only talks to SoundCloud and Apple.</p>
+    <p>Nothing. There are no Sounding servers, no Sounding accounts, no analytics and no tracking SDKs, and Sounding shows no ads of its own. I don’t get any data about you or how you use the app. The app talks to SoundCloud and Apple, plus two others if you switch them on: lrclib.net for lyrics, and huggingface.co for the Mac’s AI models. Each has its own section below.</p>
     <h2>Your SoundCloud account</h2>
     <p>You sign in on SoundCloud’s own page. Sounding keeps that sign-in in the Keychain on your device, and encrypted in your private iCloud so your other devices can use it. It only ever sends it to SoundCloud, to fetch your library and play your music. Likes, comments and follows go straight to SoundCloud as well, and SoundCloud’s privacy policy covers that data.</p>
+    <h2>Promoted tracks</h2>
+    <p>SoundCloud puts promoted tracks and playlists in your feed, and Sounding shows them with SoundCloud’s “Promoted” label. As SoundCloud’s own apps do, it calls the tracking addresses SoundCloud sends with each one: an impression when it’s been at least half on screen for a second, a play when you play it, and a click when you open a promoted playlist. Each fires once per item, only while the app is open, and carries no sign-in or cookies. I don’t see any of it, and SoundCloud’s privacy policy covers what it does with it.</p>
     <h2>What stays on your devices</h2>
-    <p>Downloads, Music Analysis results (tempo, key and genre), cue points, setlists and settings live on the device. Music Analysis runs on the device too. If you’re signed in to iCloud, these sync between your own devices through your private iCloud database. I can’t read it.</p>
+    <p>Downloads, Music Analysis results (tempo, key and genre), cue points, setlists and settings live on the device. Music Analysis runs on the device too. The network activity log (Settings, Network Activity) stays on the device as well: it lists the app’s own requests with sign-ins and keys blanked out, and on iPhone, iPad and Mac you can export it if you want to send it to me. Nothing sends it for you. If you’re signed in to iCloud, these sync between your own devices through your private iCloud database. I can’t read it.</p>
     <h2>Adding an Apple&nbsp;TV, Mac or Apple&nbsp;Watch</h2>
     <p>When you add an Apple&nbsp;TV or Mac, your iPhone sends the sign-in straight to it over your local network, encrypted with a one-time key. It doesn’t go through any server. The chime an Apple&nbsp;TV plays only carries a short, single-use code, never your sign-in. Your Apple&nbsp;Watch gets the sign-in from your iPhone over Apple’s own watch connection.</p>
     <h2>Microphone, camera and local network</h2>
-    <p>On iPhone, iPad and Mac, the microphone listens for your Apple&nbsp;TV’s sign-in chime, and only while that screen is open. Nothing is recorded or sent anywhere. The camera is only used if you’d rather scan the code on your Apple&nbsp;TV. Local network access is used to find your own devices and nearby Polyphony sessions. None of it is stored or shared.</p>
+    <p>On iPhone, iPad and Mac, the microphone listens for your Apple&nbsp;TV’s sign-in chime, and only while that screen is open. Nothing is recorded or sent anywhere. The camera is only used if you’d rather scan the code on your Apple&nbsp;TV. Local network access is used to find your own devices. None of it is stored or shared.</p>
     <h2>Heart rate and home lights</h2>
     <p>Both are off until you turn them on. Match My Workout reads your heart rate from Apple Watch through Health, only while it’s on, to set how energetic Auto Mix plays. The reading stays on your devices. When your Apple&nbsp;TV is the Output, your iPhone sends it an energy level (not your heart rate), and it isn’t stored. If you start a workout from your Apple&nbsp;Watch, it’s saved to Health. Home Lighting uses HomeKit to set the lights you choose, and Sounding doesn’t keep anything about your home.</p>
-    <h2>Polyphony</h2>
-    <p>When you join a Polyphony session, the devices on your network share what’s playing and where it’s up to, so they stay in sync. Each speaker plays the track from SoundCloud with its own sign-in.</p>
+    <h2>Listening together</h2>
+    <p>SharePlay is Apple’s. When you start one, Apple carries the track, the queue and where it’s up to between everyone on the call, so you stay in sync. Each person plays the track from SoundCloud with their own sign-in, and nobody’s sign-in is shared.</p>
+    <h2>Lyrics</h2>
+    <p>Lyrics are off until you agree to them the first time you open the Lyrics pane. If you do, Sounding sends the title, artist, album (when it has one) and length of the track you’re playing to lrclib.net, a free lyrics database, and for the next track in the queue as well. Nothing else goes: no sign-in, no account, no device ID, no listening history. Results are kept on your device so the same song isn’t looked up twice. You can turn lyrics off in Settings, Playback.</p>
+    <h2>On-device AI analysis on Mac</h2>
+    <p>Off until you turn it on in Settings. Switching it on downloads the models, about 223 MB, from huggingface.co. Each file is checked against a hash built into the app, and one that doesn’t match is thrown away. Once they’re downloaded, the analysis runs on your Mac, and your music and its results aren’t sent anywhere. Delete Models in the same place removes them.</p>
     <h2>Song identification</h2>
     <p>Sounding identifies tracks inside long mixes with Apple’s ShazamKit. It makes a fingerprint from the track’s own audio (not from your microphone) and Apple matches it, so Apple’s privacy policy covers that part.</p>
     <h2>Deleting your data</h2>
