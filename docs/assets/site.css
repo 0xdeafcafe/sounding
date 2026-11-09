@@ -480,3 +480,4 @@ main > section { position: relative; z-index: 1; }
 .page li + li { margin-top: var(--s1); }
 .page .button { margin-top: var(--s3); }
 .page .mail { font-size: var(--t-lede); margin-top: var(--s3); }
+.join-action .invite { font-size: var(--t-lede); line-height: 1.4; color: var(--ink); max-width: 28ch; }
