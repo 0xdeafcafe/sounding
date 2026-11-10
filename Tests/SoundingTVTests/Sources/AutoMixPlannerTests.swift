@@ -13,6 +13,7 @@ final class AutoMixPlannerTests: XCTestCase {
         var vocal = false
         var loop: Float = 0.9
         var density: Float = 0.4
+        var beats: [Float]? = nil
     }
 
     static let bpm = 124.0
@@ -33,12 +34,15 @@ final class AutoMixPlannerTests: XCTestCase {
             if !spec.vocal, let start = open { vocals.append(start...(starts[index] - 0.3)); open = nil }
         }
         if let start = open { vocals.append(start...(duration - 1)) }
-        let profile = BarProfile(
+        var profile = BarProfile(
             level: bars.map(\.level), density: bars.map(\.density),
             loop4: bars.map(\.loop), loop8: bars.map(\.loop),
             bands: bars.flatMap { [$0.low / 4.343, $0.mid / 4.343, $0.mid / 4.343, $0.mid / 4.343] },
             tonality: bars.map(\.tonality)
         )
+        if bars.contains(where: { $0.beats != nil }) {
+            profile.beats = bars.flatMap { $0.beats ?? Array(repeating: $0.level, count: BarProfile.beatsPerBar) }
+        }
         let envelope = (0..<Int(duration)).map { second -> Float in
             let index = min(bars.count - 1, Int(Double(second) / bar))
             return pow(10, bars[index].level / 20) * 2
@@ -122,6 +126,36 @@ final class AutoMixPlannerTests: XCTestCase {
         XCTAssertTrue(LoopMixPlanner.releaseDips(incoming, window))
         let early = LoopMixPlanner.Window(bar: 0, bars: 8, seconds: 0, endSeconds: Self.downbeat(incoming, 8), density: 0.3, level: -9, loopability: 1)
         XCTAssertFalse(LoopMixPlanner.releaseDips(incoming, early))
+    }
+
+    func testBeatLevelsCatchADipShorterThanABar() {
+        var bars = Self.incomingBars()
+        bars[40].beats = [-8, -8, -8, -20]
+        let incoming = Self.track("in-fill", bars)
+        XCTAssertEqual(incoming.barProfile?.level[40], -8, "the bar level alone misses the fill")
+        XCTAssertTrue(DJContentBounds.dips(incoming, from: Self.downbeat(incoming, 39), to: Self.downbeat(incoming, 42)))
+        XCTAssertFalse(DJContentBounds.dips(incoming, from: Self.downbeat(incoming, 44), to: Self.downbeat(incoming, 47)))
+        let levels = DJLookAhead.Levels(incoming)
+        XCTAssertEqual(levels?.level.count, bars.count * BarProfile.beatsPerBar)
+        XCTAssertLessThan(levels?.relative(Self.downbeat(incoming, 40) + 3.5 * Self.beat) ?? 0, -10)
+    }
+
+    func testLookAheadReadsEightBarsPastTheHandover() {
+        var bars = Self.incomingBars()
+        for b in 28..<32 { bars[b] = BarSpec(level: -24, low: -30) }
+        let incoming = Self.track("in-later", bars)
+        let late = DJLookAhead.read(Self.blend(exit: 120, entry: 0, bars: 24), outgoing: Self.outgoing, incoming: incoming)
+        XCTAssertEqual(late?.breaksSoon, true, "the incoming breaks down 4 bars after the outgoing has gone")
+        let clear = DJLookAhead.read(Self.blend(exit: 120, entry: 0, bars: 24), outgoing: Self.outgoing, incoming: Self.incoming)
+        XCTAssertEqual(clear?.breaksSoon, false)
+    }
+
+    func testEchoThrowNeverStartsFromAQuietBar() {
+        var bars = Self.outgoingBars()
+        bars[119] = BarSpec(level: -22, low: -26)
+        let outgoing = Self.track("out-quiet", bars)
+        XCTAssertTrue(DJPhraseCut.quietThrow(outgoing, line: Self.downbeat(outgoing, 120)))
+        XCTAssertFalse(DJPhraseCut.quietThrow(outgoing, line: Self.downbeat(outgoing, 128)))
     }
 
     func testLookAheadSeesTheIncomingBreakAfterTheHandover() {

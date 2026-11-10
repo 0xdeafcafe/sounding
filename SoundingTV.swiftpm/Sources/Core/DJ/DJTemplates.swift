@@ -945,6 +945,9 @@ enum DJHandover {
                 let window = end - exit.seconds
                 guard window <= maximumSeconds else { continue }
                 for arrival in arrivals {
+                    if let swapLine = DJMoveSupport.downbeat(incoming, from: arrival, bars: swapBars), arrival >= incoming.contentStart - 0.05 {
+                        out.append(Option(exit: exit, entry: DJMoveSupport.entryPoint(incoming, arrival, confidence: 0.75), bars: bars, swapBars: swapBars, arrival: swapLine, swapWall: swap - exit.seconds, window: window))
+                    }
                     guard let entrySeconds = DJMoveSupport.downbeat(incoming, from: arrival, bars: -swapBars),
                           entrySeconds >= incoming.contentStart - 0.05 else { continue }
                     let entry = DJMoveSupport.entryPoint(incoming, entrySeconds, confidence: 0.8)
@@ -1085,6 +1088,19 @@ struct HighPassThinOutTemplate: TransitionTemplate {
     ]
 
     static let targetHertz = 600.0
+    static let unlockedBars = 4
+
+    static func locked(_ outgoing: TrackFeatures, _ incoming: TrackFeatures, profile: DJProfile) -> Bool {
+        guard let a = outgoing.beatGrid, let b = incoming.beatGrid else { return false }
+        return outgoing.provenance.contains(.measuredBeatGrid) && incoming.provenance.contains(.measuredBeatGrid)
+            && a.confidence >= profile.minGridConfidence && b.confidence >= profile.minGridConfidence
+    }
+
+    static func tempoOnly(_ outgoing: TrackFeatures, _ incoming: TrackFeatures) -> Bool {
+        guard let a = outgoing.beatGrid, let b = incoming.beatGrid, a.bpm > 0, b.bpm > 0 else { return false }
+        return outgoing.provenance.contains(.measuredTempo) && incoming.provenance.contains(.measuredTempo)
+            && (!outgoing.provenance.contains(.measuredBeatGrid) || !incoming.provenance.contains(.measuredBeatGrid))
+    }
 
     func admits(
         outgoing: TrackFeatures,
@@ -1093,10 +1109,7 @@ struct HighPassThinOutTemplate: TransitionTemplate {
     ) -> TemplateAdmission {
         guard let outgoingGrid = outgoing.beatGrid,
               let incomingGrid = incoming.beatGrid,
-              outgoing.provenance.contains(.measuredBeatGrid),
-              incoming.provenance.contains(.measuredBeatGrid),
-              outgoingGrid.confidence >= profile.minGridConfidence,
-              incomingGrid.confidence >= profile.minGridConfidence else {
+              Self.locked(outgoing, incoming, profile: profile) || Self.tempoOnly(outgoing, incoming) else {
             return .rejected(reason: "\(displayName): a tempo-locked handover needs measured grids on both tracks")
         }
         guard let relation = DJTempo.best(outgoing: outgoingGrid, incoming: incomingGrid) else {
@@ -1127,20 +1140,22 @@ struct HighPassThinOutTemplate: TransitionTemplate {
         let fullBodyEntries = entries.filter(\.hasBassFromHere)
         guard !fullBodyEntries.isEmpty else { return [] }
 
+        let unlocked = !Self.locked(outgoing, incoming, profile: profile)
         var plans: [DJTransitionPlan] = []
         for exit in exits.prefix(3) {
             let available = outgoing.duration - exit.seconds
-            for bars in [4, 8].filter({ profile.transitionBarsRange.contains($0) }) {
+            for bars in (unlocked ? [Self.unlockedBars] : [4, 8].filter({ profile.transitionBarsRange.contains($0) })) {
                 let window = min(Double(bars) * grid.barDuration, available - 0.5)
                 guard window >= 4 else { continue }
-                let handoverAt = min(window * 0.55, max(0, window - grid.beatPeriod))
-                let handoverDuration = min(grid.beatPeriod * 2, max(0.1, window - handoverAt))
+                let thinOver = unlocked ? min(window, grid.barDuration) : window
+                let handoverDuration = min(grid.barDuration, max(0.1, window * 0.4))
+                let handoverAt = min(max(0, window * 0.55 - handoverDuration / 2), max(0, window - handoverDuration))
 
                 for entry in fullBodyEntries.prefix(2) {
                     let stages: [TransitionStage] = [
                         TransitionStage(
                             at: 0, on: .outgoing,
-                            .highPassTo(hertz: Self.targetHertz, over: window),
+                            .highPassTo(hertz: Self.targetHertz, over: thinOver),
                             snap: .free
                         ),
                         TransitionStage(
