@@ -122,10 +122,7 @@ final class CloudSyncEngineController: NSObject, CKSyncEngineDelegate, @unchecke
     }
 
     static func containerIdentifierIsEntitled(_ identifier: String) -> Bool {
-        guard let identifiers = SecTaskEntitlementBridge.stringArrayValue(
-            forEntitlement: "com.apple.developer.icloud-container-identifiers"
-        ) else { return false }
-        return identifiers.contains(identifier)
+        CloudKitEntitlements.current.allows(containerIdentifier: identifier)
     }
 
     func enqueue(_ records: [CKRecord]) async throws {
