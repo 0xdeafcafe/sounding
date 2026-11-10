@@ -175,6 +175,7 @@ final class ChimePlayer {
             engine.attach(node)
             engine.connect(node, to: engine.mainMixerNode, format: stereoFormat)
             source = node
+            engine.prepare()
         }
 
         do {
@@ -205,7 +206,7 @@ final class ChimePlayer {
                 guard let self, !Task.isCancelled else { return }
                 let silent = self.state.withLock { !$0.carrierWanted && $0.isSilent }
                 if silent {
-                    self.engine.stop()
+                    self.engine.pause()
                     self.state.withLock {
                         $0.carrier = nil
                         $0.nextCarrier = nil
