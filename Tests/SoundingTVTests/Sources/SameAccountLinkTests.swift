@@ -255,4 +255,45 @@ final class SameAccountLinkTests: XCTestCase {
         let ring = LinkOwnerKeyRing(current: ownerKey())
         XCTAssertTrue(ring.usableKeys(at: start.addingTimeInterval(LinkOwnerKeyRing.maximumAge)).isEmpty)
     }
+
+    // MARK: - TV matches the phone's nearby advert
+
+    private func phone(_ suffix: String = "a1b2c3d4", account: String = "12345", deviceId: String = "phone-1", name: String? = "Alex's iPhone") -> SameAccountPhoneBrowser.Advertised {
+        var entries = advert(account: account, linked: [deviceId]).entries
+        if let name { entries[LinkAccountHint.nameKey] = name }
+        return SameAccountPhoneBrowser.Advertised(serviceName: "\(BonjourConstants.nearbyServiceName)-\(suffix)", entries: entries)
+    }
+
+    @MainActor
+    func testTVMatchesASameAccountPhone() {
+        XCTAssertEqual(SameAccountPhoneBrowser.nearbyName(in: [phone()], accountId: "12345", linkedDeviceIds: []), "Alex's iPhone")
+    }
+
+    @MainActor
+    func testTVIgnoresAnotherAccount() {
+        XCTAssertNil(SameAccountPhoneBrowser.nearbyName(in: [phone(account: "999")], accountId: "12345", linkedDeviceIds: []))
+        XCTAssertNil(SameAccountPhoneBrowser.nearbyName(in: [phone()], accountId: nil, linkedDeviceIds: []))
+        XCTAssertNil(SameAccountPhoneBrowser.nearbyName(in: [phone()], accountId: "", linkedDeviceIds: []))
+    }
+
+    @MainActor
+    func testTVIgnoresAPhoneItIsAlreadyLinkedTo() {
+        XCTAssertNil(SameAccountPhoneBrowser.nearbyName(in: [phone()], accountId: "12345", linkedDeviceIds: ["tv-remote", "phone-1"]))
+        XCTAssertEqual(SameAccountPhoneBrowser.nearbyName(in: [phone()], accountId: "12345", linkedDeviceIds: ["phone-2"]), "Alex's iPhone")
+    }
+
+    @MainActor
+    func testTVIgnoresOtherServicesAndMissingTXT() {
+        let offer = SameAccountPhoneBrowser.Advertised(serviceName: "SoundingTV-LinkOffer-abcd1234", entries: phone().entries)
+        let bare = SameAccountPhoneBrowser.Advertised(serviceName: "\(BonjourConstants.nearbyServiceName)-ffff0000", entries: nil)
+        XCTAssertNil(SameAccountPhoneBrowser.nearbyName(in: [offer, bare], accountId: "12345", linkedDeviceIds: []))
+    }
+
+    @MainActor
+    func testTVFallsBackToAGenericNameAndPicksTheFirstMatch() {
+        XCTAssertEqual(SameAccountPhoneBrowser.nearbyName(in: [phone(name: nil)], accountId: "12345", linkedDeviceIds: []), "An iPhone")
+        XCTAssertEqual(SameAccountPhoneBrowser.nearbyName(in: [phone(name: "   ")], accountId: "12345", linkedDeviceIds: []), "An iPhone")
+        let adverts = [phone("bbbb0000", name: "iPad"), phone("aaaa0000", account: "999", name: "Other"), phone("cccc0000", name: "iPhone")]
+        XCTAssertEqual(SameAccountPhoneBrowser.nearbyName(in: adverts, accountId: "12345", linkedDeviceIds: []), "iPad")
+    }
 }

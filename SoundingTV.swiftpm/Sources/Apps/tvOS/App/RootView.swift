@@ -252,7 +252,7 @@ private struct SameAccountLinking: ViewModifier {
             .animation(.smooth, value: linkedBanner ?? nearbyHint)
             .alert(
                 "Allow “\(server.linkApproval?.deviceName ?? "A nearby device")” to link to this Apple TV?",
-                isPresented: Binding(get: { server.linkApproval != nil }, set: { _ in }),
+                isPresented: Binding(get: { server.linkApproval != nil }, set: { if !$0, server.linkApproval != nil { server.declineLink() } }),
                 presenting: server.linkApproval
             ) { _ in
                 Button("Allow") { server.approveLink() }
@@ -296,7 +296,7 @@ private struct SameAccountLinking: ViewModifier {
         let accountId = authService.needsSignIn ? nil : SameAccountLinkAdvertiser.currentAccountId
         let active = scenePhase != .background
         advertiser.update(accountId: accountId, isActive: active)
-        nearby.update(accountId: active ? accountId : nil, linkedDeviceIds: CompanionServer.shared.devices.compactMap(\.deviceId))
+        nearby.update(accountId: active ? accountId : nil)
         askPhonesToLink()
     }
 
