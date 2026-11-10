@@ -194,6 +194,14 @@ final class CompanionClient: ObservableObject {
     private var cuePushHighWaterMark: Int64 = 0
     private var libraryPushHighWaterMark: Int64?
     private var libraryPushMarks: [String: Int64] = [:]
+    private var analysisSentKeys: Set<String> = []
+    private var analysisRequestedTrackIds: Set<String> = []
+    var prefetchesAnalysisForOutput = false {
+        didSet {
+            guard prefetchesAnalysisForOutput != oldValue else { return }
+            if prefetchesAnalysisForOutput { scheduleAnalysisPush() }
+        }
+    }
     private let synchronizationID = "companion.client.\(UUID().uuidString)"
 
     private nonisolated(unsafe) var browser: NWBrowser?
@@ -774,6 +782,7 @@ final class CompanionClient: ObservableObject {
         appliedDJRevision = 0
         cuePushHighWaterMark = 0
         libraryPushHighWaterMark = nil
+        analysisSentKeys = []
         lastDeviceStatusMillis = 0
         lastContinueSessionMillis = 0
         if peerNeedsSignIn { peerNeedsSignIn = false }
@@ -915,6 +924,7 @@ final class CompanionClient: ObservableObject {
                 self?.sendContinueSession(session)
             }
             if let own = ContinueFrom.shared.latestOwn { sendContinueSession(own) }
+            scheduleAnalysisPush()
         case .waiting:
             lastWaitingError = channel?.lastError
         case .failed:
@@ -954,6 +964,7 @@ final class CompanionClient: ObservableObject {
             if !hasSnapshot { hasSnapshot = true }
             Log.link.debug("[CompanionClient] rx queue_state rev=\(queue.revision, privacy: .public) tracks=\(queue.tracks.count, privacy: .public)")
             schedulePersistSnapshot()
+            scheduleAnalysisPush()
 
         case .playbackState:
             guard let playback = message.playback else { return }
@@ -1366,6 +1377,51 @@ final class CompanionClient: ObservableObject {
             sessionId: link.sessionId,
             payload: ContinueSessionPayload.create(body: body, sessionId: link.sessionId, secret: secret)
         ))
+    }
+
+    private func scheduleAnalysisPush() {
+        guard prefetchesAnalysisForOutput, connection != nil else { return }
+        gateway.submit(
+            lane: .companionBulk,
+            key: "\(synchronizationID).analysis"
+        ) { [weak self] in
+            await self?.runAnalysisPush()
+        }
+    }
+
+    private func runAnalysisPush() async {
+        guard prefetchesAnalysisForOutput, connection != nil, let link, let secret = link.secret else { return }
+        let playing = RemoteQueueProjection.playingIndex(
+            tracks: tracks, currentIndex: currentIndex, presentedTrackId: telemetry.playback?.trackId
+        ) ?? currentIndex
+        let upcoming = AnalysisPeerPush.upcomingTrackIds(queue: tracks.map(\.id), currentIndex: playing)
+        guard !upcoming.isEmpty else { return }
+        let records = await AnalysisCache.shared.syncRecords(forTrackIds: upcoming)
+        for trackId in upcoming where AnalysisPeerPush.needsMeasuredAnalysis(trackId, records: records) {
+            guard analysisRequestedTrackIds.insert(trackId).inserted else { continue }
+            requestPreAnalysis(trackId)
+        }
+        for batch in AnalysisPeerPush.batches(records, alreadySent: analysisSentKeys) {
+            guard connection != nil, let body = AnalysisPeerBody(records: batch).encoded() else { return }
+            let payload = AnalysisPeerPayload.create(
+                body: body, recordCount: batch.count, sessionId: link.sessionId, secret: secret
+            )
+            transmitNow(.analysisSync(sessionId: link.sessionId, payload: payload))
+            analysisSentKeys.formUnion(batch.map(AnalysisPeerPush.sentKey))
+        }
+    }
+
+    private func requestPreAnalysis(_ trackId: String) {
+        guard let candidate = DownloadManager.shared.backlogCandidate(trackId: trackId) else { return }
+        AutomaticAnalysisScheduler.shared.schedule(
+            candidate.track,
+            trigger: .downloaded,
+            localAudio: DownloadManager.localAudioProvider(for: trackId),
+            transcoding: candidate.transcoding
+        ) { [weak self] state in
+            guard state == .complete else { return }
+            self?.scheduleAnalysisPush()
+        }
     }
 
     private func scheduleLikesPushIfSupported() {
@@ -1863,6 +1919,11 @@ final class OutputRouter: ObservableObject {
             current = linked
         }
         #endif
+        $current
+            .map { !$0.isLocal }
+            .removeDuplicates()
+            .sink { [weak client] isRemote in client?.prefetchesAnalysisForOutput = isRemote }
+            .store(in: &cancellables)
         client.objectWillChange
             .sink { [weak self] _ in
                 Task { @MainActor in

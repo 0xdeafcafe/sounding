@@ -368,3 +368,90 @@ struct AnalysisSyncRelay: Sendable {
         return result
     }
 }
+
+struct AnalysisPeerBody: Codable, Sendable, Equatable {
+    let records: [AnalysisSyncRecord]
+
+    func encoded() -> Data? { try? JSONEncoder().encode(self) }
+
+    static func decode(_ data: Data) -> AnalysisPeerBody? {
+        try? JSONDecoder().decode(AnalysisPeerBody.self, from: data)
+    }
+}
+
+enum AnalysisPeerPush {
+    static let lookahead = 5
+
+    static let scope = AnalysisSyncEngineScope(allowedEngineNames: [
+        "apple.musicUnderstanding",
+        "sounding.beatTracker",
+        "sounding.genreTaxonomy",
+        "sounding.userCorrection",
+    ])
+
+    static let measuredEngineNames: Set<String> = ["apple.musicUnderstanding", "sounding.beatTracker"]
+
+    static func upcomingTrackIds(queue: [String], currentIndex: Int, limit: Int = lookahead) -> [String] {
+        guard limit > 0, currentIndex + 1 < queue.count else { return [] }
+        var seen = Set<String>()
+        var out: [String] = []
+        for id in queue[(max(0, currentIndex) + 1)...] where !id.isEmpty && seen.insert(id).inserted {
+            out.append(id)
+            if out.count == limit { break }
+        }
+        return out
+    }
+
+    static func needsMeasuredAnalysis(_ trackId: String, records: [AnalysisSyncRecord]) -> Bool {
+        !records.contains { $0.trackId == trackId && measuredEngineNames.contains($0.engineName) }
+    }
+
+    static func batches(
+        _ records: [AnalysisSyncRecord],
+        alreadySent: Set<String>,
+        maxRecords: Int = AnalysisPeerChunking.maxRecordsPerMessage,
+        maxBytes: Int = AnalysisPeerChunking.maxBodyBytes
+    ) -> [[AnalysisSyncRecord]] {
+        var out: [[AnalysisSyncRecord]] = []
+        var current: [AnalysisSyncRecord] = []
+        var bytes = 0
+        var seen = alreadySent
+        for record in records {
+            guard scope.allows(engineName: record.engineName),
+                  AnalysisSyncPolicy.validate(record) == nil,
+                  record.payload.count <= maxBytes,
+                  seen.insert(sentKey(record)).inserted else { continue }
+            if !current.isEmpty, current.count >= maxRecords || bytes + record.payload.count > maxBytes {
+                out.append(current)
+                current = []
+                bytes = 0
+            }
+            current.append(record)
+            bytes += record.payload.count
+        }
+        if !current.isEmpty { out.append(current) }
+        return out
+    }
+
+    @discardableResult
+    static func adopt(_ body: AnalysisPeerBody, into store: any AnalysisSyncStore) async -> Int {
+        let records = Array(body.records.prefix(AnalysisPeerChunking.maxRecordsPerMessage))
+        guard !records.isEmpty else { return 0 }
+        let keys = records.map(\.cacheKey)
+        let summaries = await store.localSummaries(for: keys)
+        let coverage = await store.localFeatureCoverage(for: keys)
+        let plan = AnalysisSyncPolicy.planImport(
+            incoming: records,
+            freeBytes: await store.freeBytes(),
+            localSummary: { summaries[$0] },
+            localCoverage: { coverage[$0] ?? 0 },
+            scope: scope
+        )
+        guard !plan.adopt.isEmpty else { return 0 }
+        return await store.adopt(plan.adopt)
+    }
+
+    static func sentKey(_ record: AnalysisSyncRecord) -> String {
+        "\(record.cacheKey)|\(record.payloadDigest)"
+    }
+}

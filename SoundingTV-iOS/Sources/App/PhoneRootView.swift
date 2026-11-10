@@ -146,21 +146,6 @@ struct PhoneRootView: View {
         }
     }
 
-    private static let cachingImageSession: URLSession = {
-        let configuration = URLSessionConfiguration.default
-        let cache = URLCache(memoryCapacity: 20 * 1024 * 1024, diskCapacity: 200 * 1024 * 1024)
-        configuration.urlCache = cache
-        MemoryRelief.addHandler { _ in
-            cache.memoryCapacity = 0
-            cache.memoryCapacity = 20 * 1024 * 1024
-        }
-        return URLSession(
-            configuration: configuration,
-            delegate: NetworkActivityTaskObserver(feature: .artwork),
-            delegateQueue: nil
-        )
-    }()
-
     var body: some View {
         content
             .task {
@@ -188,14 +173,14 @@ struct PhoneRootView: View {
                     }
                 }
             }
-            .applyAsyncImageSessionIfAvailable(Self.cachingImageSession)
+            .artworkImageCaching()
             .task { await credentials.prepareStoreAtLaunch() }
             .onChange(of: credentials.isSignedOut) { _, isSignedOut in
                 refreshState()
                 if !isSignedOut { didLeaveWelcome = false }
                 if isSignedOut {
                     isNowPlayingExpanded = false
-                    Self.cachingImageSession.configuration.urlCache?.removeAllCachedResponses()
+                    ArtworkImageSession.clear()
                     ArtworkColors.shared.lockAccount()
                     NowPlayingPalette.shared.lockAccount()
                 }
@@ -1228,17 +1213,6 @@ private struct PadSidebarAccount: View {
                 identity: user?.id ?? "SoundCloud account"
             )
             .accessibilityHidden(true)
-        }
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func applyAsyncImageSessionIfAvailable(_ session: URLSession) -> some View {
-        if #available(iOS 27.0, *) {
-            self.asyncImageURLSession(session)
-        } else {
-            self
         }
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import XCTest
 @testable import SoundingTV
 
 #if DEBUG
@@ -490,6 +491,80 @@ enum AnalysisSyncSelfTest {
         } catch {
             report.failures.append("relay idempotency test threw: \(error)")
         }
+    }
+}
+
+final class AnalysisPeerPushTests: XCTestCase {
+    private typealias Fixture = AnalysisSyncSelfTest
+
+    func testUpcomingTracksAreTheNextFewAfterThePlayingOne() {
+        let queue = ["a", "b", "c", "b", "d", "e", "f", "g", "h"]
+        XCTAssertEqual(AnalysisPeerPush.upcomingTrackIds(queue: queue, currentIndex: 0), ["b", "c", "d", "e", "f"])
+        XCTAssertEqual(AnalysisPeerPush.upcomingTrackIds(queue: queue, currentIndex: 6, limit: 5), ["g", "h"])
+        XCTAssertEqual(AnalysisPeerPush.upcomingTrackIds(queue: queue, currentIndex: 8), [])
+        XCTAssertEqual(AnalysisPeerPush.upcomingTrackIds(queue: [], currentIndex: 0), [])
+    }
+
+    func testMeasuredAnalysisIsNeededOnlyWithoutGridProducingEngines() {
+        let genre = Fixture.record(trackId: "x", engineName: "sounding.genreTaxonomy")
+        let tracker = Fixture.record(trackId: "y", engineName: "sounding.beatTracker")
+        XCTAssertTrue(AnalysisPeerPush.needsMeasuredAnalysis("x", records: [genre, tracker]))
+        XCTAssertFalse(AnalysisPeerPush.needsMeasuredAnalysis("y", records: [genre, tracker]))
+    }
+
+    func testBatchesSkipSentRecordsWaveformsAndInvalidRows() {
+        let understanding = Fixture.record(trackId: "a")
+        let tracker = Fixture.record(trackId: "a", engineName: "sounding.beatTracker")
+        let waveform = Fixture.record(trackId: "a", engineName: "soundcloud.waveform")
+        let tampered = Fixture.record(trackId: "b", overrideDigest: "nope")
+        let sent: Set<String> = [AnalysisPeerPush.sentKey(tracker)]
+        let batches = AnalysisPeerPush.batches([understanding, tracker, waveform, tampered, understanding], alreadySent: sent)
+        XCTAssertEqual(batches.map { $0.map(\.cacheKey) }, [[understanding.cacheKey]])
+    }
+
+    func testBatchesRespectRecordAndByteCaps() {
+        let records = (0..<20).map { Fixture.record(trackId: "t\($0)") }
+        let byCount = AnalysisPeerPush.batches(records, alreadySent: [], maxRecords: 8)
+        XCTAssertEqual(byCount.map(\.count), [8, 8, 4])
+        let size = records[0].payload.count
+        let byBytes = AnalysisPeerPush.batches(records, alreadySent: [], maxRecords: 100, maxBytes: size * 3)
+        XCTAssertEqual(byBytes.map(\.count), [3, 3, 3, 3, 3, 3, 2])
+    }
+
+    func testSignedPayloadRoundTripsAndRejectsTampering() throws {
+        let secret = Data(repeating: 7, count: 32)
+        let body = try XCTUnwrap(AnalysisPeerBody(records: [Fixture.record(trackId: "a")]).encoded())
+        let payload = AnalysisPeerPayload.create(body: body, recordCount: 1, sessionId: "s", secret: secret)
+        let framed = try TokenTransferMessage.analysisSync(sessionId: "s", payload: payload).framed()
+        let decoded = try JSONDecoder().decode(TokenTransferMessage.self, from: framed.dropFirst(4))
+        let received = try XCTUnwrap(decoded.analysisSync)
+        XCTAssertEqual(decoded.type, .analysisSync)
+        XCTAssertTrue(received.verify(sessionId: "s", secret: secret))
+        XCTAssertTrue(received.isFresh())
+        XCTAssertFalse(received.verify(sessionId: "other", secret: secret))
+        let forged = AnalysisPeerPayload(
+            body: Data("{}".utf8), recordCount: received.recordCount, issuedAtMillis: received.issuedAtMillis,
+            nonce: received.nonce, signature: received.signature
+        )
+        XCTAssertFalse(forged.verify(sessionId: "s", secret: secret))
+        XCTAssertEqual(AnalysisPeerBody.decode(received.body)?.records.first?.trackId, "a")
+    }
+
+    func testAdoptionKeepsNewerLocalRowsAndIgnoresOutOfScopeEngines() async {
+        let older = Fixture.record(trackId: "a", payloadJSON: #"{"bpm":120}"#, producedAtMillis: 1)
+        let newerLocal = Fixture.record(trackId: "b", payloadJSON: #"{"bpm":121}"#, producedAtMillis: 50)
+        let store = Fixture.MemoryStore(seed: [older, newerLocal])
+        let incomingA = Fixture.record(trackId: "a", payloadJSON: #"{"bpm":124}"#, producedAtMillis: 10)
+        let incomingB = Fixture.record(trackId: "b", payloadJSON: #"{"bpm":125}"#, producedAtMillis: 10)
+        let waveform = Fixture.record(trackId: "c", engineName: "soundcloud.waveform")
+        let adopted = await AnalysisPeerPush.adopt(AnalysisPeerBody(records: [incomingA, incomingB, waveform]), into: store)
+        XCTAssertEqual(adopted, 1)
+        let digestA = await store.digest(incomingA.cacheKey)
+        let digestB = await store.digest(newerLocal.cacheKey)
+        let hasWaveform = await store.contains(waveform.cacheKey)
+        XCTAssertEqual(digestA, incomingA.payloadDigest)
+        XCTAssertEqual(digestB, newerLocal.payloadDigest)
+        XCTAssertFalse(hasWaveform)
     }
 }
 #endif

@@ -48,6 +48,7 @@ final class CompanionServer: ObservableObject {
         var likesReplayGuard = ReplayGuard()
         var localMusicReplayGuard = ReplayGuard()
         var continueSessionReplayGuard = ReplayGuard()
+        var analysisReplayGuard = ReplayGuard()
 
         init(sessionId: String, secret: Data, contentServer: PeerContentServer) {
             self.sessionId = sessionId
@@ -686,6 +687,8 @@ final class CompanionServer: ObservableObject {
             handleLocalMusicOffer(message, from: peer, session: session)
         } else if message.type == .continueSession {
             handleContinueSession(message, from: peer, session: session)
+        } else if message.type == .analysisSync {
+            handleAnalysisSync(message, from: peer, session: session)
         } else if message.type == .authHandoffSessionOffer {
             handleAuthHandoffSessionOffer(message, from: peer, session: session)
         } else if message.type == .linkRevoke {
@@ -736,6 +739,22 @@ final class CompanionServer: ObservableObject {
         commands.prepare(lane: peer.id) { [weak self] in
             await self?.synchronization.adoptNearbyCueState(body)
             return nil
+        }
+    }
+
+    private func handleAnalysisSync(_ message: TokenTransferMessage, from peer: Peer, session: TrustedSession) {
+        guard let payload = message.analysisSync,
+              payload.verify(sessionId: session.sessionId, secret: session.secret),
+              payload.isFresh(),
+              session.analysisReplayGuard.admit(payload.nonce),
+              let body = AnalysisPeerBody.decode(payload.body),
+              payload.recordCount == body.records.count else {
+            sendError("Analysis sync rejected", to: peer)
+            return
+        }
+        Task.detached(priority: .utility) {
+            let adopted = await AnalysisPeerPush.adopt(body, into: AnalysisCache.shared)
+            Log.analysis.info("Adopted \(adopted, privacy: .public) of \(body.records.count, privacy: .public) analysis records over Companion")
         }
     }
 

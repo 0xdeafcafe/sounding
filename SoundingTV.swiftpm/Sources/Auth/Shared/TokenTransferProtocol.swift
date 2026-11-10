@@ -117,6 +117,7 @@ enum MessageType: String, Codable {
     case localMusicOffer = "local_music_offer"
     case localMusicRequest = "local_music_request"
     case continueSession = "continue_session"
+    case analysisSync = "analysis_sync"
 
     case playbackState = "playback_state"
     case djState       = "dj_state"
@@ -1543,6 +1544,61 @@ struct CueSyncPayload: Codable, Equatable {
     }
 }
 
+enum AnalysisPeerChunking {
+    static let maxRecordsPerMessage = 8
+    static let maxBodyBytes = 400 * 1024
+}
+
+struct AnalysisPeerPayload: Codable, Equatable {
+    let body: Data
+    let recordCount: Int
+    let issuedAtMillis: Int64
+    let nonce: String
+    let signature: String
+
+    static func create(body: Data, recordCount: Int, sessionId: String, secret: Data) -> AnalysisPeerPayload {
+        let issuedAtMillis = Int64(Date().timeIntervalSince1970 * 1000)
+        let nonce = UUID().uuidString
+        let signature = CanonicalForm.sign(
+            fields(recordCount: recordCount, bodyDigest: digest(body), nonce: nonce, issuedAtMillis: issuedAtMillis, sessionId: sessionId),
+            secret: secret
+        )
+        return AnalysisPeerPayload(
+            body: body, recordCount: recordCount, issuedAtMillis: issuedAtMillis, nonce: nonce, signature: signature
+        )
+    }
+
+    func verify(sessionId: String, secret: Data) -> Bool {
+        CanonicalForm.verify(
+            signature,
+            fields: Self.fields(
+                recordCount: recordCount, bodyDigest: Self.digest(body), nonce: nonce,
+                issuedAtMillis: issuedAtMillis, sessionId: sessionId
+            ),
+            secret: secret
+        )
+    }
+
+    func isFresh(now: Date = Date()) -> Bool {
+        let nowMillis = Int64(now.timeIntervalSince1970 * 1000)
+        return abs(TimeInterval(nowMillis - issuedAtMillis) / 1000) <= BonjourConstants.commandFreshnessWindow
+    }
+
+    private static func digest(_ body: Data) -> String {
+        Data(SHA256.hash(data: body)).base64EncodedString()
+    }
+
+    private static func fields(
+        recordCount: Int,
+        bodyDigest: String,
+        nonce: String,
+        issuedAtMillis: Int64,
+        sessionId: String
+    ) -> [String] {
+        [sessionId, MessageType.analysisSync.rawValue, String(recordCount), bodyDigest, nonce, String(issuedAtMillis)]
+    }
+}
+
 struct LikesSyncPayload: Codable, Equatable {
     let body: Data
     let accountId: String
@@ -2474,6 +2530,7 @@ struct TokenTransferMessage: Codable {
     let likesSync: LikesSyncPayload?
     let localMusicOffer: LocalMusicOfferPayload?
     let continueSession: ContinueSessionPayload?
+    let analysisSync: AnalysisPeerPayload?
     let numericHello: LinkConfirmationHelloPayload?
     let numericHelloAck: LinkConfirmationHelloAckPayload?
     let numericCredentials: LinkConfirmationCredentialsPayload?
@@ -2501,6 +2558,7 @@ struct TokenTransferMessage: Codable {
         likesSync: LikesSyncPayload? = nil,
         localMusicOffer: LocalMusicOfferPayload? = nil,
         continueSession: ContinueSessionPayload? = nil,
+        analysisSync: AnalysisPeerPayload? = nil,
         numericHello: LinkConfirmationHelloPayload? = nil,
         numericHelloAck: LinkConfirmationHelloAckPayload? = nil,
         numericCredentials: LinkConfirmationCredentialsPayload? = nil,
@@ -2527,6 +2585,7 @@ struct TokenTransferMessage: Codable {
         self.likesSync = likesSync
         self.localMusicOffer = localMusicOffer
         self.continueSession = continueSession
+        self.analysisSync = analysisSync
         self.numericHello = numericHello
         self.numericHelloAck = numericHelloAck
         self.numericCredentials = numericCredentials
@@ -2663,6 +2722,10 @@ struct TokenTransferMessage: Codable {
 
     static func localMusicRequest(sessionId: String) -> TokenTransferMessage {
         TokenTransferMessage(type: .localMusicRequest, sessionId: sessionId)
+    }
+
+    static func analysisSync(sessionId: String, payload: AnalysisPeerPayload) -> TokenTransferMessage {
+        TokenTransferMessage(type: .analysisSync, sessionId: sessionId, analysisSync: payload)
     }
 
     static func sessionRequest(sessionId: String, request: SessionRequestPayload) -> TokenTransferMessage {
