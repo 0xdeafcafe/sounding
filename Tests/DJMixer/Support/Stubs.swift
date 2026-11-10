@@ -55,6 +55,7 @@ enum MixPerformanceLevel: String, Codable, CaseIterable, Identifiable, Sendable 
     }
 }
 
-struct DJLearnedPriors: Equatable, Sendable {
-    static let neutral = DJLearnedPriors()
+struct AnalysisEngineIdentity: Codable, Hashable, Sendable {
+    let name: String
+    let version: Int
 }

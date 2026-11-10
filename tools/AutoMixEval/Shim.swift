@@ -9,6 +9,11 @@ enum MixEngine {
 
 enum DJQueueOrderPolicy { case profileDefault, preserve, random, mayReorder }
 
+struct AnalysisEngineIdentity: Codable, Hashable, Sendable {
+    let name: String
+    let version: Int
+}
+
 enum DJBlendLength {
     case short, normal, long
     var bars: Int { self == .short ? 8 : self == .normal ? 16 : 32 }
