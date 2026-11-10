@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "SoundingTV",
-    // Not used to build the apps — see docs/source-tree.md; this manifest exists only
+    // Not used to build the apps — see Design/notes/source-tree.md; this manifest exists only
     // so the folder opens as a Swift Playgrounds package. It matters anyway,
     // because **SourceKit resolves every file under `Sources/` against this
     // manifest rather than against the Xcode targets**. While it said

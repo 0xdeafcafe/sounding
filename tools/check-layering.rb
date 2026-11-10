@@ -2,7 +2,7 @@
 # frozen_string_literal: true
 
 # Fast static integrity check for source-tree layering and Xcode target
-# membership, without invoking a build. See docs/source-tree.md.
+# membership, without invoking a build. See Design/notes/source-tree.md.
 
 require 'pathname'
 require 'set'

@@ -156,7 +156,7 @@ Legend:
 - [ ] Preserve SoundCloud rate limits, Retry-After handling, backoff, and collection pagination.
 - [~] Add rate-limit observability so the UI can distinguish cached, loading, throttled, and failed states. The shared API now exposes and publishes its persisted blocked/throttled-until state; destination-specific loading UI still needs wiring.
 - [ ] Confirm all relevant endpoints from the official API guide are represented where the unofficial session can safely access them.
-- [x] Research and document SoundCloud notification capabilities for iOS, iPadOS, tvOS, watchOS, and macOS; SoundCloud exposes no third-party push/webhook registration. See `docs/soundcloud-notifications.md`.
+- [x] Research and document SoundCloud notification capabilities for iOS, iPadOS, tvOS, watchOS, and macOS; SoundCloud exposes no third-party push/webhook registration. See `Design/notes/soundcloud-notifications.md`.
 - [ ] Implement a rate-limited, cursor-backed notification poller for feed activity, follower deltas, bounded owned-track interactions, and direct-message inbox changes.
 - [ ] Deliver deduplicated local notifications on macOS and an in-app notification inbox on every platform; establish a first-party APNs backend before promising timely alerts while mobile apps are suspended.
 - [ ] Verify login can be completed through the embedded web flow and that the web area is visible when required.
@@ -164,7 +164,7 @@ Legend:
 - [~] Never retry or disguise requests during a bot challenge/temporary block; the shared SoundCloud layer now persists a stop window for 403/429 responses and rejects subsequent requests until it expires. Notification polling still needs its cursor-backed implementation and live verification.
 - [ ] Fix signed-in/signed-out state transitions without requiring an API client key.
 - [~] Provide first-party SoundCloud account-management handoffs: iOS/iPadOS and macOS now link to SoundCloud's security/2FA/access, subscription, notification, privacy, communications, analytics, and advertising pages and revalidate when the app becomes active. Live navigation and account-change verification remain.
-- Decision: keep Sounding personal and unofficial. Do not require Artist Pro or app registration, embed a client secret, or borrow/impersonate Sonos, SoundCloud's CLI, or another client. Use the best-effort authenticated web/session approach described in `docs/soundcloud-integration.md`.
+- Decision: keep Sounding personal and unofficial. Do not require Artist Pro or app registration, embed a client secret, or borrow/impersonate Sonos, SoundCloud's CLI, or another client. Use the best-effort authenticated web/session approach described in `Design/notes/soundcloud-integration.md`.
 - Decision: do not generate or replay SoundCloud analytics; only SoundCloud's unmodified sign-in page may send its normal telemetry.
 - Decision: do not block playback or table use based on Go/Go+/Free product badges.
 - Decision: do not highlight Go/Go+/Free/Jayde access tiers on tracks.
