@@ -198,3 +198,34 @@ struct OutputPreference {
         defaults.removeObject(forKey: Self.key)
     }
 }
+
+// MARK: - Who plays where
+
+enum OutputHandover: Equatable, Sendable {
+    case sendThisDevice
+    case controlRemote
+
+    static func plan(localIsPlaying: Bool, localHasTrack: Bool, remoteIsPlaying: Bool, remoteHasTrack: Bool) -> OutputHandover {
+        if localIsPlaying, localHasTrack { return .sendThisDevice }
+        if remoteIsPlaying, remoteHasTrack { return .controlRemote }
+        return localHasTrack ? .sendThisDevice : .controlRemote
+    }
+}
+
+enum OutputFollow {
+    static let localQuietPeriod: TimeInterval = 600
+
+    static func shouldFollow(
+        currentIsLocal: Bool,
+        isMoving: Bool,
+        localIsPlaying: Bool,
+        localLastPlayedAt: Date?,
+        remoteIsAudible: Bool,
+        remoteWasAudible: Bool,
+        now: Date
+    ) -> Bool {
+        guard remoteIsAudible, !remoteWasAudible, currentIsLocal, !isMoving, !localIsPlaying else { return false }
+        guard let localLastPlayedAt else { return true }
+        return now.timeIntervalSince(localLastPlayedAt) >= localQuietPeriod
+    }
+}

@@ -204,3 +204,66 @@ final class OutputPresenceTests: XCTestCase {
         XCTAssertEqual(OutputPreference.key, "red.forbes.sounding.output.v1")
     }
 }
+
+final class OutputHandoverTests: XCTestCase {
+    private let start = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+    func testPlayingHereMovesThisDevicesQueue() {
+        XCTAssertEqual(OutputHandover.plan(localIsPlaying: true, localHasTrack: true, remoteIsPlaying: true, remoteHasTrack: true), .sendThisDevice)
+        XCTAssertEqual(OutputHandover.plan(localIsPlaying: true, localHasTrack: true, remoteIsPlaying: false, remoteHasTrack: false), .sendThisDevice)
+    }
+
+    func testAPlayingRemoteIsControlledNotReplacedByAPausedQueue() {
+        XCTAssertEqual(OutputHandover.plan(localIsPlaying: false, localHasTrack: true, remoteIsPlaying: true, remoteHasTrack: true), .controlRemote)
+        XCTAssertEqual(OutputHandover.plan(localIsPlaying: false, localHasTrack: false, remoteIsPlaying: true, remoteHasTrack: true), .controlRemote)
+    }
+
+    func testAPausedQueueStillMovesToAnIdleRemote() {
+        XCTAssertEqual(OutputHandover.plan(localIsPlaying: false, localHasTrack: true, remoteIsPlaying: false, remoteHasTrack: true), .sendThisDevice)
+        XCTAssertEqual(OutputHandover.plan(localIsPlaying: false, localHasTrack: true, remoteIsPlaying: false, remoteHasTrack: false), .sendThisDevice)
+    }
+
+    func testNothingAnywhereJustSelectsTheRemote() {
+        XCTAssertEqual(OutputHandover.plan(localIsPlaying: false, localHasTrack: false, remoteIsPlaying: false, remoteHasTrack: false), .controlRemote)
+    }
+
+    private func follows(
+        currentIsLocal: Bool = true,
+        isMoving: Bool = false,
+        localIsPlaying: Bool = false,
+        localLastPlayedAt: Date? = nil,
+        audible: Bool = true,
+        wasAudible: Bool = false
+    ) -> Bool {
+        OutputFollow.shouldFollow(
+            currentIsLocal: currentIsLocal,
+            isMoving: isMoving,
+            localIsPlaying: localIsPlaying,
+            localLastPlayedAt: localLastPlayedAt,
+            remoteIsAudible: audible,
+            remoteWasAudible: wasAudible,
+            now: start
+        )
+    }
+
+    func testFollowsARemoteThatStartsPlayingWhileThisDeviceIsIdle() {
+        XCTAssertTrue(follows())
+    }
+
+    func testFollowsOnlyOnTheRisingEdge() {
+        XCTAssertFalse(follows(wasAudible: true))
+        XCTAssertFalse(follows(audible: false))
+    }
+
+    func testNeverFollowsWhileThisDevicePlaysOrIsMoving() {
+        XCTAssertFalse(follows(localIsPlaying: true))
+        XCTAssertFalse(follows(isMoving: true))
+        XCTAssertFalse(follows(currentIsLocal: false))
+    }
+
+    func testRecentLocalListeningOrChoiceHoldsTheOutput() {
+        XCTAssertFalse(follows(localLastPlayedAt: start.addingTimeInterval(-60)))
+        XCTAssertFalse(follows(localLastPlayedAt: start.addingTimeInterval(-(OutputFollow.localQuietPeriod - 1))))
+        XCTAssertTrue(follows(localLastPlayedAt: start.addingTimeInterval(-OutputFollow.localQuietPeriod)))
+    }
+}

@@ -40,6 +40,8 @@ struct SoundingTVApp: App {
             integrations: [
                 RuntimeIntegrationAdapter(id: "companion", start: {
                     CompanionServer.shared.startIfPaired()
+                }, setActive: { active in
+                    CompanionServer.shared.setActive(active)
                 }),
                 RuntimeIntegrationAdapter(id: "homeLighting", start: {
                     HomeLightingDirector.shared.start()

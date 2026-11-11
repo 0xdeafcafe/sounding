@@ -348,3 +348,105 @@ final class PendingLocalSeekTests: XCTestCase {
         XCTAssertTrue(seek.isExpired(at: issued.addingTimeInterval(0.5), trackID: "b"))
     }
 }
+
+final class CompanionHeartbeatTests: XCTestCase {
+    private let start = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+    func testHeartbeatIsDueFirstThenEveryInterval() {
+        XCTAssertTrue(CompanionHeartbeat.isDue(lastSentAt: nil, now: start))
+        XCTAssertFalse(CompanionHeartbeat.isDue(lastSentAt: start, now: start.addingTimeInterval(CompanionHeartbeat.interval - 0.1)))
+        XCTAssertTrue(CompanionHeartbeat.isDue(lastSentAt: start, now: start.addingTimeInterval(CompanionHeartbeat.interval)))
+    }
+
+    func testControllerGoesStaleAfterThreeMissedPings() {
+        XCTAssertFalse(CompanionHeartbeat.controllerIsStale(lastFrameAt: start, now: start.addingTimeInterval(CompanionHeartbeat.controllerStaleAfter)))
+        XCTAssertTrue(CompanionHeartbeat.controllerIsStale(lastFrameAt: start, now: start.addingTimeInterval(CompanionHeartbeat.controllerStaleAfter + 0.1)))
+        XCTAssertGreaterThanOrEqual(CompanionHeartbeat.controllerStaleAfter, CompanionHeartbeat.interval * 3)
+    }
+
+    func testSilentHeartbeatingPeerIsDropped() {
+        let late = CompanionHeartbeat.peerStaleAfter + 1
+        XCTAssertTrue(CompanionHeartbeat.peerIsUnresponsive(isReady: true, sendsHeartbeats: true, connectedFor: 600, silentFor: late))
+        XCTAssertFalse(CompanionHeartbeat.peerIsUnresponsive(isReady: true, sendsHeartbeats: true, connectedFor: 600, silentFor: CompanionHeartbeat.interval))
+    }
+
+    func testOlderControllersWithoutHeartbeatsAreNeverDroppedForSilence() {
+        XCTAssertFalse(CompanionHeartbeat.peerIsUnresponsive(isReady: true, sendsHeartbeats: false, connectedFor: 3600, silentFor: 3600))
+    }
+
+    func testAHandshakeThatNeverFinishesIsDropped() {
+        XCTAssertFalse(CompanionHeartbeat.peerIsUnresponsive(isReady: false, sendsHeartbeats: false, connectedFor: 5, silentFor: 5))
+        XCTAssertTrue(CompanionHeartbeat.peerIsUnresponsive(isReady: false, sendsHeartbeats: false, connectedFor: CompanionHeartbeat.handshakeTimeout + 1, silentFor: 0))
+    }
+
+    func testPeerGraceOutlastsTheHeartbeatInterval() {
+        XCTAssertGreaterThan(CompanionHeartbeat.peerStaleAfter, CompanionHeartbeat.interval * 4)
+    }
+}
+
+final class CompanionCommandOutboxTests: XCTestCase {
+    private let start = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+    func testDrainsInOrderAndEmpties() {
+        var outbox = CompanionCommandOutbox<String>()
+        outbox.enqueue("next", at: start)
+        outbox.enqueue("previous", at: start.addingTimeInterval(1))
+        XCTAssertEqual(outbox.drain(at: start.addingTimeInterval(2)), ["next", "previous"])
+        XCTAssertTrue(outbox.isEmpty)
+        XCTAssertEqual(outbox.drain(at: start.addingTimeInterval(3)), [])
+    }
+
+    func testKeyedCommandsKeepOnlyTheLatestIntent() {
+        var outbox = CompanionCommandOutbox<String>()
+        outbox.enqueue("play", key: "transport.playing", at: start)
+        outbox.enqueue("next", at: start)
+        outbox.enqueue("pause", key: "transport.playing", at: start.addingTimeInterval(0.5))
+        XCTAssertEqual(outbox.drain(at: start.addingTimeInterval(1)), ["next", "pause"])
+    }
+
+    func testUnkeyedCommandsAreNotCoalesced() {
+        var outbox = CompanionCommandOutbox<String>()
+        outbox.enqueue("next", at: start)
+        outbox.enqueue("next", at: start)
+        XCTAssertEqual(outbox.count, 2)
+    }
+
+    func testCommandsExpireSoAStaleTapNeverFiresLater() {
+        var outbox = CompanionCommandOutbox<String>()
+        outbox.enqueue("pause", key: "transport.playing", at: start)
+        outbox.enqueue("next", at: start.addingTimeInterval(8))
+        XCTAssertEqual(outbox.nextExpiry, start.addingTimeInterval(CompanionCommandOutbox<String>.lifetime))
+        let late = start.addingTimeInterval(CompanionCommandOutbox<String>.lifetime + 1)
+        XCTAssertEqual(outbox.drain(at: late), ["next"])
+    }
+
+    func testExpireReportsHowManyWereDropped() {
+        var outbox = CompanionCommandOutbox<String>()
+        outbox.enqueue("a", at: start)
+        outbox.enqueue("b", at: start)
+        XCTAssertEqual(outbox.expire(at: start.addingTimeInterval(CompanionCommandOutbox<String>.lifetime + 0.1)), 2)
+        XCTAssertNil(outbox.nextExpiry)
+    }
+
+    func testCapacityKeepsTheNewest() {
+        var outbox = CompanionCommandOutbox<Int>()
+        let total = CompanionCommandOutbox<Int>.capacity + 5
+        for index in 0..<total { outbox.enqueue(index, at: start) }
+        let drained = outbox.drain(at: start)
+        XCTAssertEqual(drained.count, CompanionCommandOutbox<Int>.capacity)
+        XCTAssertEqual(drained.first, 5)
+        XCTAssertEqual(drained.last, total - 1)
+    }
+}
+
+final class CompanionConnectionPhaseTests: XCTestCase {
+    func testLiveOnlyOnceStateHasArrived() {
+        XCTAssertEqual(CompanionConnectionPhase.resolve(isReachable: true, isLive: true, hasFailed: false), .live)
+        XCTAssertEqual(CompanionConnectionPhase.resolve(isReachable: true, isLive: false, hasFailed: false), .connecting)
+    }
+
+    func testAStaleSnapshotIsNeverShownAsConnected() {
+        XCTAssertEqual(CompanionConnectionPhase.resolve(isReachable: false, isLive: true, hasFailed: false), .connecting)
+        XCTAssertEqual(CompanionConnectionPhase.resolve(isReachable: false, isLive: false, hasFailed: true), .unreachable)
+    }
+}

@@ -70,3 +70,86 @@ enum LinkStatus: Equatable, Sendable {
 
     var isHealthy: Bool { self == .connected }
 }
+
+// MARK: - Liveness
+
+enum CompanionHeartbeat {
+    static let interval: TimeInterval = 5
+    static let controllerStaleAfter: TimeInterval = 15
+    static let peerStaleAfter: TimeInterval = 30
+    static let handshakeTimeout: TimeInterval = 20
+
+    static func isDue(lastSentAt: Date?, now: Date) -> Bool {
+        guard let lastSentAt else { return true }
+        return now.timeIntervalSince(lastSentAt) >= interval
+    }
+
+    static func controllerIsStale(lastFrameAt: Date, now: Date) -> Bool {
+        now.timeIntervalSince(lastFrameAt) > controllerStaleAfter
+    }
+
+    static func peerIsUnresponsive(isReady: Bool, sendsHeartbeats: Bool, connectedFor: TimeInterval, silentFor: TimeInterval) -> Bool {
+        guard isReady else { return connectedFor > handshakeTimeout }
+        return sendsHeartbeats && silentFor > peerStaleAfter
+    }
+}
+
+// MARK: - Pending commands
+
+struct CompanionCommandOutbox<Command> {
+    static var lifetime: TimeInterval { 10 }
+    static var capacity: Int { 32 }
+
+    private struct Entry {
+        let key: String?
+        let enqueuedAt: Date
+        let command: Command
+    }
+
+    private var entries: [Entry] = []
+
+    var isEmpty: Bool { entries.isEmpty }
+    var count: Int { entries.count }
+
+    var nextExpiry: Date? {
+        entries.map { $0.enqueuedAt.addingTimeInterval(Self.lifetime) }.min()
+    }
+
+    mutating func enqueue(_ command: Command, key: String? = nil, at now: Date) {
+        expire(at: now)
+        if let key { entries.removeAll { $0.key == key } }
+        entries.append(Entry(key: key, enqueuedAt: now, command: command))
+        if entries.count > Self.capacity { entries.removeFirst(entries.count - Self.capacity) }
+    }
+
+    @discardableResult
+    mutating func expire(at now: Date) -> Int {
+        let before = entries.count
+        entries.removeAll { now.timeIntervalSince($0.enqueuedAt) > Self.lifetime }
+        return before - entries.count
+    }
+
+    mutating func drain(at now: Date) -> [Command] {
+        expire(at: now)
+        defer { entries.removeAll() }
+        return entries.map(\.command)
+    }
+
+    mutating func removeAll() {
+        entries.removeAll()
+    }
+}
+
+// MARK: - Connection phase
+
+enum CompanionConnectionPhase: Equatable, Sendable {
+    case live
+    case connecting
+    case unreachable
+
+    static func resolve(isReachable: Bool, isLive: Bool, hasFailed: Bool) -> CompanionConnectionPhase {
+        if isReachable, isLive { return .live }
+        if hasFailed { return .unreachable }
+        return .connecting
+    }
+}
