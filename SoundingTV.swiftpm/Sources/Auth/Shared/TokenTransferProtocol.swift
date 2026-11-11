@@ -2768,20 +2768,30 @@ enum CompanionEndpoint {
     }
 
     static func listenerParameters(sessionId: String, secret: Data) -> NWParameters {
+        let parameters = baseParameters(sessionId: sessionId, secret: secret)
+        detectDeadPeers(parameters)
+        return parameters
+    }
+
+    static func clientParameters(sessionId: String, secret: Data, keepalive: Bool = true) -> NWParameters {
+        let parameters = baseParameters(sessionId: sessionId, secret: secret)
+        if keepalive { detectDeadPeers(parameters) }
+        return parameters
+    }
+
+    private static func baseParameters(sessionId: String, secret: Data) -> NWParameters {
         let parameters = LinkTLS.makeParameters(sessionId: sessionId, secret: secret, info: LinkTLS.companionPSKInfo)
         parameters.includePeerToPeer = false
         return parameters
     }
 
-    static func clientParameters(sessionId: String, secret: Data, keepalive: Bool = true) -> NWParameters {
-        let parameters = listenerParameters(sessionId: sessionId, secret: secret)
-        if keepalive, let tcp = parameters.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options {
-            tcp.enableKeepalive = true
-            tcp.keepaliveIdle = 5
-            tcp.keepaliveInterval = 3
-            tcp.keepaliveCount = 3
-        }
-        return parameters
+    private static func detectDeadPeers(_ parameters: NWParameters) {
+        guard let tcp = parameters.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options else { return }
+        tcp.enableKeepalive = true
+        tcp.keepaliveIdle = 5
+        tcp.keepaliveInterval = 3
+        tcp.keepaliveCount = 3
+        tcp.connectionDropTime = 15
     }
 }
 

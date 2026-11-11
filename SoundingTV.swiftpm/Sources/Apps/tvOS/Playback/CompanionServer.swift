@@ -73,6 +73,8 @@ final class CompanionServer: ObservableObject {
         var cuePushHighWaterMark: Int64 = 0
         var isReady = false
         var hasContinueSession = false
+        var sendsHeartbeats = false
+        let connectedAt = ContinuousClock.now
         var lastActivityAt = ContinuousClock.now
         var decksLeaseUntil: ContinuousClock.Instant?
 
@@ -509,6 +511,24 @@ final class CompanionServer: ObservableObject {
         }
     }
 
+    private func sweepUnresponsivePeers() {
+        let now = ContinuousClock.now
+        for peer in Array(peers.values) {
+            let unresponsive = CompanionHeartbeat.peerIsUnresponsive(
+                isReady: peer.isReady,
+                sendsHeartbeats: peer.sendsHeartbeats,
+                connectedFor: Self.seconds(now - peer.connectedAt),
+                silentFor: Self.seconds(now - peer.lastActivityAt)
+            )
+            if unresponsive { removePeer(peer, reason: "stopped responding") }
+        }
+    }
+
+    private static func seconds(_ duration: Duration) -> TimeInterval {
+        let parts = duration.components
+        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+    }
+
     private func scheduleListenerRestart(sessionId: String) {
         guard let session = sessions[sessionId] else { return }
 
@@ -693,6 +713,7 @@ final class CompanionServer: ObservableObject {
         } else if message.type == .sessionRevoke {
             handleSessionRevoke(message, from: peer, session: session)
         } else if message.type == .acknowledgment {
+            peer.sendsHeartbeats = true
             return
         } else {
             sendError("Unsupported message", to: peer)
@@ -1590,6 +1611,7 @@ final class CompanionServer: ObservableObject {
     }
 
     private func sendLivenessPing() {
+        sweepUnresponsivePeers()
         let targets = readyPeers
         guard !targets.isEmpty else { return }
         if playbackFrames.isEmpty { buildPlaybackFrame() }

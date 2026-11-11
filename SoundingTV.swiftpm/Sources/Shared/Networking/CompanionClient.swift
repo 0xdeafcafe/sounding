@@ -146,7 +146,6 @@ final class CompanionClient: ObservableObject {
 
     private static let snapshotDefaultsKey = "red.forbes.sounding.remoteNowPlaying.v1"
     private static let snapshotPersistInterval: Duration = .seconds(5)
-    private static let staleAfter: TimeInterval = 15
     private static let inactiveGrace: Duration = .seconds(30)
     private let snapshotWriter = SnapshotWriter()
     private var snapshotGeneration: UInt64 = 0
@@ -406,7 +405,7 @@ final class CompanionClient: ObservableObject {
             let wasSuspended = inactiveGraceTask != nil
             inactiveGraceTask?.cancel()
             inactiveGraceTask = nil
-            if state == .connected, Date().timeIntervalSince(lastFrameAt) > Self.staleAfter {
+            if state == .connected, CompanionHeartbeat.controllerIsStale(lastFrameAt: lastFrameAt, now: Date()) {
                 Log.link.info("[CompanionClient] connection went quiet while inactive; reconnecting")
                 retry()
             } else {
@@ -725,9 +724,13 @@ final class CompanionClient: ObservableObject {
                 try? await Task.sleep(for: .seconds(2))
                 guard !Task.isCancelled, let self else { return }
                 guard case .connected = self.state else { continue }
-                guard Date().timeIntervalSince(self.lastFrameAt) > Self.staleAfter else { continue }
+                let now = Date()
+                guard CompanionHeartbeat.controllerIsStale(lastFrameAt: self.lastFrameAt, now: now) else {
+                    self.sendHeartbeatIfDue(at: now)
+                    continue
+                }
 
-                Log.link.info("[CompanionClient] no frames for \(Int(Self.staleAfter), privacy: .public)s; reconnecting")
+                Log.link.info("[CompanionClient] no frames for \(Int(CompanionHeartbeat.controllerStaleAfter), privacy: .public)s; reconnecting")
                 self.teardown()
                 self.connect()
                 return
@@ -1079,12 +1082,29 @@ final class CompanionClient: ObservableObject {
             lastWaitingError = channel?.lastError
         case .failed:
             let failure = CompanionFailure.classify(channel?.lastError)
+            let reconnectsAtOnce = connectionWasSettled
             dropConnection()
-            fail(failure)
+            reconnectAfterDrop(failure, atOnce: reconnectsAtOnce)
         case .closed:
+            let reconnectsAtOnce = connectionWasSettled
             dropConnection()
-            fail(.closed)
+            reconnectAfterDrop(.closed, atOnce: reconnectsAtOnce)
         }
+    }
+
+    private var connectionWasSettled: Bool {
+        guard state == .connected, let readyAt = connectedAt else { return false }
+        return Date().timeIntervalSince(readyAt) >= CompanionHeartbeat.interval
+    }
+
+    private func reconnectAfterDrop(_ failure: CompanionFailure, atOnce: Bool) {
+        guard atOnce, link != nil else {
+            fail(failure)
+            return
+        }
+        Log.link.info("[CompanionClient] connection to \(self.linkedName, privacy: .public) dropped; reconnecting")
+        state = .idle
+        connect()
     }
 
     private func handle(_ message: TokenTransferMessage) async {
