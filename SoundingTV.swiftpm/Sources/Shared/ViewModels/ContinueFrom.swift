@@ -28,9 +28,16 @@ final class ContinueFrom: ObservableObject {
                 : "\(session.title) \u{00B7} \(ContinueSessions.clock(position))"
         }
 
-        var miniCaption: String {
-            let verb = session.isPlaying ? "Playing on" : "Paused on"
-            return "\(verb) \(deviceName) \u{00B7} \(ContinueSessions.clock(position))"
+        var miniCaption: String { miniCaption(at: Date()) }
+
+        func miniCaption(at now: Date) -> String {
+            guard session.isPlaying else {
+                return "Paused on \(deviceName) \u{00B7} \(ContinueSessions.clock(position))"
+            }
+            guard DevicePresence.freshness(of: session, at: now) == .live else {
+                return "From \(deviceName) \u{00B7} \(DevicePresence.ago(now.timeIntervalSince(session.updatedAt)))"
+            }
+            return "Playing on \(deviceName) \u{00B7} \(ContinueSessions.clock(position))"
         }
 
         func heroCaption(now: Date = Date()) -> String {
@@ -79,7 +86,16 @@ final class ContinueFrom: ObservableObject {
     private var activeThrough: Date?
     private var isLaunchSettled = false
     private var launchGraceTask: Task<Void, Never>?
+    private var playStartedAt: Date?
     private lazy var deviceName = LinkPeerIdentity.localName
+
+    let nearbyDidChange = PassthroughSubject<Void, Never>()
+
+    var nearbySessions: [ContinueSession] { Array(nearby.values) }
+
+    var ownDeviceID: String { deviceID }
+
+    var accountKey: String? { accountID.map(AccountDataVault.storageSuffix(for:)) }
 
     init(settings: SettingsStore = .shared, api: SoundCloudAPI = .shared, defaults: UserDefaults = .standard) {
         self.settings = settings
@@ -170,13 +186,17 @@ final class ContinueFrom: ObservableObject {
             sessionCollection = collection
         }
         sessionQueue = Set(player.queue.map(\.id))
-        if player.isPlaying { schedulePublish() }
+        if player.isPlaying {
+            playStartedAt = Date()
+            schedulePublish()
+        }
     }
 
     private func playingDidChange(_ playing: Bool) {
         activeThrough = Date()
         schedulePublish()
         if playing {
+            playStartedAt = Date()
             offer = nil
             startHeartbeat()
         } else {
@@ -239,7 +259,8 @@ final class ContinueFrom: ObservableObject {
             sourceTitle: source?.title,
             isAutoMix: player.isAutoMixEnabled,
             isPlaying: player.isPlaying,
-            updatedAt: Date()
+            updatedAt: Date(),
+            startedAt: player.isPlaying ? playStartedAt : nil
         )
     }
 
@@ -273,6 +294,7 @@ final class ContinueFrom: ObservableObject {
             let kept = ContinueSessions.merging([Array(nearby.values)], now: Date(), limit: Self.nearbyLimit)
             nearby = Dictionary(uniqueKeysWithValues: kept.map { ($0.deviceID, $0) })
         }
+        nearbyDidChange.send()
         refreshOffer()
     }
 
@@ -471,6 +493,8 @@ final class ContinueFrom: ObservableObject {
 
     private func forget() {
         nearby = [:]
+        nearbyDidChange.send()
+        playStartedAt = nil
         offer = nil
         loading = nil
         sessionQueue = []

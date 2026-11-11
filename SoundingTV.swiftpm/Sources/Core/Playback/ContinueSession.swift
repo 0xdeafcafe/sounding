@@ -23,10 +23,13 @@ struct ContinueSession: Codable, Hashable, Sendable, Identifiable {
     var isAutoMix: Bool
     var isPlaying: Bool
     var updatedAtMillis: Int64
+    var startedAtMillis: Int64?
 
     var id: String { deviceID }
 
     var updatedAt: Date { Date(timeIntervalSince1970: TimeInterval(updatedAtMillis) / 1000) }
+
+    var startedAt: Date? { startedAtMillis.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) } }
 
     var dismissalKey: String { "\(deviceID)|\(sessionID)" }
 
@@ -50,7 +53,8 @@ struct ContinueSession: Codable, Hashable, Sendable, Identifiable {
         sourceTitle: String? = nil,
         isAutoMix: Bool = false,
         isPlaying: Bool,
-        updatedAt: Date
+        updatedAt: Date,
+        startedAt: Date? = nil
     ) {
         let window = Self.window(queueTrackIDs, index: queueIndex, current: trackID)
         self.deviceID = deviceID
@@ -73,6 +77,7 @@ struct ContinueSession: Codable, Hashable, Sendable, Identifiable {
         self.isAutoMix = isAutoMix
         self.isPlaying = isPlaying
         self.updatedAtMillis = RecentPlay.millis(updatedAt)
+        self.startedAtMillis = startedAt.map(RecentPlay.millis)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -80,7 +85,7 @@ struct ContinueSession: Codable, Hashable, Sendable, Identifiable {
         case trackID = "i", title = "t", artist = "a", artworkURL = "w", duration = "l", position = "p"
         case queueTrackIDs = "q", queueIndex = "x", collectionID = "o"
         case sourceID = "si", sourceKind = "sk", sourceTitle = "st"
-        case isAutoMix = "m", isPlaying = "g", updatedAtMillis = "u"
+        case isAutoMix = "m", isPlaying = "g", updatedAtMillis = "u", startedAtMillis = "b"
     }
 
     init(from decoder: Decoder) throws {
@@ -115,6 +120,7 @@ struct ContinueSession: Codable, Hashable, Sendable, Identifiable {
         sourceTitle = try c.decodeIfPresent(String.self, forKey: .sourceTitle)
         isAutoMix = try c.decodeIfPresent(Bool.self, forKey: .isAutoMix) ?? false
         isPlaying = try c.decodeIfPresent(Bool.self, forKey: .isPlaying) ?? false
+        startedAtMillis = try c.decodeIfPresent(Int64.self, forKey: .startedAtMillis)
     }
 
     func position(at now: Date) -> TimeInterval {

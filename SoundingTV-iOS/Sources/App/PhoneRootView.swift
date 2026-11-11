@@ -8,6 +8,7 @@ struct PhoneRootView: View {
     @EnvironmentObject private var pairing: DevicePairingFlow
     @ObservedObject private var credentials = SoundCloudCredentialSource.shared
     @ObservedObject private var continueFrom = ContinueFrom.shared
+    @ObservedObject private var presence = DevicePresenceModel.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -301,7 +302,7 @@ struct PhoneRootView: View {
     private func playerChrome<Content: View>(_ content: Content, showsAccessory: Bool = true) -> some View {
         content
             .modifier(BottomAccessoryModifier(
-                hasNowPlaying: (coordinator.nowPlaying != nil || PadLayout.isPad || coordinator.continueOffer(from: continueFrom) != nil) && showsAccessory,
+                hasNowPlaying: (coordinator.nowPlaying != nil || PadLayout.isPad || coordinator.continueOffer(from: continueFrom) != nil || presence.primary != nil) && showsAccessory,
                 isExpanded: $isNowPlayingExpanded,
                 heroID: nowPlayingHeroID,
                 namespace: nowPlayingNamespace

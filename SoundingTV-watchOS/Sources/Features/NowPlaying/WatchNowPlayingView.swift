@@ -134,7 +134,12 @@ struct WatchNowPlayingView: View {
             ContentUnavailableView {
                 Label("Nothing Playing", systemImage: "music.note")
             } description: {
-                Text("Pick something from Listen Now or Library.")
+                let now = Date()
+                if let other = link.devicePresence.visible(at: now, trustsLive: link.isReachable).first {
+                    Text(other.sentence(at: now))
+                } else {
+                    Text("Pick something from Listen Now or Library.")
+                }
             } actions: {
                 if !store.isEmpty {
                     WatchRouteSwitch()
@@ -306,6 +311,7 @@ struct WatchNowPlayingView: View {
                 likeButton
             }
             mixTrackLine(position: position)
+            presenceLine(at: date)
             if !playback.isLocal, let live = AutoMixLiveState.decode(link.djState.live) {
                 WatchAutoMixLine(state: live, date: date, showsHeading: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -352,6 +358,26 @@ struct WatchNowPlayingView: View {
         .accessibilityLabel(details.isLiked ? "Liked" : "Like")
         .accessibilityValue("\(SCStatFormat.compactCount(details.likeCount)) likes")
         .accessibilityHint(details.isLiked ? "Removes this track from your likes" : "Adds this track to your likes")
+    }
+
+    @ViewBuilder
+    private func presenceLine(at date: Date) -> some View {
+        let entries = link.devicePresence.visible(at: date, trustsLive: link.isReachable)
+        if let first = entries.first {
+            HStack(spacing: 4) {
+                Image(systemName: first.deviceClass.symbolName)
+                Text(first.sentence(at: date))
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
+                if let more = DevicePresence.moreLabel(count: entries.count) {
+                    Text(more)
+                        .monospacedDigit()
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(secondaryStyle)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(DevicePresence.summary(localTitle: nil, others: entries, now: date))
+        }
     }
 
     @ViewBuilder

@@ -10,6 +10,7 @@ enum WatchLinkKey {
     static let settings = "settings"
     static let queue = "queue"
     static let continueOffer = "continueOffer"
+    static let devicePresence = "devicePresence"
     static let offlineManifest = "offlineManifest"
     static let offlineInventory = "offlineInventory"
 }
@@ -197,6 +198,18 @@ struct WatchContinueOffer: Codable, Equatable, Sendable, Identifiable {
     var progress: Double? {
         guard durationSeconds > 0 else { return nil }
         return min(1, max(0, positionSeconds / durationSeconds))
+    }
+}
+
+struct WatchDevicePresence: Codable, Equatable, Sendable {
+    static let limit = 4
+
+    var entries: [DevicePresenceEntry]
+
+    static let empty = WatchDevicePresence(entries: [])
+
+    func visible(at now: Date, trustsLive: Bool) -> [DevicePresenceEntry] {
+        DevicePresence.ordered(entries.compactMap { $0.evaluated(at: now, trustsLive: trustsLive) })
     }
 }
 

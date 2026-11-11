@@ -724,6 +724,17 @@
 		D9F2371197F4F112D950A31B /* OutputPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94EF655510C941F8EC34E81 /* OutputPresence.swift */; };
 		1E45D4B87136DF8E7E974C0D /* OutputPresenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A9EBD8E7A1D07E3685BDEE6 /* OutputPresenceTests.swift */; };
 		7D5EC0A1B2C3D4E5F6A7B801 /* TVDecksEntryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5EC0A1B2C3D4E5F6A7B802 /* TVDecksEntryTests.swift */; };
+		D5E1A0C0B1C2D3E4F5A60011 /* DevicePresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60001 /* DevicePresence.swift */; };
+		D5E1A0C0B1C2D3E4F5A60012 /* DevicePresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60001 /* DevicePresence.swift */; };
+		D5E1A0C0B1C2D3E4F5A60013 /* DevicePresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60001 /* DevicePresence.swift */; };
+		D5E1A0C0B1C2D3E4F5A60014 /* DevicePresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60001 /* DevicePresence.swift */; };
+		D5E1A0C0B1C2D3E4F5A60021 /* DevicePresenceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60002 /* DevicePresenceModel.swift */; };
+		D5E1A0C0B1C2D3E4F5A60022 /* DevicePresenceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60002 /* DevicePresenceModel.swift */; };
+		D5E1A0C0B1C2D3E4F5A60023 /* DevicePresenceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60002 /* DevicePresenceModel.swift */; };
+		D5E1A0C0B1C2D3E4F5A60031 /* DevicePresenceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60003 /* DevicePresenceViews.swift */; };
+		D5E1A0C0B1C2D3E4F5A60032 /* DevicePresenceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60003 /* DevicePresenceViews.swift */; };
+		D5E1A0C0B1C2D3E4F5A60033 /* DevicePresenceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60003 /* DevicePresenceViews.swift */; };
+		D5E1A0C0B1C2D3E4F5A60041 /* DevicePresenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60004 /* DevicePresenceTests.swift */; };
 		1D220FE1DA207C17AFFE0DAC /* LibraryCacheSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 451FF5728B7549A6CFFCEED3 /* LibraryCacheSelfTest.swift */; };
 		283F25846CDCF9CCE1C3551E /* LibrarySyncCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427A6B74B73B746AA438F3C /* LibrarySyncCoreTests.swift */; };
 		E2A6FDA25D873D0B66186864 /* LibraryBackfillElectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C93A3944C0E8C0DD6ACFAAD /* LibraryBackfillElectionTests.swift */; };
@@ -2452,6 +2463,10 @@ F1C39D966E10112291734F31 /* TVNowPlayingAutoMix.swift */ = {isa = PBXFileReferen
 		C94EF655510C941F8EC34E81 /* OutputPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputPresence.swift; sourceTree = "<group>"; };
 		0A9EBD8E7A1D07E3685BDEE6 /* OutputPresenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputPresenceTests.swift; sourceTree = "<group>"; };
 		7D5EC0A1B2C3D4E5F6A7B802 /* TVDecksEntryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVDecksEntryTests.swift; sourceTree = "<group>"; };
+		D5E1A0C0B1C2D3E4F5A60001 /* DevicePresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePresence.swift; sourceTree = "<group>"; };
+		D5E1A0C0B1C2D3E4F5A60002 /* DevicePresenceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePresenceModel.swift; sourceTree = "<group>"; };
+		D5E1A0C0B1C2D3E4F5A60003 /* DevicePresenceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePresenceViews.swift; sourceTree = "<group>"; };
+		D5E1A0C0B1C2D3E4F5A60004 /* DevicePresenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePresenceTests.swift; sourceTree = "<group>"; };
 		67C76EF687273BE183E14CA3 /* SettingsSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSelfTest.swift; sourceTree = "<group>"; };
 		35D41BA8CB130F4486F13F77 /* SettingsScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScopeTests.swift; sourceTree = "<group>"; };
 		687F41DB0F0591AD3706D59A /* MacMixAudioSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMixAudioSelfTest.swift; sourceTree = "<group>"; };
@@ -3536,6 +3551,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				F0E1A9C3B7D24E6A8C5B7007 /* OutputVolumeTests.swift */,
 				0A9EBD8E7A1D07E3685BDEE6 /* OutputPresenceTests.swift */,
 				7D5EC0A1B2C3D4E5F6A7B802 /* TVDecksEntryTests.swift */,
+				D5E1A0C0B1C2D3E4F5A60004 /* DevicePresenceTests.swift */,
 				E54847538E0ECDC3201446B2 /* SleepTimerTests.swift */,
 				F308468ED8AA6E20D1295407 /* TrackTrimTests.swift */,
 				FBD0309381020EB9571638F7 /* ListenTogetherTests.swift */,
@@ -4187,6 +4203,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				0E38E7B6118FF16253854869 /* PlayingNextQueue.swift */,
 				673749346990753943610549 /* RemoteOutputTarget.swift */,
 				C94EF655510C941F8EC34E81 /* OutputPresence.swift */,
+				D5E1A0C0B1C2D3E4F5A60001 /* DevicePresence.swift */,
 				29E0637BBE59AA822C377CC7 /* RepeatMode.swift */,
 				A6710A546DFD42E60D0454A7 /* SystemNowPlayingBridge.swift */,
 				2BD41BC26F9217E45F06E237 /* TransitionTypes.swift */,
@@ -4455,6 +4472,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				5C88A0ABEAE090BE9151B352 /* RecentlyPlayed.swift */,
 				81E89C3FB4FCDB83287C3505 /* BehindTheTrackModel.swift */,
 				A35715F3E25D1AC523FD8166 /* ContinueFrom.swift */,
+				D5E1A0C0B1C2D3E4F5A60002 /* DevicePresenceModel.swift */,
 				C8EF65226C5666870CE72D9F /* FeedViewModel.swift */,
 				E34C065550AD22D6F5AF3F80 /* PlaylistDetailViewModel.swift */,
 				7A7A00300000000000000030 /* DeckReadout.swift */,
@@ -4632,6 +4650,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				5D1CE111D00DCAFE00000001 /* NearbyDeviceViews.swift */,
 				5D1CE111D00DCAFE0000B001 /* PlayOnNearbyLinking.swift */,
 				913F38F9A30297E1AC66EFF6 /* ContinueFromViews.swift */,
+				D5E1A0C0B1C2D3E4F5A60003 /* DevicePresenceViews.swift */,
 				4C4190CF607FB27B8151FDBB /* SoundingQRCode.swift */,
 				A30B44D4A9A20B5200255E44 /* LibrarySyncStatusLine.swift */,
 				7B1A00000000000000010000 /* TrackCollectionMenuItems.swift */,
@@ -5982,6 +6001,9 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				08FF9568F014FAE80B132447 /* PulseTimeline.swift in Sources */,
 				F769AB3E51057A205975AB65 /* RemoteOutputTarget.swift in Sources */,
 				D9F2371197F4F112D950A31B /* OutputPresence.swift in Sources */,
+				D5E1A0C0B1C2D3E4F5A60012 /* DevicePresence.swift in Sources */,
+				D5E1A0C0B1C2D3E4F5A60022 /* DevicePresenceModel.swift in Sources */,
+				D5E1A0C0B1C2D3E4F5A60032 /* DevicePresenceViews.swift in Sources */,
 				B1C4D828F57CDE74EE708420 /* RepeatMode.swift in Sources */,
 				DF82824E1FEECD2D48C927C0 /* SCCommentRow.swift in Sources */,
 				6DC88BE195B9066919B23D7E /* SecTaskEntitlementBridge.swift in Sources */,
@@ -6114,6 +6136,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				79C31B8ADC174CE837B8C552 /* RemoteVolumeAndSourceTests.swift in Sources */,
 				1E45D4B87136DF8E7E974C0D /* OutputPresenceTests.swift in Sources */,
 				7D5EC0A1B2C3D4E5F6A7B801 /* TVDecksEntryTests.swift in Sources */,
+				D5E1A0C0B1C2D3E4F5A60041 /* DevicePresenceTests.swift in Sources */,
 				C26657B712D4F03B64E8CB78 /* SleepTimerTests.swift in Sources */,
 				EBBE3755DE868CA84F1ED199 /* TrackTrimTests.swift in Sources */,
 				2D4DD91ED2B391C6058F2176 /* ListenTogetherTests.swift in Sources */,
@@ -6616,6 +6639,9 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				B921A477B6CF5DFEABA9CADD /* SoundingQRCode.swift in Sources */,
 				ACA101532805BF8BA90D5A95 /* RemoteOutputTarget.swift in Sources */,
 				6853DD9E7E9B53CFBD5CD5A3 /* OutputPresence.swift in Sources */,
+				D5E1A0C0B1C2D3E4F5A60013 /* DevicePresence.swift in Sources */,
+				D5E1A0C0B1C2D3E4F5A60023 /* DevicePresenceModel.swift in Sources */,
+				D5E1A0C0B1C2D3E4F5A60033 /* DevicePresenceViews.swift in Sources */,
 				B2D6FE437D7E0F726F69C3D6 /* RepeatMode.swift in Sources */,
 				4E72EDA080E3CC28C442F602 /* RootView.swift in Sources */,
 				A0CB76B7341A514FF0E1B63A /* SCCommentRow.swift in Sources */,
@@ -7101,6 +7127,9 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				E386F21F03D313CDDFCE4533 /* PulseTimeline.swift in Sources */,
 				3ECBEA3131A31573DF8AD7A1 /* RemoteOutputTarget.swift in Sources */,
 				EDC58B4ACC99464B7A071EB2 /* OutputPresence.swift in Sources */,
+				D5E1A0C0B1C2D3E4F5A60011 /* DevicePresence.swift in Sources */,
+				D5E1A0C0B1C2D3E4F5A60021 /* DevicePresenceModel.swift in Sources */,
+				D5E1A0C0B1C2D3E4F5A60031 /* DevicePresenceViews.swift in Sources */,
 				AC45CD03C588DE23AB91C11F /* RepeatMode.swift in Sources */,
 				D12C75098C02C1C66F827776 /* SCCommentRow.swift in Sources */,
 				1BEBDB840639A62378BC3750 /* SearchCacheRefreshNotice.swift in Sources */,
@@ -7249,6 +7278,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				0782422107C8A38C1F2B0090 /* PlaybackClock.swift in Sources */,
 				D4784260EE3FEA057DD8E7B0 /* PlayHistory.swift in Sources */,
 				C4A598D7CFC2DE4AAE3FEAE9 /* ContinueSession.swift in Sources */,
+				D5E1A0C0B1C2D3E4F5A60014 /* DevicePresence.swift in Sources */,
 				2863B27D79EDB258A7DB778F /* PlaybackClockView.swift in Sources */,
 				B4A2CBD17AC385687C96E1A9 /* Playlist.swift in Sources */,
 				7AE0E70EC53D8DA3CF7D4DEC /* Paginator.swift in Sources */,
