@@ -723,6 +723,7 @@
 		EDC58B4ACC99464B7A071EB2 /* OutputPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94EF655510C941F8EC34E81 /* OutputPresence.swift */; };
 		D9F2371197F4F112D950A31B /* OutputPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94EF655510C941F8EC34E81 /* OutputPresence.swift */; };
 		1E45D4B87136DF8E7E974C0D /* OutputPresenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A9EBD8E7A1D07E3685BDEE6 /* OutputPresenceTests.swift */; };
+		7D5EC0A1B2C3D4E5F6A7B801 /* TVDecksEntryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5EC0A1B2C3D4E5F6A7B802 /* TVDecksEntryTests.swift */; };
 		1D220FE1DA207C17AFFE0DAC /* LibraryCacheSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 451FF5728B7549A6CFFCEED3 /* LibraryCacheSelfTest.swift */; };
 		283F25846CDCF9CCE1C3551E /* LibrarySyncCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427A6B74B73B746AA438F3C /* LibrarySyncCoreTests.swift */; };
 		E2A6FDA25D873D0B66186864 /* LibraryBackfillElectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C93A3944C0E8C0DD6ACFAAD /* LibraryBackfillElectionTests.swift */; };
@@ -2450,6 +2451,7 @@ F1C39D966E10112291734F31 /* TVNowPlayingAutoMix.swift */ = {isa = PBXFileReferen
 		673749346990753943610549 /* RemoteOutputTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteOutputTarget.swift; sourceTree = "<group>"; };
 		C94EF655510C941F8EC34E81 /* OutputPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputPresence.swift; sourceTree = "<group>"; };
 		0A9EBD8E7A1D07E3685BDEE6 /* OutputPresenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputPresenceTests.swift; sourceTree = "<group>"; };
+		7D5EC0A1B2C3D4E5F6A7B802 /* TVDecksEntryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVDecksEntryTests.swift; sourceTree = "<group>"; };
 		67C76EF687273BE183E14CA3 /* SettingsSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSelfTest.swift; sourceTree = "<group>"; };
 		35D41BA8CB130F4486F13F77 /* SettingsScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScopeTests.swift; sourceTree = "<group>"; };
 		687F41DB0F0591AD3706D59A /* MacMixAudioSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMixAudioSelfTest.swift; sourceTree = "<group>"; };
@@ -3533,6 +3535,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				B124EE355804624DFAE4B994 /* RemoteVolumeAndSourceTests.swift */,
 				F0E1A9C3B7D24E6A8C5B7007 /* OutputVolumeTests.swift */,
 				0A9EBD8E7A1D07E3685BDEE6 /* OutputPresenceTests.swift */,
+				7D5EC0A1B2C3D4E5F6A7B802 /* TVDecksEntryTests.swift */,
 				E54847538E0ECDC3201446B2 /* SleepTimerTests.swift */,
 				F308468ED8AA6E20D1295407 /* TrackTrimTests.swift */,
 				FBD0309381020EB9571638F7 /* ListenTogetherTests.swift */,
@@ -6110,6 +6113,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				923C6693E31BB8B184F2ECB6 /* CompanionPlaybackModesTests.swift in Sources */,
 				79C31B8ADC174CE837B8C552 /* RemoteVolumeAndSourceTests.swift in Sources */,
 				1E45D4B87136DF8E7E974C0D /* OutputPresenceTests.swift in Sources */,
+				7D5EC0A1B2C3D4E5F6A7B801 /* TVDecksEntryTests.swift in Sources */,
 				C26657B712D4F03B64E8CB78 /* SleepTimerTests.swift in Sources */,
 				EBBE3755DE868CA84F1ED199 /* TrackTrimTests.swift in Sources */,
 				2D4DD91ED2B391C6058F2176 /* ListenTogetherTests.swift in Sources */,

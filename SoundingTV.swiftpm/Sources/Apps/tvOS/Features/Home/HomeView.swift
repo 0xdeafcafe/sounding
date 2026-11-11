@@ -12,7 +12,6 @@ struct HomeView: View {
     @EnvironmentObject var playerService: PlayerService
     @EnvironmentObject var authService: AuthenticationService
     @EnvironmentObject var navigationState: NavigationState
-    @ObservedObject private var dj = DJTransitionService.shared
     @ObservedObject private var continueFrom = ContinueFrom.shared
     @FocusState private var focus: BrowseFocus?
     @State private var showsInitialLoadingIndicator = false
@@ -44,7 +43,7 @@ struct HomeView: View {
                                 HomeHeroCarousel(
                                     items: layout.hero,
                                     inset: inset,
-                                    isAutoMixOn: dj.isEnabled,
+                                    isAutoMixOn: playerService.isAutoMixEnabled,
                                     focus: $focus,
                                     action: perform,
                                     currentArtwork: $heroArtworkURL
@@ -147,7 +146,10 @@ struct HomeView: View {
     }
 
     private func startOrOpenAutoMix() {
-        if dj.isEnabled {
+        if playerService.isAutoMixEnabled {
+            navigationState.showNowPlaying()
+        } else if playerService.isDJSessionEnabled {
+            playerService.setAutomaticMixEnabled(true)
             navigationState.showNowPlaying()
         } else if SettingsStore.shared.hasStoredValue(SettingKeys.DJStartOptions.self) {
             playerService.startDJSession(configuration: SettingsStore.shared.djStartConfiguration)

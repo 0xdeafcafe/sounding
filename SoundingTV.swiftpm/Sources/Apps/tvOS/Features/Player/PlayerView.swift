@@ -128,7 +128,7 @@ struct PlayerView: View {
         .defaultFocus($focus, .play)
         .onAppear {
             isVisible = true
-            if DJTransitionService.shared.isEnabled { showingDJ = true }
+            route(.nowPlayingAppeared)
             applyDebugLaunchState()
         }
         .onDisappear {
@@ -573,7 +573,7 @@ struct PlayerView: View {
             openAllComments: { present { showingComments = true } },
             openSetlistEditor: { present { showingSetlist = true } },
             openTrackMap: { present { showingTrackMap = true } },
-            openDecks: { present { startDecks() } },
+            openDecks: { present { route(.choseDecks) } },
             openDetails: { present { showingDetails = true } }
         )
     }
@@ -602,11 +602,19 @@ struct PlayerView: View {
         action()
     }
 
-    private func startDecks() {
-        if DJTransitionService.shared.isEnabled || SettingsStore.shared.hasStoredValue(SettingKeys.DJStartOptions.self) {
+    private func route(_ event: TVDecksEntry.Event) {
+        let entry = TVDecksEntry.entry(
+            for: event,
+            sessionIsActive: playerService.isDJSessionEnabled,
+            hasStartOptions: SettingsStore.shared.hasStoredValue(SettingKeys.DJStartOptions.self)
+        )
+        switch entry {
+        case .stayOnNowPlaying:
+            break
+        case .openDecks:
             playerService.startDJSession(configuration: SettingsStore.shared.djStartConfiguration)
             showingDJ = true
-        } else {
+        case .configureFirst:
             showingDJStartConfiguration = true
         }
     }
