@@ -27,7 +27,7 @@ for f in DJMixRules DJMoveTemplates DJScoringTerms; do
   if cmp -s "$DJ/$f.swift" "$P/$f.swift"; then echo "patch did not apply to $f.swift" >&2; exit 1; fi
 done
 xcrun swiftc -O -swift-version 5 -o "${GATES_BIN:-$BUILD/automix-pack}" \
-  "$DJ/MixRenderCore.swift" "$DJ/MixDeckFX.swift" "$DJ/MixMeters.swift" "$DJ/MixTimeline.swift" "$DJ/MixDSP.swift" "$DJ/MixSource.swift" "$DJ/MixAudioUnitHost.swift" \
+  "$DJ/MixRenderCore.swift" "$DJ/MixDeckFX.swift" "$DJ/MixMeters.swift" "$DJ/MixTimeline.swift" "$DJ/TransitionLevel.swift" "$DJ/MixDSP.swift" "$DJ/MixSource.swift" "$DJ/MixAudioUnitHost.swift" \
   "$DJ/DJEngineConstants.swift" "$DJ/MixPerformance.swift" "$REPO/SoundingTV.swiftpm/Sources/Core/Settings/MixPerformanceLevel.swift" "$DJ/DJTypes.swift" "$DJ/MixMoves.swift" "$DJ/DJProfileID.swift" \
   "$AN/BeatTracker.swift" "$AN/BeatTrackerCore.swift" "$AN/GenreDistance.swift" "$AN/GenreDetection.swift" "$AN/GenreTaxonomy.swift" "$AN/GenreDetector.swift" "$AN/AI/AIAudioAnalysis.swift" \
   "$DJ/DJCore.swift" "$DJ/DJTemplates.swift" "$P/DJMoveTemplates.swift" "$P/DJScoringTerms.swift" "$DJ/DJProfiles.swift" "$P/DJMixRules.swift" \
