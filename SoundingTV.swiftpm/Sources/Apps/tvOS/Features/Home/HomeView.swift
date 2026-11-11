@@ -129,6 +129,9 @@ struct HomeView: View {
         case (.continueFrom(let offer), .secondary):
             withAnimation { continueFrom.dismiss(offer) }
         case (.nowPlaying, .primary):
+            if !playerService.playbackRequested, !playerService.isPlaying {
+                playerService.play()
+            }
             navigationState.showNowPlaying()
         case (.nowPlaying, .secondary):
             startOrOpenAutoMix()
@@ -666,7 +669,7 @@ struct HomeHeroAction {
 struct HomeHeroItem: Identifiable {
     enum Kind {
         case continueFrom(ContinueFrom.Offer)
-        case nowPlaying(Track)
+        case nowPlaying(Track, isPlaying: Bool)
         case track(Track, queue: [Track])
         case playlist(Playlist)
         case station(SystemPlaylist)
@@ -695,8 +698,10 @@ struct HomeHeroItem: Identifiable {
         switch kind {
         case .continueFrom:
             return HomeHeroAction(title: "Play", symbol: "play.fill", identifier: "home.continueFrom.play")
-        case .nowPlaying:
-            return HomeHeroAction(title: "Now Playing", symbol: "waveform", identifier: "home.hero.nowPlaying")
+        case .nowPlaying(_, let isPlaying):
+            return isPlaying
+                ? HomeHeroAction(title: "Now Playing", symbol: "waveform", identifier: "home.hero.nowPlaying")
+                : HomeHeroAction(title: "Play", symbol: "play.fill", identifier: "home.hero.nowPlaying")
         case .track, .playlist, .station:
             return HomeHeroAction(title: "Play", symbol: "play.fill", identifier: "home.hero.\(id).play")
         }
@@ -741,7 +746,7 @@ struct HomeHeroItem: Identifiable {
     static func nowPlaying(_ track: Track, isPlaying: Bool) -> HomeHeroItem {
         HomeHeroItem(
             id: "nowPlaying",
-            kind: .nowPlaying(track),
+            kind: .nowPlaying(track, isPlaying: isPlaying),
             eyebrow: isPlaying ? "Playing" : "Paused",
             eyebrowSymbol: isPlaying ? "waveform" : "pause.fill",
             title: track.title,

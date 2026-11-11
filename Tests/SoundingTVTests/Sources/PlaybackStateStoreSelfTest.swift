@@ -323,3 +323,80 @@ final class PlaybackSnapshotAutoMixTests: XCTestCase {
     }
 }
 
+final class PlaybackRestoreGatingTests: XCTestCase {
+    private func snapshot(autoMix: Bool?, collectionAutoMix: Bool?, decksRequested: Bool?) -> PlaybackStateStore.Snapshot {
+        PlaybackStateStore.Snapshot(
+            trackIds: ["1"],
+            currentIndex: 0,
+            positionSeconds: 12,
+            isShuffleEnabled: false,
+            repeatMode: .off,
+            collectionAutoMixWasActive: collectionAutoMix,
+            autoMixWasActive: autoMix,
+            djSessionWasRequested: decksRequested,
+            savedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+    }
+
+    func testAPastDecksVisitDoesNotRestoreAMix() {
+        XCTAssertFalse(snapshot(autoMix: false, collectionAutoMix: false, decksRequested: true).wantsMix)
+        XCTAssertFalse(snapshot(autoMix: nil, collectionAutoMix: nil, decksRequested: true).wantsMix)
+    }
+
+    func testAutoMixStillRestores() {
+        XCTAssertTrue(snapshot(autoMix: true, collectionAutoMix: false, decksRequested: true).wantsMix)
+        XCTAssertTrue(snapshot(autoMix: false, collectionAutoMix: true, decksRequested: false).wantsMix)
+    }
+
+    func testPlayWaitsWhileTheAccountIsStillLoading() {
+        XCTAssertEqual(
+            PlaybackAccountReadiness.decision(trackIsLocal: false, isSignedOut: false, isEstablishingSession: true, hasAccessToken: false),
+            .waitForAccount
+        )
+    }
+
+    func testPlayResolvesOnceTheAccountHasAToken() {
+        XCTAssertEqual(
+            PlaybackAccountReadiness.decision(trackIsLocal: false, isSignedOut: false, isEstablishingSession: true, hasAccessToken: true),
+            .resolveNow
+        )
+        XCTAssertEqual(
+            PlaybackAccountReadiness.decision(trackIsLocal: false, isSignedOut: false, isEstablishingSession: false, hasAccessToken: true),
+            .resolveNow
+        )
+    }
+
+    func testPlayNeverWaitsForLocalTracksOrWhenSignedOut() {
+        XCTAssertEqual(
+            PlaybackAccountReadiness.decision(trackIsLocal: true, isSignedOut: false, isEstablishingSession: true, hasAccessToken: false),
+            .resolveNow
+        )
+        XCTAssertEqual(
+            PlaybackAccountReadiness.decision(trackIsLocal: false, isSignedOut: true, isEstablishingSession: true, hasAccessToken: false),
+            .resolveNow
+        )
+    }
+
+    func testPlayStopsWaitingOnceLaunchSettlesWithoutAnAccount() {
+        XCTAssertEqual(
+            PlaybackAccountReadiness.decision(trackIsLocal: false, isSignedOut: false, isEstablishingSession: false, hasAccessToken: false),
+            .resolveNow
+        )
+    }
+
+    func testTheWaitIsBounded() {
+        XCTAssertLessThanOrEqual(PlaybackAccountReadiness.maximumWait, .seconds(10))
+    }
+
+    func testATVNeverLaunchesSilentFromARemoteVolume() {
+        XCTAssertEqual(PlayerService.launchVolume(stored: 0, hasLocalVolumeControl: false), 1)
+        XCTAssertEqual(PlayerService.launchVolume(stored: 0.01, hasLocalVolumeControl: false), 1)
+        XCTAssertEqual(PlayerService.launchVolume(stored: 0.4, hasLocalVolumeControl: false), 0.4)
+    }
+
+    func testDevicesWithAVolumeControlKeepTheirLevel() {
+        XCTAssertEqual(PlayerService.launchVolume(stored: 0, hasLocalVolumeControl: true), 0)
+        XCTAssertEqual(PlayerService.launchVolume(stored: 0.4, hasLocalVolumeControl: true), 0.4)
+    }
+}
+

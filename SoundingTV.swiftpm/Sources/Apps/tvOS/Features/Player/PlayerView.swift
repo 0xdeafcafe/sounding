@@ -418,6 +418,13 @@ struct PlayerView: View {
                     .foregroundStyle(Color.white.opacity(0.66))
                 NPSleepTimerLine()
                 NPListenTogetherLine()
+                if let message = playerService.playbackErrorMessage, !playerService.isPlaying {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .accessibilityIdentifier("nowplaying.playbackError")
+                }
             }
         }
     }
