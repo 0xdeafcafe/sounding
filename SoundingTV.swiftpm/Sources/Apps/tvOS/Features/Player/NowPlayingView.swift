@@ -4,6 +4,7 @@ struct NowPlayingView: View {
     @EnvironmentObject var playerService: PlayerService
     @EnvironmentObject var navigationState: NavigationState
     @StateObject private var recap = NowPlayingRecapModel()
+    @ObservedObject private var presence = DevicePresenceModel.shared
     @FocusState private var browseFocused: Bool
 
     var body: some View {
@@ -11,6 +12,9 @@ struct NowPlayingView: View {
             emptyState
         } else {
             PlayerView()
+                .overlay(alignment: .topLeading) {
+                    TVDevicePresenceCaption(entries: presence.entries)
+                }
         }
     }
 
@@ -48,11 +52,26 @@ struct NowPlayingView: View {
     }
 
     private var hero: some View {
-        ContentUnavailableView {
+        let other = presence.primary
+        return ContentUnavailableView {
             Label("Nothing Playing", systemImage: "play.circle")
         } description: {
-            Text(subtitle)
+            if let other {
+                Label(other.sentence(at: Date()), systemImage: other.deviceClass.symbolName)
+            } else {
+                Text(subtitle)
+            }
         } actions: {
+            if let other, presence.actions(for: other).contains(.playHere) {
+                Button {
+                    presence.perform(.playHere, on: other)
+                } label: {
+                    TVGlassPillLabel(title: "Play Here", systemImage: "play.fill")
+                }
+                .buttonStyle(TVGlassPillStyle())
+                .disabled(presence.busyEntryID != nil)
+                .accessibilityIdentifier("nowplaying.empty.playHere")
+            }
             Button {
                 navigationState.selectedTab = .home
             } label: {
@@ -84,6 +103,33 @@ struct NowPlayingView: View {
             TrackShelf(tracks: tracks)
         }
         .focusSection()
+    }
+}
+
+private struct TVDevicePresenceCaption: View {
+    let entries: [DevicePresenceEntry]
+
+    var body: some View {
+        if let first = entries.first {
+            HStack(spacing: 10) {
+                Image(systemName: first.deviceClass.symbolName)
+                Text(first.sentence(at: Date()))
+                    .lineLimit(1)
+                if let more = DevicePresence.moreLabel(count: entries.count) {
+                    Text(more)
+                        .monospacedDigit()
+                }
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.white.opacity(first.isLive ? 0.7 : 0.5))
+            .frame(maxWidth: 900, alignment: .leading)
+            .padding(.leading, Spacing.screen)
+            .padding(.top, 44)
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(DevicePresence.summary(localTitle: nil, others: entries, now: Date()))
+            .transition(.opacity)
+        }
     }
 }
 

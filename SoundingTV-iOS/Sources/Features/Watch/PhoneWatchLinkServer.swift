@@ -48,6 +48,10 @@ final class PhoneWatchLinkServer: NSObject, ObservableObject {
         ContinueFrom.shared.objectWillChange
             .sink { [weak self] _ in self?.schedulePublish() }
             .store(in: &cancellables)
+        DevicePresenceModel.shared.$entries
+            .removeDuplicates()
+            .sink { [weak self] _ in self?.schedulePublish() }
+            .store(in: &cancellables)
         PhoneWatchOfflineSync.shared.$manifest
             .removeDuplicates()
             .sink { [weak self] _ in self?.schedulePublish() }
@@ -121,6 +125,9 @@ final class PhoneWatchLinkServer: NSObject, ObservableObject {
             context[WatchLinkKey.queue] = data
         }
         context[WatchLinkKey.continueOffer] = currentContinueOffer().flatMap { WatchLinkCodec.encode($0) } ?? Data()
+        if let data = WatchLinkCodec.encode(currentDevicePresence()) {
+            context[WatchLinkKey.devicePresence] = data
+        }
         if let data = WatchLinkCodec.encode(PhoneWatchOfflineSync.shared.manifest) {
             context[WatchLinkKey.offlineManifest] = data
         }
@@ -179,6 +186,10 @@ final class PhoneWatchLinkServer: NSObject, ObservableObject {
             )
         }
         return options
+    }
+
+    private func currentDevicePresence() -> WatchDevicePresence {
+        WatchDevicePresence(entries: Array(DevicePresenceModel.shared.others(excludingOutput: true).prefix(WatchDevicePresence.limit)))
     }
 
     private func currentContinueOffer() -> WatchContinueOffer? {

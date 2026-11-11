@@ -96,6 +96,7 @@ final class PhonePlaybackCoordinator: ObservableObject {
             .store(in: &cancellables)
 
         lastPresentation = presentationFingerprint()
+        DevicePresenceModel.shared.attach(router: output)
     }
 
     // MARK: - Output
