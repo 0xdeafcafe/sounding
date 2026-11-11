@@ -342,11 +342,32 @@ private struct MacRouteSubtitle: View {
 
     var body: some View {
         if router.isRemote {
-            Label("Playing on \(router.current.name)", systemImage: router.current.symbolName)
-                .labelStyle(.titleAndIcon)
-                .foregroundStyle(Color.scAccent)
+            MacRemoteRouteLabel(device: router.current, client: router.client, telemetry: router.client.telemetry)
         } else {
             Text(artist)
+        }
+    }
+}
+
+private struct MacRemoteRouteLabel: View {
+    let device: OutputDevice
+    @ObservedObject var client: CompanionClient
+    @ObservedObject var telemetry: CompanionTelemetry
+
+    var body: some View {
+        switch client.connectionPhase {
+        case .live:
+            Label("Playing on \(device.name)", systemImage: device.symbolName)
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(Color.scAccent)
+        case .connecting:
+            Label("Connecting to \(device.name)…", systemImage: device.symbolName)
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(.secondary)
+        case .unreachable:
+            Label("\(device.name) isn’t reachable", systemImage: "wifi.exclamationmark")
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(.secondary)
         }
     }
 }

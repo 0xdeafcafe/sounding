@@ -689,7 +689,7 @@ struct TransportBarView: View {
 
     private func subtitle(for snapshot: NowPlayingSnapshot) -> String {
         guard let name = remoteOutputName(for: snapshot) else { return snapshot.displayArtist }
-        return "Playing on \(name)"
+        return snapshot.isAvailable ? "Playing on \(name)" : "Connecting to \(name)…"
     }
 
     private func identityContent(
@@ -735,7 +735,9 @@ struct TransportBarView: View {
 
     private func accessibilityLabel(for snapshot: NowPlayingSnapshot) -> String {
         var label = "Now Playing, \(snapshot.displayTitle) by \(snapshot.displayArtist)"
-        if let name = remoteOutputName(for: snapshot) { label += ", on \(name)" }
+        if let name = remoteOutputName(for: snapshot) {
+            label += snapshot.isAvailable ? ", on \(name)" : ", connecting to \(name)"
+        }
         if snapshot.isLoading {
             label += ", loading"
         } else if !snapshot.showsPauseGlyph {

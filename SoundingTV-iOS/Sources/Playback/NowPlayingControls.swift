@@ -717,12 +717,19 @@ private struct NowPlayingMoreMenuBody: View, @MainActor Equatable {
 
 struct NowPlayingRouteBadge: View {
     let device: OutputDevice
+    var isConnecting = false
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: device.symbolName)
-                .font(.system(size: 13, weight: .semibold))
-            Text(device.name)
+            if isConnecting {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.white)
+            } else {
+                Image(systemName: device.symbolName)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            Text(isConnecting ? "Connecting to \(device.name)…" : device.name)
                 .font(.footnote.weight(.semibold))
                 .lineLimit(1)
         }
@@ -732,6 +739,6 @@ struct NowPlayingRouteBadge: View {
         .frame(minHeight: 30)
         .glassEffect(.regular.tint(.black.opacity(0.25)), in: .capsule)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Playing on \(device.name)")
+        .accessibilityLabel(isConnecting ? "Connecting to \(device.name)" : "Playing on \(device.name)")
     }
 }
