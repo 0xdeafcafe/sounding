@@ -317,9 +317,11 @@ struct MacNowPlayingCapsule: View {
         .accessibilityHint("Opens Now Playing, paused")
     }
 
+    private static let appIcon = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+
     private var idle: some View {
         HStack(spacing: 8) {
-            Image(nsImage: NSApplication.shared.applicationIconImage)
+            Image(nsImage: Self.appIcon)
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 26, height: 26)

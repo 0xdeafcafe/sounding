@@ -122,10 +122,7 @@ final class CloudSyncEngineController: NSObject, CKSyncEngineDelegate, @unchecke
     }
 
     static func containerIdentifierIsEntitled(_ identifier: String) -> Bool {
-        guard let identifiers = SecTaskEntitlementBridge.stringArrayValue(
-            forEntitlement: "com.apple.developer.icloud-container-identifiers"
-        ) else { return false }
-        return identifiers.contains(identifier)
+        CloudKitEntitlements.current.allows(containerIdentifier: identifier)
     }
 
     func enqueue(_ records: [CKRecord]) async throws {
@@ -139,7 +136,7 @@ final class CloudSyncEngineController: NSObject, CKSyncEngineDelegate, @unchecke
         }
         currentEngine.state.add(pendingRecordZoneChanges: preparedRecords.map { .saveRecord($0.recordID) })
         do {
-            try await currentEngine.sendChanges()
+            try await Self.sendChangesOutsideDelegateContext(currentEngine)
         } catch {
             let resolution = await resolveServerConflicts(in: error as NSError, localRecords: preparedRecords)
             guard !resolution.recordIDs.isEmpty else { throw error }
@@ -147,8 +144,17 @@ final class CloudSyncEngineController: NSObject, CKSyncEngineDelegate, @unchecke
                 pendingRecordZoneChanges: resolution.recordIDs.map { .saveRecord($0) }
             )
             Log.sync.info("Retrying \(resolution.recordIDs.count, privacy: .public) CloudKit conflicts immediately with server change tags")
-            try await currentEngine.sendChanges()
+            try await Self.sendChangesOutsideDelegateContext(currentEngine)
             if !resolution.allFailuresWereConflicts { throw error }
+        }
+    }
+
+    private static func sendChangesOutsideDelegateContext(_ engine: CKSyncEngine) async throws {
+        let send = Task.detached { try await engine.sendChanges() }
+        try await withTaskCancellationHandler {
+            try await send.value
+        } onCancel: {
+            send.cancel()
         }
     }
 
@@ -388,7 +394,7 @@ final class CloudSyncEngineController: NSObject, CKSyncEngineDelegate, @unchecke
         let task: Task<Void, Error>? = lock.withLock {
             if let fetchInFlight { return fetchInFlight }
             guard let engine else { return nil }
-            let started = Task { try await engine.fetchChanges() }
+            let started = Task.detached { try await engine.fetchChanges() }
             fetchInFlight = started
             return started
         }

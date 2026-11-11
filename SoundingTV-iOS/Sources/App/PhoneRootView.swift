@@ -597,11 +597,25 @@ private struct PadRootTabs: View {
 
     private var visibleSelection: Binding<PhoneRootView.PhoneTab> {
         Binding(
-            get: { hidesSections ? selection.compactTab : selection },
+            get: { hidesSections ? selection.compactTab : sidebarSelection },
             set: { tab in
                 if tab != selection { selection = tab }
             }
         )
+    }
+
+    private var sidebarSelection: PhoneRootView.PhoneTab {
+        let resolved = PadSidebarTarget.resolve(selection)
+        switch resolved {
+        case .playlistFolder(let id) where !folders.contains(where: { $0.id == id }):
+            return .playlists
+        case .pinnedFolder(let id) where !pinned.folderIDs.contains(id):
+            return .playlists
+        case .playlist(let id) where !pinned.showsTab(forPlaylist: id):
+            return .playlists
+        default:
+            return resolved
+        }
     }
 
     private var customizationBinding: Binding<TabViewCustomization> {
@@ -985,6 +999,13 @@ private struct PadPinnedState: Equatable {
             }
         }
         return state
+    }
+
+    func showsTab(forPlaylist id: String) -> Bool {
+        items.contains { item in
+            if case .playlist(let pinnedID) = item.target, pinnedID == id { return true }
+            return item.children.contains { $0.id == id }
+        }
     }
 }
 
