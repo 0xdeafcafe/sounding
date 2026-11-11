@@ -2381,6 +2381,22 @@ final class OutputRouter: ObservableObject {
 
     @discardableResult
     func move(to device: OutputDevice) async -> String? {
+        await move(to: device, forcing: nil)
+    }
+
+    @discardableResult
+    func control(_ device: OutputDevice) async -> String? {
+        guard !device.isLocal else { return nil }
+        return await move(to: device, forcing: .controlRemote)
+    }
+
+    @discardableResult
+    func send(to device: OutputDevice) async -> String? {
+        guard !device.isLocal else { return nil }
+        return await move(to: device, forcing: .sendThisDevice)
+    }
+
+    private func move(to device: OutputDevice, forcing forced: OutputHandover?) async -> String? {
         guard device != current else { return nil }
         guard !isMoving else { return "Playback is already moving." }
         isMoving = true
@@ -2392,16 +2408,17 @@ final class OutputRouter: ObservableObject {
             return await moveHere()
         }
         if isRemote {
-            return await moveBetweenLinked(to: device)
+            guard forced == .controlRemote else { return await moveBetweenLinked(to: device) }
+            select(.thisDevice, remember: false)
         }
-        if player.isPlaying, player.currentTrack?.isLocal == true {
+        if forced != .controlRemote, player.isPlaying, player.currentTrack?.isLocal == true {
             return Self.localTracksNotice(on: device, playingHere: false)
         }
         if let problem = await focus(on: device) { return problem }
         _ = await client.waitUntilLive(timeout: Self.remoteStateTimeout)
 
         let remote = client.telemetry.isLive ? client.telemetry.playback : nil
-        let handover = OutputHandover.plan(
+        let handover = forced ?? OutputHandover.plan(
             localIsPlaying: player.isPlaying,
             localHasTrack: player.currentTrack != nil,
             remoteIsPlaying: remote?.isPlaying == true,
@@ -2409,6 +2426,7 @@ final class OutputRouter: ObservableObject {
         )
         guard handover == .sendThisDevice, let track = player.currentTrack else {
             Log.link.info("[OutputRouter] output is now \(device.name, privacy: .public); controlling what it plays")
+            if forced == .controlRemote, player.isPlaying { player.pause() }
             select(device)
             return nil
         }
