@@ -34,7 +34,7 @@
     <h2>Adding an Apple&nbsp;TV, Mac or Apple&nbsp;Watch</h2>
     <p>When you add an Apple&nbsp;TV or Mac, your iPhone sends the sign-in straight to it over your local network, encrypted with a one-time key. It doesn’t go through any server. The chime an Apple&nbsp;TV plays only carries a short, single-use code, never your sign-in. Your Apple&nbsp;Watch gets the sign-in from your iPhone over Apple’s own watch connection.</p>
     <h2>Microphone, camera and local network</h2>
-    <p>On iPhone, iPad and Mac, the microphone listens for your Apple&nbsp;TV’s sign-in chime, and only while that screen is open. Nothing is recorded or sent anywhere. The camera is only used if you’d rather scan the code on your Apple&nbsp;TV. Local network access is used to find your own devices. None of it is stored or shared.</p>
+    <p>On iPhone, iPad and Mac, the microphone listens for your Apple&nbsp;TV’s sign-in chime, and only while that screen is open. On iPhone, iPad, Mac and Apple&nbsp;Watch it also listens when you tap Identify Song, to name a song playing around you with Shazam. No audio is kept. The camera is only used if you’d rather scan the code on your Apple&nbsp;TV. Local network access is used to find your own devices. None of it is stored or shared.</p>
     <h2>Heart rate and home lights</h2>
     <p>Both are off until you turn them on. Match My Workout reads your heart rate from Apple Watch through Health, only while it’s on, to set how energetic Auto Mix plays. The reading stays on your devices. When your Apple&nbsp;TV is the Output, your iPhone sends it an energy level (not your heart rate), and it isn’t stored. If you start a workout from your Apple&nbsp;Watch, it’s saved to Health. Home Lighting uses HomeKit to set the lights you choose, and Sounding doesn’t keep anything about your home.</p>
     <h2>Listening together</h2>
@@ -44,7 +44,7 @@
     <h2>On-device AI analysis on Mac</h2>
     <p>Off until you turn it on in Settings. Switching it on downloads the models, about 223 MB, from huggingface.co. Each file is checked against a hash built into the app, and one that doesn’t match is thrown away. Once they’re downloaded, the analysis runs on your Mac, and your music and its results aren’t sent anywhere. Delete Models in the same place removes them.</p>
     <h2>Song identification</h2>
-    <p>Sounding identifies tracks inside long mixes with Apple’s ShazamKit. It makes a fingerprint from the track’s own audio (not from your microphone) and Apple matches it, so Apple’s privacy policy covers that part.</p>
+    <p>Sounding identifies tracks inside long mixes with Apple’s ShazamKit. For a track inside a mix, it makes a fingerprint from the track’s own audio. When you tap Identify Song, it makes one from what your microphone hears, and only while it’s listening. Either way Apple matches the fingerprint, so Apple’s privacy policy covers that part.</p>
     <h2>Deleting your data</h2>
     <p>Sign out in Settings to remove the sign-in from your devices. Delete the app to remove everything it stored on that device. To delete Sounding’s iCloud data, go to Settings, Apple Account, iCloud, Manage Storage.</p>
     <h2>Contact</h2>
