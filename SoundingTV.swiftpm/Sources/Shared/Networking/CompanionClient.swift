@@ -2032,6 +2032,9 @@ final class OutputRouter: ObservableObject {
     private var lateMoveGuard: Task<Void, Never>?
     private var routedTrackId: String?
     private var systemSyncScheduled = false
+    private var remoteWasAudible = false
+    private var localLastPlayedAt: Date?
+    private var followScheduled = false
 
     init(
         client: CompanionClient,
@@ -2085,10 +2088,52 @@ final class OutputRouter: ObservableObject {
             }
             .store(in: &cancellables)
         client.telemetry.objectWillChange
-            .sink { [weak self] _ in self?.scheduleSystemNowPlaying() }
+            .sink { [weak self] _ in
+                self?.scheduleSystemNowPlaying()
+                self?.scheduleFollowCheck()
+            }
+            .store(in: &cancellables)
+        player.$isPlaying
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.localLastPlayedAt = self.now()
+            }
             .store(in: &cancellables)
         refreshOutputs()
         scheduleSystemNowPlaying()
+    }
+
+    private func scheduleFollowCheck() {
+        guard !followScheduled else { return }
+        followScheduled = true
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            self.followScheduled = false
+            self.followRemotePlaybackIfIdle()
+        }
+    }
+
+    private func followRemotePlaybackIfIdle() {
+        let playback = client.telemetry.playback
+        let audible = client.isReachable && client.telemetry.isLive
+            && playback?.isPlaying == true && playback?.trackId != nil
+        let wasAudible = remoteWasAudible
+        remoteWasAudible = audible
+        guard let device = linkedDevice,
+              OutputFollow.shouldFollow(
+                currentIsLocal: current.isLocal,
+                isMoving: isMoving,
+                localIsPlaying: player.isPlaying,
+                localLastPlayedAt: localLastPlayedAt,
+                remoteIsAudible: audible,
+                remoteWasAudible: wasAudible,
+                now: now()
+              ) else { return }
+        Log.link.info("[OutputRouter] \(device.name, privacy: .public) is playing and this device isn't; following it")
+        select(device, remember: false)
     }
 
     private func scheduleSystemNowPlaying() {
@@ -2250,6 +2295,7 @@ final class OutputRouter: ObservableObject {
     }
 
     private static let focusTimeout: Duration = .seconds(8)
+    private static let remoteStateTimeout: Duration = .seconds(2)
 
     private func reconcileWithLink() {
         guard !current.isLocal else { return }
@@ -2265,6 +2311,7 @@ final class OutputRouter: ObservableObject {
         if remember {
             restore = nil
             preference.remember(device)
+            if device.isLocal { localLastPlayedAt = now() }
         }
         guard device != current else { return }
         if !device.isLocal { notice = nil }
@@ -2286,15 +2333,26 @@ final class OutputRouter: ObservableObject {
         if isRemote {
             return await moveBetweenLinked(to: device)
         }
-        if player.currentTrack?.isLocal == true {
+        if player.isPlaying, player.currentTrack?.isLocal == true {
             return Self.localTracksNotice(on: device, playingHere: false)
         }
         if let problem = await focus(on: device) { return problem }
+        _ = await client.waitUntilLive(timeout: Self.remoteStateTimeout)
 
-        guard let track = player.currentTrack else {
-            Log.link.info("[OutputRouter] output is now \(device.name, privacy: .public); nothing was playing here")
+        let remote = client.telemetry.isLive ? client.telemetry.playback : nil
+        let handover = OutputHandover.plan(
+            localIsPlaying: player.isPlaying,
+            localHasTrack: player.currentTrack != nil,
+            remoteIsPlaying: remote?.isPlaying == true,
+            remoteHasTrack: remote?.trackId != nil
+        )
+        guard handover == .sendThisDevice, let track = player.currentTrack else {
+            Log.link.info("[OutputRouter] output is now \(device.name, privacy: .public); controlling what it plays")
             select(device)
             return nil
+        }
+        if track.isLocal {
+            return Self.localTracksNotice(on: device, playingHere: false)
         }
 
         let ids = player.queue.filter { !$0.isLocal }.map(\.id)
