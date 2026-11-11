@@ -190,6 +190,19 @@ final class CompanionClient: ObservableObject {
 
     private var pendingContinuousControls: [String: PendingContinuousControl] = [:]
 
+    private enum PendingCommand {
+        case queue(MessageType, fromIndex: Int, toIndex: Int, trackId: String)
+        case control(MessageType, deck: ControlDeck, parameter: ControlParameter, value: Double, value2: Double)
+    }
+
+    private var pendingCommands = CompanionCommandOutbox<PendingCommand>()
+    private nonisolated(unsafe) var pendingCommandsExpiry: Task<Void, Never>?
+    private var lastHeartbeatAt: Date?
+    private var connectedAt: Date?
+    #if os(iOS)
+    private var backgroundCommandTask: UIBackgroundTaskIdentifier = .invalid
+    #endif
+
     private var cueReplayGuard = ReplayGuard()
     private var cuePushHighWaterMark: Int64 = 0
     private var libraryPushHighWaterMark: Int64?
@@ -352,6 +365,7 @@ final class CompanionClient: ObservableObject {
         inactiveGraceTask?.cancel()
         persistTask?.cancel()
         peerSignInTimeout?.cancel()
+        pendingCommandsExpiry?.cancel()
         browser?.cancel()
     }
 
@@ -456,6 +470,7 @@ final class CompanionClient: ObservableObject {
     }
 
     func waitUntilReachable(timeout: Duration) async -> Bool {
+        if state == .idle { connect() }
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if isReachable { return true }
@@ -465,8 +480,25 @@ final class CompanionClient: ObservableObject {
         return isReachable
     }
 
+    func waitUntilLive(timeout: Duration) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if isReachable, telemetry.isLive { return true }
+            if !isReachable, case .failed = state { return false }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return isReachable && telemetry.isLive
+    }
+
+    var connectionPhase: CompanionConnectionPhase {
+        let hasFailed: Bool
+        if case .failed = state { hasFailed = true } else { hasFailed = false }
+        return .resolve(isReachable: isReachable, isLive: telemetry.isLive, hasFailed: hasFailed)
+    }
+
     private func activate(_ next: LinkedCompanionStore.LinkRecord?) {
         teardown()
+        discardPendingCommands()
         resetMirroredState()
         link = next
         guard next != nil else {
@@ -759,9 +791,135 @@ final class CompanionClient: ObservableObject {
         }
     }
 
+    private func sendHeartbeatIfDue(at now: Date) {
+        guard let link, CompanionHeartbeat.isDue(lastSentAt: lastHeartbeatAt, now: now) else { return }
+        lastHeartbeatAt = now
+        transmitNow(.acknowledgment(sessionId: link.sessionId))
+    }
+
+    // MARK: - Pending commands
+
+    private func hold(_ command: PendingCommand, key: String?) {
+        guard link != nil else { return }
+        pendingCommands.enqueue(command, key: key, at: Date())
+        Log.link.info("[CompanionClient] holding a command until \(self.linkedName, privacy: .public) is connected")
+        holdForBackgroundCommands()
+        schedulePendingCommandsExpiry()
+        switch state {
+        case .idle, .failed:
+            if case .failed = state { reconnectDelay = Self.initialReconnectDelay }
+            connect()
+        case .unlinked, .searching, .connecting, .connected:
+            break
+        }
+    }
+
+    private func flushPendingCommands() {
+        let commands = pendingCommands.drain(at: Date())
+        pendingCommandsExpiry?.cancel()
+        pendingCommandsExpiry = nil
+        if !commands.isEmpty {
+            Log.link.info("[CompanionClient] sending \(commands.count, privacy: .public) held commands to \(self.linkedName, privacy: .public)")
+        }
+        for command in commands {
+            switch command {
+            case let .queue(type, fromIndex, toIndex, trackId):
+                guard let signer else { continue }
+                transmitCommand(signer.queue(type, fromIndex: fromIndex, toIndex: toIndex, trackId: trackId, revision: appliedRevision))
+            case let .control(type, deck, parameter, value, value2):
+                transmitControl(type, deck: deck, parameter: parameter, value: value, value2: value2, continuous: false)
+            }
+        }
+        releaseBackgroundCommandsSoon()
+    }
+
+    private func discardPendingCommands() {
+        pendingCommands.removeAll()
+        pendingCommandsExpiry?.cancel()
+        pendingCommandsExpiry = nil
+        releaseBackgroundCommands()
+    }
+
+    private func schedulePendingCommandsExpiry() {
+        guard pendingCommandsExpiry == nil, let deadline = pendingCommands.nextExpiry else { return }
+        let delay = max(0.1, deadline.timeIntervalSinceNow + 0.05)
+        pendingCommandsExpiry = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            self.pendingCommandsExpiry = nil
+            let dropped = self.pendingCommands.expire(at: Date())
+            if dropped > 0 {
+                Log.link.info("[CompanionClient] dropped \(dropped, privacy: .public) held commands; \(self.linkedName, privacy: .public) didn't connect in time")
+            }
+            if self.pendingCommands.isEmpty {
+                self.releaseBackgroundCommands()
+            } else {
+                self.schedulePendingCommandsExpiry()
+            }
+        }
+    }
+
+    private func holdForBackgroundCommands() {
+        #if os(iOS)
+        guard UIApplication.shared.applicationState == .background, backgroundCommandTask == .invalid else { return }
+        backgroundCommandTask = UIApplication.shared.beginBackgroundTask(withName: "Sounding Remote") { [weak self] in
+            Task { @MainActor in self?.releaseBackgroundCommands() }
+        }
+        #endif
+    }
+
+    private func releaseBackgroundCommandsSoon() {
+        #if os(iOS)
+        guard backgroundCommandTask != .invalid else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            self?.releaseBackgroundCommands()
+        }
+        #endif
+    }
+
+    private func releaseBackgroundCommands() {
+        #if os(iOS)
+        guard backgroundCommandTask != .invalid else { return }
+        let task = backgroundCommandTask
+        backgroundCommandTask = .invalid
+        if UIApplication.shared.applicationState == .background, pendingCommands.isEmpty {
+            disconnect()
+        }
+        UIApplication.shared.endBackgroundTask(task)
+        #endif
+    }
+
+    private static func pendingKey(for type: MessageType) -> String? {
+        switch type {
+        case .transportPlay, .transportPause: return "transport.playing"
+        case .transportSeek: return "transport.seek"
+        case .transportShuffle: return "transport.shuffle"
+        case .transportRepeat: return "transport.repeat"
+        case .transportSleepTimer: return "transport.sleep"
+        case .djEnable, .djDisable: return "dj.enabled"
+        case .djAutoEnable, .djAutoDisable: return "dj.auto"
+        default: return nil
+        }
+    }
+
+    private static func holdsWhileDisconnected(_ type: MessageType) -> Bool {
+        switch type {
+        case .transportPlay, .transportPause, .transportNext, .transportPrevious, .transportSeek,
+             .transportShuffle, .transportRepeat, .transportSleepTimer,
+             .djEnable, .djDisable, .djAutoEnable, .djAutoDisable,
+             .queueAdd, .queueRemove, .queueReorder, .queueJump:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func dropConnection() {
         livenessWatchdog?.cancel()
         livenessWatchdog = nil
+        lastHeartbeatAt = nil
+        connectedAt = nil
         pendingContinuousControls.removeAll()
         connectTimeout?.cancel()
         connectTimeout = nil
@@ -901,9 +1059,11 @@ final class CompanionClient: ObservableObject {
             lastWaitingError = nil
             state = .connected
             lastFrameAt = Date()
+            connectedAt = lastFrameAt
             Log.link.info("[CompanionClient] connected to \(self.linkedName, privacy: .public)")
             startLivenessWatchdog()
             announceAndRequestQueue()
+            flushPendingCommands()
             synchronization.registerNearbySink(id: synchronizationID) { [weak self] domain in
                 guard domain == .cues else { return }
                 self?.scheduleCuePush()
@@ -1301,12 +1461,18 @@ final class CompanionClient: ObservableObject {
         }
         #endif
         guard let signer else { return }
+        guard isReachable else {
+            if Self.holdsWhileDisconnected(type) {
+                hold(.queue(type, fromIndex: fromIndex, toIndex: toIndex, trackId: trackId), key: nil)
+            }
+            return
+        }
         transmitCommand(signer.queue(type, fromIndex: fromIndex, toIndex: toIndex, trackId: trackId, revision: appliedRevision))
     }
 
     @discardableResult
     private func transmitCommand(_ message: TokenTransferMessage) -> Bool {
-        guard connection != nil else {
+        guard connection != nil, isReachable else {
             Log.link.info("[CompanionClient] dropped \(message.type.rawValue, privacy: .public); \(self.linkedName, privacy: .public) isn't connected")
             return false
         }
@@ -1703,6 +1869,18 @@ extension CompanionClient {
             return
         }
 
+        guard isReachable else {
+            if Self.holdsWhileDisconnected(type) {
+                hold(
+                    .control(type, deck: deck, parameter: parameter, value: value, value2: value2),
+                    key: Self.pendingKey(for: type)
+                )
+            } else {
+                Log.link.info("[CompanionClient] dropped \(type.rawValue, privacy: .public); \(self.linkedName, privacy: .public) isn't connected")
+            }
+            return
+        }
+
         transmitControl(
             type, deck: deck, parameter: parameter, value: value, value2: value2,
             continuous: type.isContinuousControl
@@ -1740,7 +1918,7 @@ extension CompanionClient {
         continuous: Bool,
         bypassGateway: Bool = false
     ) {
-        guard let signer, connection != nil else { return }
+        guard let signer, connection != nil, isReachable else { return }
 
         if continuous { controlSequence &+= 1 }
 
@@ -2315,6 +2493,9 @@ final class OutputRouter: ObservableObject {
         }
         if track.isLocal {
             return await playHere(track, in: context, collectionId: collectionId, source: source, instead: current)
+        }
+        if !client.isReachable, client.connectionPhase == .connecting {
+            _ = await client.waitUntilReachable(timeout: Self.focusTimeout)
         }
         guard client.isReachable else { return "\(current.name) isn't reachable right now." }
         if let source { PlaybackQueueSourceDirectory.note(source) }
