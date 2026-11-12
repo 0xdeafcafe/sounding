@@ -45,7 +45,7 @@
         <figure class="plate" aria-hidden="true"><img src="../assets/still/hero-b.webp" alt="" width="1440" height="900" decoding="async"></figure>
         <div class="side a">
           <h1 class="ink" id="hero-h">Drop it on the&nbsp;one.</h1>
-          <p class="lede ink">Sounding’s Mac app has a proper DJ side: two decks and a mixer, a Prep window for beat grids and cue points, rekordbox in and out, and a line to the CDJs. Your cue points follow you to every device, and Auto Mix reads them too.</p>
+          <p class="lede ink">Sounding’s Mac app has a proper DJ side: two decks and a mixer, a Prep panel on every track for beat grids and cue points, rekordbox in and out, and a line to the CDJs. Your cue points follow you to every device, and Auto Mix reads them too.</p>
           <p class="note ink">Invite only. I made this for me, and for a few people who now owe me a favour. The decks are on the Mac.</p>
           <p class="try live-only"><button type="button" class="plug" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Plug in</span></button><span class="ink">Then drag a record, or turn a knob. They all work. The beat’s one I made up for this page.</span></p>
         </div>
@@ -67,43 +67,41 @@
       </div>
     </section>
 
-    <section class="scene chapter flip screen" id="prep" data-scene="prep" data-shot="macc" data-states='[{"mac":"play","macShot":"shots/mac-prep.webp"}]' aria-labelledby="prep-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img src="../assets/shots/mac-prep.webp" alt="" width="1920" height="1200" loading="lazy" decoding="async"></figure>
-        <div class="side a">
-          <h2 class="ink" id="prep-h">Prep it once.</h2>
-          <div class="caps">
-            <p class="cap ink"><b>This is Prep.</b> A window on the Mac (⌥⌘P) for every track you’re getting ready: its beat grid, key and cue points. Sounding works the grid out itself, and it’s usually right.</p>
-            <p class="cap ink"><b>When it isn’t, fix it.</b> Put the cursor on the first kick and hit Set Downbeat. Nudge it 10&nbsp;ms at a time if you’re fussy, halve or double the tempo if it guessed wrong, then lock it. Nothing moves a locked grid, not even an import.</p>
-            <p class="cap ink"><b>Hot cues A to H, in colour.</b> Name them, colour them, keep them on the pads. Memory cues mark a spot without using a pad, and a loop can sit on a pad too. Keys 1 to 8 set a hot cue, M drops a memory cue, L makes a four-bar loop.</p>
-            <p class="cap ink"><b>Cue points that learn.</b> Keep jumping back to the same bit (three times, over at least two listens, on any of your devices) and Sounding suggests a memory cue there called Often replayed. Accept it or dismiss it. It never takes a pad on its own.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="scene chapter screen" id="everywhere" data-scene="everywhere" data-shot="macc,macc,tvc,tvc" data-states='[{"mac":"play","macShot":"shots/mac-prep.webp","tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-cues.webp"},{},{},{"tvShot":"shots/tv-trackmap.webp"}]' aria-labelledby="everywhere-h">
+    <section class="scene chapter screen" id="everywhere" data-scene="everywhere" data-shot="macc,macc,tvc,tvc" data-states='[{"mac":"play","macShot":"shots/mac-cues.webp","tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-cues.webp"},{},{},{"tvShot":"shots/tv-trackmap.webp"}]' aria-labelledby="everywhere-h">
       <div class="pin">
         <figure class="plate" aria-hidden="true"><img class="r169" src="../assets/shots/tv-trackmap.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></figure>
         <div class="side a">
           <h2 class="ink" id="everywhere-h">Your cues, on everything.</h2>
           <div class="caps">
-            <p class="cap ink"><b>Set a cue once.</b> In Prep on the Mac: a hot cue called Drop on pad A, Break on B, named and coloured.</p>
-            <p class="cap ink"><b>It’s on your iPhone and iPad too.</b> Cue points sync through your own iCloud, so they’re there whatever you play the track on. Move, rename or delete one on the iPad and the Mac catches up.</p>
-            <p class="cap ink"><b>And on the Apple&nbsp;TV.</b> More, then Cue Points, lists them on Now Playing with their times, which is handy when the TV’s the one playing the party. It also suggests a Mix Out where Auto Mix would leave.</p>
+            <p class="cap ink"><b>Set a cue once.</b> Select any track and press ⌘I for its Prep panel, or set it straight on the deck’s waveform: a hot cue called Drop on pad A, Break on B, named and coloured. Sounding works the beat grid out itself, and it’s usually right. When it isn’t, put the cursor on the first kick, hit Set Downbeat and lock it.</p>
+            <p class="cap ink"><b>Cue points that learn.</b> Keep jumping back to the same bit (three times, over at least two listens, on any of your devices) and Sounding suggests a memory cue there called Often replayed. Accept it or dismiss it. It never takes a pad on its own.</p>
+            <p class="cap ink"><b>And on the Apple&nbsp;TV.</b> Cue points sync through your own iCloud, so they’re on your iPhone and iPad too. On the TV, More, then Cue Points, lists them on Now Playing with their times, which is handy when the TV’s the one playing the party. It also suggests a Mix Out where Auto Mix would leave.</p>
             <p class="cap ink"><b>Auto Mix reads them.</b> A hot cue called Drop or Break is somewhere it can bring a track in, a memory cue on a phrase is somewhere it can leave, and Mix In and Mix Out come first. Suggestions count too, at half the weight.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="scene chapter flip screen" id="booth" data-scene="booth" data-shot="macc" data-states='[{"mac":"play","macShot":"shots/mac-hardware.webp"}]' aria-labelledby="booth-h">
+    <section class="scene chapter flip screen" id="tv-automix" data-scene="tv-automix" data-shot="tvc" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-mixup.webp"},{"tvShot":"shots/tv-mixblend.webp"}]' aria-labelledby="tv-automix-h">
       <div class="pin">
-        <figure class="plate" aria-hidden="true"><img src="../assets/shots/mac-hardware.webp" alt="" width="1920" height="1200" loading="lazy" decoding="async"></figure>
+        <figure class="plate" aria-hidden="true"><img class="r169" src="../assets/shots/tv-mixblend.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></figure>
+        <div class="side a">
+          <h2 class="ink" id="tv-automix-h">Auto Mix, on the TV.</h2>
+          <div class="caps">
+            <p class="cap ink"><b>The same Auto Mix runs on the Apple&nbsp;TV.</b> Turn it on and Now Playing says what’s coming and when: Mix into Harbour Lights, loop then drop, in five bars. Mix Now if you can’t wait, Extend if the room isn’t ready.</p>
+            <p class="cap ink"><b>You can watch it happen.</b> Both waveforms on the screen, the fade in, the swap and the fade out marked on the bar, and the crossfader sliding from A to B, readable from across the room.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene chapter screen" id="booth" data-scene="booth" data-shot="macc" data-states='[{"mac":"play","macShot":"shots/mac-players.webp"}]' aria-labelledby="booth-h">
+      <div class="pin">
+        <figure class="plate" aria-hidden="true"><img src="../assets/shots/mac-players.webp" alt="" width="1760" height="1100" loading="lazy" decoding="async"></figure>
         <div class="side a">
           <h2 class="ink" id="booth-h">Next to the CDJs.</h2>
           <div class="caps">
-            <p class="cap ink"><b>Put the Mac on the same network as your CDJs</b> and Sounding can see them: what each player’s doing, the tempo, who’s master and which channel’s on air. It calls them DJ Players, and they live under Hardware.</p>
+            <p class="cap ink"><b>Put the Mac on the same network as your CDJs</b> and Sounding can see them: what each player’s doing, the tempo, who’s master and which channel’s on air. It calls them DJ Players: connect from Hardware, and the rest is in Settings.</p>
             <p class="cap ink"><b>It writes the setlist for you.</b> Turn on Record Setlists and every track that’s on air for 16 bars goes into a Setlist called “Recorded at” and the date. With a DJM on the network, a quick listen in the headphones doesn’t count, so you get what you actually played.</p>
             <p class="cap ink"><b>The Mac can be a deck too.</b> Turn on Use as Virtual Deck and the Mac joins as a player, so the CDJs can sync to whatever’s playing in Decks. Or go the other way: Sync to DJ Players and Decks follows the tempo master. Quit rekordbox first (they don’t share).</p>
             <p class="cap ink"><b>I built this against a fake CDJ I wrote,</b> not a real booth. I haven’t had it on a club rig yet. If you’ve got one and a spare evening, I’d love to hear how it goes.</p>
@@ -119,7 +117,7 @@
       <div class="cols">
         <p><b>Import your rekordbox.xml</b> and Sounding matches each track to your SoundCloud library, by ISRC or by title, artist and length. If it’s not sure, it asks. If you’ve already prepped a track differently, you choose per row: Keep Sounding or Use Imported. It never deletes anything you’ve made.</p>
         <p><b>Export makes a new XML file</b> with your grids, hot cues, memory cues and loops. Sounding never touches your own rekordbox library. Only tracks you’ve linked to a file on your Mac go across, because rekordbox needs the audio. Tracks that only live on SoundCloud stay in Sounding, cues and all.</p>
-        <p><b>USB sticks, straight from Sounding.</b> Export to USB in Prep (⇧⌘E) writes a stick the CDJ-2000NXS2 and CDJ-3000 can read: your own files with their grids, hot cues, memory cues and waveforms, three-band on the 3000. Everything goes into a hidden folder first, gets checked and flushed, and only then swaps into place, so pulling the stick out halfway leaves it how it was. No auto-eject, no faff. It’s checked against real rekordbox exports, but it hasn’t met a real CDJ yet.</p>
+        <p><b>USB sticks, straight from Sounding.</b> Export to USB, in the File menu (⇧⌘E), writes a stick the CDJ-2000NXS2 and CDJ-3000 can read: your own files with their grids, hot cues, memory cues and waveforms, three-band on the 3000. Everything goes into a hidden folder first, gets checked and flushed, and only then swaps into place, so pulling the stick out halfway leaves it how it was. No auto-eject, no faff. It’s checked against real rekordbox exports, but it hasn’t met a real CDJ yet.</p>
       </div>
       <div class="sheets">
         <figure><img src="../assets/shots/sheet-review.webp" alt="The Review Changes sheet: six differences between Sounding and the imported rekordbox prep, each row set to Keep Sounding or Use Imported." width="1440" height="1104" loading="lazy" decoding="async"><figcaption>Import review. Where you’ve prepped a track differently, pick per row.</figcaption></figure>
