@@ -36,8 +36,6 @@ struct VisualSearchMoreResultsIntent {
     }
 }
 
-// MARK: - Opening results
-
 struct OpenTrackIntent: OpenIntent {
     static let title: LocalizedStringResource = "Open Track"
 
@@ -73,8 +71,6 @@ struct OpenArtistIntent: OpenIntent {
         return .result()
     }
 }
-
-// MARK: - Search
 
 @MainActor
 enum VisualSearch {

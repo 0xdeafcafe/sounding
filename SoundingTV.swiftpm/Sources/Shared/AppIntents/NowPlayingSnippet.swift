@@ -65,8 +65,6 @@ enum IntentNowPlaying {
     }
 }
 
-// MARK: - Now Playing
-
 struct NowPlayingSnippetIntent: SnippetIntent {
     static let title: LocalizedStringResource = "Now Playing"
     static let isDiscoverable = false
