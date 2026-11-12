@@ -380,6 +380,7 @@ struct MacRootView: View {
         if name.hasSuffix("queue") { return .queue }
         if name.hasSuffix("tracklist") { return .tracklist }
         if name.hasSuffix("lyrics") { return .lyrics }
+        if name.hasSuffix("cues") { return .cues }
         return nil
     }
 

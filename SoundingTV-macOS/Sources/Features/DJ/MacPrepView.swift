@@ -46,9 +46,9 @@ struct MacPrepCommands: Commands {
                 Button("Double Tempo") { model?.doubleTempo() }
                     .keyboardShortcut("]", modifiers: .command)
                 Divider()
-                Button("Add Memory Cue") { model?.addMemoryCue() }
-                Button("Add Loop") { model?.addLoop() }
-                Button("Delete Cue Point") { model?.deleteSelectedCue() }
+                Button(TrackMapCopy.saveCuePoint) { model?.trackMap.saveCue() }
+                Button(TrackMapCopy.addLoop) { model?.trackMap.addLoop() }
+                Button(TrackMapCopy.delete) { model?.trackMap.deleteSelected() }
                 Divider()
                 Button("Export to USB…") { model?.showsUSBExport = true }
                     .keyboardShortcut("e", modifiers: [.shift, .command])

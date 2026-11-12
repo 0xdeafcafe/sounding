@@ -5,7 +5,7 @@ import SwiftUI
 final class CueBoard: ObservableObject {
     @Published private(set) var sheet: CueSheet = .empty(trackId: "")
 
-    private let store: CueStore
+    let store: CueStore
 
     init(store: CueStore = .shared) {
         self.store = store

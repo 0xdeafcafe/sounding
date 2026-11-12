@@ -3,19 +3,24 @@ import SwiftUI
 struct DJPrepInspector: View {
     @ObservedObject var model: MacPrepModel
     @State private var bpmText = ""
-    @State private var labelText = ""
     @State private var startText = ""
     @State private var endText = ""
 
     var body: some View {
         if let detail = model.detail, let row = model.selectedRow {
+            let trackMap = model.trackMap
             VStack(spacing: 0) {
                 Form {
                     gridSection(detail, row: row)
-                    if let cue = model.selectedCue { cueSection(cue, detail: detail) }
+                    if let cue = trackMap.selectedCue {
+                        TrackMapCueEditor(model: trackMap, cue: cue)
+                    }
                     startEndSection(detail)
-                    analysisSection(detail, row: row)
-                    memorySection(detail)
+                    TrackMapSections(model: trackMap, showsPads: false) { row in
+                        TrackMapStandardRow(model: trackMap, row: row)
+                    } pads: {
+                        EmptyView()
+                    }
                 }
                 .formStyle(.grouped)
                 .disabled(!row.access.canEdit)
@@ -25,7 +30,11 @@ struct DJPrepInspector: View {
             }
             .onAppear { syncFields() }
             .onChange(of: model.detail?.grid) { _, _ in syncFields() }
-            .onChange(of: model.selectedCueId) { _, _ in syncFields() }
+            .onChange(of: trackMap.editingCueId) { _, id in
+                guard let id else { return }
+                model.selectedCueId = id
+                trackMap.editingCueId = nil
+            }
             .onChange(of: model.trim) { _, _ in syncFields() }
             .onChange(of: model.detail?.trackId) { _, _ in syncFields() }
         } else {
@@ -36,7 +45,6 @@ struct DJPrepInspector: View {
 
     private func syncFields() {
         bpmText = model.editableGrid.map { String(format: "%.2f", $0.bpm) } ?? ""
-        labelText = model.selectedCue?.label ?? ""
         if let detail = model.detail {
             let range = TrackTrimStore.range(model.trim, duration: detail.durationSeconds)
             startText = DJPrepInspector.precise(range.lowerBound)
@@ -128,74 +136,6 @@ struct DJPrepInspector: View {
         return parts.joined(separator: " · ")
     }
 
-    // MARK: Cue
-
-    private func cueSection(_ cue: CuePoint, detail: MacPrepModel.Detail) -> some View {
-        Section(cueTitle(cue)) {
-            TextField("Name", text: $labelText)
-                .onSubmit { model.updateSelectedCue(label: labelText) }
-            LabeledContent("Position", value: position(cue.positionSeconds, detail: detail))
-                .monospacedDigit()
-            if cue.hotCueIndex != nil {
-                LabeledContent("Colour") {
-                    HStack(spacing: 6) {
-                        ForEach(Array(CueColor.hotCuePalette.enumerated()), id: \.offset) { index, color in
-                            Button {
-                                model.updateSelectedCue(color: color)
-                            } label: {
-                                Circle()
-                                    .fill(color.color)
-                                    .frame(width: 14, height: 14)
-                                    .padding(2)
-                                    .overlay(Circle().strokeBorder(.primary, lineWidth: cue.color == color ? 2 : 0))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(Self.colourNames[index])
-                            .accessibilityAddTraits(cue.color == color ? .isSelected : [])
-                        }
-                    }
-                }
-            }
-            if cue.kind == .hotCue || cue.kind == .memory || cue.kind == .loop {
-                Picker("Type", selection: Binding(
-                    get: { cue.hotCueIndex ?? -1 },
-                    set: { model.assignSelectedCue(toSlot: $0 < 0 ? nil : $0) }
-                )) {
-                    Text(cue.kind == .loop ? "Loop" : "Memory Cue").tag(-1)
-                    ForEach(0..<CuePoint.hotCueSlotCount, id: \.self) { slot in
-                        Text("Hot Cue \(CuePoint.slotLetter(slot))").tag(slot)
-                    }
-                }
-            }
-            HStack {
-                Button("Move to Cursor") { model.updateSelectedCue(moveToCursor: true) }
-                Spacer()
-                Button("Delete", role: .destructive) { model.deleteSelectedCue() }
-            }
-        }
-    }
-
-    static let colourNames = ["Green", "Orange", "Yellow", "Blue", "Cyan", "Pink", "Purple", "White"]
-
-    private func position(_ seconds: TimeInterval, detail: MacPrepModel.Detail) -> String {
-        var text = Self.precise(seconds)
-        if let grid = detail.grid {
-            let downbeats = grid.downbeatMillis(throughMillis: CueTime.millis(fromSeconds: seconds) + 1)
-            if !downbeats.isEmpty { text += " · bar \(downbeats.count)" }
-        }
-        return text
-    }
-
-    private func cueTitle(_ cue: CuePoint) -> String {
-        switch cue.kind {
-        case .hotCue: return "Selected Cue · \(CuePoint.slotLetter(cue.hotCueIndex ?? 0))"
-        case .loop: return cue.hotCueIndex.map { "Selected Loop · \(CuePoint.slotLetter($0))" } ?? "Selected Loop"
-        case .memory: return "Selected Memory Cue"
-        case .mixIn: return "Mix In"
-        case .mixOut: return "Mix Out"
-        }
-    }
-
     // MARK: Start and end
 
     private func startEndSection(_ detail: MacPrepModel.Detail) -> some View {
@@ -225,94 +165,6 @@ struct DJPrepInspector: View {
             Text("Start & End")
         } footer: {
             Text("Every device and Auto Mix play only this part.")
-        }
-    }
-
-    // MARK: Analysis
-
-    private func analysisSection(_ detail: MacPrepModel.Detail, row: MacPrepModel.Row) -> some View {
-        Section("Music Analysis") {
-            LabeledContent("Key", value: keyText(detail))
-            LabeledContent("Energy", value: (detail.prep?.energy?.value ?? row.energy).map { "\($0) of 10" } ?? "–")
-            LabeledContent("Vocals", value: vocalsText(detail))
-            LabeledContent("Phrases", value: phrasesText(detail))
-        }
-    }
-
-    private func keyText(_ detail: MacPrepModel.Detail) -> String {
-        guard let key = detail.prep?.key?.value else { return "–" }
-        return key.original.isEmpty || key.original == key.camelot ? key.camelot : "\(key.camelot) · \(key.original)"
-    }
-
-    private func vocalsText(_ detail: MacPrepModel.Detail) -> String {
-        guard let phrases = detail.prep?.phrases?.value, let grid = detail.grid, !phrases.isEmpty else { return "–" }
-        let vocal = phrases.enumerated().filter { $0.element.mood?.lowercased().contains("vocal") == true }
-        guard let first = vocal.first else { return "None found" }
-        let downbeats = grid.downbeatMillis(throughMillis: CueTime.millis(fromSeconds: detail.durationSeconds))
-        func bar(_ millis: Int64) -> Int { max(1, downbeats.filter { $0 <= millis }.count) }
-        let lastIndex = vocal.last?.offset ?? first.offset
-        let end = lastIndex + 1 < phrases.count ? phrases[lastIndex + 1].startMillis : CueTime.millis(fromSeconds: detail.durationSeconds)
-        return "Bars \(bar(first.element.startMillis))–\(bar(end))"
-    }
-
-    private func phrasesText(_ detail: MacPrepModel.Detail) -> String {
-        guard let phrases = detail.prep?.phrases?.value, !phrases.isEmpty else { return "–" }
-        return "\(phrases.count)"
-    }
-
-    // MARK: Memory cues
-
-    private func memorySection(_ detail: MacPrepModel.Detail) -> some View {
-        let memory = detail.cues.filter { $0.hotCueIndex == nil }.sorted { $0.positionMillis < $1.positionMillis }
-        return Section("Memory Cues") {
-            if memory.isEmpty && detail.suggestions.isEmpty {
-                Text("Press M to drop a memory cue at the cursor.")
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(memory) { cue in
-                Button {
-                    model.selectedCueId = cue.id
-                    model.cursorSeconds = cue.positionSeconds
-                } label: {
-                    LabeledContent {
-                        Text(TrackTrimFormat.string(cue.positionSeconds)).monospacedDigit()
-                    } label: {
-                        Label {
-                            Text(memoryName(cue))
-                        } icon: {
-                            Image(systemName: "arrowtriangle.down.fill").foregroundStyle(cue.color.color)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-            ForEach(detail.suggestions) { suggestion in
-                LabeledContent {
-                    HStack(spacing: 6) {
-                        Button("Accept") { model.accept(suggestion) }
-                        Button("Dismiss") { model.dismiss(suggestion) }
-                            .buttonStyle(.borderless)
-                    }
-                    .controlSize(.small)
-                } label: {
-                    Label {
-                        Text(suggestion.label)
-                    } icon: {
-                        Image(systemName: "arrowtriangle.down").foregroundStyle(.secondary)
-                    }
-                }
-                .help("Listeners keep jumping back to \(TrackTrimFormat.string(suggestion.positionSeconds))")
-            }
-        }
-    }
-
-    private func memoryName(_ cue: CuePoint) -> String {
-        if !cue.label.isEmpty { return cue.label }
-        switch cue.kind {
-        case .mixIn: return "Mix In"
-        case .mixOut: return "Mix Out"
-        case .loop: return "Loop"
-        default: return "Memory Cue"
         }
     }
 }

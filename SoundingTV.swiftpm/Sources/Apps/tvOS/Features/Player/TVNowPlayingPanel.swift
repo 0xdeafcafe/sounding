@@ -17,7 +17,7 @@ struct NPPanel: View {
     let accent: Color
     let collectionTitle: String?
     @ObservedObject var comments: TrackCommentsStore
-    @ObservedObject var cueBoard: CueBoard
+    @ObservedObject var trackMap: TrackMapModel
     var focus: FocusState<NPFocus?>.Binding
     let actions: NPPanelActions
 
@@ -48,9 +48,9 @@ struct NPPanel: View {
         case .output:
             NPOutputPane(focus: focus)
         case .more:
-            NPMorePane(cueBoard: cueBoard, focus: focus, actions: actions)
+            NPMorePane(trackMap: trackMap, focus: focus, actions: actions)
         case .cues:
-            NPCuesPane(board: cueBoard, focus: focus, onSeek: actions.seek, onTrackMap: actions.openTrackMap)
+            NPCuesPane(model: trackMap, focus: focus, onTrackMap: actions.openTrackMap)
         case .sleepTimer:
             NPSleepTimerPane(focus: focus, onDone: { actions.select(.more) })
         }
@@ -904,7 +904,7 @@ private struct NPRoutePickerHost: UIViewRepresentable {
 }
 
 private struct NPMorePane: View {
-    @ObservedObject var cueBoard: CueBoard
+    @ObservedObject var trackMap: TrackMapModel
     var focus: FocusState<NPFocus?>.Binding
     let actions: NPPanelActions
 
@@ -927,7 +927,7 @@ private struct NPMorePane: View {
         return list.entries.count
     }
 
-    private var cueCount: Int { cueBoard.sheet.entries.count }
+    private var cueCount: Int { trackMap.cueCount }
 
     private var commentsLiveHere: Bool {
         guard player.currentTrack?.supportsSoundCloudActions == true else { return false }
@@ -955,11 +955,11 @@ private struct NPMorePane: View {
                         ) { actions.select(.tracklist) }
                     }
                     NPMenuRow(
-                        symbol: "flag", title: "Cue Points",
-                        subtitle: cueCount == 1 ? "1 cue" : "\(cueCount) cues",
+                        symbol: "flag", title: TrackMapCopy.title,
+                        subtitle: TrackMapCopy.count(cueCount),
                         id: "more.cues", focus: focus,
                         identifier: "nowplaying.action.trackMap",
-                        accessibilityValue: cueCount == 0 ? "" : "\(cueCount) marked"
+                        accessibilityValue: cueCount == 0 ? "" : TrackMapCopy.count(cueCount)
                     ) { actions.select(.cues) }
                     if listenTogether.isActive {
                         NPMenuRow(
@@ -1033,54 +1033,53 @@ private struct NPMorePane: View {
 }
 
 private struct NPCuesPane: View {
-    @ObservedObject var board: CueBoard
+    @ObservedObject var model: TrackMapModel
     var focus: FocusState<NPFocus?>.Binding
-    let onSeek: (TimeInterval) -> Void
     let onTrackMap: () -> Void
 
-    @EnvironmentObject private var player: PlayerService
-
     var body: some View {
+        let rows = model.allRows
         VStack(spacing: 0) {
-            NPPaneHeader(eyebrow: player.currentTrack?.title ?? "Now Playing", title: "Cue Points") { EmptyView() }
+            NPPaneHeader(eyebrow: model.trackTitle.isEmpty ? TrackMapCopy.nothingPlaying : model.trackTitle, title: TrackMapCopy.title) { EmptyView() }
             ScrollView {
                 VStack(spacing: 0) {
                     NPMenuRow(
-                        symbol: "waveform.path", title: "Track Map", subtitle: "Add, move and rename cues",
+                        symbol: "waveform.path", title: TrackMapCopy.editTitle, subtitle: TrackMapCopy.count(model.cueCount),
                         id: "cue.map", focus: focus, action: onTrackMap
                     )
-                    ForEach(board.sheet.entries) { cue in
-                        Button { onSeek(cue.positionSeconds) } label: {
+                    ForEach(rows) { row in
+                        Button { model.jump(row) } label: {
                             HStack(spacing: 20) {
-                                Circle()
-                                    .fill(cue.color.color)
-                                    .frame(width: 18, height: 18)
+                                TrackMapGlyphView(glyph: row.glyph)
                                     .frame(width: 64)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(cue.label.isEmpty ? cue.kind.displayName.capitalized : cue.label)
+                                    Text(row.title)
                                         .font(.body.weight(.semibold))
                                         .npInk(.primary)
                                         .lineLimit(1)
-                                    if cue.isSuggestion {
-                                        Text("Suggested")
+                                    if let caption = row.caption {
+                                        Text(caption)
                                             .font(.caption2)
                                             .npInk(.secondary)
+                                            .lineLimit(1)
                                     }
                                 }
                                 Spacer(minLength: 12)
-                                Text(NPFormat.time(cue.positionSeconds))
-                                    .font(.caption)
-                                    .monospacedDigit()
-                                    .npInk(.secondary)
+                                if let time = row.time {
+                                    Text(time)
+                                        .font(.caption)
+                                        .monospacedDigit()
+                                        .npInk(.secondary)
+                                }
                             }
                             .padding(.horizontal, 22)
                             .padding(.vertical, 16)
                             .frame(minHeight: 80)
                         }
                         .buttonStyle(NPRowStyle())
-                        .focused(focus, equals: .row("cue.\(cue.id)"))
-                        .accessibilityLabel("\(cue.label.isEmpty ? cue.kind.displayName : cue.label), \(NPFormat.time(cue.positionSeconds))")
-                        .accessibilityHint("Jumps to this cue")
+                        .focused(focus, equals: .row("cue.\(row.id)"))
+                        .accessibilityLabel(row.accessibilityLabel)
+                        .accessibilityHint(TrackMapCopy.playsFromHere)
                     }
                 }
                 .padding(.horizontal, 26)
@@ -1088,7 +1087,7 @@ private struct NPCuesPane: View {
             }
             .scrollClipDisabled()
         }
-        .onAppear { npFocusSoon(focus, .row(board.sheet.entries.first.map { "cue.\($0.id)" } ?? "cue.map")) }
+        .onAppear { npFocusSoon(focus, .row(rows.first.map { "cue.\($0.id)" } ?? "cue.map")) }
     }
 }
 
