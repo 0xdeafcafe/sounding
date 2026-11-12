@@ -77,6 +77,25 @@ enum PlatformAudioSession {
 
 #if os(iOS) || os(tvOS) || os(watchOS)
 
+enum AudioSessionQueue {
+    private static let queue = DispatchQueue(label: "red.forbes.sounding.audio-session", qos: .userInitiated)
+
+    static func async(_ work: @escaping @Sendable () -> Void) {
+        queue.async(execute: work)
+    }
+
+    static func run<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: work()) }
+        }
+    }
+}
+
+struct AudioSessionActivation: Sendable {
+    let changedCategory: Bool
+    let failure: String?
+}
+
 @MainActor
 final class AVAudioSessionCoordinator: AudioSessionCoordinating {
     private(set) var outputName: String?
@@ -108,13 +127,42 @@ final class AVAudioSessionCoordinator: AudioSessionCoordinating {
     }
 
     func activatePlayback() {
+        AudioSessionQueue.async(Self.playbackActivationWork())
+    }
+
+    private nonisolated static func playbackActivationWork() -> @Sendable () -> Void {
+        {
+            let activation = AVAudioSessionCoordinator.activatePlaybackSession()
+            Task { @MainActor in
+                AVAudioSessionCoordinator.finishActivation(activation)
+            }
+        }
+    }
+
+    nonisolated static func activatePlaybackSession() -> AudioSessionActivation {
         let session = AVAudioSession.sharedInstance()
+        let needsCategory = session.category != .playback
+            || session.mode != .default
+            || session.routeSharingPolicy != .longFormAudio
+            || !session.categoryOptions.isEmpty
         do {
-            try session.setCategory(.playback, mode: .default, policy: .longFormAudio)
+            if needsCategory {
+                try session.setCategory(.playback, mode: .default, policy: .longFormAudio)
+            }
             try session.setActive(true)
-            refreshRoute()
+            return AudioSessionActivation(changedCategory: needsCategory, failure: nil)
         } catch {
-            Log.player.error("[AudioSession] activation failed: \(error.localizedDescription, privacy: .public)")
+            return AudioSessionActivation(changedCategory: needsCategory, failure: error.localizedDescription)
+        }
+    }
+
+    private static func finishActivation(_ activation: AudioSessionActivation) {
+        if let failure = activation.failure {
+            Log.player.error("[AudioSession] activation failed: \(failure, privacy: .public)")
+        }
+        PlatformAudioSession.refreshRoute()
+        if activation.changedCategory {
+            PlatformAudioSession.noteRouteChange()
         }
     }
 
