@@ -267,6 +267,14 @@ final class PlaybackSourceResolver {
             throw FairPlayLicenceError.missingLicenceToken
         }
         FairPlayDebugLog.note("resolve track=\(track.id) preset=\(transcoding.preset ?? "?") licence token \(token.utf8.count) bytes")
+        guard FairPlayStreaming.isSupported else {
+            #if DEBUG
+            if let certificate = try? await FairPlayLicenceServer.applicationCertificate() {
+                FairPlayDebugLog.note("certificate ready bytes=\(certificate.count); key sessions are unavailable here")
+            }
+            #endif
+            throw FairPlayLicenceError.unsupportedOnThisDevice
+        }
         FairPlayLicenceRegistry.register(token: token, trackID: track.id, for: resolution.url)
         return resolution.url
     }

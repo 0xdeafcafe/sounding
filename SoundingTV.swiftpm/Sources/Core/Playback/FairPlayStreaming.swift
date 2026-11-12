@@ -27,6 +27,7 @@ enum FairPlayLicenceError: Error, LocalizedError, Equatable, Sendable {
     case licenceRefused(status: Int)
     case rateLimited
     case malformedLicence
+    case unsupportedOnThisDevice
 
     var entitlementError: SoundCloudEntitlementError? {
         switch self {
@@ -41,6 +42,8 @@ enum FairPlayLicenceError: Error, LocalizedError, Equatable, Sendable {
         switch self {
         case .rateLimited:
             return "SoundCloud is busy. Try again in a minute."
+        case .unsupportedOnThisDevice:
+            return "Protected Go+ tracks can\u{2019}t play in the Simulator."
         case .licenceRefused(let status) where status == 401 || status == 403:
             return SoundCloudEntitlementError.needsGoPlus(.goPlusTrack).errorDescription
         default:
@@ -279,6 +282,14 @@ private final class KeyRequestBox: @unchecked Sendable {
 }
 
 enum FairPlayStreaming {
+    static var isSupported: Bool {
+        #if targetEnvironment(simulator)
+        return false
+        #else
+        return true
+        #endif
+    }
+
     nonisolated(unsafe) private static var associationKey: UInt8 = 0
 
     static func makeAsset(url: URL) -> AVURLAsset {
@@ -288,7 +299,7 @@ enum FairPlayStreaming {
     }
 
     static func attachIfNeeded(to asset: AVURLAsset) {
-        guard let licence = FairPlayLicenceRegistry.licence(for: asset.url) else { return }
+        guard isSupported, let licence = FairPlayLicenceRegistry.licence(for: asset.url) else { return }
         guard objc_getAssociatedObject(asset, &associationKey) == nil else { return }
         let delivery = FairPlayKeyDelivery(licence: licence)
         delivery.session.addContentKeyRecipient(asset)
