@@ -44,7 +44,6 @@ final class NPBackdropView: UIView {
             UIView.animate(withDuration: 1.1) {
                 self.backgroundColor = UIColor(palette.primary)
             }
-            stack?.setPalette(palette, duration: 1.1)
         }
         if isAnimating != self.isAnimating {
             self.isAnimating = isAnimating
@@ -74,7 +73,7 @@ final class NPBackdropView: UIView {
     }
 
     private func present(_ image: CGImage) {
-        let incoming = NPBackdropStack(image: image, palette: palette)
+        let incoming = NPBackdropStack(image: image)
         incoming.frame = bounds
         incoming.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         incoming.setAnimating(isAnimating)
@@ -88,6 +87,10 @@ final class NPBackdropView: UIView {
             }
             retire(outgoing, duration: 1.3)
         } else {
+            incoming.alpha = 0
+            UIView.animate(withDuration: 0.5) {
+                incoming.alpha = 1
+            }
             retire(outgoing, duration: 0)
         }
         hasImage = true
@@ -109,29 +112,16 @@ final class NPBackdropView: UIView {
 
 private final class NPBackdropStack: UIView {
     private let imageLayer = CALayer()
-    private let swirlLayer = CALayer()
-    private let blobs = [CAGradientLayer(), CAGradientLayer(), CAGradientLayer()]
     private var animating = false
 
-    init(image: CGImage, palette: ArtworkColors.Palette) {
+    init(image: CGImage) {
         super.init(frame: .zero)
         isUserInteractionEnabled = false
-        for layer in [imageLayer, swirlLayer] {
-            layer.contents = image
-            layer.contentsGravity = .resizeAspectFill
-            layer.magnificationFilter = .linear
-            layer.minificationFilter = .linear
-            self.layer.addSublayer(layer)
-        }
-        swirlLayer.opacity = 0.55
-        for blob in blobs {
-            blob.type = .radial
-            blob.startPoint = CGPoint(x: 0.5, y: 0.5)
-            blob.endPoint = CGPoint(x: 1, y: 1)
-            blob.locations = [0, 1]
-            layer.addSublayer(blob)
-        }
-        setPalette(palette, duration: 0)
+        imageLayer.contents = image
+        imageLayer.contentsGravity = .resizeAspectFill
+        imageLayer.magnificationFilter = .linear
+        imageLayer.minificationFilter = .linear
+        layer.addSublayer(imageLayer)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -143,39 +133,10 @@ private final class NPBackdropStack: UIView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let size = bounds.size
-        let center = CGPoint(x: size.width / 2, y: size.height / 2)
-        imageLayer.bounds = CGRect(x: 0, y: 0, width: size.width * 1.6, height: size.height * 1.6)
-        imageLayer.position = center
-        swirlLayer.bounds = CGRect(x: 0, y: 0, width: size.width * 1.9, height: size.height * 1.9)
-        swirlLayer.position = center
-        swirlLayer.setAffineTransform(CGAffineTransform(rotationAngle: .pi))
-        let blobSize = size.width * 0.95
-        blobs[0].bounds = CGRect(x: 0, y: 0, width: blobSize, height: blobSize)
-        blobs[0].position = CGPoint(x: blobSize * 0.15, y: blobSize * 0.3)
-        blobs[1].bounds = CGRect(x: 0, y: 0, width: blobSize, height: blobSize)
-        blobs[1].position = CGPoint(x: size.width - blobSize * 0.1, y: size.height - blobSize * 0.2)
-        blobs[2].bounds = CGRect(x: 0, y: 0, width: blobSize * 0.7, height: blobSize * 0.7)
-        blobs[2].position = CGPoint(x: size.width * 0.45, y: size.height * 0.65)
+        imageLayer.bounds = CGRect(x: 0, y: 0, width: size.width * 1.2, height: size.height * 1.2)
+        imageLayer.position = CGPoint(x: size.width / 2, y: size.height / 2)
         CATransaction.commit()
         if wasAnimating { startMotion() }
-    }
-
-    func setPalette(_ palette: ArtworkColors.Palette, duration: TimeInterval) {
-        CATransaction.begin()
-        if duration > 0 {
-            CATransaction.setAnimationDuration(duration)
-        } else {
-            CATransaction.setDisableActions(true)
-        }
-        let tints: [(UIColor, CGFloat)] = [
-            (UIColor(palette.accent), 0.36),
-            (UIColor(palette.secondary), 0.46),
-            (UIColor(palette.accent), 0.26),
-        ]
-        for (blob, tint) in zip(blobs, tints) {
-            blob.colors = [tint.0.withAlphaComponent(tint.1).cgColor, tint.0.withAlphaComponent(0).cgColor]
-        }
-        CATransaction.commit()
     }
 
     func setAnimating(_ active: Bool) {
@@ -189,39 +150,20 @@ private final class NPBackdropStack: UIView {
         let size = bounds.size
         imageLayer.add(
             Self.drift(
-                from: Self.transform(x: -0.04, y: -0.03, degrees: -6, scale: 1.02, size: size),
-                to: Self.transform(x: 0.04, y: 0.03, degrees: 8, scale: 1.16, size: size),
-                duration: 41
+                from: Self.transform(x: -0.025, y: -0.02, scale: 1, size: size),
+                to: Self.transform(x: 0.025, y: 0.02, scale: 1.08, size: size),
+                duration: 46
             ),
             forKey: "drift"
         )
-        var swirlFrom = Self.transform(x: 0.05, y: -0.04, degrees: 0, scale: 1, size: size)
-        swirlFrom = CATransform3DRotate(swirlFrom, .pi, 0, 0, 1)
-        var swirlTo = Self.transform(x: -0.05, y: 0.05, degrees: 0, scale: 1.18, size: size)
-        swirlTo = CATransform3DRotate(swirlTo, .pi + 0.32, 0, 0, 1)
-        swirlLayer.add(Self.drift(from: swirlFrom, to: swirlTo, duration: 57), forKey: "drift")
-        let travel: [(CGFloat, CGFloat, Double)] = [(0.16, 0.12, 31), (-0.16, -0.12, 38), (0.08, -0.1, 27)]
-        for (blob, motion) in zip(blobs, travel) {
-            blob.add(
-                Self.drift(
-                    from: CATransform3DIdentity,
-                    to: Self.transform(x: motion.0, y: motion.1, degrees: 0, scale: 1.22, size: size),
-                    duration: motion.2
-                ),
-                forKey: "drift"
-            )
-        }
     }
 
     private func stopMotion() {
         imageLayer.removeAnimation(forKey: "drift")
-        swirlLayer.removeAnimation(forKey: "drift")
-        for blob in blobs { blob.removeAnimation(forKey: "drift") }
     }
 
-    private static func transform(x: CGFloat, y: CGFloat, degrees: CGFloat, scale: CGFloat, size: CGSize) -> CATransform3D {
-        var t = CATransform3DMakeTranslation(x * size.width, y * size.height, 0)
-        t = CATransform3DRotate(t, degrees * .pi / 180, 0, 0, 1)
+    private static func transform(x: CGFloat, y: CGFloat, scale: CGFloat, size: CGSize) -> CATransform3D {
+        let t = CATransform3DMakeTranslation(x * size.width, y * size.height, 0)
         return CATransform3DScale(t, scale, scale, 1)
     }
 
@@ -246,12 +188,12 @@ enum NPBackdropImage {
         let input = CIImage(cgImage: source)
         let longest = max(input.extent.width, input.extent.height)
         guard longest > 0 else { return nil }
-        let scale = min(1, 128 / longest)
+        let scale = min(1, 240 / longest)
         let small = input.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let blurred = small
             .clampedToExtent()
-            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.35])
-            .applyingGaussianBlur(sigma: 9)
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.3])
+            .applyingGaussianBlur(sigma: 3.5)
             .cropped(to: small.extent)
         return context.createCGImage(blurred, from: small.extent)
     }
@@ -259,22 +201,22 @@ enum NPBackdropImage {
 
 struct NPLegibilityScrim: View {
     let palette: ArtworkColors.Palette
+    var extraDarkening: Double = 0
 
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         let base = Self.base(for: palette.rawMean, increased: contrast == .increased)
         ZStack {
-            Color.black.opacity(base)
+            Color.black.opacity(min(0.8, base + extraDarkening))
             LinearGradient(
-                colors: [Color.black.opacity(0), Color.black.opacity(0.3)],
+                stops: [
+                    .init(color: Color.black.opacity(0.32), location: 0),
+                    .init(color: Color.black.opacity(0.08), location: 0.45),
+                    .init(color: Color.black.opacity(0.5), location: 1),
+                ],
                 startPoint: .top,
                 endPoint: .bottom
-            )
-            LinearGradient(
-                colors: [Color.black.opacity(0.16), .clear, Color.black.opacity(0.2)],
-                startPoint: .leading,
-                endPoint: .trailing
             )
         }
         .allowsHitTesting(false)
@@ -282,9 +224,8 @@ struct NPLegibilityScrim: View {
     }
 
     static func base(for mean: SCAmbient.RGB, increased: Bool) -> Double {
-        let lifted = SCAmbient.RGB(r: min(1, mean.r * 1.35), g: min(1, mean.g * 1.35), b: min(1, mean.b * 1.35))
-        let scrim = SCAmbient.legibilityScrim(over: lifted, textOpacity: 0.66, minimumContrast: increased ? 7 : 4.5)
-        return min(0.78, max(increased ? 0.32 : 0.16, scrim))
+        let scrim = SCAmbient.legibilityScrim(over: mean, textOpacity: 0.66, minimumContrast: increased ? 7 : 4.5)
+        return min(increased ? 0.7 : 0.58, max(increased ? 0.5 : 0.4, scrim))
     }
 }
 
@@ -298,8 +239,7 @@ struct NPCoverBackdrop: View {
     var body: some View {
         ZStack {
             NPBackdrop(artworkURL: artworkURL, palette: palette, isAnimating: !reduceMotion && scenePhase == .active)
-            NPLegibilityScrim(palette: palette)
-            Color.black.opacity(0.22)
+            NPLegibilityScrim(palette: palette, extraDarkening: 0.1)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
