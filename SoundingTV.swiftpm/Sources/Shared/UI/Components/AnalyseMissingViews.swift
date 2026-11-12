@@ -54,13 +54,13 @@ struct MissingAnalysisProgressLine: View {
 
     var body: some View {
         if run.statusLine != nil || run.message != nil {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
+            VStack(alignment: .leading, spacing: 4) {
                 if let status = run.statusLine {
-                    HStack(spacing: Spacing.sm) {
+                    HStack(spacing: 8) {
                         Text(status)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
-                        Spacer(minLength: Spacing.sm)
+                        Spacer(minLength: 8)
                         if run.isPaused {
                             Button("Resume") { run.resume() }
                         } else {
@@ -70,17 +70,17 @@ struct MissingAnalysisProgressLine: View {
                     }
                 }
                 if let message = run.message {
-                    HStack(spacing: Spacing.sm) {
+                    HStack(spacing: 8) {
                         Text(message)
                             .foregroundStyle(.secondary)
-                        Spacer(minLength: Spacing.sm)
+                        Spacer(minLength: 8)
                         Button("OK") { run.dismissMessage() }
                     }
                 }
             }
             .font(.footnote)
             .buttonStyle(.borderless)
-            .padding(.vertical, Spacing.xs)
+            .padding(.vertical, 4)
         }
     }
 }
