@@ -57,9 +57,9 @@ struct BehindTheTrackView: View {
             .scrollIndicators(.hidden)
             .focusSection()
         }
-        .padding(.leading, 110)
-        .padding(.trailing, 100)
+        .padding(.horizontal, Space.page)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .ignoresSafeArea(edges: .horizontal)
         .background { backdrop }
         .collectionAccent(from: track.artworkURL)
         .environment(\.colorScheme, .dark)
