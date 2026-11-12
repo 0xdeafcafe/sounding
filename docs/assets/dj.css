@@ -7,7 +7,7 @@ main { padding-top: 0; }
 .hero .side .note { max-width: 36em; }
 .hero .side h1 { color: var(--ib); }
 .hero .side .lede, .hero .side .note, .hero .side .try span { color: var(--ib2); }
-.live .hero .try { display: flex; align-items: center; gap: 14px; justify-content: flex-end; text-align: left; }
+.live .hero .try { display: grid; justify-items: end; gap: 10px; text-align: right; margin-top: .4rem; }
 .live .hero .side.on .try :is(button, span) { pointer-events: auto; }
 .live .foot { background: var(--felt); }
 .chapter .side h2, .read h2, .warn h2 { color: var(--ib); }
@@ -290,7 +290,7 @@ main { padding-top: 0; }
   .still .chapter.hero .pin { display: flex; flex-direction: column; }
   .still .chapter.hero .plate { order: 2; margin-top: 28px; }
   .still .chapter.hero .plate img { aspect-ratio: 4 / 3; object-position: 50% 64%; }
-  .live .hero .try { justify-content: flex-start; }
+  .live .hero .try { justify-items: start; text-align: left; }
 }
 
 @media (max-width: 600px) {

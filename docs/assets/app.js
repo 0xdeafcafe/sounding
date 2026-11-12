@@ -53,19 +53,20 @@ const SHOT = {
   open0: { l: [0.035, 0.158, -0.14, 13, 27, 0.4, 0.2, -0.08], p: [0.026, 0.155, -0.14, 10, 30, 0.215, 0, -0.4] },
   open1: { l: [0.014, 0.14, -0.14, 11, 29, 0.31, 0.2, 0.02], p: [0.006, 0.138, -0.14, 6, 31, 0.15, 0, -0.42] },
   hero: { l: [0, 0.03, 0, 0, 42, 1.63, 0, -0.58], p: [0, 0.05, 0, 0, 58, 0.66, 0, -0.42], yawX: 10, px: 0.44 },
-  crate: { l: [-0.33, 0, 1.23, 0, 62, 2.4, 0, 0], p: [-0.4, 0, 1.23, 0, 66, 1.6, 0, 0.34], sx: 0.33 },
-  phone: { l: [0.42, 0.008, 1.0, 0, 74, 0.3, 0, 0.03], p: [0.42, 0.008, 1.0, 0, 82, 0.115, 0, 0.3], sx: 0.24 },
-  tv1: { l: [2.15, 0.26, 1.4, 0, 16, 1.6, 0, 0], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36], sx: 0.3 },
+  crate: { l: [-0.33, 0, 1.23, 0, 62, 2.4, 0, 0], p: [-0.4, 0, 1.23, 0, 66, 1.6, 0, 0.34], sx: 0.33, pw: 0.5 },
+  phone: { l: [0.42, 0.008, 1.0, 0, 74, 0.3, 0, 0.03], p: [0.42, 0.008, 1.0, 0, 82, 0.115, 0, 0.3], sx: 0.24, pw: 0.35, ww: 1.05 },
+  tv1: { l: [2.15, 0.26, 1.4, 0, 16, 1.6, 0, 0], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36], sx: 0.3, pw: 0.36 },
   tv2: { l: [1.9, 0.007, 1.785, -5, 57, 0.4, 0, 0.02], p: [1.9, 0.02, 1.765, -8, 57, 0.165, 0, 0.3], sx: 0.2 },
   tv3: { l: [2.17, 0.012, 1.8, 0, 82, 0.12, 0, 0], p: [2.17, 0.012, 1.8, 0, 82, 0.09, 0, 0.36], sx: 0.32 },
   tv4: { l: [2.15, 0.26, 1.4, 0, 16, 1.6, 0, 0], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36], sx: 0.3 },
   rigA: { l: [0, 0.06, 0, -20, 34, 1.36, 0, 0.44], p: [-0.14, 0.06, 0, -24, 62, 0.62, 0, 0.36], sx: 0.08, yawX: 24 },
   rigC: { l: [0, 0.05, 0, 0, 39, 1.5, 0, 0.3], p: [0, 0.05, 0, 40, 40, 0.62, 0, 0.3], yawX: 14 },
   out: { l: [0.035, 0.158, -0.14, 13, 27, 0.4, 0.2, -0.08], p: [0.026, 0.155, -0.14, 10, 30, 0.215, 0, 0.36] },
-  dj: { l: [0, 0.03, 0, 6, 40, 1.5, 0, -0.5], p: [0.31, 0.05, 0, 0, 58, 0.55, 0, -0.6] },
-  pad: { l: [1.27, 0.01, 0.2, -12, 64, 0.56, 0.2, 0.05], p: [1.27, 0.01, 0.2, -12, 70, 0.3, 0, 0.3] },
-  mac: { l: [1.56, 0.1, 0.75, -12, 30, 0.68, 0.2, 0.05], p: [1.56, 0.1, 0.75, -12, 34, 0.36, 0, 0.3] },
-  watch: { l: [2.17, 0.012, 1.8, 0, 62, 0.3, 0.1, 0.02], p: [2.17, 0.012, 1.8, 0, 66, 0.17, 0, 0.3] },
+  dj: { l: [0, 0.03, 0, 6, 40, 1.78, -0.14, -0.62], p: [0.31, 0.05, 0, 0, 58, 0.55, 0, -0.6] },
+  pad: { l: [1.27, 0.01, 0.2, -12, 64, 0.7, 0.2, 0.05], p: [1.27, 0.01, 0.2, -12, 70, 0.3, 0, 0.3], pw: 0.5, ww: 1 },
+  mac: { l: [1.56, 0.1, 0.75, -12, 30, 0.68, 0.2, 0.05], p: [1.56, 0.1, 0.75, -12, 34, 0.36, 0, 0.3], pw: 0.5 },
+  amp: { l: [0.035, 0.158, -0.14, 13, 27, 0.6, 0.5, -0.04], p: [0.026, 0.155, -0.14, 10, 30, 0.215, 0, 0.36], pw: 0.55 },
+  watch: { l: [2.17, 0.012, 1.8, 0, 62, 0.34, 0.3, 0.02], pw: 0.3, p: [2.17, 0.012, 1.8, 0, 66, 0.17, 0, 0.3] },
   room: { l: [1.2, 0.05, 0.6, 24, 46, 2.3, 0.3, -0.1], p: [1.2, 0.05, 0.6, 24, 50, 1.2, 0, 0.3] },
 };
 const OPEN = 1.2;
@@ -98,7 +99,7 @@ function live(stage) {
     const n = $$('.cap', el).length;
     const span = +el.dataset.span || 1.6 + 0.8 * n;
     el.style.setProperty('--span', span);
-    const tag = (el.classList.contains('flip') || el.classList.contains('right') ? '!' : '') + (el.classList.contains('wide') ? '>' : el.classList.contains('hero') ? '+' : '');
+    const tag = (el.classList.contains('flip') || el.classList.contains('right') ? '!' : '') + (el.classList.contains('wide') ? '>' : el.classList.contains('hero') ? '+' : '') + ($('.visual', el) ? '~' : '');
     return { id: el.dataset.scene, el, first: i === 0, n, span, shots: (el.dataset.shot || 'dj').split(',').map(s => s + tag), states: JSON.parse(el.dataset.states || '[]'), flow: el.classList.contains('flow'), s: 0, len: 1, alpha: 0, cap: 0, near: 1e9 };
   });
   const inks = $$('.ink').filter(el => !home || !topBar.contains(el)).map(el => ({ el, side: el.closest('.side'), d0: null, ex: null, ey: null }));
@@ -160,15 +161,14 @@ function live(stage) {
   }
 
   function shot(name) {
-    const key = name.replace(/[!>+]+$/, ''), tag = name.slice(key.length);
-    const flip = tag.includes('!'), push = tag.includes('>') ? 0.3 : tag.includes('+') ? 0.2 : 0;
-    const s = SHOT[key];
+    const key = name.replace(/[!>+~]+$/, ''), tag = name.slice(key.length);
+    const flip = tag.includes('!'), s = SHOT[key], push = tag.includes('>') ? (s.pw ?? 0.5) : tag.includes('+') ? 0.2 : tag.includes('~') ? 0.5 : 0, wide = tag.includes('~') ? 1.3 : tag.includes('>') ? (s.ww ?? 1.3) : 1;
     const c = (mobile ? s.p : s.l).slice();
     if (mobile) {
       c[5] *= clamp(aspect / 0.462, 1, 3.2);
       if (s.px && home) c[0] += (fade - 0.5) * s.px;
     } else {
-      c[5] *= Math.max(1, aspect / 1.6);
+      c[5] *= Math.max(1, aspect / 1.6) * wide;
       if (s.sx && !plate) c[6] += home ? (0.5 - fade) * 2 * s.sx : (flip ? -1 : 1) * s.sx;
       if (!home) c[6] += (flip ? -1 : 1) * (0.14 + push);
       if (plate) c[7] *= 0.4;

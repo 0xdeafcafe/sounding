@@ -186,9 +186,9 @@ html[data-plug="0"] .try .played, html[data-plug="1"] .try .hint { opacity: 0; v
   .live .chapter .visual, .live .chapter.flip .visual { left: var(--pad); right: var(--pad); top: calc(var(--head, 64px) + 24px); bottom: auto; transform: none; height: 44vh; align-items: start; }
   .live .chapter .visual > * { width: min(100%, calc(44vh * var(--ar, 1.6))); }
   .live .chapter.flow { height: auto; min-height: var(--ih, 100vh); }
-  .live .chapter.flow .pin { position: relative; height: auto; min-height: var(--ih, 100vh); overflow: visible; padding: calc(var(--head, 64px) + 24px) 0 48px; }
+  .live .chapter.flow .pin { position: relative; height: auto; min-height: var(--ih, 100vh); overflow: visible; padding: 46vh 0 48px; }
   .live .chapter.flow .side { position: relative; left: auto; right: auto; bottom: auto; margin: 0 var(--pad); padding: 24px 0 0; }
-  .live .chapter.flow .side::before { content: ""; position: absolute; z-index: -1; inset: -24px calc(var(--pad) * -1) -48px; background: linear-gradient(transparent, var(--bg) 120px); opacity: .92; }
+  .live .chapter.flow .side::before { content: ""; position: absolute; z-index: -1; inset: -72px calc(var(--pad) * -1) -48px; background: linear-gradient(transparent, var(--bg) 72px); opacity: .94; }
   .still .chapter .pin, .still .chapter.hero .pin { grid-template-columns: minmax(0, 1fr); row-gap: clamp(32px, 6vh, 56px); }
   .still .chapter.flip .side, .still .chapter.flip :is(.visual, .plate) { grid-column: 1; grid-row: auto; }
   .still .chapter .pin :is(.visual, .plate) { width: min(100%, 860px); justify-self: center; }
