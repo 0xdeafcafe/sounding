@@ -153,6 +153,7 @@ final class CompanionServer: ObservableObject {
     private let commands = CompanionCommandPipeline()
 
     private var pendingAuthHandoffSessionContinuation: CheckedContinuation<AuthHandoffSessionOfferPayload?, Never>?
+    private var pendingAuthHandoffSessionRequest: UUID?
 
     private let credentials: SoundCloudCredentialSource
     private var signInObservation: AnyCancellable?
@@ -302,14 +303,18 @@ final class CompanionServer: ObservableObject {
         guard !readyPeers.isEmpty else { return nil }
 
         return await withCheckedContinuation { continuation in
+            pendingAuthHandoffSessionContinuation?.resume(returning: nil)
             pendingAuthHandoffSessionContinuation = continuation
+            let request = UUID()
+            pendingAuthHandoffSessionRequest = request
             for peer in readyPeers {
                 send(.authHandoffSessionRequest(sessionId: peer.sessionId), to: peer)
             }
 
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(20))
-                guard let self, let pending = self.pendingAuthHandoffSessionContinuation else { return }
+                guard let self, self.pendingAuthHandoffSessionRequest == request,
+                      let pending = self.pendingAuthHandoffSessionContinuation else { return }
                 self.pendingAuthHandoffSessionContinuation = nil
                 pending.resume(returning: nil)
             }

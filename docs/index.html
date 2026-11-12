@@ -3,11 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="Sounding is a SoundCloud player for iPhone, iPad, Mac, Apple TV and Apple Watch, with a pair of DJ decks bolted on. It’s invite only for now.">
-  <meta name="theme-color" content="#f6f1e8" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#110e0c" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#0b0908">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Sounding. Plug in. All the way.">
   <meta property="og:description" content="A SoundCloud player for iPhone, iPad, Mac, Apple TV and Apple Watch, with DJ decks.">
@@ -16,174 +15,136 @@
   <title>Sounding · Plug in. All the way.</title>
   <link rel="icon" type="image/webp" href="assets/app-icon.webp">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-  <script>document.documentElement.classList.add('js');if(!/Mac|iPhone|iPad|iPod/.test(navigator.userAgent))document.documentElement.classList.add('not-sf')</script>
+  <script>(function(c){c.add('js');if(matchMedia('(prefers-reduced-motion: reduce)').matches||/[?&]still/.test(location.search))c.add('still');setTimeout(function(){if(!c.contains('live'))c.add('still')},6000)})(document.documentElement.classList)</script>
+  <style>html.js:not(.still):not(.live){background:#0b0908}html.js:not(.still):not(.live) body{visibility:hidden}</style>
   <link rel="stylesheet" href="assets/site.css">
-  <script src="assets/site.js" defer></script>
+  <link rel="modulepreload" href="assets/stage.js">
+  <link rel="modulepreload" href="assets/world.js">
+  <link rel="modulepreload" href="assets/gl.js">
+  <link rel="modulepreload" href="assets/shaders.js">
+  <script type="module" src="assets/app.js"></script>
 </head>
-<body>
+<body data-page="home">
   <a class="skip" href="#main">Skip to content</a>
+  <canvas id="gl" aria-hidden="true"></canvas>
+
   <header class="top">
-    <a class="brand" href="./"><img src="assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
-    <nav aria-label="Main"><a href="dj/">DJ</a><a href="support/">Support</a></nav>
+    <a class="brand ink" href="./"><img src="assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
+    <div class="xf" role="group" aria-label="Crossfader">
+      <button type="button" class="ink" data-xf="0" aria-pressed="true">Listening</button>
+      <input type="range" min="0" max="1000" value="0" step="1" aria-label="Crossfade from listening to DJing" data-xf-range>
+      <button type="button" class="ink" data-xf="1" aria-pressed="false">DJing</button>
+    </div>
+    <nav aria-label="Main"><button type="button" class="snd ink" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Sound off</span></button><a class="ink" href="support/">Support</a></nav>
   </header>
 
   <main id="main">
-    <section class="hero" aria-labelledby="hero-h">
-      <div class="hero-copy">
-        <h1 id="hero-h">Plug in.<br>All the way.</h1>
-        <p class="lede">Sounding is a SoundCloud player for iPhone, iPad, Mac, Apple&nbsp;TV and Apple&nbsp;Watch, with a pair of DJ decks bolted on. I make it on my own, and it’s in beta.</p>
-        <p class="actions"><span class="note">Invite only. I made this for me, and for a few people who now owe me a favour.</span></p>
+    <section class="scene hero" id="top" data-scene="hero" aria-labelledby="hero-h">
+      <figure class="plate" aria-hidden="true"><img class="pa" src="assets/still/hero-a.webp" alt="Two turntables and a mixer on a table, with Sounding’s cable plugged into the mixer." width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="assets/still/hero-b.webp" alt="Two turntables and a mixer on a table, with Sounding’s cable plugged into the mixer." width="1440" height="900" loading="lazy" decoding="async"></figure>
+      <div class="side a">
+        <h1 id="hero-h"><span class="ink">Plug in.</span><br><span class="ink after">All the way.</span></h1>
+        <p class="lede ink">Sounding is a SoundCloud player for iPhone, iPad, Mac, Apple&nbsp;TV and Apple&nbsp;Watch, with a pair of DJ decks bolted on. Built for me, myself, and I.</p>
+        <div class="try live-only">
+          <p class="hint"><span class="ink">Scroll down, or</span><button type="button" class="ink go" data-plug>push the jack down.</button></p>
+          <p class="played ink">Scratch a record, or fiddle a knob, they're real. <a href="#top" data-plug>Unplug</a></p>
+        </div>
+        <p class="note ink">Invite only. I made this for me, and for a few people who now owe me a favour.</p>
       </div>
-      <div class="hero-art" data-hero-art aria-hidden="true"></div>
+      <div class="side b">
+        <p class="h1 ink" role="heading" aria-level="2">Drop it like its hottt</p>
+        <p class="lede ink">Sounding’s Mac app has a proper DJ side: two decks and a mixer, a Prep window for beat grids, and cue points, Rekordbox imports, music <b>anal</b>ysis, and a line to the CDJs. Serato and Rekordbox features but with modern engineering to make them safe and <s>retard</s> dj-proof.</p>
+        <p class="note ink">The decks are on the Mac. <a href="dj/">Check it out on the DJ page</a>, big things coming.</p>
+      </div>
     </section>
 
     <section class="scene listen" id="listen" data-scene="listen" aria-labelledby="listen-h">
-      <div class="stage" data-state="4">
-        <div class="copy">
-          <h2 id="listen-h">Everything you’ve liked, already there.</h2>
-          <div class="captions">
-            <p class="cap c1"><b>This is your Likes, straight from SoundCloud.</b> Sign in once and it’s all there: likes, playlists, that set you saved at 4am. Nothing to import.</p>
-            <p class="cap c2"><b>This is a 90-minute set.</b> Pariah at Freerotation, all of it. Long mixes are what Sounding’s built around.</p>
-            <p class="cap c3"><b>This is the tracklist.</b> Sounding pieces it together from the uploader’s notes, the comments and Shazam. Missing one? Tap Identify and it’ll Shazam whatever’s on.</p>
-            <p class="cap c4"><b>Tap a track to jump to it.</b> Go on, try it. It works on this page too.</p>
-          </div>
+      <figure class="plate" aria-hidden="true"><img class="pa" src="assets/still/listen-a.webp" alt="Record sleeves from SoundCloud likes laid out on the table, next to an iPhone playing a set." width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="assets/still/listen-b.webp" alt="Record sleeves from SoundCloud likes laid out on the table, next to an iPhone playing a set." width="1440" height="900" loading="lazy" decoding="async"></figure>
+      <div class="side a">
+        <h2 class="ink" id="listen-h">Everything you’ve liked, already there.</h2>
+        <div class="caps">
+          <p class="cap ink"><b>Your Likes, straight from SoundCloud.</b> Sign in once and it’s all there, likes, playlists, and that set you saved at 4am and swore you’d listen to. Nothing to import.</p>
+          <p class="cap ink"><b>A three-hour set.</b> Essy at Wildeburg, all of it. Long mixes are the whole point tbh.</p>
+          <p class="cap ink"><b>The tracklist.</b> Sounding cobbles it together from the uploader’s notes, the comments and Shazam. Missing one? Tap Identify and it’ll Shazam whatever’s on, no more holding your phone up to the speaker like it’s 2012.</p>
+          <p class="cap ink"><b>Tap a track to jump to it.</b> <span class="live-only">Go on, it works on this page too.</span></p>
         </div>
-
-        <ul class="covers" aria-label="Recent likes">
-          <li style="--i:0"><img src="assets/music/paul-renard-transmissions.webp" srcset="assets/music/s/paul-renard-transmissions.webp 160w, assets/music/paul-renard-transmissions.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="Transmissions, Paul Renard" width="500" height="500" loading="lazy" decoding="async"></li>
-          <li style="--i:1"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="Obskür b2b Luuk van Dijk at the Van Nelle Fabriek, Audio Obscura" width="500" height="500" loading="lazy" decoding="async"></li>
-          <li style="--i:2"><img src="assets/music/andre-zimmer-invisible-sandwich.webp" srcset="assets/music/s/andre-zimmer-invisible-sandwich.webp 160w, assets/music/andre-zimmer-invisible-sandwich.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="Invisible Sandwich, Andre Zimmer" width="500" height="500" loading="lazy" decoding="async"></li>
-          <li style="--i:3"><img src="assets/music/summer-junkies-hey-yall.webp" srcset="assets/music/s/summer-junkies-hey-yall.webp 160w, assets/music/summer-junkies-hey-yall.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="Hey Y’All (Ashley D’s Piano Rave House Reboot), Summer Junkies" width="500" height="500" loading="lazy" decoding="async"></li>
-          <li style="--i:4"><img src="assets/music/jungle-by-night-oog-om-oog.webp" srcset="assets/music/s/jungle-by-night-oog-om-oog.webp 160w, assets/music/jungle-by-night-oog-om-oog.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="Oog om Oog (D Stone Remix), Jungle By Night" width="500" height="500" loading="lazy" decoding="async"></li>
-          <li style="--i:5"><img src="assets/music/angel-dlite-club-smut.webp" srcset="assets/music/s/angel-dlite-club-smut.webp 160w, assets/music/angel-dlite-club-smut.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="Angel D’lite live from Club Smut, Pleasure Palace" width="500" height="500" loading="lazy" decoding="async"></li>
-          <li style="--i:6"><img src="assets/music/kyle-starkey-milion.webp" srcset="assets/music/s/kyle-starkey-milion.webp 160w, assets/music/kyle-starkey-milion.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="Kyle Starkey b2b Milion at Intercell × Glitch Festival 2026" width="500" height="500" loading="lazy" decoding="async"></li>
-          <li style="--i:7"><img src="assets/music/pariah-freerotation.webp" srcset="assets/music/s/pariah-freerotation.webp 160w, assets/music/pariah-freerotation.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="Pariah at Freerotation 2024, Baskerville Hall" width="500" height="500" loading="lazy" decoding="async"></li>
-          <li style="--i:8"><img src="assets/music/mees-visser.webp" srcset="assets/music/s/mees-visser.webp 160w, assets/music/mees-visser.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="I Just Can’t Get Enough, Mees Visser" width="500" height="500" loading="lazy" decoding="async"></li>
-          <li style="--i:9"><img src="assets/music/young-marco-dekmantel.webp" srcset="assets/music/s/young-marco-dekmantel.webp 160w, assets/music/young-marco-dekmantel.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="Young Marco at Dekmantel Radar 2024" width="500" height="500" loading="lazy" decoding="async"></li>
-          <li style="--i:10"><img src="assets/music/benwal-dgtl.webp" srcset="assets/music/s/benwal-dgtl.webp 160w, assets/music/benwal-dgtl.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="Benwal, closing set at DGTL Amsterdam 2026" width="500" height="500" loading="lazy" decoding="async"></li>
-          <li style="--i:11"><img src="assets/music/pegassi-essential-mix.webp" srcset="assets/music/s/pegassi-essential-mix.webp 160w, assets/music/pegassi-essential-mix.webp 500w" sizes="(max-width: 899px) 22vw, 132px" alt="Pegassi, BBC Radio 1’s Essential Mix" width="500" height="500" loading="lazy" decoding="async"></li>
-        </ul>
-
-        <div class="phone" data-phone data-mass="0">
-          <div class="screen np" data-np>
-            <div class="view lib" aria-hidden="true">
-              <p class="lib-h">Likes</p>
-              <ol class="lib-list">
-                <li><img src="assets/music/s/paul-renard-transmissions.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>Paul Renard - Transmissions<small>Zodiak Commune Records</small></span></li>
-                <li><img src="assets/music/s/obskur-luuk-van-dijk.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>Obskür B2B Luuk van Dijk | Audio Obscura at the Van Nelle Fabriek<small>Audio Obscura</small></span></li>
-                <li><img src="assets/music/s/andre-zimmer-invisible-sandwich.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>Andre Zimmer - Invisible Sandwich<small>Big Trouble Records</small></span></li>
-                <li><img src="assets/music/s/summer-junkies-hey-yall.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>Summer Junkies - Hey Y’All (Ashley D’s Piano Rave House Reboot)<small>Ashley D</small></span></li>
-                <li><img src="assets/music/s/jungle-by-night-oog-om-oog.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>Oog om Oog (feat. Spinvis) (D Stone Remix)<small>Jungle By Night</small></span></li>
-                <li><img src="assets/music/s/angel-dlite-club-smut.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>Angel D’lite live from Club Smut - Pleasure Palace 12.07.25<small>angel d’lite</small></span></li>
-                <li><img src="assets/music/s/kyle-starkey-milion.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>Kyle Starkey b2b Milion at Intercell × Glitch Festival 2026<small>Intercell</small></span></li>
-                <li class="pick"><img src="assets/music/s/pariah-freerotation.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>Pariah @ Freerotation 2024, Baskerville Hall, UK (06/07/24)<small>Pariah</small></span></li>
-                <li><img src="assets/music/s/mees-visser.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>Mees Visser - I Just Can’t Get Enough<small>Mees Visser</small></span></li>
-                <li><img src="assets/music/s/young-marco-dekmantel.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>Young Marco at Dekmantel Radar 2024<small>Sakke</small></span></li>
-                <li><img src="assets/music/s/benwal-dgtl.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>BENWAL | FULL CLOSING SET | DGTL AMSTERDAM 2026 | 5.4.26<small>DGTL</small></span></li>
-                <li><img src="assets/music/s/pegassi-essential-mix.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span>BBC Radio 1’s Essential Mix Pegassi<small>Pegassi</small></span></li>
-              </ol>
-            </div>
-
-            <div class="view play" role="group" aria-label="Now Playing: Pariah at Freerotation 2024">
-              <img class="np-bd" src="assets/music/pariah-backdrop.webp" alt="" width="80" height="80" loading="lazy" decoding="async">
-              <img class="np-art" src="assets/music/pariah-freerotation.webp" alt="" width="500" height="500" loading="lazy" decoding="async">
-              <div class="np-title"><p class="np-t">Pariah @ Freerotation 2024, Baskerville Hall, UK (06/07/24)</p><p class="np-a">Pariah</p></div>
-              <div class="np-glass" aria-hidden="true"><i class="like"></i><i class="more"></i></div>
-              <p class="np-now"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M2 6.5h12M2 10h8M2 13.5h6"/></svg><span data-now>Maōh - Xhaxché</span></p>
-              <div class="np-wave" data-wave><div class="wave-bars"></div><div class="wave-bars played"></div><div class="playhead"><i></i></div></div>
-              <p class="np-times"><span data-elapsed>0:00</span><span data-remain>-1:28:20</span></p>
-              <div class="np-transport" aria-hidden="true"><i class="rw"></i><i class="pp"></i><i class="ff"></i></div>
-              <div class="np-volume" aria-hidden="true"><i></i></div>
-              <div class="np-row" aria-hidden="true"><span>Tracklist</span><span>Output</span><span>Up Next</span></div>
-              <div class="np-list">
-                <p class="np-count"><span>24 identified</span><span class="identify" aria-hidden="true">Identify</span></p>
-                <div class="np-scroll"><ol data-tracklist></ol></div>
-                <i class="tap" aria-hidden="true"></i>
-              </div>
-            </div></div>
-          </div>
+      </div>
+      <div class="side b">
+        <h2 class="ink">rekordbox, both ways.</h2>
+        <div class="caps">
+          <p class="cap ink"><b>Bring your rekordbox library.</b> Point Sounding at the folder, a USB stick or a rekordbox.xml and it matches each track to your own files and your SoundCloud. If it’s not sure, it asks, which is more than most people do.</p>
+          <p class="cap ink"><b>Your prep comes along too.</b> Grids, keys, hot cues, memory cues, loops. Already prepped a track differently? Pick per row, Keep Sounding or Use Imported. Nothing you made gets binned.</p>
+          <p class="cap ink"><b>Prep (⌥⌘P) is where tracks get ready on the Mac.</b> Tempo, key, beat grid, cue points. Sounding works the grid out itself, and it’s usually right. Usually.</p>
+          <p class="cap ink"><b>USB sticks, straight from Sounding.</b> Export to USB (⇧⌘E) writes a stick the CDJ-2000NXS2 and CDJ-3000 can read, with your files, grids, cues and waveforms. It hasn’t met a real CDJ yet, so if you try it at a gig, that’s on you.</p>
         </div>
       </div>
     </section>
 
     <section class="scene output" id="output" data-scene="output" aria-labelledby="output-h">
-      <div class="stage" data-state="4">
-        <div class="copy">
-          <h2 id="output-h">From your phone to the TV, mid-track.</h2>
-          <div class="captions">
-            <p class="cap c1"><b>First, the TV signs in by ear.</b> It plays a short techno pulse (om-wom-wom), plus a signal too high for you to hear. Your iPhone picks it up, asks if that’s your TV, and signs it in. No QR code, no typing a password with the Siri Remote.</p>
-            <p class="cap c2"><b>Tap Play On and pick the Apple&nbsp;TV.</b> The set carries on from the same second, just louder.</p>
-            <p class="cap c3"><b>Your iPhone and Watch are the remote.</b> Skip, pause, and scrub with the Digital Crown, from your wrist (the phone’s down the back of the sofa anyway).</p>
-            <p class="cap c4"><b>Then there’s SharePlay.</b> Start one on a FaceTime call and your friends listen along on their own iPhones, iPads, Macs and Apple&nbsp;TVs, in sync. Everyone plays it with their own SoundCloud sign-in. You pick the music, they nod along.</p>
-          </div>
+      <figure class="plate" aria-hidden="true"><img class="pa" src="assets/still/output-a.webp" alt="A television and Apple TV, with an iPhone, an Apple Watch and a remote on the table in front." width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="assets/still/output-b.webp" alt="A television and Apple TV, with an iPhone, an Apple Watch and a remote on the table in front." width="1440" height="900" loading="lazy" decoding="async"></figure>
+      <div class="side a">
+        <h2 class="ink" id="output-h">From your phone to the TV, mid-track.</h2>
+        <div class="caps">
+          <p class="cap ink"><b>The TV signs in by ear.</b> It plays a three-note chime with a signal hidden in it, too high for you to hear, your iPhone picks it up, asks if that’s your TV, and you’re in. There’s a QR code too, for the old fashioned. Nobody types a password with the Siri Remote, ever again.</p>
+          <p class="cap ink"><b>Tap Play On, pick the Apple&nbsp;TV.</b> The set carries on from the same second, just louder. Sorry neighbours.</p>
+          <p class="cap ink"><b>Your iPhone and Watch are the remote.</b> Skip, pause, scrub with the Digital Crown, because the phone’s down the back of the sofa anyway.</p>
+          <p class="cap ink"><b>Then there’s SharePlay.</b> Start one on a FaceTime call and your mates listen along on their own iPhones, iPads, Macs and Apple&nbsp;TVs, in sync, each on their own SoundCloud. You pick the music, they nod along. As it should be.</p>
         </div>
-        <div class="devices" aria-hidden="true">
-          <div class="dev d-tv" data-mass="2"><div class="glass">
-            <div class="tv-sign"><img src="assets/app-icon.webp" alt="" width="64" height="64" loading="lazy" decoding="async"><b>Sign in with iPhone</b><span>Keep it nearby and tap Sign In. It hears this Apple&nbsp;TV’s chime.</span></div>
-            <div class="mini"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 30vw, 200px" alt="" width="500" height="500" loading="lazy" decoding="async"><b>Obskür B2B Luuk van Dijk | Audio Obscura at the Van Nelle Fabriek</b><span>Audio Obscura</span><div class="bar"><i></i></div><em>41:07</em></div>
-          </div><div class="box"></div></div>
-          <div class="dev d-mac"><div class="glass"><div class="mini"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 30vw, 200px" alt="" width="500" height="500" loading="lazy" decoding="async"><b>Obskür B2B Luuk van Dijk | Audio Obscura at the Van Nelle Fabriek</b><span>Audio Obscura</span><div class="bar"><i></i></div><em>41:07</em></div></div><div class="base"></div></div>
-          <div class="dev d-phone"><div class="glass">
-            <div class="mini"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 30vw, 200px" alt="" width="500" height="500" loading="lazy" decoding="async"><b>Obskür B2B Luuk van Dijk</b><span>Audio Obscura</span><div class="bar"><i></i></div><em>41:07</em>
-              <p class="route"><span class="r1"><svg class="tv-glyph" viewBox="0 0 16 16"><rect x="4.5" y="1.5" width="7" height="13" rx="1.6"/><path d="M7 12.5h2"/></svg>iPhone</span><span class="r2"><svg class="tv-glyph" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="8.5" rx="1.2"/><path d="M5 13.5h6"/></svg>Living Room</span><span class="r3"><svg class="tv-glyph" viewBox="0 0 16 16"><path d="M3 5.5v5M6 3.5v9M10 3.5v9M13 5.5v5"/></svg>SharePlay</span></p>
-            </div>
-            <div class="toast"><b>Living Room</b><span>Sign in to Sounding on this Apple&nbsp;TV?</span><i>Sign In</i></div>
-            <div class="sheet"><p>Play On</p><ul><li class="o-phone">This iPhone<i></i></li><li class="o-tv">Living Room<i></i></li></ul></div>
-          </div></div>
-          <div class="dev d-watch"><div class="glass">
-            <p class="clock">21:47</p>
-            <div class="remote"><p class="w-route"><svg class="tv-glyph" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="8.5" rx="1.2"/><path d="M5 13.5h6"/></svg>Living Room</p><b>Obskür B2B Luuk van Dijk</b><div class="w-ctrl"><i class="w-rw"></i><div class="w-ring"><svg viewBox="0 0 40 40"><circle class="w-track" cx="20" cy="20" r="17"/><circle class="w-prog" cx="20" cy="20" r="17" pathLength="1"/></svg><i class="w-pp"></i></div><i class="w-ff"></i></div></div>
-          </div><i class="crown"></i></div>
-          <div class="dev d-phone d-friend"><div class="glass">
-            <div class="mini"><img src="assets/music/obskur-luuk-van-dijk.webp" srcset="assets/music/s/obskur-luuk-van-dijk.webp 160w, assets/music/obskur-luuk-van-dijk.webp 500w" sizes="(max-width: 899px) 30vw, 200px" alt="" width="500" height="500" loading="lazy" decoding="async"><b>Obskür B2B Luuk van Dijk</b><span>Audio Obscura</span><div class="bar"><i></i></div><em>41:07</em>
-              <p class="route"><span><svg class="tv-glyph" viewBox="0 0 16 16"><path d="M3 5.5v5M6 3.5v9M10 3.5v9M13 5.5v5"/></svg>SharePlay</span></p>
-            </div>
-          </div></div>
+      </div>
+      <div class="side b">
+        <h2 class="ink">Your cues, on everything.</h2>
+        <div class="caps">
+          <p class="cap ink"><b>Set a cue in Prep on the Mac</b> and it’s on the Apple&nbsp;TV’s Now Playing. Handy when the TV’s running the party.</p>
+          <p class="cap ink"><b>And your iPhone and iPad.</b> Cues sync through your own iCloud, so they follow the track wherever it goes. Move, rename or bin one on the iPad and the Mac catches up.</p>
+          <p class="cap ink"><b>Hot cues A to H, in colour.</b> Name them, colour them, slap them on the pads. Memory cues mark a spot without using a pad, and loops can live on a pad too.</p>
+          <p class="cap ink"><b>Cues that learn.</b> Keep jumping back to the same bit (three times, over at least two listens, on any of your devices) and Sounding suggests a memory cue called Often replayed. Take it or leave it. It never nicks a pad on its own, it’s not an animal.</p>
         </div>
       </div>
     </section>
 
-    <section class="decks" id="decks" aria-labelledby="decks-h">
-      <div class="copy">
-        <h2 id="decks-h">Two decks, if you fancy it.</h2>
-        <p class="sub">There’s a proper DJ mode in here: two decks, a crossfader, three-band EQ and a filter on each, loops, and four hot cues a deck.</p>
-        <p><b>It knows what’ll fit.</b> Your iPhone, iPad or Mac works out tempo and key on the device, so you can see what’s compatible before you bring it in.</p>
-        <p><b>Auto Mix, for when you’d rather dance.</b> It beat-matches the next track and brings it in on the phrase. Pick a personality: Wedding DJ blends, echoes out and cuts clean, while Junkie loops, ramps the tempo and jumps through a long set. It can follow the time of night or your heart rate, too.</p>
-        <p><b>Bring your own hardware.</b> Plug a Pioneer DDJ-400 into the Mac and it’s mapped already. On iPhone and iPad, the decks drive the Apple&nbsp;TV, so you can mix from the sofa.</p>
-        <p><b>There’s a lot more on the Mac.</b> Prep for beat grids and cue points, rekordbox in and out, CDJs, and cues that follow you to every device. <a href="dj/">It’s all on the DJ page.</a></p>
-        <p class="gigs">Good for house parties, weddings you got roped into, or leaving it on as a very opinionated jukebox.</p>
+    <section class="scene decks" id="decks" data-scene="decks" aria-labelledby="decks-h">
+      <figure class="plate" aria-hidden="true"><img class="pa" src="assets/still/decks-a.webp" alt="A turntable and the mixer, up close." width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="assets/still/decks-b.webp" alt="A turntable and the mixer, up close." width="1440" height="900" loading="lazy" decoding="async"></figure>
+      <div class="side a">
+        <h2 class="ink" id="decks-h">Auto Mix, honestly.</h2>
+        <div class="caps">
+          <p class="cap ink"><b>Auto Mix, for when you’d rather dance.</b> It beat-matches the next track and brings it in on the phrase, like a professional, allegedly.</p>
+          <p class="cap ink"><b>Pick a personality.</b> Wedding DJ blends, echoes out and cuts clean. Junkie loops, ramps the tempo and tears through a long set like it’s 6am somewhere.</p>
+          <p class="cap ink"><b>Energy.</b> Follow the Night warms up, peaks around midnight and cools off, or set Chill to Peak yourself. Match My Workout reads your heart rate off your Apple&nbsp;Watch, so the gym gets the mix it deserves.</p>
+          <p class="cap ink"><b>It doesn’t fake it.</b> Auto Mix only beat-matches when it’s actually measured where the bars are on both tracks. When it hasn’t, it cuts clean on the bar instead. Skip and Pause always win.</p>
+          <p class="cap ink"><b>Good for house parties,</b> weddings you got roped into, or a very opinionated jukebox.</p>
+        </div>
       </div>
-      <div class="rig" data-rig data-mass="1" aria-hidden="true">
-        <div class="platter a"><div class="disc"><img src="assets/music/paul-renard-transmissions.webp" srcset="assets/music/s/paul-renard-transmissions.webp 160w, assets/music/paul-renard-transmissions.webp 500w" sizes="(max-width: 899px) 14vw, 96px" alt="" width="500" height="500" loading="lazy" decoding="async"></div></div>
-        <div class="mixer" data-rig-core><i></i><i></i><i></i><i></i><i></i><i></i><div class="fader"><b></b></div></div>
-        <div class="platter b"><div class="disc"><img src="assets/music/andre-zimmer-invisible-sandwich.webp" srcset="assets/music/s/andre-zimmer-invisible-sandwich.webp 160w, assets/music/andre-zimmer-invisible-sandwich.webp 500w" sizes="(max-width: 899px) 14vw, 96px" alt="" width="500" height="500" loading="lazy" decoding="async"></div></div>
-        <div class="pads a"><i></i><i></i><i></i><i></i><s></s></div>
-        <div class="pads b"><i></i><i></i><i></i><i></i><s></s></div>
-        <p class="rig-tags"><span>Paul Renard - Transmissions</span><span>Andre Zimmer - Invisible Sandwich</span></p>
+      <div class="side b">
+        <h2 class="ink">Two decks on your Mac.</h2>
+        <div class="caps">
+          <p class="cap ink"><b>The Decks.</b> Two of them, crossfader in the middle, as god intended. Drag a track from your Likes onto either one and your Mac works out its tempo and key, so you can see what’ll fit.</p>
+          <p class="cap ink"><b>Hot cues and loops.</b> Four pads a deck, loops you can halve and double, and an echo for the lazy exit. Every hot cue you set sticks with the track.</p>
+          <p class="cap ink"><b>Three-band EQ and a filter each side.</b> Swap the basslines, sweep the filter, ride the crossfader. Sync and key lock are there for when your ears need a hand, no judgement.</p>
+          <p class="cap ink"><b>Plug in a DDJ-400 and it’s mapped.</b> Jogs, tempo, EQs, filters, channel faders, the crossfader, play, cue, loops and all eight pads a side. It’s the only controller I’ve mapped so far, so anything else gets politely ignored.</p>
+          <p class="cap ink"><b>Next to the CDJs.</b> Put the Mac on the same network as your CDJs and Sounding can see them, what each player’s doing, the tempo, who’s master and which channel’s on air. <a href="dj/">More on the DJ page.</a></p>
+        </div>
       </div>
     </section>
 
-    <section class="join" id="join" aria-labelledby="join-h">
-      <div class="join-copy">
-        <h2 id="join-h">Fair warning.</h2>
-        <p>Sounding isn’t official. SoundCloud didn’t make it and has nothing to do with it. It’s me, in Amsterdam, mostly in the evenings. There’s no support team, no roadmap and no promises. You get what you’re given, and some weeks that’s a bug.</p>
-        <p>There are no Sounding servers, no separate Sounding account and no analytics. Your sign-in stays on your devices, and sync goes through your own iCloud. <a href="privacy/">Privacy policy</a></p>
-        <p>Sounding can’t play SoundCloud’s ads, so on a free account you get SoundCloud’s previews, and full tracks need Go or Go+. Offline downloads need Go or Go+ too. Promoted tracks in your feed carry SoundCloud’s “Promoted” label.</p>
-        <p class="needs">You’ll need iOS or iPadOS 26.5 or later, or tvOS, macOS or watchOS 27.</p>
-      </div>
-      <p class="join-action"><span class="invite" data-socket>Invite only. I made this for me, and for a few people who now owe me a favour.</span></p>
-      <div class="small-print">
-        <p>Found a bug? Email <a href="mailto:sounding@alex.forbes.red">sounding@alex.forbes.red</a>. <a href="support/">Support</a></p>
+    <section class="scene join" id="join" data-scene="join" aria-labelledby="join-h">
+      <figure class="plate" aria-hidden="true"><img class="pa" src="assets/still/join-a.webp" alt="The jack, pulled back out of the mixer, in the dark." width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="assets/still/join-b.webp" alt="The jack, pulled back out of the mixer, in the dark." width="1440" height="900" loading="lazy" decoding="async"></figure>
+      <div class="side a">
+        <h2 class="ink" id="join-h">Fair warning.</h2>
+        <p class="ink">Sounding isn’t official, idk what SoundCloud do but they didn't do this. Just me frolicking with Claudé. There's no support team, no roadmap, and no dissapointments. You get what you’re given, if you're lucky, and you'll be damn greatful.</p>
+        <p class="ink">All on device, no off shore antics, no separate Sounding account, and no analytics. Your sign-in stays on your devices, and sync goes through your own iCloud. <a href="privacy/">Privacy policy</a></p>
+        <p class="ink">Sounding can’t play SoundCloud’s ads realiably, so on a free account you get SoundCloud’s previews, and full tracks need Go or Go+. Much attention has been paid to making it function like the reals deals.</p>
+        <p class="needs ink">You’ll need iOS or iPadOS 26.5 or later, or tvOS, macOS or watchOS 27. I'd be shocked if an android phone made it this far down the web page without melting tbh.</p>
+        <p class="invite ink">I made this for me. No App Store release will happen. Bribes accepted, meet in Tilla Tec toilets.</p>
+        <p class="small ink">Found a bug? Good boy.</p>
       </div>
     </section>
   </main>
 
   <footer class="foot">
     <div>
-      <p>Made with love in Amsterdam by Alex Forbes-Reed.</p>
-      <p>You’ll need a SoundCloud account. Not affiliated with or endorsed by SoundCloud.</p>
+      <p class="ink">Mused lovingly in Amsterdam, <span class="flag">🇳🇱</span></p>
+      <p class="ink">Despite their many attempts, SoundCloud is not affiliated with or endorsed by me.</p>
     </div>
-    <nav aria-label="Footer"><a href="dj/">DJ</a><a href="privacy/">Privacy</a><a href="support/">Support</a></nav>
+    <nav aria-label="Footer"><a class="ink" href="dj/">DJ</a><a class="ink" href="tv/">TV</a><a class="ink" href="features/">Features</a><a class="ink" href="privacy/">Privacy</a><a class="ink" href="support/">Support</a></nav>
   </footer>
 </body>
 </html>
