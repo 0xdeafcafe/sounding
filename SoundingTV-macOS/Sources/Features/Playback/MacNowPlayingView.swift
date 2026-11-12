@@ -9,6 +9,7 @@ enum MacNowPlayingPane: String, CaseIterable, Identifiable {
     case comments
     case tracklist
     case about
+    case cues
     var id: String { rawValue }
 
     var title: String {
@@ -18,6 +19,7 @@ enum MacNowPlayingPane: String, CaseIterable, Identifiable {
         case .comments: return "Comments"
         case .tracklist: return "Tracklist"
         case .about: return "Behind the Track"
+        case .cues: return TrackMapCopy.title
         }
     }
 
@@ -28,6 +30,7 @@ enum MacNowPlayingPane: String, CaseIterable, Identifiable {
         case .comments: return "quote.bubble"
         case .tracklist: return "music.note.list"
         case .about: return "info.circle"
+        case .cues: return "flag"
         }
     }
 }

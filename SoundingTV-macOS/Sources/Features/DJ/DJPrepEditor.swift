@@ -44,15 +44,8 @@ struct DJPrepEditor: View {
                 .accessibilityAdjustableAction { direction in
                     step(direction == .increment ? 1 : -1)
                 }
-                DJHotCuePads(detail: detail, selectedCueId: model.selectedCueId, enabled: row.access.canEdit) { slot, cue in
-                    if let cue {
-                        model.selectedCueId = cue.id
-                        model.cursorSeconds = cue.positionSeconds
-                    } else {
-                        model.setHotCue(slot: slot)
-                    }
-                    focused = true
-                }
+                TrackMapPadGrid(model: model.trackMap, columns: CuePoint.hotCueSlotCount)
+                    .simultaneousGesture(TapGesture().onEnded { focused = true })
                 DJShortcutHints()
                 footer(detail, row: row)
             }
@@ -122,18 +115,12 @@ struct DJPrepEditor: View {
             return .handled
         }
         if press.key == .delete || press.key == .deleteForward {
-            model.deleteSelectedCue()
+            model.trackMap.deleteSelected()
             return .handled
         }
+        if MacTrackMapKeys.cueKey(press, model: model.trackMap) == .handled { return .handled }
         guard press.modifiers.isEmpty else { return .ignored }
-        let character = press.characters.lowercased()
-        if let digit = Int(character), (1...CuePoint.hotCueSlotCount).contains(digit) {
-            model.setHotCue(slot: digit - 1)
-            return .handled
-        }
-        switch character {
-        case "m": model.addMemoryCue()
-        case "l": model.addLoop()
+        switch press.characters.lowercased() {
         case "d": model.setDownbeat()
         case "t": model.tap()
         case "=", "+": model.zoomWindow = max(2, model.zoomWindow / 1.5)
@@ -406,57 +393,10 @@ struct DJCueFlag: View {
     }
 }
 
-// MARK: Pads and hints
-
-struct DJHotCuePads: View {
-    let detail: MacPrepModel.Detail
-    let selectedCueId: String?
-    let enabled: Bool
-    let onTap: (Int, CuePoint?) -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(0..<CuePoint.hotCueSlotCount, id: \.self) { slot in
-                let cue = detail.cues.first { $0.hotCueIndex == slot }
-                Button {
-                    onTap(slot, cue)
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
-                            Text(CuePoint.slotLetter(slot)).fontWeight(.bold)
-                            Spacer()
-                            if let cue { Text(DJFormat.time(cue.positionSeconds)).monospacedDigit() }
-                        }
-                        .font(.caption)
-                        .foregroundStyle(cue.map { AnyShapeStyle($0.color.color) } ?? AnyShapeStyle(.secondary))
-                        Text(cue.map { $0.label.isEmpty ? "Cue" : $0.label } ?? "+")
-                            .font(.callout.weight(.semibold))
-                            .foregroundStyle(cue == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background((cue?.color.color ?? .clear).opacity(0.16), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(cue.map { $0.color.color.opacity(cue?.id == selectedCueId ? 1 : 0.55) } ?? Color.secondary.opacity(0.3), lineWidth: cue?.id == selectedCueId ? 2 : 1)
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .disabled(!enabled && cue == nil)
-                .help(cue == nil ? "Set Hot Cue \(CuePoint.slotLetter(slot)) at the cursor (\(slot + 1))" : "Go to Hot Cue \(CuePoint.slotLetter(slot))")
-                .accessibilityLabel(cue == nil ? "Set hot cue \(CuePoint.slotLetter(slot))" : "Hot cue \(CuePoint.slotLetter(slot)), \(cue?.label ?? ""), \(DJFormat.time(cue?.positionSeconds ?? 0))")
-            }
-        }
-    }
-}
-
 struct DJShortcutHints: View {
     private let hints: [(keys: String, label: String)] = [
         ("← →", "Beat"), ("⌥← →", "Nudge grid"), ("D", "Set downbeat"), ("T", "Tap"),
-        ("1–8", "Hot cue"), ("M", "Memory cue"), ("L", "Loop"), ("⌘Z", "Undo"), ("⌘3", "Plan"),
+        ("1–8", "Hot cue"), ("M", "Cue point"), ("L", "Loop"), ("I O", "Mix in, out"), ("⌘Z", "Undo"), ("⌘3", "Plan"),
     ]
 
     var body: some View {
@@ -466,7 +406,7 @@ struct DJShortcutHints: View {
             row(Array(hints.prefix(4)))
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Shortcuts: arrows move a beat, option arrows nudge the grid, D sets the downbeat, T taps the tempo, 1 to 8 set hot cues, M adds a memory cue, L adds a loop")
+        .accessibilityLabel("Shortcuts: arrows move a beat, option arrows nudge the grid, D sets the downbeat, T taps the tempo, 1 to 8 set hot cues, M saves a cue point, L adds a loop, I and O set the mix in and mix out")
     }
 
     private func row(_ items: [(keys: String, label: String)]) -> some View {

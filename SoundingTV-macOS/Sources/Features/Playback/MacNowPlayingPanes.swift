@@ -123,7 +123,7 @@ struct MacNowPlayingPanes: View {
             MacGlassTabs(
                 "Pane",
                 selection: $pane,
-                options: MacNowPlayingPane.allCases.filter { (model.track?.supportsSoundCloudActions != false || $0 != .comments) && !(hidesLyrics && $0 == .lyrics) },
+                options: MacNowPlayingPane.allCases.filter { (model.track?.supportsSoundCloudActions != false || $0 != .comments) && !(hidesLyrics && $0 == .lyrics) && ($0 != .cues || pane == .cues) },
                 title: \.title
             )
             .controlSize(surface == .fullWindow ? .regular : .small)
@@ -139,6 +139,7 @@ struct MacNowPlayingPanes: View {
                     case .comments where track.supportsSoundCloudActions: MacCommentsPane(track: track, surface: surface)
                     case .tracklist, .comments: MacTracklistPane(track: track, surface: surface)
                     case .about: MacAboutPane(track: track, surface: surface, pane: $pane)
+                    case .cues: MacCuesPane(track: track, surface: surface)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -1154,5 +1155,160 @@ private struct MacAboutPane: View {
                 EmptyView()
             }
         }
+    }
+}
+
+// MARK: Cue points
+
+private struct MacCuesPane: View {
+    let track: Track
+    let surface: MacNowPlayingSurface
+
+    @StateObject private var model = TrackMapModel()
+    @ObservedObject private var waveforms = WaveformService.shared
+    @Environment(\.undoManager) private var undoManager
+    @FocusState private var laneFocused: Bool
+
+    private var timeline: MacPlaybackTimeline { .shared }
+
+    private var envelope: [Float] {
+        guard case .ready(let waveform) = waveforms.state(for: track.id), !waveform.isEmpty else { return [] }
+        return waveform.resampled(to: 1_200)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            MacPaneHeading(title: TrackMapCopy.title, surface: surface) {
+                Text(track.title)
+            } actions: {
+                Button(TrackMapCopy.addLoop, systemImage: "repeat") { model.addLoop() }
+                    .labelStyle(.iconOnly)
+                    .help("\(TrackMapCopy.addLoop) (L)")
+                Button(TrackMapCopy.saveCuePoint, systemImage: "plus") { model.saveCue() }
+                    .labelStyle(.iconOnly)
+                    .help("\(TrackMapCopy.save(at: model.markText)) (M)")
+            }
+            TimelineView(.animation(minimumInterval: 1, paused: !timeline.isPlaying)) { _ in
+                Form {
+                    Section {
+                        lane
+                    }
+                    TrackMapSections(model: model) { row in
+                        TrackMapStandardRow(model: model, row: row)
+                    } pads: {
+                        TrackMapPadGrid(model: model)
+                    }
+                }
+                .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
+            }
+        }
+        .task(id: "\(track.id)#\(envelope.count)") {
+            model.load(trackId: track.id, title: track.title, duration: track.duration, envelope: envelope)
+        }
+        .onAppear {
+            let timeline = timeline
+            model.livePosition = { timeline.anchor.position(at: .now) }
+            model.onSeek = { timeline.seek(to: $0) }
+            model.undoManager = undoManager
+        }
+        .sheet(item: editingBinding) { item in
+            if let cue = model.cue(item.id) {
+                Form {
+                    TrackMapCueEditor(model: model, cue: cue)
+                }
+                .formStyle(.grouped)
+                .frame(minWidth: 380, minHeight: 320)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(TrackMapCopy.done) { model.editingCueId = nil }
+                    }
+                }
+            }
+        }
+    }
+
+    private struct EditingItem: Identifiable {
+        let id: String
+    }
+
+    private var editingBinding: Binding<EditingItem?> {
+        Binding(get: { model.editingCueId.map(EditingItem.init) }, set: { model.editingCueId = $0?.id })
+    }
+
+    private var lane: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { geo in
+                TrackMapLane(model: model, height: 64, style: .phone, highlightedId: model.selectedCueId)
+                    .padding(6)
+                    .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                guard geo.size.width > 12 else { return }
+                                model.previewFraction((value.location.x - 6) / (geo.size.width - 12))
+                                laneFocused = true
+                            }
+                    )
+            }
+            .frame(height: 76 + (model.phrases.isEmpty ? 0 : 8))
+            .focusable()
+            .focusEffectDisabled()
+            .focused($laneFocused)
+            .onKeyPress(phases: .down) { press in
+                MacTrackMapKeys.handle(press, model: model)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(TrackMapCopy.timeline)
+            .accessibilityValue(TrackMapCopy.timelineValue(model.markText, of: model.durationText))
+            .accessibilityHint(TrackMapCopy.timelineHint)
+            .accessibilityAdjustableAction { direction in
+                model.nudgePreview(by: direction == .increment ? model.beatStep : -model.beatStep)
+            }
+
+            TrackMapReadout(model: model)
+                .font(.callout)
+        }
+    }
+}
+
+@MainActor
+enum MacTrackMapKeys {
+    static func handle(_ press: KeyPress, model: TrackMapModel) -> KeyPress.Result {
+        if press.key == .leftArrow || press.key == .rightArrow, press.modifiers.isEmpty {
+            model.nudgePreview(by: press.key == .leftArrow ? -model.beatStep : model.beatStep)
+            return .handled
+        }
+        if press.key == .return {
+            model.playFromMark()
+            return .handled
+        }
+        if press.key == .escape {
+            model.scrubPreview = nil
+            return .handled
+        }
+        if press.key == .delete || press.key == .deleteForward {
+            model.deleteSelected()
+            return .handled
+        }
+        return cueKey(press, model: model)
+    }
+
+    static func cueKey(_ press: KeyPress, model: TrackMapModel) -> KeyPress.Result {
+        guard press.modifiers.isEmpty else { return .ignored }
+        let character = press.characters.lowercased()
+        if let digit = Int(character), (1...CuePoint.hotCueSlotCount).contains(digit) {
+            model.setHotCue(slot: digit - 1)
+            return .handled
+        }
+        switch character {
+        case "m": model.saveCue()
+        case "l": model.addLoop()
+        case "i": model.setMix(.mixIn)
+        case "o": model.setMix(.mixOut)
+        default: return .ignored
+        }
+        return .handled
     }
 }

@@ -765,6 +765,11 @@ struct MacMoreMenu: View {
             Label(tracklistTitle, systemImage: "music.note.list")
         }
         Button {
+            showPane(.cues)
+        } label: {
+            Label(TrackMapCopy.title, systemImage: "flag")
+        }
+        Button {
             showPane(.about)
         } label: {
             Label("Behind the Track", systemImage: "info.circle")

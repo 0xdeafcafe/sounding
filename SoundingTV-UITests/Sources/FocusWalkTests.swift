@@ -541,7 +541,7 @@ final class FocusWalkTests: XCTestCase {
             "The Track Map's Mix Out row is not a button."
         )
         XCTAssertTrue(
-            app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Save This Moment'")).count > 0,
+            app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Save Cue Point'")).count > 0,
             "The Track Map's save action is not a button."
         )
         XCTAssertEqual(staticTextsContaining("MIX IN", in: app).count, 0, "Mix In is still an uppercase kicker.")

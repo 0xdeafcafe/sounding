@@ -25,7 +25,7 @@ struct PlayerView: View {
     @FocusState private var focus: NPFocus?
     @StateObject private var commentsStore = TrackCommentsStore()
     @StateObject private var engagement = TrackEngagementStore()
-    @StateObject private var cueBoard = CueBoard()
+    @StateObject private var trackMap = TrackMapModel()
     @StateObject private var idle = NPIdleMonitor()
     @ObservedObject private var setlists = SetlistIntelligenceStore.shared
 
@@ -56,10 +56,14 @@ struct PlayerView: View {
                 sampleCount: currentWaveform?.samples.count ?? 0,
                 duration: Int(playerService.currentTrack?.duration ?? 0)
             )) {
-                cueBoard.ensureLoaded(
+                let player = playerService
+                trackMap.livePosition = { player.currentTime }
+                trackMap.onSeek = { player.seek(to: $0, expectedTrackID: player.currentTrack?.id) }
+                trackMap.load(
                     trackId: playerService.currentTrack?.id,
+                    title: playerService.currentTrack?.title ?? "",
                     duration: playerService.currentTrack?.duration ?? 0,
-                    waveform: currentWaveform
+                    envelope: currentWaveform?.samples ?? []
                 )
             }
             #if DEBUG
@@ -199,15 +203,7 @@ struct PlayerView: View {
             }
         }
         .fullScreenCover(isPresented: $showingTrackMap) {
-            TrackMapView(
-                track: playerService.currentTrack,
-                board: cueBoard,
-                currentTime: playerService.currentTime,
-                duration: playerService.duration,
-                envelope: currentWaveform?.samples ?? [],
-                palette: artworkColors.current,
-                onSeek: { time in playerService.seek(to: time) }
-            )
+            TrackMapView(model: trackMap, palette: artworkColors.current)
         }
         .fullScreenCover(isPresented: $showingSetlist) {
             if let track = playerService.currentTrack {
@@ -564,7 +560,7 @@ struct PlayerView: View {
             accent: artworkColors.current.accent,
             collectionTitle: collectionTitle,
             comments: commentsStore,
-            cueBoard: cueBoard,
+            trackMap: trackMap,
             focus: $focus,
             actions: panelActions
         )

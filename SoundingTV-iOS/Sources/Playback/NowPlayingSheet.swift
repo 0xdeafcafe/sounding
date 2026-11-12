@@ -57,7 +57,7 @@ struct NowPlayingSheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var waveformStore = PhoneWaveformStore()
-    @State private var cueBoard = CueBoard()
+    @State private var trackMap = TrackMapModel()
     @State private var artwork = NowPlayingArtworkLoader()
     @State private var router = NowPlayingRouter()
     private let likes = NowPlayingLikeModel.shared
@@ -86,7 +86,7 @@ struct NowPlayingSheet: View {
     private var context: NowPlayingContext {
         NowPlayingContext(
             waveformStore: waveformStore,
-            cueBoard: cueBoard,
+            cueBoard: trackMap.board,
             router: router,
             likes: likes,
             artwork: artwork,
@@ -146,12 +146,13 @@ struct NowPlayingSheet: View {
         .background {
             NowPlayingFeeds(
                 store: waveformStore,
-                cueBoard: cueBoard,
+                trackMap: trackMap,
+                title: coordinator.nowPlaying?.displayTitle ?? "",
                 trackId: coordinator.nowPlaying?.trackId,
                 duration: coordinator.nowPlaying?.duration ?? 0
             )
         }
-        .modifier(NowPlayingSheets(router: router, waveformStore: waveformStore, cueBoard: cueBoard))
+        .modifier(NowPlayingSheets(router: router, waveformStore: waveformStore, trackMap: trackMap))
         .overlay {
             if coordinator.isRemoteUnreachable {
                 NowPlayingRemoteUnavailable(
@@ -245,12 +246,13 @@ private struct NowPlayingLifecycle: ViewModifier {
 
 private struct NowPlayingFeeds: View {
     @ObservedObject var store: PhoneWaveformStore
-    let cueBoard: CueBoard
+    let trackMap: TrackMapModel
+    let title: String
     let trackId: String?
     let duration: TimeInterval
 
     private var feedKey: String {
-        "\(trackId ?? "-")#\(store.waveform.samples?.count ?? 0)#\(Int(duration))"
+        "\(trackId ?? "-")#\(store.waveform.samples?.count ?? 0)#\(Int(duration))#\(title)"
     }
 
     private var seedKey: String {
@@ -265,10 +267,11 @@ private struct NowPlayingFeeds: View {
                     samples: store.waveform.samples ?? [],
                     duration: duration
                 )
-                cueBoard.ensureLoaded(
+                trackMap.load(
                     trackId: trackId,
+                    title: title,
                     duration: duration,
-                    waveform: store.waveform.samples.map { Waveform(samples: $0) }
+                    envelope: store.waveform.samples ?? []
                 )
             }
             .onChange(of: seedKey, initial: true) { _, _ in
@@ -284,30 +287,22 @@ private struct NowPlayingFeeds: View {
 private struct NowPlayingSheets: ViewModifier {
     @Bindable var router: NowPlayingRouter
     @ObservedObject var waveformStore: PhoneWaveformStore
-    let cueBoard: CueBoard
+    let trackMap: TrackMapModel
 
     @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
     @Environment(\.downloadPrompter) private var prompter
-    @ObservedObject private var palette = NowPlayingPalette.shared
     @State private var setlistLocalFileURL: URL?
 
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $router.showingCues) {
-                if let snapshot = coordinator.nowPlaying, let trackId = snapshot.trackId {
-                    TrackMapSheet(
-                        trackTitle: snapshot.displayTitle,
-                        trackId: trackId,
-                        fallbackPosition: coordinator.timeline.anchor.position(at: .now),
-                        playbackClock: PlayerService.shared.clock,
-                        usesLiveClock: snapshot.source.isLocal,
-                        isPlaying: snapshot.isPlaying,
-                        duration: snapshot.duration,
-                        envelope: waveformStore.waveform.samples ?? [],
-                        board: cueBoard,
-                        accent: palette.current.accent,
-                        onSeek: { coordinator.seek(to: $0) }
-                    )
+                if let snapshot = coordinator.nowPlaying, snapshot.trackId != nil {
+                    TrackMapSheet(model: trackMap, isPlaying: snapshot.isPlaying)
+                        .onAppear {
+                            let timeline = coordinator.timeline
+                            trackMap.livePosition = { timeline.anchor.position(at: .now) }
+                            trackMap.onSeek = { coordinator.seek(to: $0) }
+                        }
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
                 }

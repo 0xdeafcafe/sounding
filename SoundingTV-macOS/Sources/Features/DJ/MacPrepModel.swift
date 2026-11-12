@@ -139,7 +139,6 @@ final class MacPrepModel: ObservableObject {
     }
     @Published var searchText = ""
     @Published var cursorSeconds: TimeInterval = 0
-    @Published var selectedCueId: String?
     @Published var showsUSBExport = false
     @Published var inspectorChoice: Bool?
     @Published var isInspectorShown = true
@@ -148,11 +147,20 @@ final class MacPrepModel: ObservableObject {
     let store: CueStore
     let stick: MacPrepStickModel
     let ledger: DJPrepExportLedger
-    weak var undoManager: UndoManager?
+    let trackMap: TrackMapModel
+    weak var undoManager: UndoManager? {
+        didSet { trackMap.undoManager = undoManager }
+    }
     private let tracks: MacPrepTrackSource
     private let access: (DJGearFeature, Bool) -> SoundCloudEntitlementError?
     private var stickChanges: AnyCancellable?
+    private var trackMapChanges: AnyCancellable?
     private var taps: [Date] = []
+
+    var selectedCueId: String? {
+        get { trackMap.selectedCueId }
+        set { trackMap.selectedCueId = newValue }
+    }
 
     init(
         store: CueStore = .shared,
@@ -167,7 +175,12 @@ final class MacPrepModel: ObservableObject {
         self.access = access
         let stick = stick ?? MacPrepStickModel(store: store)
         self.stick = stick
+        trackMap = TrackMapModel(board: CueBoard(store: store))
         stickChanges = stick.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        trackMapChanges = trackMap.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        trackMap.livePosition = { [weak self] in self?.cursorSeconds ?? 0 }
+        trackMap.onSeek = { [weak self] seconds in self?.cursorSeconds = seconds }
+        trackMap.onEdit = { [weak self] in await self?.refreshAfterEdit() }
     }
 
     private func enterStick(volume: String, playlist: UInt32?) {
@@ -188,11 +201,6 @@ final class MacPrepModel: ObservableObject {
                 || (row.key?.lowercased() == query)
                 || (row.bpm.map { String(Int($0.rounded())) } == query)
         }
-    }
-
-    var selectedCue: CuePoint? {
-        guard let selectedCueId else { return nil }
-        return detail?.cues.first { $0.id == selectedCueId }
     }
 
     var selectedRow: Row? {
@@ -368,9 +376,14 @@ final class MacPrepModel: ObservableObject {
             confidence: confidence
         )
         trim = TrackTrimStore.shared.trim(for: id)
+        trackMap.isEditable = row.access.canEdit
+        trackMap.load(trackId: id, title: row.title, duration: row.durationSeconds, envelope: previousEnvelope, beatGrid: grid)
         if previousEnvelope.isEmpty {
             let envelope = await tracks.envelope(id, row.durationSeconds)
-            if detail?.trackId == id { detail?.envelope = envelope }
+            if detail?.trackId == id {
+                detail?.envelope = envelope
+                trackMap.load(trackId: id, title: row.title, duration: row.durationSeconds, envelope: envelope, beatGrid: grid)
+            }
         }
         if let selectedCueId, !cues.contains(where: { $0.id == selectedCueId }) { self.selectedCueId = nil }
     }
@@ -529,128 +542,12 @@ final class MacPrepModel: ObservableObject {
         undoManager?.setActionName(action)
     }
 
-
-    func setHotCue(slot: Int) {
-        guard let trackId = detail?.trackId else { return }
-        let cue = CuePoint(
-            trackId: trackId,
-            kind: .hotCue,
-            positionMillis: CueTime.millis(fromSeconds: snapped(cursorSeconds)),
-            hotCueIndex: slot
-        )
-        replaceCue(id: cue.id, with: cue, action: "Set Hot Cue \(CuePoint.slotLetter(slot))")
-        selectedCueId = cue.id
-    }
-
-    func addMemoryCue() {
-        guard let trackId = detail?.trackId else { return }
-        let cue = CuePoint(trackId: trackId, kind: .memory, positionMillis: CueTime.millis(fromSeconds: snapped(cursorSeconds)))
-        replaceCue(id: cue.id, with: cue, action: "Add Memory Cue")
-        selectedCueId = cue.id
-    }
-
-    func addLoop(bars: Double = 4) {
-        guard let trackId = detail?.trackId else { return }
-        let start = snapped(cursorSeconds)
-        let barSeconds = (detail?.grid?.bpm).map { 240 / max(1, $0) } ?? 2
-        let cue = CuePoint(
-            trackId: trackId,
-            kind: .loop,
-            positionMillis: CueTime.millis(fromSeconds: start),
-            endMillis: CueTime.millis(fromSeconds: start + barSeconds * bars)
-        )
-        replaceCue(id: cue.id, with: cue, action: "Add Loop")
-        selectedCueId = cue.id
-    }
-
-    func deleteSelectedCue() {
-        guard let cue = selectedCue else { return }
-        replaceCue(id: cue.id, with: nil, action: "Delete Cue Point")
-        selectedCueId = nil
-    }
-
-    func updateSelectedCue(label: String? = nil, color: CueColor? = nil, moveToCursor: Bool = false) {
-        guard var cue = selectedCue else { return }
-        if let label { cue.label = label }
-        if let color { cue.color = color }
-        if moveToCursor {
-            let start = CueTime.millis(fromSeconds: snapped(cursorSeconds))
-            if let end = cue.endMillis { cue.endMillis = start + (end - cue.positionMillis) }
-            cue.positionMillis = start
-        }
-        cue.origin = .user
-        replaceCue(id: cue.id, with: cue, action: label != nil ? "Rename Cue Point" : color != nil ? "Change Colour" : "Move Cue Point")
-    }
-
-    func assignSelectedCue(toSlot slot: Int?) {
-        guard let cue = selectedCue else { return }
-        let kind: CueKind = cue.kind == .loop ? .loop : (slot == nil ? .memory : .hotCue)
-        let moved = CuePoint(
-            trackId: cue.trackId,
-            kind: kind,
-            positionMillis: cue.positionMillis,
-            endMillis: cue.endMillis,
-            hotCueIndex: slot,
-            label: cue.label,
-            color: kind == .memory ? .memory : (cue.kind == .hotCue || cue.hotCueIndex != nil ? cue.color : nil),
-            promotedFrom: cue.promotedFrom
-        )
-        let undo = undoManager
-        undo?.beginUndoGrouping()
-        if moved.id != cue.id { replaceCue(id: cue.id, with: nil, action: "Assign Slot") }
-        replaceCue(id: moved.id, with: moved, action: "Assign Slot")
-        undo?.endUndoGrouping()
-        selectedCueId = moved.id
-    }
-
-    private func replaceCue(id: String, with cue: CuePoint?, action: String) {
-        guard canEditSelection else { return }
-        let previous = detail?.cues.first { $0.id == id }
-        let store = store
-        Task {
-            if let cue { await store.upsert(cue) } else { await store.delete(cueId: id) }
-            await refreshAfterEdit()
-        }
-        undoManager?.registerUndo(withTarget: self) { model in
-            MainActor.assumeIsolated { model.replaceCue(id: id, with: previous, action: action) }
-        }
-        undoManager?.setActionName(action)
-    }
-
     func snapped(_ seconds: TimeInterval) -> TimeInterval {
         guard let detail, let grid = detail.grid?.beatGrid(durationSeconds: detail.durationSeconds, confidence: 0.9) else {
             return seconds
         }
         return grid.nearestBeat(to: seconds)
     }
-
-
-    func accept(_ suggestion: CueSuggestion) {
-        let store = store
-        Task {
-            await store.promote(suggestion)
-            await refreshAfterEdit()
-        }
-    }
-
-    func acceptAsHotCue(_ suggestion: CueSuggestion) {
-        let taken = Set(detail?.cues.compactMap(\.hotCueIndex) ?? [])
-        guard let slot = (0..<CuePoint.hotCueSlotCount).first(where: { !taken.contains($0) }) else { return }
-        let store = store
-        Task {
-            await store.promote(suggestion, asKind: .hotCue, hotCueIndex: slot)
-            await refreshAfterEdit()
-        }
-    }
-
-    func dismiss(_ suggestion: CueSuggestion) {
-        let store = store
-        Task {
-            await store.dismiss(suggestion)
-            await refreshAfterEdit()
-        }
-    }
-
 
     func linkFile() {
         guard let trackId = detail?.trackId else { return }
