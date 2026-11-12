@@ -189,6 +189,7 @@ final class TrackMapModel: ObservableObject {
         if let undoManager { return undoManager }
         if let ownUndoManager { return ownUndoManager }
         let made = UndoManager()
+        made.groupsByEvent = false
         ownUndoManager = made
         observeUndo()
         return made
@@ -207,6 +208,16 @@ final class TrackMapModel: ObservableObject {
         undoChanges = Publishers.MergeMany(names.map { center.publisher(for: $0, object: manager) })
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.refreshUndoState() } }
+        refreshUndoState()
+    }
+
+    private func registerUndo(_ action: String, _ handler: @escaping @Sendable (TrackMapModel) -> Void) {
+        let manager = undo
+        let groups = !manager.groupsByEvent && manager.groupingLevel == 0
+        if groups { manager.beginUndoGrouping() }
+        manager.registerUndo(withTarget: self, handler: handler)
+        manager.setActionName(action)
+        if groups { manager.endUndoGrouping() }
         refreshUndoState()
     }
 
@@ -710,11 +721,9 @@ final class TrackMapModel: ObservableObject {
             await store.dismiss(suggestion)
             await self.afterEdit()
         }
-        undo.registerUndo(withTarget: self) { model in
+        registerUndo(TrackMapCopy.dismiss) { model in
             MainActor.assumeIsolated { model.undismiss(suggestion) }
         }
-        undo.setActionName(TrackMapCopy.dismiss)
-        refreshUndoState()
     }
 
     private func undismiss(_ suggestion: CueSuggestion) {
@@ -724,11 +733,9 @@ final class TrackMapModel: ObservableObject {
             await store.undismiss(suggestionId: suggestion.id)
             await self.afterEdit()
         }
-        undo.registerUndo(withTarget: self) { model in
+        registerUndo(TrackMapCopy.dismiss) { model in
             MainActor.assumeIsolated { model.dismiss(suggestion) }
         }
-        undo.setActionName(TrackMapCopy.dismiss)
-        refreshUndoState()
     }
 
     private func replace(_ changes: [(String, CuePoint?)], action: String) {
@@ -742,11 +749,9 @@ final class TrackMapModel: ObservableObject {
             }
             await self.afterEdit()
         }
-        undo.registerUndo(withTarget: self) { model in
+        registerUndo(action) { model in
             MainActor.assumeIsolated { model.replace(previous, action: action) }
         }
-        undo.setActionName(action)
-        refreshUndoState()
     }
 
     private func afterEdit() async {

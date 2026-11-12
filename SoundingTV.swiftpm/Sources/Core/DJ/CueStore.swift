@@ -50,7 +50,7 @@ actor CueStore {
 
     nonisolated(unsafe) let db: OpaquePointer?
     let writerId: String
-    let changes = CueChangeFeed()
+    nonisolated let changes = CueChangeFeed()
     private var batchedChanges: Set<String>?
     private weak var synchronizationSink: (any CueSynchronizationReceiving)?
 
