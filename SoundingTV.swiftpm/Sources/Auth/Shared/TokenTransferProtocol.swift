@@ -902,6 +902,11 @@ enum NearbyPresenceTXT {
         guard !trimmed.isEmpty else { return nil }
         return String(trimmed.prefix(LinkPeerIdentity.maximumNameLength))
     }
+
+    static func kind(_ record: NWTXTRecord) -> DeviceClass? {
+        guard case .string(let raw)? = record.getEntry(for: kindKey) else { return nil }
+        return DeviceClass(rawValue: raw)
+    }
 }
 
 enum LinkAccountHint {

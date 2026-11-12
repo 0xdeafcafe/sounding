@@ -30,7 +30,7 @@ struct ProfileTabView: View {
                     kind: .empty,
                     icon: "person.crop.circle.dashed",
                     title: "Not Signed In",
-                    message: "Sign in with your iPhone to see your profile.",
+                    message: "Sign in to see your profile.",
                     actionTitle: "Sign In",
                     action: { Task { await authService.logout() } }
                 )

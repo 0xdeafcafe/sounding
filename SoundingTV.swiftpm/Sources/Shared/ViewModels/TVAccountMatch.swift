@@ -338,6 +338,83 @@ enum TVAccountCopy {
     }
 }
 
+struct PeerDevice: Equatable, Sendable {
+    static let unknown = PeerDevice()
+    static let neutralSymbolName = "laptopcomputer.and.iphone"
+
+    let deviceClass: DeviceClass?
+    let name: String?
+
+    init(deviceClass: DeviceClass? = nil, name: String? = nil) {
+        self.deviceClass = deviceClass
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters)) ?? ""
+        self.name = trimmed.isEmpty ? nil : trimmed
+    }
+
+    init(rawClass: String?, name: String? = nil) {
+        self.init(deviceClass: rawClass.flatMap(DeviceClass.init(rawValue:)), name: name)
+    }
+
+    var isKnown: Bool { deviceClass != nil || name != nil }
+
+    var symbolName: String { deviceClass?.symbolName ?? Self.neutralSymbolName }
+
+    var subject: String {
+        deviceClass?.displayName ?? name ?? "Device"
+    }
+
+    var yourDevice: String {
+        deviceClass.map { "your \($0.displayName)" } ?? name ?? "your device"
+    }
+
+    var yourDeviceCapitalised: String {
+        deviceClass.map { "Your \($0.displayName)" } ?? name ?? "Your device"
+    }
+}
+
+enum TVPairingCopy {
+    static let unnamedDevice = "A device"
+    static let pickerTitle = "Sign in with Another Device"
+    static let pickerSymbolName = PeerDevice.neutralSymbolName
+    static let scanHint = "Scan with your phone's camera, or open Sounding on a device nearby."
+    static let companionScanHint = "Scan with Sounding on your iPhone or iPad, or confirm the code on your Mac."
+    static let scanAccessibility = "Sign-in QR code. Scan it with your phone's camera."
+    static let notified = "Notification sent to your devices"
+    static let pickerConnecting = "Connecting to your device…"
+
+    static func finishOn(_ peer: PeerDevice) -> String {
+        "Finish on \(peer.yourDevice)."
+    }
+
+    static func connected(_ peer: PeerDevice) -> String {
+        "\(peer.subject) connected"
+    }
+
+    static func found(_ peer: PeerDevice) -> String {
+        "\(peer.subject) found"
+    }
+
+    static func connectedFinish(_ peer: PeerDevice) -> String {
+        "Connected. \(finishOn(peer))"
+    }
+
+    static func droppedOff(_ peer: PeerDevice) -> String {
+        "\(peer.yourDeviceCapitalised) dropped off"
+    }
+
+    static func signInOnceMore(_ peer: PeerDevice) -> String {
+        "Try again for a fresh code, then sign in on \(peer.yourDevice) once more."
+    }
+
+    static func signInAgain(on peer: PeerDevice) -> String {
+        "Your SoundCloud login has expired. Please sign in again on \(peer.yourDevice)."
+    }
+
+    static func nearbyHint(_ name: String) -> String {
+        "\(name) is nearby: open Sounding on it to sign in."
+    }
+}
+
 // MARK: - Auto-link
 
 enum AutoLinkPolicy {

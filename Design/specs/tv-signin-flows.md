@@ -130,7 +130,7 @@ Today's flow stays. Three changes: the phone names the account it will use, the 
 
 | State | Line |
 |---|---|
-| Waiting | "Scan with your iPhone camera, or open Sounding on your iPhone nearby." |
+| Waiting | "Scan with your phone's camera, or open Sounding on a device nearby." |
 | A phone is offering | "Alex's iPad is nearby: open Sounding on it to sign in." |
 | Phone connected | replaced by the centred **Connecting to Alex's iPad…** progress (`ContentUnavailableView` layout, orange tint) |
 | Token received | "Signing you in…" |
@@ -138,7 +138,7 @@ Today's flow stays. Three changes: the phone names the account it will use, the 
 | Done | title "You're signed in", subtitle **"Signed in as Alex."** (new; was "Enjoy your music."), then Home after 1.5 s |
 | Fault | the plate is replaced in place; **Try Again** |
 
-Controls: **Play Sound** (glass capsule), **Sign in with iPhone** where the picker exists, **Try Again** only after a failure, **Use Without SoundCloud** as quiet text. Focus enters on **Play Sound**. No focus ring; focused chrome inverts to near-white with a black label.
+Controls: **Play Sound** (glass capsule), **Sign in with Another Device** where the picker exists, **Try Again** only after a failure, **Use Without SoundCloud** as quiet text. Focus enters on **Play Sound**. No focus ring; focused chrome inverts to near-white with a black label.
 
 ```
  Apple TV, flow 2
@@ -152,7 +152,7 @@ Controls: **Play Sound** (glass capsule), **Sign in with iPhone** where the pick
  │                          └────────────┘                          │
  │   [ipad] Alex's iPad is nearby: open Sounding on it to sign in.  │
  │                         New code in 42s                          │
- │               ( Play Sound )   ( Sign in with iPhone )           │
+ │          ( Play Sound )   ( Sign in with Another Device )        │
  │                      Use Without SoundCloud                      │
  └──────────────────────────────────────────────────────────────────┘
 ```
