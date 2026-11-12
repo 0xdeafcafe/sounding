@@ -16,7 +16,8 @@ actor SonosClient {
     }
 
     nonisolated var baseURL: URL {
-        let hostPart = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        let zoned = host.contains(":") ? host.replacingOccurrences(of: "%25", with: "%").replacingOccurrences(of: "%", with: "%25") : host
+        let hostPart = zoned.contains(":") && !zoned.hasPrefix("[") ? "[\(zoned)]" : zoned
         return URL(string: "http://\(hostPart):\(port)")!
     }
 
