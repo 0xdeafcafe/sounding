@@ -40,6 +40,9 @@ final class DJTransitionService: ObservableObject {
     private let cacheURL: URL
     private let sourceResolver: PlaybackSourceResolver
     private var pendingAnalysisTasks: [String: Task<Void, Never>] = [:]
+    private var saveTask: Task<Void, Never>?
+    private var savedData: Data?
+    private static let saveDelay: Duration = .seconds(2)
 
     private init(sourceResolver: PlaybackSourceResolver) {
         self.sourceResolver = sourceResolver
@@ -147,12 +150,27 @@ final class DJTransitionService: ObservableObject {
     }
 
     private func saveCache() {
+        guard saveTask == nil else { return }
+        saveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.saveDelay)
+            guard let self else { return }
+            self.saveTask = nil
+            self.writeCache()
+        }
+    }
+
+    private func writeCache() {
         let analyses: [TrackAnalysis] = states.values.compactMap {
             if case .analyzed(let a) = $0 { return a } else { return nil }
+        }.sorted { $0.trackId < $1.trackId }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(CachePayload(analyses: analyses)), data != savedData else { return }
+        savedData = data
+        let url = cacheURL
+        Task.detached(priority: .utility) {
+            try? data.write(to: url, options: .atomic)
         }
-        let payload = CachePayload(analyses: analyses)
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        try? data.write(to: cacheURL, options: .atomic)
     }
 
     private struct CachePayload: Codable {
