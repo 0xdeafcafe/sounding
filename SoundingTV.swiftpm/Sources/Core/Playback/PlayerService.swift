@@ -1094,6 +1094,11 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         await waitForPlaybackAccount(track: track)
         guard playbackPipeline.accepts(token) else { return }
 
+        if requiresMixEngineOutput, track.needsFairPlay {
+            finishPlaybackFailure(PlaybackSourceResolutionError.protectedOnSonos, token: token)
+            return
+        }
+
         if startsInEngine {
             teardownAVPlayer(invalidatePipeline: false, keepingParked: true)
             _ = transitionPlayback(
@@ -1391,7 +1396,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
                 try Task.checkCancellation()
                 guard self.preparedPlaybackGeneration == generation else { return }
 
-                let asset = AVURLAsset(url: url)
+                let asset = FairPlayStreaming.makeAsset(url: url)
                 let isPlayable = try await asset.load(.isPlayable)
                 try Task.checkCancellation()
                 guard isPlayable,
@@ -1788,7 +1793,8 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             code: -1,
             userInfo: [NSLocalizedDescriptionKey: "The audio stream stopped responding."]
         )
-        guard playbackRequested, attempt < Self.maximumMediaRecoveryAttempts else {
+        guard playbackRequested, attempt < Self.maximumMediaRecoveryAttempts,
+              FairPlayLicenceRegistry.failure(trackID: track.id) != .rateLimited else {
             finishPlaybackFailure(failure, token: token)
             return
         }
@@ -1815,8 +1821,9 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         }
     }
 
-    private func finishPlaybackFailure(_ error: Error, token: PlaybackPipeline.Token) {
+    private func finishPlaybackFailure(_ failure: Error, token: PlaybackPipeline.Token) {
         guard playbackPipeline.accepts(token) else { return }
+        let error = FairPlayStreaming.playbackFailure(for: token.trackID, replacing: failure)
         if playbackLoadTiming?.token == token { playbackLoadTiming = nil }
         Log.player.error("[Player] playback failed: \(error.localizedDescription, privacy: .public)")
         teardownAVPlayer(invalidatePipeline: false)
@@ -2990,11 +2997,16 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     }
 
     var upcomingMixTrack: Track? {
-        guard !isPlayingSoundCloudPreview else { return nil }
+        guard !isPlayingSoundCloudPreview, currentTrack?.needsFairPlay != true else { return nil }
         let subscription = SubscriptionService.shared
-        return SoundCloudEntitlements.blendableNext(after: currentTrack, next: upcomingTrack) {
+        let next = SoundCloudEntitlements.blendableNext(after: currentTrack, next: upcomingTrack) {
             subscription.playbackGrant(for: $0)
         }
+        return next?.needsFairPlay == true ? nil : next
+    }
+
+    var protectedTrackBlocksMix: Bool {
+        currentTrack?.needsFairPlay == true || upcomingTrack?.needsFairPlay == true
     }
 
     func playsAsSoundCloudPreview(_ track: Track) -> Bool {
@@ -3236,6 +3248,8 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             throw MixEngineError.cancelled
         } catch let denial as SoundCloudEntitlementError {
             throw denial
+        } catch PlaybackSourceResolutionError.protectedAudio {
+            throw MixEngineError.protectedTrack
         } catch PlaybackSourceResolutionError.unsupportedFormat {
             throw MixEngineError.unsupportedFormat(
                 "SoundCloud only offers Opus for this track, and AVFoundation has no Opus decoder"

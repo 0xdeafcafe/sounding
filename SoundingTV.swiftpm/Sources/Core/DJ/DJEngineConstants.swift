@@ -6,6 +6,7 @@ enum MixEngineError: LocalizedError, Equatable {
     case networkFailure(String)
     case emptyPlaylist
     case encryptedStream
+    case protectedTrack
     case byteRangeSegments
     case playlistTooDeep
     case unsupportedFormat(String)
@@ -27,6 +28,8 @@ enum MixEngineError: LocalizedError, Equatable {
             return "The HLS playlist contained no media segments."
         case .encryptedStream:
             return "This stream is AES-encrypted; segments cannot be assembled offline."
+        case .protectedTrack:
+            return PlaybackSourceResolutionError.protectedAudioStatus
         case .byteRangeSegments:
             return "This HLS playlist uses byte-range segments, which cannot be concatenated."
         case .playlistTooDeep:
@@ -59,6 +62,8 @@ enum MixEngineError: LocalizedError, Equatable {
             return "This track can't be mixed."
         case .engineStartFailed, .graphBuildFailed, .playbackStartFailed:
             return "Mixing isn't available right now."
+        case .protectedTrack:
+            return PlaybackSourceResolutionError.protectedAudioStatus
         case .deckEmpty:
             return "Nothing is loaded on this deck."
         case .cancelled:

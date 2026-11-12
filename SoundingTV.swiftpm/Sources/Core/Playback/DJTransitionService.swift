@@ -133,7 +133,7 @@ final class DJTransitionService: ObservableObject {
             guard AutomaticAnalysisEligibility.isEnabled else { return nil }
             return await Self.measureInLane(track, fileURL: fileURL)
         }
-        guard Self.fetchesRemoteAudio else { return nil }
+        guard Self.fetchesRemoteAudio, !track.needsFairPlay else { return nil }
         let summary = await AnalysisSummaryStore.summaries(for: [track])[track.id]
         if summary?.bpmIsMeasured == true, summary?.keyIsMeasured == true { return nil }
         do {

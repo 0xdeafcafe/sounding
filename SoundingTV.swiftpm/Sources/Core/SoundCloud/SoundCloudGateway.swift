@@ -146,6 +146,7 @@ enum SoundCloudHostPolicy {
         // SoundCloud's AAC/HLS streams moved off sndcdn.com in 2025.
         // Keep this exact-host allow-list separate from OAuth destinations.
         "playback.media-streaming.soundcloud.cloud",
+        "license.media-streaming.soundcloud.cloud",
     ]
 
     static func mayReceiveOAuth(_ url: URL) -> Bool {

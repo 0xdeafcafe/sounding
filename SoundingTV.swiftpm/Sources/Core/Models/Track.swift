@@ -63,9 +63,19 @@ struct Track: Identifiable, Codable, Hashable, Sendable {
     var urn: String { "soundcloud:tracks:\(id)" }
 
     var mixSource: Transcoding? {
-        transcodings
+        decodableTranscodings
             .filter { $0.codec != .opus }
             .max { $0.mixRank < $1.mixRank }
+    }
+
+    var decodableTranscodings: [Transcoding] { transcodings.filter { !$0.isEncrypted } }
+
+    var bestDecodableTranscoding: Transcoding? {
+        decodableTranscodings.max { $0.playbackRank < $1.playbackRank }
+    }
+
+    var needsFairPlay: Bool {
+        !isLocal && !transcodings.isEmpty && transcodings.allSatisfy(\.isEncrypted)
     }
 
     var isAwaitingLocalMetadata: Bool { isLocal && duration <= 0 }
@@ -132,7 +142,7 @@ struct Track: Identifiable, Codable, Hashable, Sendable {
         publisher = ((try? container.decodeIfPresent(TrackPublisher.self, forKey: .publisher)) ?? nil)?.nilIfEmpty
 
         let media = try container.decodeIfPresent(Media.self, forKey: .media)
-        let all = media?.transcodings ?? []
+        let all = (media?.transcodings ?? []).filter(\.isPlayableOnApplePlatforms)
         transcodings = all.filter { !$0.isSnippet }
         previewTranscodings = all.filter(\.isSnippet)
 
@@ -290,6 +300,10 @@ struct Transcoding: Codable, Hashable, Sendable {
     }
 
     var isProgressive: Bool { format.protocol == "progressive" }
+    var isFairPlay: Bool { format.protocol == "cbc-encrypted-hls" }
+    var isWidevine: Bool { format.protocol == "ctr-encrypted-hls" }
+    var isEncrypted: Bool { isFairPlay || isWidevine }
+    var isPlayableOnApplePlatforms: Bool { !isWidevine }
     var isHQ: Bool { quality == "hq" }
     var isSnippet: Bool { snipped == true }
 
@@ -336,7 +350,8 @@ struct Transcoding: Codable, Hashable, Sendable {
     private var rankBitrate: Int { min(bitrate, 999) }
 
     var playbackRank: Int {
-        codec.rawValue * 10_000
+        (isEncrypted ? 0 : 100_000)
+            + codec.rawValue * 10_000
             + rankBitrate * 10
             + (isProgressive ? 2 : 0)
             + (isAdaptive ? 0 : 1)
