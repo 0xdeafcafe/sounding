@@ -219,8 +219,8 @@ vec3 litB(vec3 N, vec3 V, vec3 base, float metal, float rough, float ao, float s
   vec3 R = reflect(-V, N);
   float pl = pool();
   float wide = 0.2 + 0.8 * pl;
-  vec3 key = vec3(1.12, 0.84, 0.58) * pl * (0.985 + 0.03 * uBeat * uLive);
-  vec3 amb = vec3(0.030, 0.026, 0.024) * wide;
+  vec3 key = vec3(1.0, 1.0, 1.16) * 1.08 * pl * (0.985 + 0.03 * uBeat * uLive);
+  vec3 amb = vec3(0.026, 0.028, 0.038) * wide;
   float NoL = max(dot(N, LK), 0.0);
   float no = max(dot(N, LO), 0.0), nt = max(dot(N, LT), 0.0);
   vec3 c = dc * (amb * ao + key * NoL * sh * mix(1.0, ao, 0.5) + (vec3(0.85, 0.27, 0.05) * no + vec3(0.05, 0.42, 0.36) * nt) * ao * wide);
