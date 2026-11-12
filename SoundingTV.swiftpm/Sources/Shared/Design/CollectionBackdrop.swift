@@ -884,28 +884,29 @@ private struct CollectionBackdropFade: ViewModifier {
 
 // MARK: - Hero modifier
 
-private struct CollectionOverscrollKey: EnvironmentKey {
-    static let defaultValue: CGFloat = 0
-}
-
 private struct CollectionHeroOnArtworkKey: EnvironmentKey {
     static let defaultValue = false
 }
 
 extension EnvironmentValues {
-    var collectionOverscroll: CGFloat {
-        get { self[CollectionOverscrollKey.self] }
-        set { self[CollectionOverscrollKey.self] = newValue }
-    }
-
     var collectionHeroOnArtwork: Bool {
         get { self[CollectionHeroOnArtworkKey.self] }
         set { self[CollectionHeroOnArtworkKey.self] = newValue }
     }
 }
 
+@MainActor
+@Observable
+final class CollectionOverscroll {
+    var value: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    @Entry var collectionOverscroll: CollectionOverscroll? = nil
+}
+
 private struct CollectionOverscrollReader: ViewModifier {
-    @State private var overscroll: CGFloat = 0
+    @State private var overscroll = CollectionOverscroll()
     @State private var topInset: CGFloat = 0
 
     func body(content: Content) -> some View {
@@ -915,7 +916,7 @@ private struct CollectionOverscrollReader: ViewModifier {
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 max(0, -(geometry.contentOffset.y + geometry.contentInsets.top)).rounded()
             } action: { _, value in
-                overscroll = value
+                if overscroll.value != value { overscroll.value = value }
             }
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentInsets.top.rounded()
@@ -960,7 +961,7 @@ private struct CollectionArtworkBackdropModifier: ViewModifier {
             .background(alignment: .bottom) {
                 CollectionArtworkBackdrop(url: url, identity: identity, isActive: isOnScreen, fade: fade)
                     .padding(.top, -headroom)
-                    .visualEffect { [overscroll] effect, proxy in
+                    .visualEffect { [overscroll = overscroll?.value ?? 0] effect, proxy in
                         effect.scaleEffect(1 + overscroll / max(proxy.size.height, 1), anchor: .bottom)
                     }
                     .modifier(CollectionBackdropExtension())

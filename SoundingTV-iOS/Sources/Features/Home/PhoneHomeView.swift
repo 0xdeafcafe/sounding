@@ -273,7 +273,6 @@ struct PhoneHomeView: View {
             guard isHeroUnderBar else { return }
             withAnimation(reduceMotion ? nil : .smooth) { scrollPosition.scrollTo(edge: .top) }
         }
-        .tracksCollectionOverscroll()
         .scrollEdgeEffectHidden(isBarOverHero, for: .top)
         .toolbarColorScheme(isBarOverHero ? .dark : nil, for: .navigationBar)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shelfWidth = $0 }
