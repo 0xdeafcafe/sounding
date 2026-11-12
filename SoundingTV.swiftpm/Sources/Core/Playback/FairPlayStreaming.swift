@@ -312,3 +312,59 @@ enum FairPlayStreaming {
         return failure.entitlementError ?? failure
     }
 }
+
+#if DEBUG
+@MainActor
+enum FairPlayDebugPlayback {
+    static let environmentKey = "SOUNDING_TV_NP_PLAY_TRACK"
+
+    static var isRequested: Bool {
+        ProcessInfo.processInfo.environment[environmentKey] == "goplus"
+    }
+
+    static func likedFairPlayTrack() async -> Track? {
+        let credentials = SoundCloudCredentialSource.shared
+        for _ in 0..<60 where credentials.isEstablishingSessionAtLaunch || credentials.currentUser == nil {
+            if credentials.isSignedOut { break }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        NSLog(
+            "[NPDebug] account health=%@ storedSession=%@ signedOut=%@ establishing=%@ hasToken=%@ hasUser=%@",
+            String(describing: credentials.sessionHealth),
+            DeviceSessionStore.load() == nil ? "no" : "yes",
+            credentials.isSignedOut ? "yes" : "no",
+            credentials.isEstablishingSessionAtLaunch ? "yes" : "no",
+            credentials.accessToken == nil ? "no" : "yes",
+            credentials.currentUser == nil ? "no" : "yes"
+        )
+        NSLog("[NPDebug] looking for a FairPlay-only liked track")
+        do {
+            let likes = try await SoundCloudAPI.shared.getLikedTracks(limit: 100)
+            let chosen = likes.collection.map(\.item).first { $0.needsFairPlay }
+            NSLog("[NPDebug] play track %@ %@", chosen?.id ?? "none", chosen?.title ?? "")
+            return chosen
+        } catch {
+            NSLog("[NPDebug] liked tracks failed %@", String(describing: error))
+            return nil
+        }
+    }
+
+    static func queue(starting chosen: Track, existing: [Track]) -> [Track] {
+        [chosen] + existing.filter { $0.id != chosen.id }.prefix(3)
+    }
+
+    static func playLikedFairPlayTrack(on player: PlayerService) async {
+        guard let chosen = await likedFairPlayTrack() else { return }
+        await player.play(chosen, in: queue(starting: chosen, existing: player.queue))
+        for _ in 0..<3 {
+            try? await Task.sleep(for: .seconds(4))
+            NSLog(
+                "[NPDebug] track=%@ playing=%@ currentTime=%.1f",
+                player.currentTrack?.id ?? "none",
+                player.isPlaying ? "yes" : "no",
+                player.currentTime
+            )
+        }
+    }
+}
+#endif
