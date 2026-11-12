@@ -79,6 +79,7 @@ struct MacRootView: View {
         case likedPlaylists
         case playlist(id: String)
         case pinnedFolder(id: String)
+        case smartPlaylist(MacSmartPlaylist)
         case hardware
         case profile
         case messages
@@ -112,6 +113,7 @@ struct MacRootView: View {
             case .likedPlaylists: return "Liked Playlists"
             case .playlist: return "Playlist"
             case .pinnedFolder: return "Folder"
+            case .smartPlaylist(let kind): return kind.title
             case .hardware: return "Hardware"
             case .profile: return "Profile"
             case .messages: return "Messages"
@@ -145,6 +147,7 @@ struct MacRootView: View {
             case .likedPlaylists: return "heart.text.square"
             case .playlist: return SidebarSymbol.pinnedPlaylist
             case .pinnedFolder: return SidebarSymbol.folder
+            case .smartPlaylist(let kind): return kind.symbol
             case .hardware: return SidebarSymbol.hardware
             case .profile: return "person.crop.circle"
             case .messages: return "bubble.left.and.bubble.right"
@@ -158,7 +161,7 @@ struct MacRootView: View {
 
         var worksSignedOut: Bool {
             switch self {
-            case .search, .home, .console, .hardware, .library, .albums, .artists, .setlists, .downloads, .history, .mixes, .account: return true
+            case .search, .home, .console, .hardware, .library, .albums, .artists, .setlists, .downloads, .history, .mixes, .account, .smartPlaylist: return true
             default: return false
             }
         }
@@ -198,6 +201,10 @@ struct MacRootView: View {
             case "account": return .account
             case "library": return .library
             case "likes", "liked": return .likes
+            case "smart-notanalysed": return .smartPlaylist(.notAnalysed)
+            case "smart-gridcheck": return .smartPlaylist(.needsGridCheck)
+            case "smart-stick": return .smartPlaylist(.notOnStick)
+            case "smart-duplicates": return .smartPlaylist(.duplicates)
             default: return .library
             }
         }
@@ -271,6 +278,12 @@ struct MacRootView: View {
                 set: { rootSelection.pendingUSBExport = $0 }
             )) { source in
                 MacUSBExportSheet(model: MacUSBExportModel(sources: [source])) { rootSelection.pendingUSBExport = nil }
+            }
+            .sheet(isPresented: $rootSelection.isShowingLibraryUSBExport) {
+                MacUSBExportSheet(model: MacUSBExportModel()) { rootSelection.isShowingLibraryUSBExport = false }
+            }
+            .sheet(isPresented: $rootSelection.isShowingRekordboxXMLImport) {
+                MacRekordboxImportSheet(library: .shared) { rootSelection.isShowingRekordboxXMLImport = false }
             }
             .sheet(item: Binding(
                 get: { rootSelection.pendingSetlist },
@@ -932,7 +945,7 @@ struct MacRootView: View {
         case .library, .friendsWithADJ, .account, nil: return 2
         case .search: return 4
         case .playlists, .myPlaylists, .likedPlaylists: return 2
-        case .albums, .followers, .following, .activity: return 1
+        case .albums, .followers, .following, .activity, .smartPlaylist: return 1
         default: return 0
         }
     }
@@ -1117,6 +1130,9 @@ struct MacRootView: View {
         case .pinnedFolder(let id):
             MacPlaylistFolderView(folderID: id)
                 .id(id)
+        case .smartPlaylist(let kind):
+            MacSmartPlaylistView(kind: kind)
+                .id(kind)
         case .hardware: HardwarePane()
         case .profile: MacProfileView()
         case .messages: MacMessagesView()
@@ -1340,6 +1356,10 @@ final class MacRootSelection: ObservableObject {
 
     @Published var pendingUSBExport: MacUSBExportSource?
 
+    @Published var isShowingLibraryUSBExport = false
+
+    @Published var isShowingRekordboxXMLImport = false
+
     @Published var pendingNewPlaylist: NewPlaylistRequest?
 
     @Published var pendingAddToPlaylist: PlaylistTrackRef?
@@ -1365,6 +1385,10 @@ final class MacRootSelection: ObservableObject {
     func request(setlist track: Track) { pendingSetlist = track }
 
     func request(usbExport source: MacUSBExportSource) { pendingUSBExport = source }
+
+    func requestLibraryUSBExport() { isShowingLibraryUSBExport = true }
+
+    func requestRekordboxXMLImport() { isShowingRekordboxXMLImport = true }
 
     func requestNewPlaylist(trackIDs: [String] = []) {
         pendingNewPlaylist = NewPlaylistRequest(trackIDs: trackIDs)
@@ -1474,6 +1498,8 @@ private struct MacSidebar: View {
     @ObservedObject private var activityPoller = SoundCloudActivityPoller.shared
     @ObservedObject private var pins = SidebarPins.shared
     @ObservedObject private var folderStore = PlaylistFolderStore.shared
+    @ObservedObject private var crateList = MacCrateList.shared
+    @State private var crateToDelete: RekordboxPlaylistRecord?
 
     @EnvironmentObject private var midi: DJControllerHub
     @ObservedObject private var players = DJPlayersController.shared
@@ -1504,6 +1530,15 @@ private struct MacSidebar: View {
     var body: some View {
         sourceList
             .safeAreaInset(edge: .bottom, spacing: 0) { accountFooter }
+            .confirmationDialog(
+                "Delete \u{201C}\(crateToDelete?.name ?? "")\u{201D}?",
+                isPresented: Binding(get: { crateToDelete != nil }, set: { if !$0 { crateToDelete = nil } }),
+                presenting: crateToDelete
+            ) { crate in
+                Button("Delete Crate", role: .destructive) { deleteCrate(crate) }
+            } message: { _ in
+                Text("The tracks stay in your library.")
+            }
             .onChange(of: selection) { _, section in
                 if section == .messages { activityPoller.markAllRead(kind: .message) }
                 if section == .followers { activityPoller.markAllRead(kind: .follower) }
@@ -1649,6 +1684,18 @@ private struct MacSidebar: View {
             navigationRow(for: .playlists)
             navigationRow(for: .likes)
             navigationRow(for: .mixes)
+            ForEach(MacSmartPlaylist.builtIn, id: \.self) { kind in
+                smartPlaylistRow(kind)
+            }
+            ForEach(looseCrates) { crateRow($0) }
+            ForEach(crateFolders, id: \.self) { folder in
+                DisclosureGroup {
+                    ForEach(crateList.crates.filter { crateFolder($0) == folder }) { crateRow($0) }
+                } label: {
+                    Label(folder, systemImage: SidebarSymbol.folder)
+                        .lineLimit(1)
+                }
+            }
             PlaylistFolderSidebarItems(onOpenFolder: onOpenFolder) { playlist in
                 playlistRow(playlist, systemImage: playlist.isAlbum ? SidebarSymbol.albums : SidebarSymbol.pinnedPlaylist)
             }
@@ -1661,6 +1708,52 @@ private struct MacSidebar: View {
         Label(section.title, systemImage: section.symbol)
             .lineLimit(1)
             .tag(section)
+    }
+
+    private func smartPlaylistRow(_ kind: MacSmartPlaylist) -> some View {
+        navigationRow(for: .smartPlaylist(kind))
+            .contextMenu {
+                if kind == .notAnalysed {
+                    Button("Analyse Missing Tracks…") { MissingAnalysisRun.shared.startLibrary() }
+                }
+            }
+    }
+
+    private var looseCrates: [RekordboxPlaylistRecord] {
+        crateList.crates.filter { crateFolder($0) == nil }
+    }
+
+    private var crateFolders: [String] {
+        var seen = Set<String>()
+        return crateList.crates.compactMap(crateFolder).filter { seen.insert($0).inserted }
+    }
+
+    private func crateFolder(_ crate: RekordboxPlaylistRecord) -> String? {
+        let path = crate.path.filter { !$0.isEmpty && $0 != "ROOT" }
+        return path.isEmpty ? nil : path.joined(separator: " › ")
+    }
+
+    private func crateRow(_ crate: RekordboxPlaylistRecord) -> some View {
+        Label(crate.name, systemImage: MacSmartPlaylist.crate(id: crate.id, name: crate.name).symbol)
+            .lineLimit(1)
+            .tag(MacRootView.Section.smartPlaylist(.crate(id: crate.id, name: crate.name)))
+            .contextMenu {
+                let tracks = crateList.tracks(in: crate)
+                Button("Export to USB…", systemImage: "externaldrive.badge.plus") {
+                    MacRootSelection.shared.request(usbExport: MacSmartPlaylistTracks.exportSource(.crate(id: crate.id, name: crate.name), tracks: tracks))
+                }
+                .disabled(tracks.isEmpty)
+                AnalyseMissingMenuItems(tracks: tracks, scopeTitle: crate.name)
+                if MacCrateID.isUserMade(crate.id) {
+                    Divider()
+                    Button("Delete Crate…", systemImage: "trash", role: .destructive) { crateToDelete = crate }
+                }
+            }
+    }
+
+    private func deleteCrate(_ crate: RekordboxPlaylistRecord) {
+        if case .smartPlaylist(.crate(let id, _)) = selection, id == crate.id { selection = .playlists }
+        crateList.delete(crate.id)
     }
 
     @ViewBuilder

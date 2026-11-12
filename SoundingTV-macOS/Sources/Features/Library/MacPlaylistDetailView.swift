@@ -520,6 +520,18 @@ struct MacCollectionTrackTable: View {
 
     private var sortedTracks: [Track] {
         guard let sortColumn else { return tracks }
+        if sortColumn == .cues || sortColumn == .grid {
+            let index = MacPrepIndex.shared
+            let order: SortOrder = sortAscending ? .forward : .reverse
+            return tracks.enumerated().sorted { lhs, rhs in
+                let result = sortColumn == .cues
+                    ? TrackSort.rank(index.cueCount(lhs.element.id).flatMap { $0 > 0 ? $0 : nil }, index.cueCount(rhs.element.id).flatMap { $0 > 0 ? $0 : nil }, order: order, by: <)
+                    : TrackSort.rank(index.gridLabel(lhs.element.id), index.gridLabel(rhs.element.id), order: order, by: <)
+                if result == .orderedSame { return lhs.offset < rhs.offset }
+                return result == .orderedAscending
+            }
+            .map(\.element)
+        }
         let summaries = AnalysisSummaries.shared
         return TrackSort.sorted(
             tracks,
@@ -659,6 +671,7 @@ private struct MacTrackTableRow: View {
     let onPlay: () -> Void
 
     @ObservedObject private var summaries = AnalysisSummaries.shared
+    @ObservedObject private var prepIndex = MacPrepIndex.shared
     @State private var isHovering = false
 
     var body: some View {
@@ -705,6 +718,12 @@ private struct MacTrackTableRow: View {
             .monospacedDigit()
             .foregroundStyle(MacSecondaryStyle())
             .frame(width: column.macCollectionWidth, alignment: column.isNumeric ? .trailing : .leading)
+        case .cues:
+            secondary(TrackValueFormat.cues(prepIndex.cueCount(track.id)), column)
+                .task(id: track.id) { prepIndex.request([track.id]) }
+        case .grid:
+            secondary(prepIndex.gridLabel(track.id) ?? TrackValueFormat.missing, column)
+                .task(id: track.id) { prepIndex.request([track.id]) }
         default:
             secondary(
                 TrackValueFormat.value(column, track: track, analysis: summaries.summary(for: track.id).map(TrackAnalysisSummary.init)),

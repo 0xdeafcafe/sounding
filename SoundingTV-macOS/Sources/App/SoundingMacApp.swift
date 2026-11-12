@@ -256,7 +256,7 @@ struct SoundingMacApp: App {
             DecksCommands()
             MessagingCommands()
             MacPrepCommands()
-            MacRekordboxImportCommands()
+            MacImportExportCommands()
         }
 
 
@@ -649,6 +649,12 @@ struct LibraryCommands: Commands {
                 IdentifySongPresenter.shared.showHistory()
             } label: {
                 Label("Recently Identified", systemImage: "clock")
+            }
+            Divider()
+            Button {
+                MissingAnalysisRun.shared.startLibrary()
+            } label: {
+                Label("Analyse Missing Tracks…", systemImage: "waveform.badge.magnifyingglass")
             }
         }
     }
@@ -1438,10 +1444,6 @@ struct MacPrepCommands: Commands {
                 MacPrepRoute.shared.inspectNowPlaying()
             }
             .keyboardShortcut("p", modifiers: [.option, .command])
-            Button("Import rekordbox Library…") {
-                openWindow(id: "main")
-                MacRekordboxFolderPresenter.choose()
-            }
             Divider()
             Group {
                 Button("Set Downbeat at Cursor") { model?.setDownbeat() }
@@ -1459,11 +1461,38 @@ struct MacPrepCommands: Commands {
                     Button("Set \(role.title)") { model?.trackMap.setMix(role) }
                 }
                 Button(TrackMapCopy.delete) { model?.trackMap.deleteSelected() }
-                Divider()
-                Button("Export to USB…") { model?.showsUSBExport = true }
-                    .keyboardShortcut("e", modifiers: [.shift, .command])
             }
             .disabled(model == nil)
+        }
+    }
+}
+
+struct MacImportExportCommands: Commands {
+    @FocusedValue(\.macUSBExportSource) private var exportSource
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(after: .importExport) {
+            Menu("Import") {
+                Button("Import rekordbox Library…") {
+                    openWindow(id: "main")
+                    MacRekordboxFolderPresenter.choose()
+                }
+                Button("Import rekordbox XML…") {
+                    openWindow(id: "main")
+                    guard MacRekordboxLibrary.shared.chooseXML() else { return }
+                    MacRootSelection.shared.requestRekordboxXMLImport()
+                }
+            }
+            Button("Export to USB…") {
+                openWindow(id: "main")
+                if let exportSource {
+                    MacRootSelection.shared.request(usbExport: exportSource)
+                } else {
+                    MacRootSelection.shared.requestLibraryUSBExport()
+                }
+            }
+            .keyboardShortcut("e", modifiers: [.shift, .command])
         }
     }
 }

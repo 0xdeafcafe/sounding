@@ -167,7 +167,7 @@ struct TrackListView: View {
             .scMotion(.easeInOut(duration: 0.20), reduceMotion: reduceMotion, value: searchIsExpanded)
 
             Menu {
-                ForEach(TrackSortKey.allCases) { key in
+                ForEach(TrackSortKey.menuCases) { key in
                     Button {
                         sortKey = key
                         ascending = key.defaultAscending

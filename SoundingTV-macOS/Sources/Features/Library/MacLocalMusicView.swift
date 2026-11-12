@@ -6,6 +6,7 @@ struct MacSongsView: View {
     @EnvironmentObject private var credentials: SoundCloudCredentialSource
     @ObservedObject private var library = LocalMusicLibrary.shared
     @ObservedObject private var identityStore = LibraryIdentity.shared
+    @ObservedObject private var analysisRun = MissingAnalysisRun.shared
     @State private var analysis: [String: MacAnalysisResult] = [:]
     @State private var isAdding = false
     @State private var isSigningIn = false
@@ -70,22 +71,29 @@ struct MacSongsView: View {
                 emptyState
                     .macFillsPane()
             } else {
-                MacLibraryTable(
-                    rows: rows,
-                    showsArtwork: true,
-                    usesCompactRows: false,
-                    onLoad: { track, deck in
-                        Task { try? await MacMixLoader.load(track, into: deck) }
-                    },
-                    onDoubleClick: { play($0, in: rows.map(\.track)) },
-                    onShowSetlist: { track in
-                        MacRootSelection.shared.request(setlist: track)
-                    },
-                    onAnalysisChanged: { Task { await refreshAnalysis(rereadStore: false) } },
-                    onNearEnd: { if hasSoundCloud { likesModel.loadMore() } },
-                    storageKey: "songs",
-                    showsSource: true
-                )
+                VStack(spacing: 0) {
+                    if analysisRun.progress.isActive || analysisRun.isPaused {
+                        MissingAnalysisProgressLine()
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 8)
+                    }
+                    MacLibraryTable(
+                        rows: rows,
+                        showsArtwork: true,
+                        usesCompactRows: false,
+                        onLoad: { track, deck in
+                            Task { try? await MacMixLoader.load(track, into: deck) }
+                        },
+                        onDoubleClick: { play($0, in: rows.map(\.track)) },
+                        onShowSetlist: { track in
+                            MacRootSelection.shared.request(setlist: track)
+                        },
+                        onAnalysisChanged: { Task { await refreshAnalysis(rereadStore: false) } },
+                        onNearEnd: { if hasSoundCloud { likesModel.loadMore() } },
+                        storageKey: "songs",
+                        showsSource: true
+                    )
+                }
             }
         }
         .navigationTitle("Tracks")
@@ -107,6 +115,9 @@ struct MacSongsView: View {
                             }
                         }
                         .pickerStyle(.inline)
+                    }
+                    Section {
+                        AnalyseMissingMenuItems(tracks: rows.map(\.track), scopeTitle: "Tracks")
                     }
                     Section {
                         Button("Add Folder…", systemImage: "folder.badge.plus") { isAdding = true }

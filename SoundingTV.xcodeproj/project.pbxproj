@@ -712,6 +712,7 @@
 		0DDA8F8E80FBFCAF3536FE8F /* PhoneDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13B67C5053C85FFE35D90C8E /* PhoneDesign.swift */; };
 		0EB4C7D74C78C6A9E53F4EFE /* MacAlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 428BD51620F72B4C12FF1A69 /* MacAlbumDetailView.swift */; };
 		AC19646028E3D38D8592F14E /* MacLocalMusicView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59D81CEA8E3CEB970721DF1D /* MacLocalMusicView.swift */; };
+		17A246C57A713AC1FFD44AB7 /* MacSmartPlaylistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB17F4BE7699AB42172AA68 /* MacSmartPlaylistView.swift */; };
 		0EECD1305808AFA9A8B0EEFA /* LikesSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A2EEB8654FA85CAD80CEC37 /* LikesSyncEngine.swift */; };
 		FB1FB75BF67A3DA57D0C302D /* LibrarySyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78D561F3C47972FA69D45212 /* LibrarySyncEngine.swift */; };
 		410ED8EF603E995A9486C0F0 /* LibrarySQLiteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8664C5EAA67F8965C77C6FF /* LibrarySQLiteStore.swift */; };
@@ -2482,6 +2483,7 @@ FFF0AD1CFE358283B9B6CBE2 /* MacNowPlayingAutoMix.swift */ = {isa = PBXFileRefere
 		40D6458A3B26F19D5243BC21 /* CueBoardSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueBoardSelfTest.swift; sourceTree = "<group>"; };
 		428BD51620F72B4C12FF1A69 /* MacAlbumDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAlbumDetailView.swift; sourceTree = "<group>"; };
 		59D81CEA8E3CEB970721DF1D /* MacLocalMusicView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLocalMusicView.swift; sourceTree = "<group>"; };
+		4AB17F4BE7699AB42172AA68 /* MacSmartPlaylistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSmartPlaylistView.swift; sourceTree = "<group>"; };
 		439C160B07B73E0CBC299889 /* CloudSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncEngine.swift; sourceTree = "<group>"; };
 		43B37553156E6E5A15DE7174 /* BrandColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandColor.swift; sourceTree = "<group>"; };
 		449BFC5B59FF6668E4DE7E3F /* LoopMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopMath.swift; sourceTree = "<group>"; };
@@ -4314,6 +4316,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				1A570000000000000000000B /* MacHistoryView.swift */,
 				428BD51620F72B4C12FF1A69 /* MacAlbumDetailView.swift */,
 				59D81CEA8E3CEB970721DF1D /* MacLocalMusicView.swift */,
+				4AB17F4BE7699AB42172AA68 /* MacSmartPlaylistView.swift */,
 				A2C100000000000000000005 /* MacLibraryCollectionsView.swift */,
 				A2C500000000000000000003 /* MacRecentlyAddedView.swift */,
 				DB2F9B39537E678886BE889A /* MacArtistDetailView.swift */,
@@ -6042,6 +6045,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				58B1B3A690E4D479485209E7 /* MacAccountView.swift in Sources */,
 				0EB4C7D74C78C6A9E53F4EFE /* MacAlbumDetailView.swift in Sources */,
 				AC19646028E3D38D8592F14E /* MacLocalMusicView.swift in Sources */,
+				17A246C57A713AC1FFD44AB7 /* MacSmartPlaylistView.swift in Sources */,
 				683E8A2FF476DAACA1E8CFD5 /* MacArtistDetailView.swift in Sources */,
 				C84CD0582E6E8E0934682FF5 /* MacArtworkCache.swift in Sources */,
 				C22B660AE744017F26759021 /* MacAudioSessionCoordinator.swift in Sources */,
