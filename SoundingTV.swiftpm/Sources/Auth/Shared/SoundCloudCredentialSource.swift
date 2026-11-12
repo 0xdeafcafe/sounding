@@ -914,6 +914,11 @@ extension SoundCloudCredentialSource: SoundCloudSessionSyncSource {
             writerId: SessionSyncBookkeeping.writerId(),
             issuedAtMillis: issuedAtMillis,
             generation: session.generation.map(Int64.init)
+        ).describingAccount(
+            tag: accountUser.map { PeerAccount.tag(userId: $0.id) },
+            name: accountUser?.displayName,
+            writerName: LinkPeerIdentity.localName,
+            writerKind: DeviceClass.current.rawValue
         )
     }
 
@@ -922,6 +927,8 @@ extension SoundCloudCredentialSource: SoundCloudSessionSyncSource {
             Log.auth.notice("ignored a synced session whose refresh token SoundCloud already refused")
             return
         }
+        SessionProvenance.record(.iCloud)
+        SessionContinueOffer.save(nil)
         if let local = DeviceSessionStore.load(), local.canSelfRefresh,
            !RejectedLineageLedger.defaults.rejects(local),
            local.isNewer(than: session.storedSession) {

@@ -35,6 +35,9 @@ struct MacDevicesSettingsTab: View {
                     Text("Link an Apple TV to play music there and control it from this Mac.")
                 }
             }
+            ForEach(client.links) { link in
+                LinkedDeviceAccountSection(client: client, record: link)
+            }
         }
         .formStyle(.grouped)
         .defaultScrollAnchor(.top, for: .alignment)
@@ -118,22 +121,35 @@ private struct MacLinkedDeviceRow: View {
             }
         } label: {
             Label(link.peerName, systemImage: link.peerClass.symbolName)
+            if let line = link.accountLine(client: client) {
+                Text(line)
+            }
             if case .unreachable(let failure) = status, isActive {
                 Text(failure.message())
             }
         }
         if status == .needsSignIn {
-            LabeledContent("\(link.peerName) is waiting to sign in.") {
+            LabeledContent {
                 HStack(spacing: 8) {
                     if client.isRequestingPeerSignIn, isActive {
                         ProgressView()
                             .controlSize(.small)
                     }
-                    Button("Sign In This \(link.peerClass.displayName)") { signIn() }
+                    Button(signInCopy?.action ?? "Sign In This \(link.peerClass.displayName)") { signIn() }
                         .disabled(client.isRequestingPeerSignIn && isActive)
                 }
+            } label: {
+                Text(signInCopy?.title ?? "\(link.peerName) is waiting to sign in.")
+                if let footer = signInCopy?.footer { Text(footer) }
             }
         }
+    }
+
+    private var signInCopy: TVAccountCopy.NeedsSignIn? {
+        guard let mine = CompanionClient.myAccount else { return nil }
+        let last: PeerAccount?
+        if case .needsSignIn(let previous) = client.tvAccount(for: link.sessionId) { last = previous } else { last = nil }
+        return TVAccountCopy.needsSignIn(tv: link.peerName, last: last, mine: mine)
     }
 
     private func signIn() {

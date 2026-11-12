@@ -147,6 +147,7 @@ struct SoundingMacApp: App {
     var body: some Scene {
         Window("Sounding", id: "main") {
             MacRootView()
+                .tvAccountPrompts(router: outputRouter)
                 .environmentObject(credentials)
                 .environmentObject(runtime)
                 .environmentObject(midi)

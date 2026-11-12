@@ -204,6 +204,8 @@ struct SoundingTViOSApp: App {
         .devicePairing(pairing, enabled: isPrimary)
         .playlistFolderPrompts(isEnabled: isPrimary)
         .nearbyDeviceCard(pairing.card, isEnabled: isPrimary && pairing.showsNearbyCard)
+        .tvAccountPrompts(router: coordinator.output, isEnabled: isPrimary)
+        .linkedCapsule(pairing.card.autoLinker)
         .sheet(isPresented: isPrimary ? $signInNotifications.isPriming : .constant(false)) {
             SignInRequestsPrimingView(notifications: signInNotifications)
         }

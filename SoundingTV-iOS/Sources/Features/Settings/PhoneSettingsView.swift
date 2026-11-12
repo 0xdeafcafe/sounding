@@ -220,7 +220,7 @@ struct PhoneSettingsView: View {
         if state == .unlinked {
             return linkOffers.offer != nil ? "Apple TV Found" : "None"
         }
-        let needsSignIn = PeerSignInPrompt.resolve(client: client, offers: linkOffers.offers) != nil
+        let needsSignIn = PeerSignInPrompt.resolveOnPhone(client: client, offers: linkOffers.offers) != nil
         if client.links.count > 1, !needsSignIn {
             return "\(client.links.count) Apple TVs"
         }

@@ -29,6 +29,19 @@ final class CompanionServer: ObservableObject {
 
     @Published private(set) var decksRemote: DecksRemote?
 
+    @Published private(set) var controllerAccounts: [String: PeerAccount] = [:]
+    @Published private(set) var accountNotice: AccountNotice?
+    @Published private(set) var switchRequest: TVAccountSwitchGate.Request?
+    @Published private(set) var switchingTo: PeerAccount?
+
+    struct AccountNotice: Equatable, Identifiable {
+        let id = UUID()
+        let text: String
+        let symbol: String
+    }
+
+    static let lastAccountKey = "red.forbes.sounding.tv.lastAccount.v1"
+
     struct DecksRemote: Equatable {
         var name: String
         var touchedAt: Date?
@@ -80,6 +93,7 @@ final class CompanionServer: ObservableObject {
         let connectedAt = ContinuousClock.now
         var lastActivityAt = ContinuousClock.now
         var decksLeaseUntil: ContinuousClock.Instant?
+        var announcedAccount = false
 
         init(id: Int, connection: NWConnection, ownerID: String, sessionId: String) {
             self.id = id
@@ -143,6 +157,9 @@ final class CompanionServer: ObservableObject {
     private let credentials: SoundCloudCredentialSource
     private var signInObservation: AnyCancellable?
     private var announcedNeedsSignIn: Bool?
+    private var announcedAccountStatus: String?
+    private var switchGate = TVAccountSwitchGate()
+    private var switchExpiry: Task<Void, Never>?
 
     private init(
         player: PlayerService = .shared,
@@ -166,7 +183,10 @@ final class CompanionServer: ObservableObject {
         self.credentials = credentials
         signInObservation = credentials.objectWillChange
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.announceDeviceStatusIfChanged() }
+            .sink { [weak self] _ in
+                self?.announceDeviceStatusIfChanged()
+                self?.announceAccountStatusIfChanged()
+            }
         RemoteLocalMusic.shared.endpoints = self
         RemoteLocalMusic.shared.requestOffers = { [weak self] in self?.requestLocalMusicOffers() }
     }
@@ -192,7 +212,7 @@ final class CompanionServer: ObservableObject {
         let change = store.add(device)
         revokedStore.settle(sessionId: credentials.sessionId)
         devices = change.devices
-        for removed in change.removed { revokeWithNotice(removed, reason: "replaced by a newer link") }
+        for removed in change.removed { revokeWithNotice(removed, reason: "replaced by a newer link", revokeReason: .replaced) }
         activate(sessionId: credentials.sessionId, secret: credentials.secret)
         Log.link.info("[CompanionServer] linked a device; \(change.devices.count, privacy: .public) linked")
     }
@@ -214,7 +234,8 @@ final class CompanionServer: ObservableObject {
         let change = store.revoke(sessionId: device.sessionId)
         devices = change.devices
         RemoteLocalMusic.shared.forget(sessionId: device.sessionId)
-        revokeWithNotice(device, reason: "forgotten")
+        revokeWithNotice(device, reason: "forgotten", revokeReason: .forgotten)
+        controllerAccounts[device.sessionId] = nil
         Log.link.info("[CompanionServer] forgot a device; \(change.devices.count, privacy: .public) linked")
     }
 
@@ -223,22 +244,23 @@ final class CompanionServer: ObservableObject {
         store.removeAll()
         devices = []
         for device in forgotten { RemoteLocalMusic.shared.forget(sessionId: device.sessionId) }
-        for device in forgotten { revokeWithNotice(device, reason: "signed out") }
+        for device in forgotten { revokeWithNotice(device, reason: "signed out", revokeReason: .signedOut) }
+        controllerAccounts = [:]
         for sessionId in Array(sessions.keys) where !forgotten.contains(where: { $0.sessionId == sessionId }) {
             deactivate(sessionId: sessionId, reason: "signed out")
         }
     }
 
-    private func revokeWithNotice(_ device: LinkedDevice, reason: String) {
+    private func revokeWithNotice(_ device: LinkedDevice, reason: String, revokeReason: LinkRevokePayload.Reason) {
         guard let secret = device.secret,
-              let frame = try? TokenTransferMessage.linkRevoke(sessionId: device.sessionId, secret: secret).framed() else {
+              let frame = try? TokenTransferMessage.linkRevoke(sessionId: device.sessionId, secret: secret, reason: revokeReason).framed() else {
             deactivate(sessionId: device.sessionId, reason: reason)
             return
         }
         let ready = peers.values.filter { $0.sessionId == device.sessionId && $0.isReady }
         guard !ready.isEmpty else {
             deactivate(sessionId: device.sessionId, reason: reason)
-            startBeacon(for: RevokedLink(device))
+            startBeacon(for: RevokedLink(device, reason: revokeReason))
             return
         }
         let tally = RevokeTally(remaining: ready.count)
@@ -248,7 +270,7 @@ final class CompanionServer: ObservableObject {
                 Task { @MainActor [weak self] in
                     guard let self, tally.record(delivered: error == nil) else { return }
                     self.deactivate(sessionId: sessionId, reason: reason)
-                    if !tally.delivered { self.startBeacon(for: RevokedLink(device)) }
+                    if !tally.delivered { self.startBeacon(for: RevokedLink(device, reason: revokeReason)) }
                 }
             })
         }
@@ -328,6 +350,7 @@ final class CompanionServer: ObservableObject {
                 session = provisional
             }
             guard self.authHandoffID == handoffID, !Task.isCancelled else { return }
+            SessionProvenance.record(.guest)
             DeviceSessionStore.save(session)
             DeviceSessionRefresher.shared.reset()
             SoundCloudCredentialSource.shared.didCompleteSignIn()
@@ -625,6 +648,7 @@ final class CompanionServer: ObservableObject {
             Log.link.info("[CompanionServer] client \(peer.id, privacy: .public) connected; \(self.connectedClientCount, privacy: .public) connected")
             sendSnapshot(to: peer)
             sendDeviceStatus(to: peer)
+            sendAccountStatus(to: peer)
             pushCueChanges(to: peer)
         case .failed, .cancelled:
             removePeer(peer, reason: "connection ended")
@@ -637,6 +661,10 @@ final class CompanionServer: ObservableObject {
         guard isCurrent(peer) else { return }
         peers[peer.id] = nil
         commands.retire(lane: peer.id)
+        if !peers.values.contains(where: { $0.sessionId == peer.sessionId }), switchGate.drop(sessionId: peer.sessionId) != nil {
+            switchRequest = nil
+            switchExpiry?.cancel()
+        }
         peer.connection.stateUpdateHandler = nil
         peer.connection.cancel()
         gateway.cancel(keyPrefix: "\(peer.ownerID).")
@@ -742,6 +770,12 @@ final class CompanionServer: ObservableObject {
             handleLinkRevoke(message, from: peer, session: session)
         } else if message.type == .sessionRevoke {
             handleSessionRevoke(message, from: peer, session: session)
+        } else if message.type == .accountStatus {
+            handleControllerAccountStatus(message, from: peer, session: session)
+        } else if message.type == .accountSwitchRequest {
+            handleAccountSwitchRequest(message, from: peer, session: session)
+        } else if message.type == .accountSwitchCredentials {
+            handleAccountSwitchCredentials(message, from: peer, session: session)
         } else if message.type == .acknowledgment {
             peer.sendsHeartbeats = true
             return
@@ -797,7 +831,7 @@ final class CompanionServer: ObservableObject {
               session.analysisReplayGuard.admit(payload.nonce),
               let body = AnalysisPeerBody.decode(payload.body),
               payload.recordCount == body.records.count else {
-            sendError("Analysis sync rejected", to: peer)
+            sendError("Analysis sync rejected", code: CompanionErrorCode.syncRefused, to: peer)
             return
         }
         Task.detached(priority: .utility) {
@@ -824,7 +858,7 @@ final class CompanionServer: ObservableObject {
               let localAccountId = SoundCloudCredentialSource.shared.currentUser?.id
                 ?? SubscriptionService.shared.authenticatedAccountID,
               localAccountId == body.accountId else {
-            sendError("Likes sync rejected", to: peer)
+            sendError("Likes sync rejected", code: CompanionErrorCode.syncRefused, to: peer)
             return
         }
 
@@ -844,7 +878,7 @@ final class CompanionServer: ObservableObject {
               let localAccountId = SoundCloudCredentialSource.shared.currentUser?.id
                 ?? SubscriptionService.shared.authenticatedAccountID,
               localAccountId == body.accountId else {
-            sendError("Library sync rejected", to: peer)
+            sendError("Library sync rejected", code: CompanionErrorCode.syncRefused, to: peer)
             return
         }
         commands.prepare(lane: peer.id) {
@@ -859,7 +893,7 @@ final class CompanionServer: ObservableObject {
               payload.isFresh(),
               session.localMusicReplayGuard.admit(payload.nonce),
               let offer = LocalMusicOffer.decode(payload.body) else {
-            sendError("Local music offer rejected", to: peer)
+            sendError("Local music offer rejected", code: CompanionErrorCode.syncRefused, to: peer)
             return
         }
         RemoteLocalMusic.shared.adopt(offer, sessionId: session.sessionId)
@@ -870,7 +904,7 @@ final class CompanionServer: ObservableObject {
               payload.verify(sessionId: session.sessionId, secret: session.secret),
               payload.isFresh(),
               session.continueSessionReplayGuard.admit(payload.nonce) else {
-            sendError("Continue session rejected", to: peer)
+            sendError("Continue session rejected", code: CompanionErrorCode.syncRefused, to: peer)
             return
         }
         ContinueFrom.shared.adoptNearby(payload.body)
@@ -996,8 +1030,11 @@ final class CompanionServer: ObservableObject {
         if let continuation = pendingAuthHandoffSessionContinuation {
             pendingAuthHandoffSessionContinuation = nil
             continuation.resume(returning: offer)
-        } else {
+        } else if TVControllerAccount.acceptsAuthHandoff(needsSignIn: credentials.needsSignIn, requestOutstanding: announcedNeedsSignIn == true) {
             adoptAuthHandoffSession(offer, from: peer)
+        } else {
+            Log.link.info("[CompanionServer] refused an auth handoff it didn't ask for")
+            sendError("Session offer not expected", code: CompanionErrorCode.notExpected, to: peer)
         }
     }
 
@@ -1032,7 +1069,9 @@ final class CompanionServer: ObservableObject {
             let tracks = await self.resolveTracks(ids: load.trackIds)
             let startID = load.trackIds[load.startIndex]
             guard let index = tracks.firstIndex(where: { $0.id == startID }) else {
-                if let peer { self.sendError("Could not load the queue", to: peer) }
+                if let peer {
+                    self.sendError("Could not load the queue", code: CompanionErrorCode.trackUnavailable, trackId: startID, to: peer)
+                }
                 return nil
             }
             return { [weak self] in await self?.applyLoad(load, tracks: tracks, index: index) }
@@ -1234,7 +1273,7 @@ final class CompanionServer: ObservableObject {
             do {
                 track = try await self.api.getTrack(id: command.trackId)
             } catch {
-                if let peer { self.sendError("Could not add track: \(error.localizedDescription)", to: peer) }
+                if let peer { self.sendError("Could not add track: \(error.localizedDescription)", code: CompanionErrorCode.trackUnavailable, trackId: command.trackId, to: peer) }
                 return nil
             }
             return { [weak self] in
@@ -1259,7 +1298,7 @@ final class CompanionServer: ObservableObject {
             do {
                 track = try await self.api.getTrack(id: command.trackId)
             } catch {
-                if let peer { self.sendError("Could not play track: \(error.localizedDescription)", to: peer) }
+                if let peer { self.sendError("Could not play track: \(error.localizedDescription)", code: CompanionErrorCode.trackUnavailable, trackId: command.trackId, to: peer) }
                 return nil
             }
             return { [weak self] in
@@ -2098,8 +2137,8 @@ final class CompanionServer: ObservableObject {
         }
     }
 
-    private func sendError(_ text: String, to peer: Peer) {
-        send(.error(sessionId: peer.sessionId, message: text), to: peer)
+    private func sendError(_ text: String, code: String? = nil, trackId: String? = nil, to peer: Peer) {
+        send(.error(sessionId: peer.sessionId, message: text, code: code, trackId: trackId), to: peer)
     }
 
     // MARK: - Device status
@@ -2120,6 +2159,158 @@ final class CompanionServer: ObservableObject {
             secret: session.secret
         )
         send(.deviceStatus(sessionId: session.sessionId, status: status), to: peer)
+    }
+
+    // MARK: - Account status
+
+    var localAccount: PeerAccount? {
+        guard !credentials.needsSignIn else { return nil }
+        return credentials.accountUser.map(PeerAccount.init(user:))
+    }
+
+    static var lastAccount: PeerAccount? {
+        PeerAccount.decode(UserDefaults.standard.data(forKey: lastAccountKey))
+    }
+
+    private static func rememberLastAccount(_ account: PeerAccount) {
+        guard lastAccount != account, let data = account.encoded() else { return }
+        UserDefaults.standard.set(data, forKey: lastAccountKey)
+    }
+
+    private var localAccountState: (state: AccountStatusPayload.State, account: PeerAccount?, last: PeerAccount?)? {
+        if credentials.needsSignIn { return (.needsSignIn, nil, Self.lastAccount) }
+        if let user = credentials.accountUser {
+            let account = PeerAccount(user: user)
+            Self.rememberLastAccount(account)
+            return (.signedIn, account, nil)
+        }
+        return credentials.isSignedOut ? (.signedOut, nil, nil) : nil
+    }
+
+    private func announceAccountStatusIfChanged() {
+        guard let local = localAccountState else { return }
+        let fingerprint = [local.state.rawValue, local.account?.tag ?? "", local.account?.name ?? "", local.last?.tag ?? ""].joined(separator: "|")
+        guard fingerprint != announcedAccountStatus else { return }
+        announcedAccountStatus = fingerprint
+        Log.link.info("[CompanionServer] account is now \(local.state.rawValue, privacy: .public); telling \(self.readyPeers.count, privacy: .public) connected")
+        for peer in readyPeers { sendAccountStatus(to: peer) }
+    }
+
+    private func sendAccountStatus(to peer: Peer) {
+        guard let session = sessions[peer.sessionId], let local = localAccountState else { return }
+        let status = AccountStatusPayload.create(
+            state: local.state,
+            account: local.account?.encoded(),
+            last: local.last?.encoded(),
+            sessionId: session.sessionId,
+            secret: session.secret
+        )
+        send(.accountStatus(sessionId: session.sessionId, status: status), to: peer)
+    }
+
+    private func handleControllerAccountStatus(_ message: TokenTransferMessage, from peer: Peer, session: TrustedSession) {
+        guard let status = message.verifiedAccountStatus(sessionId: session.sessionId, secret: session.secret) else { return }
+        let account = status.state == .signedIn ? PeerAccount.decode(status.account) : nil
+        if controllerAccounts[session.sessionId] != account { controllerAccounts[session.sessionId] = account }
+        guard !peer.announcedAccount else { return }
+        peer.announcedAccount = true
+        let device = devices.first { $0.sessionId == session.sessionId }
+        guard let text = TVControllerAccount.connectedCapsule(device: device?.displayName ?? "A device", controller: account, tv: localAccount) else { return }
+        accountNotice = AccountNotice(text: text, symbol: device?.deviceClass?.symbolName ?? "iphone")
+    }
+
+    // MARK: - Account switch
+
+    private func handleAccountSwitchRequest(_ message: TokenTransferMessage, from peer: Peer, session: TrustedSession) {
+        guard let payload = message.verifiedAccountSwitch(sessionId: session.sessionId, secret: session.secret),
+              let account = PeerAccount.decode(payload.account) else { return }
+        if let current = localAccount, current.isSameAccount(as: account) {
+            sendSwitchAnswer(.switched, nonce: payload.nonce, to: peer, session: session)
+            return
+        }
+        let name = devices.first { $0.sessionId == session.sessionId }?.displayName ?? "A device"
+        guard localAccount != nil,
+              switchGate.receive(nonce: payload.nonce, sessionId: session.sessionId, account: account, deviceName: name, at: Date()) else {
+            sendSwitchAnswer(.declined, nonce: payload.nonce, to: peer, session: session)
+            return
+        }
+        Log.link.info("[CompanionServer] a linked device asked to switch this Apple TV's account")
+        switchRequest = switchGate.asking
+        scheduleSwitchExpiry(after: AccountSwitchPayload.answerTimeout)
+    }
+
+    func answerSwitch(accept: Bool) {
+        let request = accept ? switchGate.accept(at: Date()) : switchGate.decline()
+        switchRequest = nil
+        guard let request else { return }
+        guard let session = sessions[request.sessionId],
+              let peer = readyPeers.first(where: { $0.sessionId == request.sessionId }) else {
+            _ = switchGate.drop(sessionId: request.sessionId)
+            switchExpiry?.cancel()
+            return
+        }
+        sendSwitchAnswer(accept ? .accepted : .declined, nonce: request.nonce, to: peer, session: session)
+        if accept {
+            switchingTo = request.account
+            scheduleSwitchExpiry(after: AccountSwitchPayload.credentialsTimeout)
+        } else {
+            switchExpiry?.cancel()
+        }
+    }
+
+    private func scheduleSwitchExpiry(after seconds: TimeInterval) {
+        switchExpiry?.cancel()
+        switchExpiry = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled, let self, self.switchGate.expire(at: Date()) != nil else { return }
+            self.switchRequest = nil
+            self.switchingTo = nil
+        }
+    }
+
+    private func handleAccountSwitchCredentials(_ message: TokenTransferMessage, from peer: Peer, session: TrustedSession) {
+        guard let payload = message.verifiedAccountSwitch(sessionId: session.sessionId, secret: session.secret),
+              let token = payload.credentials,
+              let request = switchGate.credentials(nonce: payload.nonce, sessionId: session.sessionId, at: Date()) else {
+            sendError("Switch not expected", code: CompanionErrorCode.notExpected, to: peer)
+            return
+        }
+        switchExpiry?.cancel()
+        let nonce = payload.nonce
+        let sessionId = session.sessionId
+        Task { @MainActor [weak self] in
+            let answer: AccountSwitchPayload.Answer
+            switch await SoundCloudAPI.shared.validateToken(token.oauthToken) {
+            case .valid:
+                await AuthenticationService.shared.signOutKeepingLinks()
+                await AuthenticationService.shared.authenticate(
+                    token: token.oauthToken,
+                    refreshToken: token.refreshToken,
+                    clientId: token.clientId,
+                    expiry: token.expiresAt
+                )
+                SessionProvenance.record(.guest)
+                answer = .switched
+            case .rejected:
+                answer = .refused
+            default:
+                answer = .unavailable
+            }
+            guard let self else { return }
+            self.switchingTo = nil
+            Log.link.info("[CompanionServer] account switch finished: \(answer.rawValue, privacy: .public)")
+            if answer == .switched {
+                self.accountNotice = AccountNotice(text: TVAccountCopy.signedInAs(request.account), symbol: "person.crop.circle.badge.checkmark")
+            }
+            guard let session = self.sessions[sessionId],
+                  let peer = self.readyPeers.first(where: { $0.sessionId == sessionId }) else { return }
+            self.sendSwitchAnswer(answer, nonce: nonce, to: peer, session: session)
+        }
+    }
+
+    private func sendSwitchAnswer(_ answer: AccountSwitchPayload.Answer, nonce: String, to peer: Peer, session: TrustedSession) {
+        let payload = AccountSwitchPayload.answer(answer, nonce: nonce, sessionId: session.sessionId, secret: session.secret)
+        send(.accountSwitch(.accountSwitchAnswer, sessionId: session.sessionId, payload: payload), to: peer)
     }
 }
 
@@ -2298,7 +2489,7 @@ private final class LinkRevocationBeacon {
                 guard let self, let connection else { return }
                 switch state {
                 case .ready:
-                    guard let frame = try? TokenTransferMessage.linkRevoke(sessionId: sessionId, secret: secret).framed() else { return }
+                    guard let frame = try? TokenTransferMessage.linkRevoke(sessionId: sessionId, secret: secret, reason: self.link.reason).framed() else { return }
                     connection.send(content: frame, completion: .contentProcessed { _ in })
                 case .failed, .cancelled:
                     self.connections[key] = nil

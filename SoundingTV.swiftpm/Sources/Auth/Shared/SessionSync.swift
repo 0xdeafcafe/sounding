@@ -11,8 +11,32 @@ struct SyncedSoundCloudSession: Codable, Sendable, Equatable {
     let writerId: String
     var issuedAtMillis: Int64? = nil
     var generation: Int64? = nil
+    var accountTag: String? = nil
+    var accountName: String? = nil
+    var writerName: String? = nil
+    var writerKind: String? = nil
 
     var lineage: String? { SessionSyncBookkeeping.lineageDigest(refreshToken: refreshToken) }
+
+    static func == (lhs: SyncedSoundCloudSession, rhs: SyncedSoundCloudSession) -> Bool {
+        lhs.oauthToken == rhs.oauthToken
+            && lhs.refreshToken == rhs.refreshToken
+            && lhs.clientId == rhs.clientId
+            && lhs.expiresAtMillis == rhs.expiresAtMillis
+            && lhs.updatedAtMillis == rhs.updatedAtMillis
+            && lhs.writerId == rhs.writerId
+            && lhs.issuedAtMillis == rhs.issuedAtMillis
+            && lhs.generation == rhs.generation
+    }
+
+    func describingAccount(tag: String?, name: String?, writerName: String?, writerKind: String?) -> SyncedSoundCloudSession {
+        var copy = self
+        copy.accountTag = tag
+        copy.accountName = name
+        copy.writerName = writerName
+        copy.writerKind = writerKind
+        return copy
+    }
 
     var storedSession: StoredSession {
         StoredSession(
@@ -138,6 +162,7 @@ enum SessionSyncPolicy {
         if let lineage = remote.lineage, rejectedLineages.contains(lineage) { return false }
         guard let local else { return localSignOutMillis == nil }
         if local == remote { return false }
+        if let mine = local.accountTag, let theirs = remote.accountTag, mine != theirs { return false }
         if let lineage = local.lineage, rejectedLineages.contains(lineage) { return true }
         if remote.issuedAtMillis != nil || local.issuedAtMillis != nil {
             let remoteIssued = remote.issuedAtMillis ?? remote.updatedAtMillis
@@ -149,6 +174,64 @@ enum SessionSyncPolicy {
             return remote.updatedAtMillis > local.updatedAtMillis
         }
         return remote.writerId > local.writerId
+    }
+}
+
+enum SessionProvenance: String, Codable, Sendable {
+    case local
+    case iCloud
+    case linkedPeer
+    case guest
+
+    static let defaultsKey = "red.forbes.sounding.sessionsync.provenance.v1"
+
+    static func record(_ provenance: SessionProvenance, defaults: UserDefaults = .standard) {
+        defaults.set(provenance.rawValue, forKey: defaultsKey)
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> SessionProvenance {
+        defaults.string(forKey: defaultsKey).flatMap(SessionProvenance.init(rawValue:)) ?? .local
+    }
+
+    static func mayPush(
+        _ provenance: SessionProvenance,
+        isTV: Bool,
+        local: SyncedSoundCloudSession,
+        remote: SyncedSoundCloudSession?
+    ) -> Bool {
+        guard isTV, provenance == .guest else { return true }
+        guard let tag = local.accountTag, let remoteTag = remote?.accountTag else { return false }
+        return tag == remoteTag
+    }
+}
+
+struct SessionContinueOffer: Codable, Equatable, Sendable {
+    static let defaultsKey = "red.forbes.sounding.sessionsync.continueOffer.v1"
+
+    let accountTag: String
+    let accountName: String
+    let writerName: String?
+
+    init?(_ session: SyncedSoundCloudSession) {
+        guard let tag = session.accountTag, !tag.isEmpty else { return nil }
+        accountTag = tag
+        accountName = session.accountName ?? ""
+        writerName = session.writerName
+    }
+
+    var account: PeerAccount { PeerAccount(tag: accountTag, name: accountName, username: "") }
+
+    static func load(defaults: UserDefaults = .standard) -> SessionContinueOffer? {
+        guard let data = defaults.data(forKey: defaultsKey) else { return nil }
+        return try? JSONDecoder().decode(SessionContinueOffer.self, from: data)
+    }
+
+    static func save(_ offer: SessionContinueOffer?, defaults: UserDefaults = .standard) {
+        guard let offer, let data = try? JSONEncoder().encode(offer) else {
+            defaults.removeObject(forKey: defaultsKey)
+            return
+        }
+        defaults.set(data, forKey: defaultsKey)
     }
 }
 
@@ -164,6 +247,7 @@ struct SessionSyncRelay: Sendable {
     let transport: any SessionSyncTransport
 
     var localSignOutMillis: @Sendable () -> Int64? = { SessionSyncBookkeeping.localSignOutMillis() }
+    var provenance: @Sendable () -> SessionProvenance = { SessionProvenance.current() }
 
     struct RoundResult: Sendable, Equatable {
         var pulledRemote = false
@@ -183,7 +267,8 @@ struct SessionSyncRelay: Sendable {
         let local = await source.currentSessionForSync()
         let signOutMillis = localSignOutMillis()
 
-        if let remote = try await transport.pull() {
+        let lastRemote = try await transport.pull()
+        if let remote = lastRemote {
             result.pulledRemote = true
             if let local, local == remote {
                 Log.sync.debug("\(transport.transportId, privacy: .public): local and remote sessions already match")
@@ -196,12 +281,17 @@ struct SessionSyncRelay: Sendable {
                 return result
             }
             if local == nil, signOutMillis != nil {
+                SessionContinueOffer.save(SessionContinueOffer(remote))
                 result.declinedBySignOut = true
                 Log.sync.info("\(transport.transportId, privacy: .public): declined a peer session — this device was explicitly signed out by the user")
             }
         }
 
         if let local {
+            guard SessionProvenance.mayPush(provenance(), isTV: DeviceClass.current == .tv, local: local, remote: lastRemote) else {
+                Log.sync.info("\(transport.transportId, privacy: .public): kept a guest sign-in off iCloud")
+                return result
+            }
             try await transport.push(local)
             result.pushedLocal = true
         }

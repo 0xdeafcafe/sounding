@@ -287,17 +287,18 @@ private struct TVSignInPrompt: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        if let prompt = PeerSignInPrompt.resolve(client: client, offers: nearby.offers) {
+        if let prompt = PeerSignInPrompt.resolveOnPhone(client: client, offers: nearby.offers) {
+            let other = prompt.copy(client: client).flatMap { $0.action.hasPrefix("Sign In as") ? $0 : nil }
             let layout = dynamicTypeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: Space.snug))
                 : AnyLayout(HStackLayout(spacing: Space.snug))
             layout {
-                Label("\(prompt.name) is waiting to sign in", systemImage: DeviceClass.tv.symbolName)
+                Label(other?.title ?? "\(prompt.name) is waiting to sign in", systemImage: DeviceClass.tv.symbolName)
                     .font(.subheadline)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Button("Sign In") { prompt.start(client: client, pairing: pairing) }
+                Button(other?.action ?? "Sign In") { prompt.start(client: client, pairing: pairing) }
                     .buttonStyle(.glass)
                     .disabled(client.isRequestingPeerSignIn)
                     .accessibilityHint("Signs in \(prompt.name) with your SoundCloud account")

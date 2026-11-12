@@ -148,7 +148,63 @@ final class LinkClient: ObservableObject {
             clientId: clientId,
             expiresAt: expiresAt
         )
+        pendingSession = session
+        offerHint = LinkOfferHints.hint(sessionId: sessionId, accountId: SameAccountLinkModel.accountId)
+        if LinkEstablishPolicy.opening(for: offerHint) == .linkEstablish {
+            establish()
+            return
+        }
+        transmitRefreshing(session)
+    }
 
+    private var pendingSession: StoredSession?
+    private var offerHint: LinkEstablishPolicy.OfferHint = .notSeen
+    private var awaitingEstablished = false
+
+    private func establish() {
+        Task { @MainActor [weak self] in
+            guard let self, await self.waitForSecureConnection(), let connection = self.connection else { return }
+            let mine = SoundCloudCredentialSource.shared.accountUser.map(PeerAccount.init(user:))
+            let message = TokenTransferMessage.linkEstablish(
+                sessionId: self.sessionId,
+                payload: .create(account: mine?.encoded(), sessionId: self.sessionId, secret: self.sessionSecret),
+                peer: LinkPeerIdentity.local(sessionId: self.sessionId, secret: self.sessionSecret)
+            )
+            guard let data = try? message.framed() else {
+                self.state = .failed("Couldn't prepare the link. Try again.")
+                return
+            }
+            self.awaitingEstablished = true
+            Log.link.info("[LinkClient] asking to link without a token")
+            connection.send(content: data, completion: .contentProcessed { [weak self] error in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if let error {
+                        self.state = .failed(LinkFailureCopy.message(for: error, peer: self.peerClass))
+                    } else {
+                        self.receiveAcknowledgment()
+                        self.startAckTimeout()
+                    }
+                }
+            })
+        }
+    }
+
+    private func completeLink(account: PeerAccount?) {
+        LinkedCompanionStore.save(
+            sessionId: sessionId,
+            secret: sessionSecret,
+            deviceClass: peerClass,
+            displayName: peerName
+        )
+        if let account, let mine = SoundCloudCredentialSource.shared.accountUser, account.tag == PeerAccount.tag(userId: mine.id) {
+            KnownLinkLedger.update { $0.recordLinked(KnownLinkLedger.identity(name: self.peerName ?? "", kind: self.peerClass), accountTag: account.tag) }
+        }
+        state = .completed
+        stop()
+    }
+
+    private func transmitRefreshing(_ session: StoredSession) {
         guard session.shouldRefreshBeforeHandoff else {
             transmit(session)
             return
@@ -367,6 +423,20 @@ final class LinkClient: ObservableObject {
 
                 self.ackTimeout?.cancel()
                 switch message.type {
+                case .linkEstablished:
+                    self.awaitingEstablished = false
+                    guard let reply = message.linkEstablished, reply.verify(sessionId: self.sessionId, secret: self.sessionSecret) else {
+                        self.state = .failed("\(self.peerClass.displayName) couldn't link. Try again.")
+                        self.stop()
+                        return
+                    }
+                    if LinkEstablishPolicy.sendsCredentials(reply), let session = self.pendingSession {
+                        Log.link.info("[LinkClient] linked; it needs this sign-in")
+                        self.transmitRefreshing(session)
+                        return
+                    }
+                    Log.link.info("[LinkClient] linked without sending a token")
+                    self.completeLink(account: PeerAccount.decode(reply.account))
                 case .acknowledgment:
                     if let renewed = message.payload,
                        renewed.verify(sessionId: self.sessionId, secret: self.sessionSecret) {
@@ -380,14 +450,7 @@ final class LinkClient: ObservableObject {
                         Log.link.info("[LinkClient] adopted credentials refreshed by the Apple TV")
                     }
 
-                    LinkedCompanionStore.save(
-                        sessionId: self.sessionId,
-                        secret: self.sessionSecret,
-                        deviceClass: self.peerClass,
-                        displayName: self.peerName
-                    )
-                    self.state = .completed
-                    self.stop()
+                    self.completeLink(account: SoundCloudCredentialSource.shared.accountUser.map(PeerAccount.init(user:)))
                 case .tokenRejected:
                     self.state = .rejected(
                         message.error ?? "That SoundCloud login is no longer valid."
@@ -395,6 +458,17 @@ final class LinkClient: ObservableObject {
                     self.stop()
                 case .error:
                     Log.link.error("[LinkClient] peer answered error: \(message.error ?? "nil", privacy: .public)")
+                    if self.awaitingEstablished {
+                        self.awaitingEstablished = false
+                        if LinkEstablishPolicy.fallsBackToTokenTransfer(self.offerHint), let session = self.pendingSession {
+                            Log.link.info("[LinkClient] an older build answered; sending the sign-in instead")
+                            self.transmitRefreshing(session)
+                            return
+                        }
+                        self.state = .failed("Update Sounding on \(self.peerName ?? self.peerClass.displayName) to link it from here.")
+                        self.stop()
+                        return
+                    }
                     self.state = .failed("\(self.peerClass.displayName) couldn't use this sign-in. Try again.")
                     self.stop()
                 default:
@@ -508,6 +582,21 @@ final class CompanionLinker: ObservableObject {
         client?.stop()
         client = nil
         if resetState { state = .idle }
+    }
+}
+
+@MainActor
+enum LinkOfferHints {
+    private static var seen: [String: LinkAccountHint.Advert?] = [:]
+
+    static func note(prefix: String, advert: LinkAccountHint.Advert?) {
+        seen[prefix] = .some(advert)
+        if seen.count > 32 { seen.removeAll() }
+    }
+
+    static func hint(sessionId: String, accountId: String?) -> LinkEstablishPolicy.OfferHint {
+        guard let entry = seen[String(sessionId.prefix(8))] else { return .notSeen }
+        return LinkEstablishPolicy.hint(for: entry, offerSeen: true, accountId: accountId)
     }
 }
 
@@ -641,6 +730,7 @@ final class LinkOfferBrowser: ObservableObject {
                 continue
             }
 
+            if decoded != nil { LinkOfferHints.note(prefix: prefix, advert: accountHint) }
             found.append(Offer(
                 claimedName: decoded?.name ?? "Nearby Apple TV",
                 kind: decoded?.kind ?? .tv,
@@ -748,7 +838,10 @@ final class LinkConfirmationHandshake: ObservableObject {
         let key = Curve25519.KeyAgreement.PrivateKey()
         ephemeralKey = key
         let sameAccount = SameAccountLinkModel.accountId.map { offer.accountHint?.matches(accountId: $0) == true } ?? false
-        ownerKeys = sameAccount
+        let known = SameAccountLinkModel.accountId.map {
+            KnownLinkLedger.load().allowsAutoLink(KnownLinkLedger.identity(name: offer.claimedName, kind: offer.kind), accountTag: PeerAccount.tag(userId: $0))
+        } ?? false
+        ownerKeys = sameAccount && known
             ? LinkOwnerProof.tags(
                 for: LinkOwnerKeyStore.usableKeys(),
                 sessionId: offer.sessionIdPrefix,
@@ -796,7 +889,8 @@ final class LinkConfirmationHandshake: ObservableObject {
             ephemeralPublicKeyBase64: ephemeralKey.publicKey.rawRepresentation.base64EncodedString(),
             deviceName: localName,
             deviceClass: DeviceClass.current.rawValue,
-            ownerKeyTags: ownerKeys.isEmpty ? nil : ownerKeys.keys.sorted()
+            ownerKeyTags: ownerKeys.isEmpty ? nil : ownerKeys.keys.sorted(),
+            accountDigest: LinkEstablishPolicy.helloDigest(accountId: SameAccountLinkModel.accountId, salt: offer.accountHint?.salt)
         )
         guard let data = try? TokenTransferMessage.numericComparisonHello(
             sessionId: offer.sessionIdPrefix, payload: hello

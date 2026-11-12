@@ -533,6 +533,9 @@
 		4E1A5C0000000000000000C2 /* NearbyLinkRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1A5C0000000000000000C1 /* NearbyLinkRequestTests.swift */; };
 		5E0C0DE0A11CE00000000002 /* SoundingQRCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0C0DE0A11CE00000000001 /* SoundingQRCodeTests.swift */; };
 		5A3E0C1D2B4F6A7E8C9D0E1F /* SameAccountLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4F1D2E3C5A7B8F9D0E1F2A /* SameAccountLinkTests.swift */; };
+		683F7D8C0F79CBA7EBF7076C /* SessionSyncAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA66E4036450561AFB8C713D /* SessionSyncAccountTests.swift */; };
+		35B8B26914DD0642F0295750 /* PeerAccountWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8078A0E56096FF6DE086A54 /* PeerAccountWireTests.swift */; };
+		252326F590CFC675CF378BA8 /* TVAccountRelationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A794E72A0834259BD5310E13 /* TVAccountRelationTests.swift */; };
 		7C1A2B3D4E5F60718293A4B5 /* MacSameAccountOfferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D2B3C4E5F60718293A4B5C6 /* MacSameAccountOfferTests.swift */; };
 		CC2D791589E9BB620646572B /* TVSignInLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7309A9CB427C73F5FDD6DE2 /* TVSignInLiveActivity.swift */; };
 		72D70A1ADE63B0C6DD2CBD87 /* TVSignInLiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4BD51AF5083F4660AB95F96 /* TVSignInLiveActivityController.swift */; };
@@ -557,10 +560,15 @@
 		5AE80F505B08DEAF04E703DE /* CompanionFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75AE39C1514FADDF4C7C5175 /* CompanionFailure.swift */; };
 		A72C05AA31FEC1B917713CAB /* CompanionFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75AE39C1514FADDF4C7C5175 /* CompanionFailure.swift */; };
 		3406B99AAA30E53D570C8E96 /* LinkedCompanionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D904BACB9C3E265410565F /* LinkedCompanionStore.swift */; };
+		C2BDDF05BC2FD9AEAE229F8E /* PeerAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E226D781BC6BB8708CA3E03 /* PeerAccount.swift */; };
 		88A77EAC1ABC14C19D9693C2 /* LinkedCompanionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D904BACB9C3E265410565F /* LinkedCompanionStore.swift */; };
+		386B2CD4B96A62A86EB0F293 /* PeerAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E226D781BC6BB8708CA3E03 /* PeerAccount.swift */; };
 		BB4A37DCBD976E707B9C070A /* LinkedCompanionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D904BACB9C3E265410565F /* LinkedCompanionStore.swift */; };
+		7A68EAFDA4A24AF2E710856F /* PeerAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E226D781BC6BB8708CA3E03 /* PeerAccount.swift */; };
 		08D24052834E1AE9185AC771 /* LinkedCompanionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D904BACB9C3E265410565F /* LinkedCompanionStore.swift */; };
+		E29F7913475570C3EEAAF6B2 /* PeerAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E226D781BC6BB8708CA3E03 /* PeerAccount.swift */; };
 		3C026F162646233BD23AF02F /* LinkedCompanionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D904BACB9C3E265410565F /* LinkedCompanionStore.swift */; };
+		594FCFDA53DD4ED75355FE0C /* PeerAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E226D781BC6BB8708CA3E03 /* PeerAccount.swift */; };
 		0A11D0C0FFEE000000000011 /* LinkOwnerKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A11D0C0FFEE000000000001 /* LinkOwnerKey.swift */; };
 		0A11D0C0FFEE000000000012 /* LinkOwnerKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A11D0C0FFEE000000000001 /* LinkOwnerKey.swift */; };
 		0A11D0C0FFEE000000000013 /* LinkOwnerKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A11D0C0FFEE000000000001 /* LinkOwnerKey.swift */; };
@@ -755,8 +763,11 @@
 		D5E1A0C0B1C2D3E4F5A60013 /* DevicePresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60001 /* DevicePresence.swift */; };
 		D5E1A0C0B1C2D3E4F5A60014 /* DevicePresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60001 /* DevicePresence.swift */; };
 		D5E1A0C0B1C2D3E4F5A60021 /* DevicePresenceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60002 /* DevicePresenceModel.swift */; };
+		B95E24B1DA2A968E3012C2AC /* TVAccountMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28430623DB5E7E2050FB5AB5 /* TVAccountMatch.swift */; };
 		D5E1A0C0B1C2D3E4F5A60022 /* DevicePresenceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60002 /* DevicePresenceModel.swift */; };
+		4BF1626EA8B5F1AB4AE494FC /* TVAccountMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28430623DB5E7E2050FB5AB5 /* TVAccountMatch.swift */; };
 		D5E1A0C0B1C2D3E4F5A60023 /* DevicePresenceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60002 /* DevicePresenceModel.swift */; };
+		73C6E9D0BE31101DF7EB8FFB /* TVAccountMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28430623DB5E7E2050FB5AB5 /* TVAccountMatch.swift */; };
 		D5E1A0C0B1C2D3E4F5A60031 /* DevicePresenceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60003 /* DevicePresenceViews.swift */; };
 		D5E1A0C0B1C2D3E4F5A60032 /* DevicePresenceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60003 /* DevicePresenceViews.swift */; };
 		D5E1A0C0B1C2D3E4F5A60033 /* DevicePresenceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E1A0C0B1C2D3E4F5A60003 /* DevicePresenceViews.swift */; };
@@ -990,7 +1001,9 @@
 		5A1E0C27C0FFEE0000000003 /* SoundCloudSignInGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1E0C27C0FFEE0000000001 /* SoundCloudSignInGate.swift */; };
 		5A1E0C27C0FFEE0000000004 /* SoundCloudSignInGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1E0C27C0FFEE0000000001 /* SoundCloudSignInGate.swift */; };
 		4EA2BC27C0FFEE0000000002 /* NearbyDeviceCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA2BC27C0FFEE0000000001 /* NearbyDeviceCard.swift */; };
+		3BF27C2A4FB889BDD916D5D9 /* TVAccountViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2986F3CCACB7C34E723FA55E /* TVAccountViews.swift */; };
 		4EA2BC27C0FFEE0000000004 /* NearbyDeviceCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA2BC27C0FFEE0000000001 /* NearbyDeviceCard.swift */; };
+		AF64387C6C46266962D6A07A /* TVAccountViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2986F3CCACB7C34E723FA55E /* TVAccountViews.swift */; };
 		5D1CE111D00DCAFE00000002 /* NearbyDeviceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1CE111D00DCAFE00000001 /* NearbyDeviceViews.swift */; };
 		5D1CE111D00DCAFE00000003 /* NearbyDeviceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1CE111D00DCAFE00000001 /* NearbyDeviceViews.swift */; };
 		5D1CE111D00DCAFE0000B002 /* PlayOnNearbyLinking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1CE111D00DCAFE0000B001 /* PlayOnNearbyLinking.swift */; };
@@ -1477,6 +1490,7 @@
 		C329FFE4FC118944803F13F2 /* DeckIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 630EEA79EF77D15B803A3846 /* DeckIdentity.swift */; };
 		C33E57FE84341DC446F9CE79 /* DJProfileID.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF7181E37010C1237A9B365 /* DJProfileID.swift */; };
 		C3860E5F8B783B7C259353C1 /* QRCodeLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2F783549E5E0E04685FCD42 /* QRCodeLoginView.swift */; };
+		07B5DC944F5E6D26049A4E7A /* TVAccountSwitchPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA863DFAD4F72EE61FBB34A8 /* TVAccountSwitchPrompt.swift */; };
 		C41C25AEFBE390CA8615605F /* SilentWebReauthorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 453FAC68BC6D522B12675844 /* SilentWebReauthorizer.swift */; };
 		5C0DE1A1B2C3D4E5F6A7B802 /* SoundCloudWebSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0DE1A1B2C3D4E5F6A7B801 /* SoundCloudWebSignIn.swift */; };
 		5C0DE1A1B2C3D4E5F6A7B803 /* SoundCloudWebSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0DE1A1B2C3D4E5F6A7B801 /* SoundCloudWebSignIn.swift */; };
@@ -1880,6 +1894,7 @@
 		AC0E5A00000000000000010B /* SoundingWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90288CC08DDF7BB3FD5767DA /* SoundingWidgetBundle.swift */; };
 		AC0E5A000000000000000201 /* AppDataDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1A00000000000000000000 /* AppDataDirectory.swift */; };
 		AC0E5A000000000000000202 /* LinkedCompanionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D904BACB9C3E265410565F /* LinkedCompanionStore.swift */; };
+		E4F2F7A18AE3A3AE5415D248 /* PeerAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E226D781BC6BB8708CA3E03 /* PeerAccount.swift */; };
 		AC0E5A000000000000000203 /* LinkOwnerKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A11D0C0FFEE000000000001 /* LinkOwnerKey.swift */; };
 		AC0E5A000000000000000204 /* SoundCloudAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F626C78DAE5D5BEB201C8BD /* SoundCloudAPI.swift */; };
 		AC0E5A000000000000000205 /* DeviceClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F7BC15F22F3C16FCEB3C6A /* DeviceClass.swift */; };
@@ -2296,6 +2311,9 @@
 		4E1A5C0000000000000000C1 /* NearbyLinkRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyLinkRequestTests.swift; sourceTree = "<group>"; };
 		5E0C0DE0A11CE00000000001 /* SoundingQRCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundingQRCodeTests.swift; sourceTree = "<group>"; };
 		6B4F1D2E3C5A7B8F9D0E1F2A /* SameAccountLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SameAccountLinkTests.swift; sourceTree = "<group>"; };
+		FA66E4036450561AFB8C713D /* SessionSyncAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSyncAccountTests.swift; sourceTree = "<group>"; };
+		F8078A0E56096FF6DE086A54 /* PeerAccountWireTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerAccountWireTests.swift; sourceTree = "<group>"; };
+		A794E72A0834259BD5310E13 /* TVAccountRelationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAccountRelationTests.swift; sourceTree = "<group>"; };
 		8D2B3C4E5F60718293A4B5C6 /* MacSameAccountOfferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSameAccountOfferTests.swift; sourceTree = "<group>"; };
 		F7309A9CB427C73F5FDD6DE2 /* TVSignInLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSignInLiveActivity.swift; sourceTree = "<group>"; };
 		E4BD51AF5083F4660AB95F96 /* TVSignInLiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSignInLiveActivityController.swift; sourceTree = "<group>"; };
@@ -2514,6 +2532,7 @@ F1C39D966E10112291734F31 /* TVNowPlayingAutoMix.swift */ = {isa = PBXFileReferen
 		5A1E0B27C0FFEE0000000001 /* SoundingWelcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundingWelcome.swift; sourceTree = "<group>"; };
 		5A1E0C27C0FFEE0000000001 /* SoundCloudSignInGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundCloudSignInGate.swift; sourceTree = "<group>"; };
 		4EA2BC27C0FFEE0000000001 /* NearbyDeviceCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyDeviceCard.swift; sourceTree = "<group>"; };
+		2986F3CCACB7C34E723FA55E /* TVAccountViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAccountViews.swift; sourceTree = "<group>"; };
 		5D1CE111D00DCAFE00000001 /* NearbyDeviceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyDeviceViews.swift; sourceTree = "<group>"; };
 		5D1CE111D00DCAFE0000B001 /* PlayOnNearbyLinking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayOnNearbyLinking.swift; sourceTree = "<group>"; };
 		7EAC7A27C0FFEE0000000001 /* SoundingReactiveLineArt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundingReactiveLineArt.swift; sourceTree = "<group>"; };
@@ -2547,6 +2566,7 @@ F1C39D966E10112291734F31 /* TVNowPlayingAutoMix.swift */ = {isa = PBXFileReferen
 		7D5EC0A1B2C3D4E5F6A7B802 /* TVDecksEntryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVDecksEntryTests.swift; sourceTree = "<group>"; };
 		D5E1A0C0B1C2D3E4F5A60001 /* DevicePresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePresence.swift; sourceTree = "<group>"; };
 		D5E1A0C0B1C2D3E4F5A60002 /* DevicePresenceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePresenceModel.swift; sourceTree = "<group>"; };
+		28430623DB5E7E2050FB5AB5 /* TVAccountMatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAccountMatch.swift; sourceTree = "<group>"; };
 		D5E1A0C0B1C2D3E4F5A60003 /* DevicePresenceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePresenceViews.swift; sourceTree = "<group>"; };
 		D5E1A0C0B1C2D3E4F5A60004 /* DevicePresenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePresenceTests.swift; sourceTree = "<group>"; };
 		67C76EF687273BE183E14CA3 /* SettingsSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSelfTest.swift; sourceTree = "<group>"; };
@@ -2835,6 +2855,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 		0E38E7B6118FF16253854869 /* PlayingNextQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayingNextQueue.swift; sourceTree = "<group>"; };
 		E236A303EE3DCD35A1B6B0DE /* LibraryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCache.swift; sourceTree = "<group>"; };
 		E2F783549E5E0E04685FCD42 /* QRCodeLoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeLoginView.swift; sourceTree = "<group>"; };
+		CA863DFAD4F72EE61FBB34A8 /* TVAccountSwitchPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAccountSwitchPrompt.swift; sourceTree = "<group>"; };
 		E34C065550AD22D6F5AF3F80 /* PlaylistDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistDetailViewModel.swift; sourceTree = "<group>"; };
 		E36F4AAD4B02783E526F4703 /* TopShelfPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopShelfPublisher.swift; sourceTree = "<group>"; };
 		E589F94C88C4B0D5CF906AE7 /* PulseTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTimeline.swift; sourceTree = "<group>"; };
@@ -2890,6 +2911,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 		7E246AF95E6D5AA466993CFC /* TrackGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackGateTests.swift; sourceTree = "<group>"; };
 		F6FD8C232056D253BA3A22F6 /* LinkClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkClient.swift; sourceTree = "<group>"; };
 		53D904BACB9C3E265410565F /* LinkedCompanionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedCompanionStore.swift; sourceTree = "<group>"; };
+		7E226D781BC6BB8708CA3E03 /* PeerAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerAccount.swift; sourceTree = "<group>"; };
 		0A11D0C0FFEE000000000001 /* LinkOwnerKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkOwnerKey.swift; sourceTree = "<group>"; };
 		0A11D0C0FFEE000000000002 /* LinkOwnerKeyCloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkOwnerKeyCloud.swift; sourceTree = "<group>"; };
 		F8000462D71492E410750791 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
@@ -3307,6 +3329,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				35529F9022E10D68753E843A /* DeviceSessionStore.swift */,
 				F6FD8C232056D253BA3A22F6 /* LinkClient.swift */,
 				53D904BACB9C3E265410565F /* LinkedCompanionStore.swift */,
+				7E226D781BC6BB8708CA3E03 /* PeerAccount.swift */,
 				0A11D0C0FFEE000000000001 /* LinkOwnerKey.swift */,
 				0A11D0C0FFEE000000000002 /* LinkOwnerKeyCloud.swift */,
 				890E4DC8D93848A4C9C2F1E3 /* SessionSync.swift */,
@@ -3629,6 +3652,9 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				4E1A5C0000000000000000C1 /* NearbyLinkRequestTests.swift */,
 				5E0C0DE0A11CE00000000001 /* SoundingQRCodeTests.swift */,
 				6B4F1D2E3C5A7B8F9D0E1F2A /* SameAccountLinkTests.swift */,
+				FA66E4036450561AFB8C713D /* SessionSyncAccountTests.swift */,
+				F8078A0E56096FF6DE086A54 /* PeerAccountWireTests.swift */,
+				A794E72A0834259BD5310E13 /* TVAccountRelationTests.swift */,
 				8D2B3C4E5F60718293A4B5C6 /* MacSameAccountOfferTests.swift */,
 				949C960054E3837436057D23 /* DJPlayersTests.swift */,
 				44634F4493EF3E0E6FD246BB /* DJPlayersStickTests.swift */,
@@ -3938,6 +3964,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				22710E872DBA5B00AC5DA4D4 /* LinkServer.swift */,
 				0C1509652B992B6C67280341 /* QRCodeGenerator.swift */,
 				E2F783549E5E0E04685FCD42 /* QRCodeLoginView.swift */,
+				CA863DFAD4F72EE61FBB34A8 /* TVAccountSwitchPrompt.swift */,
 				5161A7E0C0FFEE0000000001 /* SignInEvents.swift */,
 				95F2D8C6E7B4BACDBD09381B /* SignInRequestPublisher.swift */,
 				4E1A5C0000000000000000B1 /* NearbyLinkRequestPublisher.swift */,
@@ -4579,6 +4606,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				81E89C3FB4FCDB83287C3505 /* BehindTheTrackModel.swift */,
 				A35715F3E25D1AC523FD8166 /* ContinueFrom.swift */,
 				D5E1A0C0B1C2D3E4F5A60002 /* DevicePresenceModel.swift */,
+				28430623DB5E7E2050FB5AB5 /* TVAccountMatch.swift */,
 				C8EF65226C5666870CE72D9F /* FeedViewModel.swift */,
 				E34C065550AD22D6F5AF3F80 /* PlaylistDetailViewModel.swift */,
 				7A7A00300000000000000030 /* DeckReadout.swift */,
@@ -4757,6 +4785,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				5A1E0C27C0FFEE0000000001 /* SoundCloudSignInGate.swift */,
 				7A7A00200000000000000020 /* CollectionHeroPage.swift */,
 				4EA2BC27C0FFEE0000000001 /* NearbyDeviceCard.swift */,
+				2986F3CCACB7C34E723FA55E /* TVAccountViews.swift */,
 				1DE7F1AB0000000000000002 /* IdentifySongViews.swift */,
 				5D1CE111D00DCAFE00000001 /* NearbyDeviceViews.swift */,
 				5D1CE111D00DCAFE0000B001 /* PlayOnNearbyLinking.swift */,
@@ -5791,6 +5820,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				30439EAE055ECE5EDAEC3828 /* LinkCourier.swift in Sources */,
 				A72C05AA31FEC1B917713CAB /* CompanionFailure.swift in Sources */,
 				BB4A37DCBD976E707B9C070A /* LinkedCompanionStore.swift in Sources */,
+				7A68EAFDA4A24AF2E710856F /* PeerAccount.swift in Sources */,
 				0A11D0C0FFEE000000000013 /* LinkOwnerKey.swift in Sources */,
 				0A11D0C0FFEE000000000023 /* LinkOwnerKeyCloud.swift in Sources */,
 				CC9FEB5BF31D6B197D29D785 /* DJLinkPacket.swift in Sources */,
@@ -5827,6 +5857,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				5A1E0B27C0FFEE0000000004 /* SoundingWelcome.swift in Sources */,
 				5A1E0C27C0FFEE0000000004 /* SoundCloudSignInGate.swift in Sources */,
 				4EA2BC27C0FFEE0000000004 /* NearbyDeviceCard.swift in Sources */,
+				AF64387C6C46266962D6A07A /* TVAccountViews.swift in Sources */,
 				5D1CE111D00DCAFE00000003 /* NearbyDeviceViews.swift in Sources */,
 				5D1CE111D00DCAFE0000B003 /* PlayOnNearbyLinking.swift in Sources */,
 				CDD290716FBDCEEABC9F22D0 /* ContinueFromViews.swift in Sources */,
@@ -6136,6 +6167,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				D9F2371197F4F112D950A31B /* OutputPresence.swift in Sources */,
 				D5E1A0C0B1C2D3E4F5A60012 /* DevicePresence.swift in Sources */,
 				D5E1A0C0B1C2D3E4F5A60022 /* DevicePresenceModel.swift in Sources */,
+				4BF1626EA8B5F1AB4AE494FC /* TVAccountMatch.swift in Sources */,
 				D5E1A0C0B1C2D3E4F5A60032 /* DevicePresenceViews.swift in Sources */,
 				B1C4D828F57CDE74EE708420 /* RepeatMode.swift in Sources */,
 				DF82824E1FEECD2D48C927C0 /* SCCommentRow.swift in Sources */,
@@ -6254,6 +6286,9 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				4E1A5C0000000000000000C2 /* NearbyLinkRequestTests.swift in Sources */,
 				5E0C0DE0A11CE00000000002 /* SoundingQRCodeTests.swift in Sources */,
 				5A3E0C1D2B4F6A7E8C9D0E1F /* SameAccountLinkTests.swift in Sources */,
+				683F7D8C0F79CBA7EBF7076C /* SessionSyncAccountTests.swift in Sources */,
+				35B8B26914DD0642F0295750 /* PeerAccountWireTests.swift in Sources */,
+				252326F590CFC675CF378BA8 /* TVAccountRelationTests.swift in Sources */,
 				7C1A2B3D4E5F60718293A4B5 /* MacSameAccountOfferTests.swift in Sources */,
 				108EB92F649F25B61F79A0DB /* DJPlayersStickTests.swift in Sources */,
 				D5B0E1A00000000000000001 /* DJUSBExportRoundTripTests.swift in Sources */,
@@ -6394,6 +6429,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				5D0A7A000000000000000923 /* SoundingDataJournal.swift in Sources */,
 				7B1A00000000000000000005 /* AppDataDirectory.swift in Sources */,
 				08D24052834E1AE9185AC771 /* LinkedCompanionStore.swift in Sources */,
+				E29F7913475570C3EEAAF6B2 /* PeerAccount.swift in Sources */,
 				0A11D0C0FFEE000000000014 /* LinkOwnerKey.swift in Sources */,
 				92AEB133D22C0292DA00757F /* SessionRenewal.swift in Sources */,
 				6FC27CC104AE8797363F8E0F /* BrandColor.swift in Sources */,
@@ -6514,6 +6550,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				402D89FA0C672A83201179D7 /* DJPlayersTrackResolver.swift in Sources */,
 				EB904BBB91C985C9AC9864C0 /* CompanionFailure.swift in Sources */,
 				3406B99AAA30E53D570C8E96 /* LinkedCompanionStore.swift in Sources */,
+				C2BDDF05BC2FD9AEAE229F8E /* PeerAccount.swift in Sources */,
 				0A11D0C0FFEE000000000011 /* LinkOwnerKey.swift in Sources */,
 				0A11D0C0FFEE000000000021 /* LinkOwnerKeyCloud.swift in Sources */,
 				1953987272A381D340562EEE /* DJLinkPacket.swift in Sources */,
@@ -6788,11 +6825,13 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				0C488026C43DA1F3E307D697 /* PulseTimeline.swift in Sources */,
 				7B394650B7E7611A24BF62FA /* QRCodeGenerator.swift in Sources */,
 				C3860E5F8B783B7C259353C1 /* QRCodeLoginView.swift in Sources */,
+				07B5DC944F5E6D26049A4E7A /* TVAccountSwitchPrompt.swift in Sources */,
 				B921A477B6CF5DFEABA9CADD /* SoundingQRCode.swift in Sources */,
 				ACA101532805BF8BA90D5A95 /* RemoteOutputTarget.swift in Sources */,
 				6853DD9E7E9B53CFBD5CD5A3 /* OutputPresence.swift in Sources */,
 				D5E1A0C0B1C2D3E4F5A60013 /* DevicePresence.swift in Sources */,
 				D5E1A0C0B1C2D3E4F5A60023 /* DevicePresenceModel.swift in Sources */,
+				73C6E9D0BE31101DF7EB8FFB /* TVAccountMatch.swift in Sources */,
 				D5E1A0C0B1C2D3E4F5A60033 /* DevicePresenceViews.swift in Sources */,
 				B2D6FE437D7E0F726F69C3D6 /* RepeatMode.swift in Sources */,
 				4E72EDA080E3CC28C442F602 /* RootView.swift in Sources */,
@@ -6986,6 +7025,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				A96DAB388543CAADFE906EEF /* LinkCourier.swift in Sources */,
 				5AE80F505B08DEAF04E703DE /* CompanionFailure.swift in Sources */,
 				88A77EAC1ABC14C19D9693C2 /* LinkedCompanionStore.swift in Sources */,
+				386B2CD4B96A62A86EB0F293 /* PeerAccount.swift in Sources */,
 				0A11D0C0FFEE000000000012 /* LinkOwnerKey.swift in Sources */,
 				0A11D0C0FFEE000000000022 /* LinkOwnerKeyCloud.swift in Sources */,
 				170094210C4C8AACC469AD0C /* RemoteControlView.swift in Sources */,
@@ -7014,6 +7054,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				5A1E0B27C0FFEE0000000002 /* SoundingWelcome.swift in Sources */,
 				5A1E0C27C0FFEE0000000002 /* SoundCloudSignInGate.swift in Sources */,
 				4EA2BC27C0FFEE0000000002 /* NearbyDeviceCard.swift in Sources */,
+				3BF27C2A4FB889BDD916D5D9 /* TVAccountViews.swift in Sources */,
 				5D1CE111D00DCAFE00000002 /* NearbyDeviceViews.swift in Sources */,
 				5D1CE111D00DCAFE0000B002 /* PlayOnNearbyLinking.swift in Sources */,
 				B3C364E03E4C533093BE4054 /* ContinueFromViews.swift in Sources */,
@@ -7294,6 +7335,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				EDC58B4ACC99464B7A071EB2 /* OutputPresence.swift in Sources */,
 				D5E1A0C0B1C2D3E4F5A60011 /* DevicePresence.swift in Sources */,
 				D5E1A0C0B1C2D3E4F5A60021 /* DevicePresenceModel.swift in Sources */,
+				B95E24B1DA2A968E3012C2AC /* TVAccountMatch.swift in Sources */,
 				D5E1A0C0B1C2D3E4F5A60031 /* DevicePresenceViews.swift in Sources */,
 				AC45CD03C588DE23AB91C11F /* RepeatMode.swift in Sources */,
 				D12C75098C02C1C66F827776 /* SCCommentRow.swift in Sources */,
@@ -7399,6 +7441,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				7B1A00000000000000000004 /* AppDataDirectory.swift in Sources */,
 				F60BB5EF3DA2A03F7B5A50A2 /* LyricsProvider.swift in Sources */,
 				3C026F162646233BD23AF02F /* LinkedCompanionStore.swift in Sources */,
+				594FCFDA53DD4ED75355FE0C /* PeerAccount.swift in Sources */,
 				0A11D0C0FFEE000000000015 /* LinkOwnerKey.swift in Sources */,
 				85A333C12D84350963C92F03 /* SessionRenewal.swift in Sources */,
 				0ACA0CA8D5811CB7267426D3 /* AnalysisBadge.swift in Sources */,
@@ -7578,6 +7621,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				5D0A7A000000000000000913 /* SoundingDataJournal.swift in Sources */,
 				AC0E5A000000000000000201 /* AppDataDirectory.swift in Sources */,
 				AC0E5A000000000000000202 /* LinkedCompanionStore.swift in Sources */,
+				E4F2F7A18AE3A3AE5415D248 /* PeerAccount.swift in Sources */,
 				AC0E5A000000000000000203 /* LinkOwnerKey.swift in Sources */,
 				AC0E5A000000000000000204 /* SoundCloudAPI.swift in Sources */,
 				AC0E5A000000000000000205 /* DeviceClass.swift in Sources */,

@@ -439,6 +439,17 @@ private struct MacRemoteRouteLabel: View {
     @ObservedObject var telemetry: CompanionTelemetry
 
     var body: some View {
+        if let caption = client.refusalCaption {
+            Label(caption, systemImage: "exclamationmark.circle")
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(.secondary)
+        } else {
+            phaseLabel
+        }
+    }
+
+    @ViewBuilder
+    private var phaseLabel: some View {
         switch client.connectionPhase {
         case .live:
             Label("Playing on \(device.name)", systemImage: device.symbolName)

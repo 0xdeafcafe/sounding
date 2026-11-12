@@ -143,6 +143,14 @@ enum MessageType: String, Codable {
     case chimePlaying = "chime_playing"
 
     case deviceStatus = "device_status"
+    case accountStatus = "account_status"
+
+    case linkEstablish = "link_establish"
+    case linkEstablished = "link_established"
+
+    case accountSwitchRequest = "account_switch_request"
+    case accountSwitchAnswer = "account_switch_answer"
+    case accountSwitchCredentials = "account_switch_credentials"
 
     case linkRevoke = "link_revoke"
     case sessionRevoke = "session_revoke"
@@ -525,7 +533,7 @@ enum LinkTLS {
     }
 }
 
-struct TokenPayload: Codable {
+struct TokenPayload: Codable, Equatable {
     let oauthToken: String
     let refreshToken: String?
     let clientId: String?
@@ -1002,6 +1010,7 @@ struct LinkConfirmationHelloPayload: Codable, Equatable {
     var deviceName: String?
     var deviceClass: String?
     var ownerKeyTags: [String]?
+    var accountDigest: String?
 }
 
 struct LinkConfirmationHelloAckPayload: Codable, Equatable {
@@ -1066,11 +1075,20 @@ struct DeviceStatusPayload: Codable, Equatable {
 }
 
 struct LinkRevokePayload: Codable, Equatable {
+    enum Reason: String, Codable, Sendable {
+        case forgotten
+        case signedOut
+        case replaced
+    }
+
     let accountId: String?
     let lineageDigest: String?
     let issuedAtMillis: Int64
     let nonce: String
     let signature: String
+    var reason: Reason? = nil
+
+    var isExplicitUnlink: Bool { reason != .signedOut && reason != .replaced }
 
     static func create(
         _ type: MessageType,
@@ -1123,6 +1141,232 @@ struct LinkRevokePayload: Codable, Equatable {
         sessionId: String
     ) -> [String] {
         [sessionId, type.rawValue, accountId ?? "", lineageDigest ?? "", String(issuedAtMillis), nonce]
+    }
+}
+
+enum CompanionCapability {
+    static let linkEstablish = "link_establish"
+    static let accountSwitch = "account_switch"
+    static let current = [linkEstablish, accountSwitch]
+}
+
+enum CompanionErrorCode {
+    static let trackUnavailable = "track_unavailable"
+    static let queueUnavailable = "queue_unavailable"
+    static let syncRefused = "sync_refused"
+    static let notExpected = "not_expected"
+}
+
+struct AccountStatusPayload: Codable, Equatable {
+    enum State: String, Codable, Sendable {
+        case signedIn
+        case signedOut
+        case needsSignIn
+    }
+
+    let state: State
+    let account: Data?
+    let last: Data?
+    let capabilities: [String]
+    let issuedAtMillis: Int64
+    let signature: String
+
+    static func create(
+        state: State,
+        account: Data?,
+        last: Data?,
+        capabilities: [String] = CompanionCapability.current,
+        sessionId: String,
+        secret: Data,
+        now: Date = Date()
+    ) -> AccountStatusPayload {
+        let issuedAtMillis = Int64(now.timeIntervalSince1970 * 1000)
+        return AccountStatusPayload(
+            state: state,
+            account: account,
+            last: last,
+            capabilities: capabilities,
+            issuedAtMillis: issuedAtMillis,
+            signature: CanonicalForm.sign(
+                fields(state: state, account: account, last: last, capabilities: capabilities, issuedAtMillis: issuedAtMillis, sessionId: sessionId),
+                secret: secret
+            )
+        )
+    }
+
+    func verify(sessionId: String, secret: Data) -> Bool {
+        CanonicalForm.verify(
+            signature,
+            fields: Self.fields(state: state, account: account, last: last, capabilities: capabilities, issuedAtMillis: issuedAtMillis, sessionId: sessionId),
+            secret: secret
+        )
+    }
+
+    func isFresh(now: Date = Date()) -> Bool {
+        let nowMillis = Int64(now.timeIntervalSince1970 * 1000)
+        return abs(TimeInterval(nowMillis - issuedAtMillis) / 1000) <= BonjourConstants.commandFreshnessWindow
+    }
+
+    func supports(_ capability: String) -> Bool { capabilities.contains(capability) }
+
+    private static func fields(
+        state: State,
+        account: Data?,
+        last: Data?,
+        capabilities: [String],
+        issuedAtMillis: Int64,
+        sessionId: String
+    ) -> [String] {
+        [
+            sessionId,
+            MessageType.accountStatus.rawValue,
+            state.rawValue,
+            account?.base64EncodedString() ?? "",
+            last?.base64EncodedString() ?? "",
+            capabilities.joined(separator: ","),
+            String(issuedAtMillis),
+        ]
+    }
+}
+
+struct LinkEstablishPayload: Codable, Equatable {
+    let account: Data?
+    let issuedAtMillis: Int64
+    let signature: String
+
+    static func create(account: Data?, sessionId: String, secret: Data, now: Date = Date()) -> LinkEstablishPayload {
+        let issuedAtMillis = Int64(now.timeIntervalSince1970 * 1000)
+        return LinkEstablishPayload(
+            account: account,
+            issuedAtMillis: issuedAtMillis,
+            signature: CanonicalForm.sign(fields(account: account, issuedAtMillis: issuedAtMillis, sessionId: sessionId), secret: secret)
+        )
+    }
+
+    func verify(sessionId: String, secret: Data) -> Bool {
+        CanonicalForm.verify(signature, fields: Self.fields(account: account, issuedAtMillis: issuedAtMillis, sessionId: sessionId), secret: secret)
+    }
+
+    func isFresh(now: Date = Date()) -> Bool {
+        let nowMillis = Int64(now.timeIntervalSince1970 * 1000)
+        return abs(TimeInterval(nowMillis - issuedAtMillis) / 1000) <= BonjourConstants.commandFreshnessWindow
+    }
+
+    private static func fields(account: Data?, issuedAtMillis: Int64, sessionId: String) -> [String] {
+        [sessionId, MessageType.linkEstablish.rawValue, account?.base64EncodedString() ?? "", String(issuedAtMillis)]
+    }
+}
+
+struct LinkEstablishedPayload: Codable, Equatable {
+    let needsCredentials: Bool
+    let account: Data?
+    let signature: String
+
+    static func create(needsCredentials: Bool, account: Data?, sessionId: String, secret: Data) -> LinkEstablishedPayload {
+        LinkEstablishedPayload(
+            needsCredentials: needsCredentials,
+            account: account,
+            signature: CanonicalForm.sign(fields(needsCredentials: needsCredentials, account: account, sessionId: sessionId), secret: secret)
+        )
+    }
+
+    func verify(sessionId: String, secret: Data) -> Bool {
+        CanonicalForm.verify(signature, fields: Self.fields(needsCredentials: needsCredentials, account: account, sessionId: sessionId), secret: secret)
+    }
+
+    private static func fields(needsCredentials: Bool, account: Data?, sessionId: String) -> [String] {
+        [sessionId, MessageType.linkEstablished.rawValue, needsCredentials ? "1" : "0", account?.base64EncodedString() ?? ""]
+    }
+}
+
+struct AccountSwitchPayload: Codable, Equatable {
+    enum Answer: String, Codable, Sendable {
+        case accepted
+        case declined
+        case switched
+        case unavailable
+        case refused
+    }
+
+    static let answerTimeout: TimeInterval = 60
+    static let credentialsTimeout: TimeInterval = 30
+
+    let nonce: String
+    let account: Data?
+    let answer: Answer?
+    let credentials: TokenPayload?
+    let issuedAtMillis: Int64
+    let signature: String
+
+    static func request(account: Data, nonce: String, sessionId: String, secret: Data, now: Date = Date()) -> AccountSwitchPayload {
+        make(.accountSwitchRequest, nonce: nonce, account: account, answer: nil, credentials: nil, sessionId: sessionId, secret: secret, now: now)
+    }
+
+    static func answer(_ answer: Answer, nonce: String, sessionId: String, secret: Data, now: Date = Date()) -> AccountSwitchPayload {
+        make(.accountSwitchAnswer, nonce: nonce, account: nil, answer: answer, credentials: nil, sessionId: sessionId, secret: secret, now: now)
+    }
+
+    static func credentials(_ credentials: TokenPayload, nonce: String, sessionId: String, secret: Data, now: Date = Date()) -> AccountSwitchPayload {
+        make(.accountSwitchCredentials, nonce: nonce, account: nil, answer: nil, credentials: credentials, sessionId: sessionId, secret: secret, now: now)
+    }
+
+    func verify(_ type: MessageType, sessionId: String, secret: Data) -> Bool {
+        guard !nonce.isEmpty else { return false }
+        if let credentials, !credentials.verify(sessionId: sessionId, secret: secret) { return false }
+        return CanonicalForm.verify(
+            signature,
+            fields: Self.fields(type, nonce: nonce, account: account, answer: answer, credentials: credentials, issuedAtMillis: issuedAtMillis, sessionId: sessionId),
+            secret: secret
+        )
+    }
+
+    func isFresh(now: Date = Date()) -> Bool {
+        let nowMillis = Int64(now.timeIntervalSince1970 * 1000)
+        return abs(TimeInterval(nowMillis - issuedAtMillis) / 1000) <= BonjourConstants.commandFreshnessWindow
+    }
+
+    private static func make(
+        _ type: MessageType,
+        nonce: String,
+        account: Data?,
+        answer: Answer?,
+        credentials: TokenPayload?,
+        sessionId: String,
+        secret: Data,
+        now: Date
+    ) -> AccountSwitchPayload {
+        let issuedAtMillis = Int64(now.timeIntervalSince1970 * 1000)
+        return AccountSwitchPayload(
+            nonce: nonce,
+            account: account,
+            answer: answer,
+            credentials: credentials,
+            issuedAtMillis: issuedAtMillis,
+            signature: CanonicalForm.sign(
+                fields(type, nonce: nonce, account: account, answer: answer, credentials: credentials, issuedAtMillis: issuedAtMillis, sessionId: sessionId),
+                secret: secret
+            )
+        )
+    }
+
+    private static func fields(
+        _ type: MessageType,
+        nonce: String,
+        account: Data?,
+        answer: Answer?,
+        credentials: TokenPayload?,
+        issuedAtMillis: Int64,
+        sessionId: String
+    ) -> [String] {
+        [
+            sessionId,
+            type.rawValue,
+            nonce,
+            account?.base64EncodedString() ?? "",
+            answer?.rawValue ?? "",
+            credentials?.signature ?? "",
+            String(issuedAtMillis),
+        ]
     }
 }
 
@@ -2542,6 +2786,12 @@ struct TokenTransferMessage: Codable {
     let deviceStatus: DeviceStatusPayload?
     let revoke: LinkRevokePayload?
     var peer: LinkPeerIdentity?
+    var errorCode: String?
+    var errorTrackId: String?
+    var accountStatus: AccountStatusPayload?
+    var linkEstablish: LinkEstablishPayload?
+    var linkEstablished: LinkEstablishedPayload?
+    var accountSwitch: AccountSwitchPayload?
 
     init(
         type: MessageType,
@@ -2569,7 +2819,12 @@ struct TokenTransferMessage: Codable {
         chime: ChimeLinkPayload? = nil,
         deviceStatus: DeviceStatusPayload? = nil,
         revoke: LinkRevokePayload? = nil,
-        peer: LinkPeerIdentity? = nil
+        peer: LinkPeerIdentity? = nil,
+        errorCode: String? = nil,
+        accountStatus: AccountStatusPayload? = nil,
+        linkEstablish: LinkEstablishPayload? = nil,
+        linkEstablished: LinkEstablishedPayload? = nil,
+        accountSwitch: AccountSwitchPayload? = nil
     ) {
         self.type = type
         self.sessionId = sessionId
@@ -2597,6 +2852,11 @@ struct TokenTransferMessage: Codable {
         self.deviceStatus = deviceStatus
         self.revoke = revoke
         self.peer = peer
+        self.errorCode = errorCode
+        self.accountStatus = accountStatus
+        self.linkEstablish = linkEstablish
+        self.linkEstablished = linkEstablished
+        self.accountSwitch = accountSwitch
     }
 
     static func tokenTransfer(sessionId: String, payload: TokenPayload, peer: LinkPeerIdentity? = nil) -> TokenTransferMessage {
@@ -2607,8 +2867,41 @@ struct TokenTransferMessage: Codable {
         TokenTransferMessage(type: .acknowledgment, sessionId: sessionId, payload: payload)
     }
 
-    static func error(sessionId: String, message: String) -> TokenTransferMessage {
-        TokenTransferMessage(type: .error, sessionId: sessionId, error: message)
+    static func error(sessionId: String, message: String, code: String? = nil, trackId: String? = nil) -> TokenTransferMessage {
+        var message = TokenTransferMessage(type: .error, sessionId: sessionId, error: message, errorCode: code)
+        message.errorTrackId = trackId
+        return message
+    }
+
+    static func accountStatus(sessionId: String, status: AccountStatusPayload) -> TokenTransferMessage {
+        TokenTransferMessage(type: .accountStatus, sessionId: sessionId, accountStatus: status)
+    }
+
+    static func linkEstablish(sessionId: String, payload: LinkEstablishPayload, peer: LinkPeerIdentity?) -> TokenTransferMessage {
+        TokenTransferMessage(type: .linkEstablish, sessionId: sessionId, peer: peer, linkEstablish: payload)
+    }
+
+    static func linkEstablished(sessionId: String, payload: LinkEstablishedPayload) -> TokenTransferMessage {
+        TokenTransferMessage(type: .linkEstablished, sessionId: sessionId, linkEstablished: payload)
+    }
+
+    static func accountSwitch(_ type: MessageType, sessionId: String, payload: AccountSwitchPayload) -> TokenTransferMessage {
+        TokenTransferMessage(type: type, sessionId: sessionId, accountSwitch: payload)
+    }
+
+    func verifiedAccountStatus(sessionId expected: String, secret: Data, now: Date = Date()) -> AccountStatusPayload? {
+        guard type == .accountStatus, sessionId == expected, let accountStatus,
+              accountStatus.verify(sessionId: expected, secret: secret),
+              accountStatus.isFresh(now: now) else { return nil }
+        return accountStatus
+    }
+
+    func verifiedAccountSwitch(sessionId expected: String, secret: Data, now: Date = Date()) -> AccountSwitchPayload? {
+        guard type == .accountSwitchRequest || type == .accountSwitchAnswer || type == .accountSwitchCredentials,
+              sessionId == expected, let accountSwitch,
+              accountSwitch.verify(type, sessionId: expected, secret: secret),
+              accountSwitch.isFresh(now: now) else { return nil }
+        return accountSwitch
     }
 
     static func tokenRejected(sessionId: String, message: String) -> TokenTransferMessage {
@@ -2647,12 +2940,10 @@ struct TokenTransferMessage: Codable {
         TokenTransferMessage(type: .deviceStatus, sessionId: sessionId, deviceStatus: status)
     }
 
-    static func linkRevoke(sessionId: String, secret: Data) -> TokenTransferMessage {
-        TokenTransferMessage(
-            type: .linkRevoke,
-            sessionId: sessionId,
-            revoke: .create(.linkRevoke, sessionId: sessionId, secret: secret)
-        )
+    static func linkRevoke(sessionId: String, secret: Data, reason: LinkRevokePayload.Reason? = nil) -> TokenTransferMessage {
+        var revoke = LinkRevokePayload.create(.linkRevoke, sessionId: sessionId, secret: secret)
+        revoke.reason = reason
+        return TokenTransferMessage(type: .linkRevoke, sessionId: sessionId, revoke: revoke)
     }
 
     static func sessionRevoke(sessionId: String, secret: Data, accountId: String?, lineageDigest: String?) -> TokenTransferMessage {

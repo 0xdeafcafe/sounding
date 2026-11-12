@@ -314,6 +314,17 @@ final class CloudSyncEngineController: NSObject, CKSyncEngineDelegate, @unchecke
 
         let record = CloudSyncMapping.record(for: session)
         _ = try await database.save(record)
+
+        guard let tag = session.accountTag else { return }
+        do {
+            do {
+                _ = try await database.deleteRecord(withID: CloudSyncMapping.sessionRecordID(accountTag: tag))
+            } catch let error as CKError where error.code == .unknownItem || error.code == .zoneNotFound {
+            }
+            _ = try await database.save(CloudSyncMapping.record(for: session, perAccount: true))
+        } catch {
+            Log.sync.error("per-account session save failed: \(type(of: error), privacy: .public)")
+        }
     }
 
     func deleteSession() async throws {
@@ -324,13 +335,22 @@ final class CloudSyncEngineController: NSObject, CKSyncEngineDelegate, @unchecke
         }
     }
 
-    func fetchCurrentSession() async throws -> SyncedSoundCloudSession? {
+    func fetchCurrentSession(accountTag: String? = nil) async throws -> SyncedSoundCloudSession? {
         guard let container = resolvedContainer() else { return nil }
+        let database = container.privateCloudDatabase
+        if let accountTag, let own = try await fetchSession(CloudSyncMapping.sessionRecordID(accountTag: accountTag), in: database) {
+            return own
+        }
+        guard let legacy = try await fetchSession(CloudSyncMapping.sessionRecordID, in: database) else { return nil }
+        guard accountTag == nil, legacy.accountName == nil, let tag = legacy.accountTag,
+              let described = try? await fetchSession(CloudSyncMapping.sessionRecordID(accountTag: tag), in: database),
+              described.oauthToken == legacy.oauthToken else { return legacy }
+        return described
+    }
+
+    private func fetchSession(_ recordID: CKRecord.ID, in database: CKDatabase) async throws -> SyncedSoundCloudSession? {
         do {
-            let record = try await container.privateCloudDatabase.record(
-                for: CloudSyncMapping.sessionRecordID
-            )
-            return CloudSyncMapping.session(from: record)
+            return CloudSyncMapping.session(from: try await database.record(for: recordID))
         } catch let error as CKError where error.code == .unknownItem || error.code == .zoneNotFound {
             return nil
         }
@@ -589,6 +609,7 @@ struct CloudKitAnalysisSyncTransport: AnalysisSyncTransport {
 struct CloudKitSessionSyncTransport: SessionSyncTransport {
     let transportId = "cloudkit"
     let controller: CloudSyncEngineController
+    var accountTag: String? = nil
 
     func isReady() async -> Bool { await controller.isReadyToSync() }
 
@@ -599,7 +620,7 @@ struct CloudKitSessionSyncTransport: SessionSyncTransport {
     func pull() async throws -> SyncedSoundCloudSession? {
         try await controller.fetchLatestChanges()
         _ = await controller.sessionInbox.drain()
-        return try await controller.fetchCurrentSession()
+        return try await controller.fetchCurrentSession(accountTag: accountTag)
     }
 }
 
@@ -994,7 +1015,8 @@ final class SynchronizationCoordinator: SetlistSynchronizationReceiving, Setting
 
     private func performSessionRelay() async {
         guard let source = sessionSource else { return }
-        let relay = SessionSyncRelay(source: source, transport: CloudKitSessionSyncTransport(controller: controller))
+        let accountTag = await source.currentSessionForSync()?.accountTag
+        let relay = SessionSyncRelay(source: source, transport: CloudKitSessionSyncTransport(controller: controller, accountTag: accountTag))
         do {
             _ = try await relay.runOnce()
         } catch {

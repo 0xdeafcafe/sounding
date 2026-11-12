@@ -87,6 +87,7 @@ struct ConnectSheet: View {
             } message: {
                 Text(failure ?? "")
             }
+            .modifier(PlayOnOtherAccountConfirmation(linking: linking))
             .sheet(isPresented: Binding(
                 get: { linking.comparison != nil },
                 set: { if !$0 { linking.cancelComparison() } }
@@ -136,7 +137,7 @@ struct ConnectSheet: View {
         } label: {
             ConnectRowLabel(
                 title: device.name,
-                subtitle: pending == device.id ? "Connecting…" : (device.isLocal ? nil : (availability.label ?? device.deviceClass.displayName)),
+                subtitle: pending == device.id ? "Connecting…" : (device.isLocal ? nil : (availability.label ?? coordinator.output.accountSubtitle(for: device) ?? device.deviceClass.displayName)),
                 systemImage: device.isLocal ? DeviceClass.current.symbolName : device.symbolName,
                 isPending: pending == device.id
             )

@@ -124,7 +124,7 @@ Rules that follow from the matrix:
 
 After this the pair shares a long-lived secret. Every later Companion connection is TLS-PSK with that secret, and every command and state frame is also HMAC-signed with it, with freshness windows and replay guards.
 
-The Link is created **only** by a sign-in. There is no "link without credentials" path, so an already signed-in TV that wants a second Remote goes through Settings › Remotes & Devices › Add Device, which runs the same flow and re-sends a token, or, on the same SoundCloud account, the automatic offer in §4.4b.
+**Linking a signed-in TV sends no token** (2026-11-12, `tv-signin-flows.md` §7 P3). Once the TLS-PSK connection is up, a phone whose offer carried an account hint sends `link_establish { LinkPeerIdentity, account }`; the TV pairs and answers `link_established { needsCredentials, account }`. The phone sends `token_transfer` only when `needsCredentials` is true. A signed-out TV (no hint) still gets `token_transfer` at once. An older TV answers `Unsupported message`: the phone falls back to `token_transfer` for a same-account hint and stops with "Update Sounding on <TV> to link it from here." for another account. A signed-in TV that still receives `token_transfer` (an older phone) pairs without adopting it. Add a Device on a signed-in TV is control-only; the only way to change a signed-in TV's account from another device is the switch in §4.3.
 
 ### 4.3 Credential flow and refresh
 
@@ -132,8 +132,9 @@ The Link is created **only** by a sign-in. There is no "link without credentials
 |---|---|---|---|
 | Link sign-in | Remote → TV | a copy of the Remote's pair (TV may refresh it and echo the new pair back) | first link, Add Device |
 | Auth handoff | Remote → TV | a **new** pair minted by a silent web re-auth (`SilentWebReauthorizer`) or an interactive sign-in on the Remote | the TV's renewal failed (`SoundCloudSessionRenewal` source `.linkedPeer`), or the user taps **Sign In This Apple TV** (Needs Sign-In) |
-| iCloud | any → any, same Apple ID | the latest pair, encrypted CloudKit field, last writer wins | after any sign-in or refresh; adopted by devices that have no usable session or a stale one |
+| iCloud | any → any, same Apple ID | the latest pair, encrypted CloudKit field; one record per account (`session-<tag>`) beside the legacy record | after any sign-in or refresh; adopted by devices with no session and no sign-out, or a stale pair **of the same account**. A device that signed out gets **Continue as <name>** instead. A TV's guest session (handoff or switch) is written only when iCloud already holds that account. |
 | Watch | iPhone → Watch | a copy of the iPhone's pair | watch launch without a session |
+| Account switch | Remote → TV | a copy of the Remote's pair in `account_switch_credentials`, bound to the request nonce | only after **Switch** on the phone and **Switch** on the TV (`account_switch_request` → `account_switch_answer(accepted)`, 60 s to answer, 30 s for the pair). The TV validates the pair before signing the old account out (Links kept); any failure leaves it as it was. Offered only to TVs whose `account_status` lists `account_switch`. |
 
 Refresh is per device: each device refreshes its own pair (`DeviceSessionRefresher`, coalesced by `TokenRefreshCoordinator`). Because copies share one refresh token, one device's refresh can invalidate another's copy; the iCloud record and the renewal sources exist to heal that. Renewal order on the TV: refresh → iCloud record → ask a connected Remote (auth handoff).
 
@@ -206,7 +207,7 @@ When the SoundCloud account signs in on a device it hasn't been on before, the a
 
 ### 4.4b Same account, automatic
 
-When a signed-in Apple TV and a signed-in iPhone or iPad are on the same SoundCloud account and the same network, they find each other and offer to link. Nothing pairs silently: a person always starts it. Since 2026-11-09 (owner, decision 1a) one tap on the device that starts it is enough when both devices prove they belong to the same Apple ID (one-tap linking, below); otherwise a person confirms on each side.
+When a signed-in Apple TV and a signed-in iPhone or iPad are on the same SoundCloud account and the same network, they find each other and offer to link. **Auto-link** (owner, 2026-11-12, Q1: "link auto if already linked and not unlinked"; replaces decision 1a): when this phone was linked to the TV before and never explicitly unlinked it (`KnownLinkLedger`; Forget on either side records an explicit unlink; a `link_revoke` with reason `signedOut` or `replaced` doesn't), the owner proof below runs with no card and no tap, at most once per TV per launch, 15 s budget, then `link_establish`. The phone shows "Linked to <TV>" for 2 s. Owner tags are only sent for such known Links, so a first link, or one after an explicit unlink, always shows the six digits and **Allow**, even on the same Apple ID.
 
 **What the TV advertises.** While the app is active, signed in, and no sign-in or Add a Device screen is up, `SameAccountLinkAdvertiser` (in `LinkServer.swift`) runs a chime-less `LinkServer` and advertises the usual `SoundingTV-LinkOffer-<prefix>`. Its TXT adds three keys (`LinkAccountHint`, `TokenTransferProtocol.swift`):
 - `as`: 8 random bytes, new for every advertisement;
@@ -233,7 +234,7 @@ Proofs bind both ephemeral keys, the commit nonce, the session and the phone's c
 
 **On the TV.** While the phone has an unlinked same-account TV in view and is in the foreground, it advertises `SoundingTV-Nearby-<salt4>` (TXT `as`, `ah`, `lp` = its own device id, `name`; it accepts no connections). `SameAccountPhoneBrowser` on the TV matches it and shows a non-blocking glass capsule at the top: "iPhone is nearby. To link it, open Sounding › Devices on it." After a link it shows "<name> is linked" for 4 s. The match is `SameAccountPhoneBrowser.nearbyName(in:accountId:linkedDeviceIds:)`, a pure function over the browsed adverts: only `SoundingTV-Nearby-*` services with a TXT record, the same account hash, and a device id this TV is not already linked to; first by service name, "An iPhone" when the name is blank. The browser re-matches whenever `CompanionServer.devices` changes, restarts itself 2 s after a failure, and the TV's own advert re-publishes its `lp` list when the linked devices change (only while idle, never mid-link). Dismissing the Allow alert any other way counts as **Don't Allow**.
 
-**The TV keeps its own session.** The Link still carries a token transfer (the TV validates it and pairs), but the background advertiser does not adopt the phone's token: both devices are already signed in to the same account, and sharing one refresh token would let one device's refresh invalidate the other's copy. Add a Device in Settings still adopts it, as before.
+**The TV keeps its own session.** The Link is made with `link_establish` and carries no token (§4.2): both devices are already signed in, and sharing one refresh token would let one device's refresh invalidate the other's copy. Add a Device on a signed-in TV no longer adopts a token either. The numeric hello carries `accountDigest` (the phone's `ah` with the TV's salt), so the TV's **Allow** alert says whether the phone is on the same or a different SoundCloud account; without it (an older phone) it uses the different-account copy.
 
 **Debug.** `SOUNDING_TV_LINK_ACCOUNT=<id>` (DEBUG only, both apps) forces the account id, so two fixture simulators can play "same account". Tests: `Tests/SoundingTVTests/Sources/SameAccountLinkTests.swift` (hashing, TXT round trip, candidate filtering, the offer state machine, timeouts and retries, service-name collisions).
 
@@ -384,7 +385,9 @@ Owner decision: Sonos rooms and groups are Outputs. It relies on Sonos's unoffic
 | Someone on the Wi-Fi but not in the room links to the TV | QR needs line of sight; numeric code needs a human comparison; chime is a PAKE (one online 2⁻²⁴ guess per hello, rate-limited). | The numeric path hands the TV's session secret to any LAN client that gets a "match" from an inattentive user. |
 | Someone on the Wi-Fi reads or injects Companion traffic | TLS 1.3 PSK per Link; every frame HMAC-signed; freshness windows (120 s) and nonce replay guards; continuous controls use sequence gates. | `playback_state` signs ids and timing but not title, artist or artwork URL (TLS covers them in transit). |
 | A Remote's token is copied to the TV and then the Remote signs out | Plain Sign Out keeps the TV signed in and says so. **Sign Out of All Devices** sends `session_revoke`, checked against the TV's own account. | A TV that's offline for more than 14 days keeps its copy. |
-| A guest's phone links to a household TV | The TV then plays on the guest's account. Forget Device on the TV removes the Link. | The TV holds one SoundCloud session at a time; any linked Remote can replace it through Link sign-in. |
+| A guest's phone links to a household TV | Linking a signed-in TV sends no token (`link_establish`), so the TV keeps its account. A guest's sign-in on the TV stays off the owner's iCloud. Forget Device on the TV removes the Link. | A guest who links can control playback, labelled "Signed in as <guest>" on the TV. |
+| A linked device switches the TV's account | Confirmed on the phone and on the TV's own alert (presence in the room); the pair is sent only after the TV accepts, bound to a single-use nonce; the TV validates it before signing the old account out. | Someone at the TV's remote who is also linked can switch it, as Sign Out on the TV allows today. |
+| Sync moves a device to another account | `SessionSyncPolicy.remoteWins` never crosses known, different account tags; a signed-out device only offers **Continue as**. | Records from older builds carry no tag and keep the old ordering. |
 | A forgotten Remote keeps control | Forgetting on either side sends a signed `link_revoke`; the other side drops the secret. | While the peer stays offline, the forgetter's outbox (phone) or removal notice (TV) holds the secret for up to 14 days so it can deliver the revoke. |
 | Stolen phone | Link secrets are `ThisDeviceOnly`, after-first-unlock. | A stolen unlocked phone can control the TV until forgotten on the TV, or until **Sign Out of All Devices** from another device signs the TV out (it doesn't revoke the stolen phone's Link). |
 | Shared keychain group leaks to extensions | Share and Widget extensions can read the Link record. | They only use it to queue tracks on the TV (`ShareDestination`), which is intended. |
@@ -408,7 +411,7 @@ Owner decision: Sonos rooms and groups are Outputs. It relies on Sonos's unoffic
 | G11 | `OutputDevice.deviceClassesThatAcceptOutput == [.tv]`; a Mac could be an Output (same player, same `CompanionServer` shape). | Open, low priority. |
 | G12 | `DeviceClass.hasBattery` was `true` for every Mac. | **Removed** with Polyphony (2026-11-08); Mac device conditions still report real charge and power state through `MacPowerSource`. |
 | G13 | Phones sent a `session_request` the TV always declined. | **Fixed**: removed from `CompanionClient`; the TV still declines requests from older builds. |
-| G14 | A Link can only be created by sending a token; there is no "control only" link for a guest who shouldn't sign the TV in. | Open, by design for now. |
+| G14 | A Link can only be created by sending a token; there is no "control only" link for a guest who shouldn't sign the TV in. | Closed 2026-11-12: `link_establish` makes a Link with no token for a signed-in TV. |
 
 ---
 

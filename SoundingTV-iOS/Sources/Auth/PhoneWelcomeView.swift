@@ -11,6 +11,7 @@ struct PhoneWelcomeView: View {
     let onMusicAnswered: (_ addedFolder: Bool) -> Void
 
     @State private var isSigningIn = false
+    @StateObject private var continueOffer = ContinueAsOffer()
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private static let signInTint = MusicStepPage.tint
@@ -68,15 +69,23 @@ struct PhoneWelcomeView: View {
         VStack(spacing: 28) {
             SoundingWelcomeTitle(title: SoundingWelcome.stackedHeadline)
 
+            if let line = LinkedTVAccounts.welcomeLine() {
+                Text(line)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
             VStack(spacing: 6) {
-                Button { isSigningIn = true } label: {
-                    Text("Sign In with SoundCloud")
-                        .frame(maxWidth: .infinity)
+                ContinueAsOfferView(model: continueOffer)
+                    .tint(Self.signInTint)
+                    .padding(.bottom, 6)
+
+                if continueOffer.offer == nil {
+                    signInButton.buttonStyle(.glassProminent)
+                } else {
+                    signInButton.buttonStyle(.glass)
                 }
-                .buttonStyle(.glassProminent)
-                .tint(Self.signInTint)
-                .controlSize(.large)
-                .accessibilityIdentifier("welcome.signIn")
 
                 Button("Use Without SoundCloud", action: onUseWithoutSoundCloud)
                     .buttonStyle(.borderless)
@@ -86,5 +95,16 @@ struct PhoneWelcomeView: View {
                     .accessibilityIdentifier("welcome.withoutSoundCloud")
             }
         }
+        .onAppear { continueOffer.refresh(isSignedOut: true) }
+    }
+
+    private var signInButton: some View {
+        Button { isSigningIn = true } label: {
+            Text("Sign In with SoundCloud")
+                .frame(maxWidth: .infinity)
+        }
+        .tint(Self.signInTint)
+        .controlSize(.large)
+        .accessibilityIdentifier("welcome.signIn")
     }
 }

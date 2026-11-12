@@ -5,6 +5,7 @@ final class PlaybackConfirmationTracker {
     enum Outcome: Equatable, Sendable {
         case confirmed
         case rejected(String)
+        case trackUnavailable(String)
         case timedOut
         case disconnected
     }
@@ -49,8 +50,13 @@ final class PlaybackConfirmationTracker {
         }
     }
 
-    func observeRejection(_ reason: String) {
-        for id in Array(waiters.keys) { resolve(id, with: .rejected(reason)) }
+    func observeRejection(_ reason: String, code: String? = nil, trackId: String? = nil) {
+        let rejection = CompanionRejection.classify(code: code, message: reason)
+        guard rejection.answersPlayback else { return }
+        let outcome: Outcome = rejection == .trackUnavailable ? .trackUnavailable(reason) : .rejected(reason)
+        for (id, waiter) in waiters where trackId == nil || waiter.trackId == trackId {
+            resolve(id, with: outcome)
+        }
     }
 
     func observeDisconnect() {

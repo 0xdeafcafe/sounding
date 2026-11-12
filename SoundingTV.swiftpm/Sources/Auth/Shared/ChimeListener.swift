@@ -81,21 +81,51 @@ final class ChimeListener {
     let level = ChimeInputLevel()
     private(set) var isRunning = false
 
-    #if os(iOS)
-    private var previousSession: (category: AVAudioSession.Category, mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions)?
-    #endif
+    private var startGeneration = 0
 
-    func start() throws {
-        guard !isRunning else { return }
-        #if os(iOS)
+    #if os(iOS)
+    private struct SavedSession: Sendable {
+        let category: String
+        let mode: String
+        let options: UInt
+    }
+
+    private var previousSession: SavedSession?
+
+    nonisolated private static func activateListeningSession() throws -> SavedSession {
         let session = AVAudioSession.sharedInstance()
-        previousSession = (session.category, session.mode, session.categoryOptions)
+        let saved = SavedSession(category: session.category.rawValue, mode: session.mode.rawValue, options: session.categoryOptions.rawValue)
         try session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP])
         try? session.setPreferredSampleRate(48_000)
         if let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
             try? session.setPreferredInput(builtIn)
         }
         try session.setActive(true)
+        return saved
+    }
+
+    nonisolated private static func restore(_ saved: SavedSession) {
+        try? AVAudioSession.sharedInstance().setCategory(
+            AVAudioSession.Category(rawValue: saved.category),
+            mode: AVAudioSession.Mode(rawValue: saved.mode),
+            options: AVAudioSession.CategoryOptions(rawValue: saved.options)
+        )
+    }
+    #endif
+
+    func start() async throws {
+        guard !isRunning else { return }
+        startGeneration += 1
+        let generation = startGeneration
+        #if os(iOS)
+        let activation: Result<SavedSession, any Error> = await AudioSessionQueue.run {
+            Result { try Self.activateListeningSession() }
+        }
+        previousSession = try activation.get()
+        guard generation == startGeneration, !isRunning else {
+            restoreSession()
+            return
+        }
         #endif
 
         let input = engine.inputNode
@@ -143,6 +173,7 @@ final class ChimeListener {
     }
 
     func stop() {
+        startGeneration += 1
         guard isRunning else { return }
         isRunning = false
         engine.inputNode.removeTap(onBus: 0)
@@ -155,12 +186,8 @@ final class ChimeListener {
     private func restoreSession() {
         #if os(iOS)
         guard let previousSession else { return }
-        try? AVAudioSession.sharedInstance().setCategory(
-            previousSession.category,
-            mode: previousSession.mode,
-            options: previousSession.options
-        )
         self.previousSession = nil
+        AudioSessionQueue.async { Self.restore(previousSession) }
         #endif
     }
 }
@@ -519,6 +546,8 @@ final class NearbyTVSignIn: ObservableObject {
     }
 
     func stop() {
+        listenStart?.cancel()
+        listenStart = nil
         listener.stop()
         levelTask?.cancel()
         levelTask = nil
@@ -544,15 +573,23 @@ final class NearbyTVSignIn: ObservableObject {
                 self?.objectWillChange.send()
                 self?.tryPendingCodes()
             }
-        do {
-            try listener.start()
-            phase = .listening
-            startLevelUpdates()
-        } catch {
-            Log.link.error("[NearbyTVSignIn] couldn't listen: \(error.localizedDescription, privacy: .public)")
-            phase = .failed("This device can't listen right now. Use the QR code instead.")
+        listenStart?.cancel()
+        listenStart = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.listener.start()
+                guard !Task.isCancelled, self.listener.isRunning else { return }
+                self.phase = .listening
+                self.startLevelUpdates()
+            } catch {
+                guard !Task.isCancelled else { return }
+                Log.link.error("[NearbyTVSignIn] couldn't listen: \(error.localizedDescription, privacy: .public)")
+                self.phase = .failed("This device can't listen right now. Use the QR code instead.")
+            }
         }
     }
+
+    private var listenStart: Task<Void, Never>?
 
     private func startLevelUpdates() {
         levelTask?.cancel()

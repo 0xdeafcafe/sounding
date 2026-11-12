@@ -59,7 +59,7 @@ enum AppleTVDebugStory {
     ) -> LinkStatus {
         let isActive = client.isActive(record.sessionId) || (forcedState != nil && client.links.isEmpty)
         guard isActive else { return client.status(of: record.sessionId) }
-        if PeerSignInPrompt.resolve(client: client, offers: offers) != nil { return .needsSignIn }
+        if PeerSignInPrompt.resolveOnPhone(client: client, offers: offers) != nil { return .needsSignIn }
         guard let forcedState else { return client.status(of: record.sessionId) }
         switch forcedState {
         case .connected: return .connected
@@ -83,46 +83,26 @@ enum AppleTVDebugStory {
     }
 }
 
-enum PeerSignInPrompt: Equatable {
-    case linked(name: String)
-    case nearby(name: String)
-
-    var name: String {
-        switch self {
-        case .linked(let name), .nearby(let name): return name
-        }
-    }
-
+extension PeerSignInPrompt {
     @MainActor
-    static func resolve(
+    static func resolveOnPhone(
         client: CompanionClient,
         offers: [LinkOfferBrowser.Offer],
         includesUnlinked: Bool = false
     ) -> PeerSignInPrompt? {
-        let state = AppleTVDebugStory.forcedState ?? client.state
-        let name = AppleTVDebugStory.forcedName ?? client.linkedName
-        let peerNeedsSignIn = AppleTVDebugStory.forcedPeerNeedsSignIn ?? client.peerNeedsSignIn
-        let nearbyNames = AppleTVDebugStory.forcedNearbyNames
-            ?? offers.filter { $0.kind == .tv && !$0.isSignedIn }.map(\.claimedName)
-
-        switch state {
-        case .unlinked:
-            guard includesUnlinked, let nearby = nearbyNames.first else { return nil }
-            return .nearby(name: nearby)
-        case .connected:
-            return peerNeedsSignIn ? .linked(name: name) : nil
-        default:
-            let isWaiting = nearbyNames.contains { $0.localizedCaseInsensitiveCompare(name) == .orderedSame }
-            return isWaiting ? .nearby(name: name) : nil
-        }
+        resolve(
+            state: AppleTVDebugStory.forcedState ?? client.state,
+            name: AppleTVDebugStory.forcedName ?? client.linkedName,
+            peerNeedsSignIn: AppleTVDebugStory.forcedPeerNeedsSignIn ?? client.peerNeedsSignIn,
+            nearbyNames: AppleTVDebugStory.forcedNearbyNames
+                ?? offers.filter { $0.kind == .tv && !$0.isSignedIn }.map(\.claimedName),
+            includesUnlinked: includesUnlinked
+        )
     }
 
     @MainActor
     func start(client: CompanionClient, pairing: DevicePairingFlow) {
-        switch self {
-        case .linked: client.requestPeerSignIn()
-        case .nearby: pairing.signInNearbyTV()
-        }
+        start(client: client) { pairing.signInNearbyTV() }
     }
 }
 
@@ -370,7 +350,8 @@ struct PhoneDevicesView: View {
                         DeviceStatusRow(
                             name: record.peerName,
                             symbolName: record.peerClass.symbolName,
-                            status: AppleTVDebugStory.status(of: record, client: client, offers: nearby.offers)
+                            status: AppleTVDebugStory.status(of: record, client: client, offers: nearby.offers),
+                            accountLine: record.accountLine(client: client)
                         )
                     }
                     .swipeActions(edge: .trailing) {
@@ -439,7 +420,7 @@ private struct PhoneDeviceDetailView: View {
             return .linked(name: record.peerName)
         }
         return AppleTVDebugStory.forcedState == nil
-            ? PeerSignInPrompt.resolve(client: client, offers: nearby.offers)
+            ? PeerSignInPrompt.resolveOnPhone(client: client, offers: nearby.offers)
             : (AppleTVDebugStory.forcedPeerNeedsSignIn == true ? .linked(name: record?.peerName ?? "") : nil)
     }
 
@@ -479,6 +460,8 @@ private struct PhoneDeviceDetailView: View {
                 }
             }
 
+            LinkedDeviceAccountSection(client: client, record: record)
+
             if let signInPrompt {
                 Section {
                     Button {
@@ -492,7 +475,7 @@ private struct PhoneDeviceDetailView: View {
                         }
                     } label: {
                         HStack {
-                            Text("Sign In This \(record.peerClass.displayName)")
+                            Text(signInPrompt.copy(client: client)?.action ?? "Sign In This \(record.peerClass.displayName)")
                             Spacer(minLength: 0)
                             if client.isRequestingPeerSignIn, isActive { ProgressView() }
                         }
@@ -501,7 +484,11 @@ private struct PhoneDeviceDetailView: View {
                 } footer: {
                     switch signInPrompt {
                     case .linked:
-                        Text("\(record.peerName) is waiting to sign in. It'll use the SoundCloud account on this \(DeviceClass.current.displayName).")
+                        if let copy = signInPrompt.copy(client: client) {
+                            Text("\(copy.title) \(copy.footer)")
+                        } else {
+                            Text("\(record.peerName) is waiting to sign in. It'll use the SoundCloud account on this \(DeviceClass.current.displayName).")
+                        }
                     case .nearby:
                         Text("\(record.peerName) is waiting to sign in. Keep this \(DeviceClass.current.displayName) close to it.")
                     }
@@ -535,13 +522,19 @@ private struct DeviceStatusRow: View {
     let name: String
     let symbolName: String
     let status: LinkStatus
+    var accountLine: String? = nil
 
     var body: some View {
         LabeledContent {
             Text(status.title)
                 .foregroundStyle(status.isHealthy ? Color.green : Color.secondary)
         } label: {
-            Label(name, systemImage: symbolName)
+            Label {
+                Text(name)
+                if let accountLine { Text(accountLine) }
+            } icon: {
+                Image(systemName: symbolName)
+            }
         }
     }
 }
