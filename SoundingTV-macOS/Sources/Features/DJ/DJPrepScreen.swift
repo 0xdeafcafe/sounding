@@ -159,11 +159,16 @@ struct DJPrepScreen<Strip: View>: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
                     .padding(.bottom, 6)
-                table
-                    .frame(minHeight: 180, maxHeight: .infinity)
-                Divider()
-                DJPrepEditor(model: model, context: context)
-                    .fixedSize(horizontal: false, vertical: true)
+                VSplitView {
+                    table
+                        .frame(minHeight: 120, maxHeight: .infinity)
+                    ScrollView(.vertical) {
+                        DJPrepEditor(model: model, context: context)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .frame(minHeight: 160, idealHeight: 520, maxHeight: .infinity)
+                }
             }
         }
     }

@@ -43,7 +43,7 @@ final class MacEffectRack: ObservableObject {
             .sink { [weak self] effects in
                 guard let self else { return }
                 self.effects = effects
-                MacEffectWindows.shared.sync(with: effects)
+                MacEffectEditors.shared.sync(with: effects)
             }
             .store(in: &cancellables)
 
@@ -138,7 +138,7 @@ final class MacEffectRack: ObservableObject {
     }
 
     func remove(from slot: MixEngine.EffectSlot) {
-        MacEffectWindows.shared.close(slot)
+        MacEffectEditors.shared.close(slot)
         engine.removeEffect(from: slot)
         store.remember(nil, for: slot)
     }
@@ -151,7 +151,7 @@ final class MacEffectRack: ObservableObject {
 
     func showEditor(for slot: MixEngine.EffectSlot) {
         guard let effect = effects[slot], let audioUnit = engine.effectAudioUnit(in: slot) else { return }
-        MacEffectWindows.shared.show(audioUnit, effect: effect, slot: slot)
+        MacEffectEditors.shared.show(audioUnit, effect: effect, slot: slot)
     }
 
     func remember(_ slot: MixEngine.EffectSlot) {
@@ -236,6 +236,7 @@ struct MacEffectMenu: View {
     let slot: MixEngine.EffectSlot
     @ObservedObject private var rack = MacEffectRack.shared
     @ObservedObject private var store = MacEffectPresetStore.shared
+    @ObservedObject private var editors = MacEffectEditors.shared
 
     private var effect: MixEngine.LoadedEffect? { rack.effects[slot] }
 
@@ -276,6 +277,9 @@ struct MacEffectMenu: View {
         .help("\(slot == .send ? "Send effect" : "Effect for \(slot.title)")")
         .accessibilityLabel(slot == .send ? "Send effect" : "Effect, \(slot.title)")
         .accessibilityValue(accessibilityValue)
+        .popover(item: editors.binding(for: slot), arrowEdge: .bottom) { editor in
+            MacEffectEditorView(editor: editor)
+        }
         .task { await rack.ensureCatalogue() }
     }
 

@@ -72,7 +72,11 @@ struct MacLibrarySettingsTab: View {
                         Text(appearance.displayName).tag(appearance)
                     }
                 }
-                Button("Open Prep") { openWindow(id: MacPrepCommands.windowID) }
+                Button("Open Prep") {
+                    openWindow(id: "main")
+                    NSApp.activate(ignoringOtherApps: true)
+                    MacPrepRoute.shared.openPage()
+                }
                 Button("Export to USB…") { sheet = .usb }
                     .disabled(library.fileCount == 0)
             } header: {

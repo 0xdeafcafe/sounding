@@ -180,6 +180,7 @@ struct SoundingMacApp: App {
                     _ = WidgetLinkRouter.handle(url)
                 }
                 .playlistFolderPrompts()
+                .macRekordboxFolderImportPresentation()
                 .task {
                     #if DEBUG
                     if VisualFixtures.isEnabled { return }
@@ -272,15 +273,6 @@ struct SoundingMacApp: App {
                 #endif
         }
         .windowResizability(.contentSize)
-
-        Window("Prep", id: MacPrepCommands.windowID) {
-            MacPrepView()
-                .tint(Color.scAccent)
-                #if DEBUG
-                .modifier(MacDebugColorScheme())
-                #endif
-        }
-        .defaultSize(width: 1180, height: 760)
 
         MenuBarExtra("Sounding", systemImage: "waveform.circle.fill") {
             MacMenuBarPlayerView()

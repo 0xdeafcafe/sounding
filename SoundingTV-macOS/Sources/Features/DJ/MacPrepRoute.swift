@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 @MainActor
 final class MacPrepRoute: ObservableObject {
@@ -19,13 +20,16 @@ final class MacPrepRoute: ObservableObject {
         MacRootSelection.shared.request(.prep)
     }
 
-    func openWindow(trackId: String?, open: OpenWindowAction) {
-        pendingTrackId = trackId
-        open(id: MacPrepCommands.windowID)
-    }
-
     func consumePendingTrack() -> String? {
         defer { pendingTrackId = nil }
         return pendingTrackId
+    }
+}
+
+@MainActor
+enum MacMainWindow {
+    static var current: NSWindow? {
+        NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true && $0.isVisible }
+            ?? NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }
     }
 }

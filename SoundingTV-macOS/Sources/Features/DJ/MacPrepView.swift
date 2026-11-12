@@ -1,29 +1,9 @@
 import SwiftUI
 
-struct MacPrepView: View {
-    private let model: () -> MacPrepModel
-    @ObservedObject private var engine = MixEngine.shared
-    @ObservedObject private var registry = MacDeckTrackRegistry.shared
-    @ObservedObject private var settings = SettingsStore.shared
-
-    init(model: @autoclosure @escaping () -> MacPrepModel = MacPrepModel()) {
-        self.model = model
-    }
-
-    var body: some View {
-        DJPrepScreen(model: model(), context: .live(tracks: { MacPrepTrackSource.live.track($0) }))
-            .navigationTitle("Prep")
-            .frame(minWidth: 1080, minHeight: 640)
-            .tint(Color.scAccent)
-            .preferredColorScheme(settings.prepAppearance.colorScheme)
-    }
-}
-
 struct MacPrepInspectorPane: View {
     let track: Track
     @StateObject private var model: MacPrepModel
     @ObservedObject private var settings = SettingsStore.shared
-    @Environment(\.openWindow) private var openWindow
 
     init(track: Track, model: @autoclosure @escaping () -> MacPrepModel = MacPrepModel()) {
         self.track = track
@@ -97,16 +77,17 @@ struct MacPrepCommands: Commands {
     @FocusedValue(\.macPrep) private var model
     @Environment(\.openWindow) private var openWindow
 
-    static let windowID = "prep"
-
     var body: some Commands {
-        CommandGroup(before: .windowArrangement) {
-            Button("Prep Window") { openWindow(id: Self.windowID) }
-        }
         CommandMenu("Prep") {
-            Button("Show Prep") { MacPrepRoute.shared.openPage() }
-                .keyboardShortcut("p", modifiers: [.option, .command])
-            Button("Import rekordbox Library…") { MacRekordboxFolderPresenter.choose() }
+            Button("Show Prep") {
+                openWindow(id: "main")
+                MacPrepRoute.shared.openPage()
+            }
+            .keyboardShortcut("p", modifiers: [.option, .command])
+            Button("Import rekordbox Library…") {
+                openWindow(id: "main")
+                MacRekordboxFolderPresenter.choose()
+            }
             Divider()
             Group {
                 Button("Set Downbeat at Cursor") { model?.setDownbeat() }

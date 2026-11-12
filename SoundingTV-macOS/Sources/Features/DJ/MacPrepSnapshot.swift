@@ -619,4 +619,23 @@ private func soundingtv_mac_prep_snapshot_bootstrap() {
 @section("__DATA,__mod_init_func")
 @used
 private let soundingtv_mac_prep_snapshot_bootstrap_ptr: @convention(c) () -> Void = soundingtv_mac_prep_snapshot_bootstrap
+
+struct MacPrepView: View {
+    private let model: () -> MacPrepModel
+    @ObservedObject private var engine = MixEngine.shared
+    @ObservedObject private var registry = MacDeckTrackRegistry.shared
+    @ObservedObject private var settings = SettingsStore.shared
+
+    init(model: @autoclosure @escaping () -> MacPrepModel = MacPrepModel()) {
+        self.model = model
+    }
+
+    var body: some View {
+        DJPrepScreen(model: model(), context: .live(tracks: { MacPrepTrackSource.live.track($0) }))
+            .navigationTitle("Prep")
+            .frame(minWidth: 1080, minHeight: 640)
+            .tint(Color.scAccent)
+            .preferredColorScheme(settings.prepAppearance.colorScheme)
+    }
+}
 #endif

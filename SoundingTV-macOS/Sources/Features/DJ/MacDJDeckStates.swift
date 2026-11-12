@@ -79,7 +79,6 @@ struct MacDJNoGridControls: View {
     let deck: MixEngine.Deck
 
     @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -109,7 +108,7 @@ struct MacDJNoGridControls: View {
     }
 
     private func openPrep() {
-        MacPrepRoute.shared.openWindow(trackId: MacDeckTrackRegistry.shared.track(for: deck)?.id, open: openWindow)
+        MacPrepRoute.shared.openPage(trackId: MacDeckTrackRegistry.shared.track(for: deck)?.id)
     }
 }
 
