@@ -91,22 +91,22 @@ struct NPAmbientOverlay: View {
     let title: String
     let artist: String
     var artistTint: Color = Color.white.opacity(0.66)
-    var isCentred = true
+    var artworkTop: CGFloat = 0
     var titleTop: CGFloat = 840
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             TimelineView(.everyMinute) { context in
                 Text(context.date.formatted(date: .omitted, time: .shortened))
                     .font(.title3.weight(.medium))
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(0.85))
                     .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.trailing, 100)
-                    .padding(.top, 64)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, Space.page)
+                    .padding(.top, artworkTop)
             }
-            VStack(alignment: isCentred ? .center : .leading, spacing: 6) {
+            VStack(spacing: Space.tight) {
                 Text(title)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.white)
@@ -116,13 +116,12 @@ struct NPAmbientOverlay: View {
                     .foregroundStyle(artistTint)
                     .lineLimit(1)
             }
-            .multilineTextAlignment(isCentred ? .center : .leading)
+            .multilineTextAlignment(.center)
             .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
-            .frame(width: isCentred ? 1600 : 600, alignment: isCentred ? .center : .leading)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isCentred ? .top : .topLeading)
-            .padding(.leading, isCentred ? 0 : 145)
+            .frame(maxWidth: 1400)
             .padding(.top, titleTop)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Now Playing, \(title) by \(artist)")
     }

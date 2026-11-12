@@ -206,7 +206,7 @@ struct RootView: View {
         Tab(value: NavigationState.Tab.settings) {
             SettingsView()
         } label: {
-            Image(systemName: NavigationState.Tab.settings.icon)
+            Text("\(Image(systemName: NavigationState.Tab.settings.icon))")
                 .accessibilityLabel("Settings")
         }
         .accessibilityIdentifier("sidebar.tab.settings")

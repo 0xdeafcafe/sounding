@@ -42,9 +42,11 @@ struct CommentsListView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.top, 70)
-        .padding(.horizontal, 130)
+        .padding(.top, Space.page)
+        .padding(.horizontal, Space.page)
+        .padding(.bottom, Space.section)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
         .background { backdrop }
         .environment(\.colorScheme, .dark)
         .defaultFocus($closeFocused, true)

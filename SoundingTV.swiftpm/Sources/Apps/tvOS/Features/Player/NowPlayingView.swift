@@ -81,7 +81,7 @@ struct NowPlayingView: View {
             .focused($browseFocused)
             .accessibilityIdentifier("nowplaying.empty.browseHome")
         }
-        .frame(maxWidth: .infinity, minHeight: 380)
+        .frame(maxWidth: .infinity, minHeight: recap.recentTracks.isEmpty && recap.suggestedTracks.isEmpty ? 760 : 380)
         .padding(.horizontal, Space.page)
     }
 
@@ -123,8 +123,8 @@ private struct TVDevicePresenceCaption: View {
             .font(.caption.weight(.medium))
             .foregroundStyle(.white.opacity(first.isLive ? 0.7 : 0.5))
             .frame(maxWidth: 640, alignment: .leading)
-            .padding(.leading, Spacing.screen)
-            .padding(.bottom, Space.page)
+            .padding(.leading, Space.page)
+            .padding(.bottom, Space.section)
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(DevicePresence.summary(localTitle: nil, others: entries, now: Date()))

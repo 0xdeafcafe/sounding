@@ -68,9 +68,10 @@ struct SettingsView: View {
                     .frame(maxWidth: 920)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 96)
-            .padding(.top, 40)
-            .padding(.bottom, 24)
+            .padding(.horizontal, Space.page)
+            .padding(.top, SCBrowseMetrics.contentTopInset)
+            .padding(.bottom, Space.section)
+            .ignoresSafeArea(edges: [.horizontal, .bottom])
             .background { BrowseBackdrop() }
             .navigationTitle("")
             .toolbarVisibility(.visible, for: .tabBar)
@@ -282,8 +283,10 @@ private struct SettingsDetailPage<Content: View>: View {
                 .accessibilityIdentifier("settings.detail.\(identifier)")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 96)
-        .padding(.vertical, 64)
+        .padding(.horizontal, Space.page)
+        .padding(.top, Space.page)
+        .padding(.bottom, Space.section)
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
         .background { BrowseBackdrop() }
         .navigationTitle("")
         .navigationBarBackButtonHidden(true)

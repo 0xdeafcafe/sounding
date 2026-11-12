@@ -23,7 +23,8 @@ struct NPLyricsScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .focusSection()
         }
-        .padding(.horizontal, 150)
+        .padding(.horizontal, Space.page)
+        .padding(.bottom, Space.section)
         .background {
             NPLyricsPlayheadSync(clock: clock, isPlaying: isPlaying, trackID: track?.id, playhead: $playhead)
         }
