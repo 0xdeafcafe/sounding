@@ -473,11 +473,16 @@ struct MacMenuBarPlayerView: View {
 
 struct TransportCommands: Commands {
     @Environment(\.openWindow) private var openWindow
+    @FocusedValue(\.macPrepLane) private var prepLane
 
     var body: some Commands {
         CommandMenu("Playback") {
             Button {
-                MacTransport.playPause()
+                if let prepLane {
+                    prepLane.togglePlay()
+                } else {
+                    MacTransport.playPause()
+                }
             } label: {
                 Label("Play/Pause", systemImage: "playpause")
             }

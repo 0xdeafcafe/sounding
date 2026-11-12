@@ -251,6 +251,9 @@ extension CueStore {
                 [.text(playlist.id), .int(Int64(index)), .blob(payload)]
             )
         }
+        Task { @MainActor in
+            NotificationCenter.default.post(name: .rekordboxPlaylistsDidChange, object: nil)
+        }
     }
 
     func rekordboxPlaylists() -> [RekordboxPlaylistRecord] {
@@ -423,4 +426,8 @@ extension CueStore {
             }
         }
     }
+}
+
+extension Notification.Name {
+    static let rekordboxPlaylistsDidChange = Notification.Name("red.forbes.sounding.rekordboxPlaylistsDidChange")
 }

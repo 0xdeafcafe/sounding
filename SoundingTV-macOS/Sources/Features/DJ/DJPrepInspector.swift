@@ -212,6 +212,7 @@ private struct MacPrepLane: View {
             .focusable()
             .focusEffectDisabled()
             .focused(laneFocused)
+            .focusedValue(\.macPrepLane, model)
             .onKeyPress(phases: [.down, .repeat]) { press in
                 MacPrepKeys.handle(press, model: model)
             }

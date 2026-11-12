@@ -47,7 +47,7 @@ extension FocusedValues {
 }
 
 extension Notification.Name {
-    static let macCratesDidChange = Notification.Name("red.forbes.sounding.mac.cratesDidChange")
+    static let macCratesDidChange = Notification.Name.rekordboxPlaylistsDidChange
 }
 
 enum MacCrateID {
@@ -130,7 +130,6 @@ final class MacCrateList: ObservableObject {
         let store = store
         Task {
             await store.saveRekordboxPlaylists(remaining)
-            NotificationCenter.default.post(name: .macCratesDidChange, object: nil)
         }
     }
 }

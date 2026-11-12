@@ -45,10 +45,12 @@ struct MacPrepInspectorPane: View {
         .onAppear { model.undoManager = undoManager }
         .onChange(of: undoManager) { _, manager in model.undoManager = manager }
         .focusedSceneValue(\.macPrep, model)
+        .focusedSceneValue(\.macUSBExportSource, MacUSBExportSource(id: "tracks:inspected:\(track.id)", name: track.title, items: [MacUSBExportSource.Item(track)]))
         .preferredColorScheme(settings.prepAppearance.colorScheme)
     }
 }
 
 extension FocusedValues {
     @Entry var macPrep: MacPrepModel?
+    @Entry var macPrepLane: MacPrepModel?
 }
