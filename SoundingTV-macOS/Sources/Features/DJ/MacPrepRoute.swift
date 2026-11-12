@@ -1,11 +1,12 @@
 import SwiftUI
+import AppKit
 
 @MainActor
 final class MacPrepRoute: ObservableObject {
     static let shared = MacPrepRoute()
 
-    @Published var pendingTrackId: String?
     @Published var inspectedTrack: Track?
+    @Published var selectedTrack: Track?
 
     private init() {}
 
@@ -14,18 +15,18 @@ final class MacPrepRoute: ObservableObject {
         inspectedTrack = track
     }
 
-    func openPage(trackId: String? = nil) {
-        pendingTrackId = trackId
-        MacRootSelection.shared.request(.prep)
+    func inspectCurrent() {
+        if let track = selectedTrack ?? MacNowPlayingModel.shared.track { inspect(track) }
     }
 
-    func openWindow(trackId: String?, open: OpenWindowAction) {
-        pendingTrackId = trackId
-        open(id: MacPrepCommands.windowID)
-    }
+    func inspectNowPlaying() {
+        if let track = MacNowPlayingModel.shared.track ?? selectedTrack { inspect(track) }
+    }}
 
-    func consumePendingTrack() -> String? {
-        defer { pendingTrackId = nil }
-        return pendingTrackId
+@MainActor
+enum MacMainWindow {
+    static var current: NSWindow? {
+        NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true && $0.isVisible }
+            ?? NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }
     }
 }

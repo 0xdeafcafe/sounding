@@ -3,7 +3,6 @@ import SwiftUI
 struct MacLibrarySettingsTab: View {
     @ObservedObject var library: MacRekordboxLibrary
     @ObservedObject private var settings = SettingsStore.shared
-    @Environment(\.openWindow) private var openWindow
     @State private var sheet: Sheet?
 
     enum Sheet: Identifiable {
@@ -72,13 +71,12 @@ struct MacLibrarySettingsTab: View {
                         Text(appearance.displayName).tag(appearance)
                     }
                 }
-                Button("Open Prep") { openWindow(id: MacPrepCommands.windowID) }
                 Button("Export to USB…") { sheet = .usb }
                     .disabled(library.fileCount == 0)
             } header: {
                 Text("Prep")
             } footer: {
-                Text("Beat grids, cue points and loops for each track. Export puts your own files and their prep on a stick.")
+                Text("Appearance applies to the Prep inspector. Export puts your own files and their prep on a stick.")
             }
         }
         .formStyle(.grouped)

@@ -712,6 +712,7 @@
 		0DDA8F8E80FBFCAF3536FE8F /* PhoneDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13B67C5053C85FFE35D90C8E /* PhoneDesign.swift */; };
 		0EB4C7D74C78C6A9E53F4EFE /* MacAlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 428BD51620F72B4C12FF1A69 /* MacAlbumDetailView.swift */; };
 		AC19646028E3D38D8592F14E /* MacLocalMusicView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59D81CEA8E3CEB970721DF1D /* MacLocalMusicView.swift */; };
+		17A246C57A713AC1FFD44AB7 /* MacSmartPlaylistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB17F4BE7699AB42172AA68 /* MacSmartPlaylistView.swift */; };
 		0EECD1305808AFA9A8B0EEFA /* LikesSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A2EEB8654FA85CAD80CEC37 /* LikesSyncEngine.swift */; };
 		FB1FB75BF67A3DA57D0C302D /* LibrarySyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78D561F3C47972FA69D45212 /* LibrarySyncEngine.swift */; };
 		410ED8EF603E995A9486C0F0 /* LibrarySQLiteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8664C5EAA67F8965C77C6FF /* LibrarySQLiteStore.swift */; };
@@ -1084,8 +1085,11 @@
 		4EA71A9C0000000000000004 /* HeavyWorkPacing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA71A9C0000000000000001 /* HeavyWorkPacing.swift */; };
 		4EA71A9C0000000000000006 /* HeavyWorkPacingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA71A9C0000000000000005 /* HeavyWorkPacingTests.swift */; };
 		B7E1A0C0D0E0F0A1B2C30003 /* TempoKeyStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E1A0C0D0E0F0A1B2C30000 /* TempoKeyStatus.swift */; };
+		027A52689E4EB7EA978E1EE5 /* MissingAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C286C924EC71A240255B31 /* MissingAnalysis.swift */; };
 		B7E1A0C0D0E0F0A1B2C30004 /* TempoKeyStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E1A0C0D0E0F0A1B2C30000 /* TempoKeyStatus.swift */; };
+		218145F4AF77E77B7DB0C33A /* MissingAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C286C924EC71A240255B31 /* MissingAnalysis.swift */; };
 		B7E1A0C0D0E0F0A1B2C30005 /* TempoKeyStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E1A0C0D0E0F0A1B2C30000 /* TempoKeyStatus.swift */; };
+		1D8F13B7827486F5CA05CB54 /* MissingAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C286C924EC71A240255B31 /* MissingAnalysis.swift */; };
 		B7E1A0C0D0E0F0A1B2C30006 /* TrackTempoKeyViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E1A0C0D0E0F0A1B2C30001 /* TrackTempoKeyViews.swift */; };
 		B7E1A0C0D0E0F0A1B2C30007 /* TrackTempoKeyViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E1A0C0D0E0F0A1B2C30001 /* TrackTempoKeyViews.swift */; };
 		B7E1A0C0D0E0F0A1B2C30008 /* TrackTempoKeyViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E1A0C0D0E0F0A1B2C30001 /* TrackTempoKeyViews.swift */; };
@@ -1416,6 +1420,7 @@
 		4D9838D86D2B5379625ADBAB /* PlaybackQueueSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D4088EA0535A8A09571CFB2 /* PlaybackQueueSource.swift */; };
 		A35521D54D7238AC330F4537 /* PlayerLifecycleObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1779677905174695FEF314 /* PlayerLifecycleObserver.swift */; };
 		A36511223DF95BF01E216A19 /* AnalysisLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27ED6C22C90036C28347864D /* AnalysisLookup.swift */; };
+		D4E8AD306AB927A3EBDC4150 /* AnalyseMissingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58A30A38B802D103A0AF2DE /* AnalyseMissingViews.swift */; };
 		A3AFF18D05F84A784E98F589 /* MacSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47229D0985D4EEB317AD2AC6 /* MacSearchView.swift */; };
 		A42721403758088E95F2F3DD /* MemoryRelief.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A173974798E29DB759D1BDF /* MemoryRelief.swift */; };
 		A4B16DAC5D1E2F55226F199C /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB282CEC154B76733C7D14F9 /* Discovery.swift */; };
@@ -1468,6 +1473,7 @@
 		B4A2CBD17AC385687C96E1A9 /* Playlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2462C2400BB8555309211CAF /* Playlist.swift */; };
 		B61352A682611B18A95B5D0A /* SoundingTV-TopShelf.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AE378FC7B843F454CF0238D5 /* SoundingTV-TopShelf.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B660A7019FBA8C99840389F6 /* AnalysisLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27ED6C22C90036C28347864D /* AnalysisLookup.swift */; };
+		3910E3AE91D25B4124E7543C /* AnalyseMissingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58A30A38B802D103A0AF2DE /* AnalyseMissingViews.swift */; };
 		B6B5EF58C0C8AEF1D180FF9C /* DJProfiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E9E5AC7C774CE0573652FF9 /* DJProfiles.swift */; };
 		B6DA55EBDB33CE4103C1ADAD /* TokenTransferProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86DD1F111F6BE9BB7C89229E /* TokenTransferProtocol.swift */; };
 		B6F4F233269F6E110C952D86 /* MemoryRelief.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A173974798E29DB759D1BDF /* MemoryRelief.swift */; };
@@ -1611,6 +1617,7 @@
 		D8B63F848B3988D4394C505B /* CollectionDownloadButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704E71DB0B5DD2595C77BD44 /* CollectionDownloadButton.swift */; };
 		46F50364E170961F6A3FAC64 /* NetworkActivityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 244C390B304A067570A9E89C /* NetworkActivityViews.swift */; };
 		DAB43AE39D8453FC77FD0829 /* AnalysisLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27ED6C22C90036C28347864D /* AnalysisLookup.swift */; };
+		E5180E8188A2EE5829C5DAEA /* AnalyseMissingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58A30A38B802D103A0AF2DE /* AnalyseMissingViews.swift */; };
 		DB1F9593D0CF71456117EEFB /* NowPlayingBelowFold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45CE060D84361141F8CBE8AC /* NowPlayingBelowFold.swift */; };
 		DBE27E4258479D8C10DECDE7 /* PlaybackClockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D737418055E03A95B8BBE60B /* PlaybackClockView.swift */; };
 		DD33B619781840D3E5C265E8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F448DD3406AD92B71CE30B18 /* Assets.xcassets */; };
@@ -1770,9 +1777,6 @@
 		F6DCE85539D64CFDBA376614 /* DJPrepFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD07C00EF3AD4B0E887A614F /* DJPrepFixtures.swift */; };
 		73DD2904604D416B9694AF26 /* DJLibraryPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27425C210844937B378D7EC /* DJLibraryPanel.swift */; };
 		F437B7A941034C58826B76AD /* DJPrepInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FBFAA13F23B401C9EB18039 /* DJPrepInspector.swift */; };
-		CFD9FFCBC7914D22B05286FD /* DJPrepEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57EBB90F942B4B10BA084E85 /* DJPrepEditor.swift */; };
-		7CE3AC9AC71F4152AAF2E68E /* DJPrepSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22D23BAEE73043869FCEBD43 /* DJPrepSidebar.swift */; };
-		EF1BC6FC9B0A461AA688CA3C /* DJPrepScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A882A2F8E1F42AA9D221717 /* DJPrepScreen.swift */; };
 		C72769BCB9B64FBF89F9BFEC /* DJDeckContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18438246505A471486F1F0C0 /* DJDeckContext.swift */; };
 		ADAA2776A1F3893169023269 /* MacRekordboxLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 889A7DCBF37C09149374A10C /* MacRekordboxLibrary.swift */; };
 		A17C0DE5B1E2F3A4C5D60702 /* MacUSBExportModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0DE5B1E2F3A4C5D60701 /* MacUSBExportModel.swift */; };
@@ -1867,7 +1871,6 @@
 		108EB92F649F25B61F79A0DB /* DJPlayersStickTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44634F4493EF3E0E6FD246BB /* DJPlayersStickTests.swift */; };
 		D5B0E1A00000000000000001 /* DJUSBExportRoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B0E1A00000000000000002 /* DJUSBExportRoundTripTests.swift */; };
 		30A7866DC6AF815FBAD8A38D /* MacPrepStickModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DE1FFC679CC52F7B5690548 /* MacPrepStickModel.swift */; };
-		2FAB3163E16CF02DFB0916AF /* MacPrepStickView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4B171A67A8423798D07123 /* MacPrepStickView.swift */; };
 		A7C0DEAF00000000000000C1 /* WatchSnapshotWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DEAF00000000000000A1 /* WatchSnapshotWriter.swift */; };
 		A7C0DEAF00000000000000C2 /* WatchPlaybackControlBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0DEAF00000000000000A2 /* WatchPlaybackControlBridge.swift */; };
 		7C1A5E0000000000000F0002 /* WatchShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1A5E0000000000000F0001 /* WatchShortcuts.swift */; };
@@ -2435,6 +2438,7 @@
 		2462C2400BB8555309211CAF /* Playlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Playlist.swift; sourceTree = "<group>"; };
 		26A62B97F1E5D539C13455C1 /* SearchCacheRefreshNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCacheRefreshNotice.swift; sourceTree = "<group>"; };
 		27ED6C22C90036C28347864D /* AnalysisLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisLookup.swift; sourceTree = "<group>"; };
+		F58A30A38B802D103A0AF2DE /* AnalyseMissingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyseMissingViews.swift; sourceTree = "<group>"; };
 		28248F4F93F0AC2BF245232C /* DJTransitionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJTransitionService.swift; sourceTree = "<group>"; };
 		293A4B5C6D7E8F90A1B2C3D4 /* NowPlayingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingSheet.swift; sourceTree = "<group>"; };
 		298D1519A6C73115A9806F6E /* GeneratedArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedArtwork.swift; sourceTree = "<group>"; };
@@ -2486,6 +2490,7 @@ FFF0AD1CFE358283B9B6CBE2 /* MacNowPlayingAutoMix.swift */ = {isa = PBXFileRefere
 		40D6458A3B26F19D5243BC21 /* CueBoardSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueBoardSelfTest.swift; sourceTree = "<group>"; };
 		428BD51620F72B4C12FF1A69 /* MacAlbumDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAlbumDetailView.swift; sourceTree = "<group>"; };
 		59D81CEA8E3CEB970721DF1D /* MacLocalMusicView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLocalMusicView.swift; sourceTree = "<group>"; };
+		4AB17F4BE7699AB42172AA68 /* MacSmartPlaylistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSmartPlaylistView.swift; sourceTree = "<group>"; };
 		439C160B07B73E0CBC299889 /* CloudSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncEngine.swift; sourceTree = "<group>"; };
 		43B37553156E6E5A15DE7174 /* BrandColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandColor.swift; sourceTree = "<group>"; };
 		449BFC5B59FF6668E4DE7E3F /* LoopMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopMath.swift; sourceTree = "<group>"; };
@@ -2525,6 +2530,7 @@ F1C39D966E10112291734F31 /* TVNowPlayingAutoMix.swift */ = {isa = PBXFileReferen
 		4EA71A9C0000000000000001 /* HeavyWorkPacing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeavyWorkPacing.swift; sourceTree = "<group>"; };
 		4EA71A9C0000000000000005 /* HeavyWorkPacingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeavyWorkPacingTests.swift; sourceTree = "<group>"; };
 		B7E1A0C0D0E0F0A1B2C30000 /* TempoKeyStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TempoKeyStatus.swift; sourceTree = "<group>"; };
+		C6C286C924EC71A240255B31 /* MissingAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingAnalysis.swift; sourceTree = "<group>"; };
 		B7E1A0C0D0E0F0A1B2C30001 /* TrackTempoKeyViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackTempoKeyViews.swift; sourceTree = "<group>"; };
 		B7E1A0C0D0E0F0A1B2C30002 /* TrackTempoKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackTempoKeyTests.swift; sourceTree = "<group>"; };
 		4E50C7A1B2D3E4F5A6B7C8D9 /* NowPlayingControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingControls.swift; sourceTree = "<group>"; };
@@ -2985,9 +2991,6 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 		FD07C00EF3AD4B0E887A614F /* DJPrepFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJPrepFixtures.swift; sourceTree = "<group>"; };
 		B27425C210844937B378D7EC /* DJLibraryPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJLibraryPanel.swift; sourceTree = "<group>"; };
 		9FBFAA13F23B401C9EB18039 /* DJPrepInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJPrepInspector.swift; sourceTree = "<group>"; };
-		57EBB90F942B4B10BA084E85 /* DJPrepEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJPrepEditor.swift; sourceTree = "<group>"; };
-		22D23BAEE73043869FCEBD43 /* DJPrepSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJPrepSidebar.swift; sourceTree = "<group>"; };
-		7A882A2F8E1F42AA9D221717 /* DJPrepScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJPrepScreen.swift; sourceTree = "<group>"; };
 		18438246505A471486F1F0C0 /* DJDeckContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJDeckContext.swift; sourceTree = "<group>"; };
 		889A7DCBF37C09149374A10C /* MacRekordboxLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRekordboxLibrary.swift; sourceTree = "<group>"; };
 		A17C0DE5B1E2F3A4C5D60701 /* MacUSBExportModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacUSBExportModel.swift; sourceTree = "<group>"; };
@@ -3049,7 +3052,6 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 		44634F4493EF3E0E6FD246BB /* DJPlayersStickTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJPlayersStickTests.swift; sourceTree = "<group>"; };
 		D5B0E1A00000000000000002 /* DJUSBExportRoundTripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJUSBExportRoundTripTests.swift; sourceTree = "<group>"; };
 		6DE1FFC679CC52F7B5690548 /* MacPrepStickModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPrepStickModel.swift; sourceTree = "<group>"; };
-		7E4B171A67A8423798D07123 /* MacPrepStickView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPrepStickView.swift; sourceTree = "<group>"; };
 		A7C0DEAF00000000000000A1 /* WatchSnapshotWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSnapshotWriter.swift; sourceTree = "<group>"; };
 		A7C0DEAF00000000000000A2 /* WatchPlaybackControlBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchPlaybackControlBridge.swift; sourceTree = "<group>"; };
 		7C1A5E0000000000000F0001 /* WatchShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchShortcuts.swift; sourceTree = "<group>"; };
@@ -4322,6 +4324,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				1A570000000000000000000B /* MacHistoryView.swift */,
 				428BD51620F72B4C12FF1A69 /* MacAlbumDetailView.swift */,
 				59D81CEA8E3CEB970721DF1D /* MacLocalMusicView.swift */,
+				4AB17F4BE7699AB42172AA68 /* MacSmartPlaylistView.swift */,
 				A2C100000000000000000005 /* MacLibraryCollectionsView.swift */,
 				A2C500000000000000000003 /* MacRecentlyAddedView.swift */,
 				DB2F9B39537E678886BE889A /* MacArtistDetailView.swift */,
@@ -4478,7 +4481,6 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				DDFA10D3C4F4054387C54E0A /* DJPlanEditor.swift */,
 				84CD9E70883F49CB242A79A1 /* DJPlanScreen.swift */,
 				6C154A2C8DE67C8A0B56E799 /* DJPlanModel.swift */,
-				7E4B171A67A8423798D07123 /* MacPrepStickView.swift */,
 				6DE1FFC679CC52F7B5690548 /* MacPrepStickModel.swift */,
 				327F0B8990451FDB055EE31C /* MacRekordboxShareImport.swift */,
 				6A5EBDCCFF9ED5B56B082D3D /* MacRekordboxFolderImport.swift */,
@@ -4488,9 +4490,6 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				FD07C00EF3AD4B0E887A614F /* DJPrepFixtures.swift */,
 				B27425C210844937B378D7EC /* DJLibraryPanel.swift */,
 				9FBFAA13F23B401C9EB18039 /* DJPrepInspector.swift */,
-				57EBB90F942B4B10BA084E85 /* DJPrepEditor.swift */,
-				22D23BAEE73043869FCEBD43 /* DJPrepSidebar.swift */,
-				7A882A2F8E1F42AA9D221717 /* DJPrepScreen.swift */,
 				18438246505A471486F1F0C0 /* DJDeckContext.swift */,
 				889A7DCBF37C09149374A10C /* MacRekordboxLibrary.swift */,
 				A17C0DE5B1E2F3A4C5D60701 /* MacUSBExportModel.swift */,
@@ -4606,6 +4605,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				251A0AC00E794182D5C03E6F /* BeatTracker.swift */,
 				A1B2C3D4E5F6071829304150 /* AnalysisLanePolicy.swift */,
 				B7E1A0C0D0E0F0A1B2C30000 /* TempoKeyStatus.swift */,
+				C6C286C924EC71A240255B31 /* MissingAnalysis.swift */,
 				4DF0F2B0E3B08E7D68BE8F88 /* AutomaticAnalysisScheduler.swift */,
 				812AF2960D9754576F13B9E4 /* GenreDetection.swift */,
 				A2083485ABF75DC4BF3E6FAC /* GenreDetector.swift */,
@@ -4859,6 +4859,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				A2C600000000000000000002 /* PeopleDirectoryViews.swift */,
 				A2C600000000000000000003 /* AddToPlaylistModel.swift */,
 				27ED6C22C90036C28347864D /* AnalysisLookup.swift */,
+				F58A30A38B802D103A0AF2DE /* AnalyseMissingViews.swift */,
 				146630864770E10D83611D14 /* GeneratedInsightViews.swift */,
 				4C0D491ADD1DB106644A9034 /* ArtworkImage.swift */,
 				AB20CE6F84141A4DEA907353 /* BehindTheTrack.swift */,
@@ -5855,7 +5856,6 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				4E1A5C0000000000000000E4 /* OutsideAlertSweep.swift in Sources */,
 				F6EA74A63710275A29E4C96A /* OutsideAlerts.swift in Sources */,
 				27C6C25B62910FD233E2A0A1 /* AccountSignIn.swift in Sources */,
-				2FAB3163E16CF02DFB0916AF /* MacPrepStickView.swift in Sources */,
 				30A7866DC6AF815FBAD8A38D /* MacPrepStickModel.swift in Sources */,
 				417B8EA5E3A357024120916C /* MacDJSticks.swift in Sources */,
 				114FA8B87F00D44A660910F8 /* DJPlayersTrackResolver.swift in Sources */,
@@ -5922,6 +5922,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				B973214604772589CCFAEC1A /* GeneratedInsights.swift in Sources */,
 				9CA594492DF7A2458B59BA95 /* AnalysisDataUsage.swift in Sources */,
 				DAB43AE39D8453FC77FD0829 /* AnalysisLookup.swift in Sources */,
+				E5180E8188A2EE5829C5DAEA /* AnalyseMissingViews.swift in Sources */,
 				7A7A00310000000000000031 /* DeckReadout.swift in Sources */,
 				7B7B00110000000000000011 /* TrackMapModel.swift in Sources */,
 				7B7B00210000000000000021 /* TrackMapViews.swift in Sources */,
@@ -5974,6 +5975,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				A1B2C3D4E5F6071829304152 /* AnalysisLanePolicy.swift in Sources */,
 				4EA71A9C0000000000000003 /* HeavyWorkPacing.swift in Sources */,
 				B7E1A0C0D0E0F0A1B2C30003 /* TempoKeyStatus.swift in Sources */,
+				027A52689E4EB7EA978E1EE5 /* MissingAnalysis.swift in Sources */,
 				B7E1A0C0D0E0F0A1B2C30006 /* TrackTempoKeyViews.swift in Sources */,
 				482923CC3553D862D23C38A1 /* BehindTheTrack.swift in Sources */,
 				F0CADA9AE0AC5264F0CEE532 /* BrandColor.swift in Sources */,
@@ -6055,6 +6057,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				58B1B3A690E4D479485209E7 /* MacAccountView.swift in Sources */,
 				0EB4C7D74C78C6A9E53F4EFE /* MacAlbumDetailView.swift in Sources */,
 				AC19646028E3D38D8592F14E /* MacLocalMusicView.swift in Sources */,
+				17A246C57A713AC1FFD44AB7 /* MacSmartPlaylistView.swift in Sources */,
 				683E8A2FF476DAACA1E8CFD5 /* MacArtistDetailView.swift in Sources */,
 				C84CD0582E6E8E0934682FF5 /* MacArtworkCache.swift in Sources */,
 				C22B660AE744017F26759021 /* MacAudioSessionCoordinator.swift in Sources */,
@@ -6117,9 +6120,6 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				F6DCE85539D64CFDBA376614 /* DJPrepFixtures.swift in Sources */,
 				73DD2904604D416B9694AF26 /* DJLibraryPanel.swift in Sources */,
 				F437B7A941034C58826B76AD /* DJPrepInspector.swift in Sources */,
-				CFD9FFCBC7914D22B05286FD /* DJPrepEditor.swift in Sources */,
-				7CE3AC9AC71F4152AAF2E68E /* DJPrepSidebar.swift in Sources */,
-				EF1BC6FC9B0A461AA688CA3C /* DJPrepScreen.swift in Sources */,
 				C72769BCB9B64FBF89F9BFEC /* DJDeckContext.swift in Sources */,
 				ADAA2776A1F3893169023269 /* MacRekordboxLibrary.swift in Sources */,
 				A17C0DE5B1E2F3A4C5D60702 /* MacUSBExportModel.swift in Sources */,
@@ -6647,6 +6647,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				A972450DE4CDEE380D11ACE4 /* GeneratedInsights.swift in Sources */,
 				7D1E4778FE6A109EBD8C53B5 /* AnalysisDataUsage.swift in Sources */,
 				B660A7019FBA8C99840389F6 /* AnalysisLookup.swift in Sources */,
+				3910E3AE91D25B4124E7543C /* AnalyseMissingViews.swift in Sources */,
 				7A7A00320000000000000032 /* DeckReadout.swift in Sources */,
 				7B7B00120000000000000012 /* TrackMapModel.swift in Sources */,
 				7B7B00220000000000000022 /* TrackMapViews.swift in Sources */,
@@ -6697,6 +6698,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				A1B2C3D4E5F6071829304153 /* AnalysisLanePolicy.swift in Sources */,
 				4EA71A9C0000000000000004 /* HeavyWorkPacing.swift in Sources */,
 				B7E1A0C0D0E0F0A1B2C30004 /* TempoKeyStatus.swift in Sources */,
+				218145F4AF77E77B7DB0C33A /* MissingAnalysis.swift in Sources */,
 				B7E1A0C0D0E0F0A1B2C30007 /* TrackTempoKeyViews.swift in Sources */,
 				36984FB3DCBA61B3AEEDEB50 /* BehindTheTrack.swift in Sources */,
 				B11A8B1BB4B367CBEEB809A2 /* BehindTheTrackView.swift in Sources */,
@@ -7136,6 +7138,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				614D4E7DB0EA4F0EB3ABA9B5 /* GeneratedInsights.swift in Sources */,
 				49FDF2EE127D77F3DFA6A149 /* AnalysisDataUsage.swift in Sources */,
 				A36511223DF95BF01E216A19 /* AnalysisLookup.swift in Sources */,
+				D4E8AD306AB927A3EBDC4150 /* AnalyseMissingViews.swift in Sources */,
 				7A7A00330000000000000033 /* DeckReadout.swift in Sources */,
 				7B7B00130000000000000013 /* TrackMapModel.swift in Sources */,
 				7B7B00230000000000000023 /* TrackMapViews.swift in Sources */,
@@ -7195,6 +7198,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				A1B2C3D4E5F6071829304151 /* AnalysisLanePolicy.swift in Sources */,
 				4EA71A9C0000000000000002 /* HeavyWorkPacing.swift in Sources */,
 				B7E1A0C0D0E0F0A1B2C30005 /* TempoKeyStatus.swift in Sources */,
+				1D8F13B7827486F5CA05CB54 /* MissingAnalysis.swift in Sources */,
 				B7E1A0C0D0E0F0A1B2C30008 /* TrackTempoKeyViews.swift in Sources */,
 				F296359307166EBE2F8DF215 /* BehindTheTrack.swift in Sources */,
 				3F6608DEE7F9C5FCFFF9C79A /* BrandColor.swift in Sources */,

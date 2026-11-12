@@ -180,6 +180,7 @@ struct SoundingMacApp: App {
                     _ = WidgetLinkRouter.handle(url)
                 }
                 .playlistFolderPrompts()
+                .macRekordboxFolderImportPresentation()
                 .task {
                     #if DEBUG
                     if VisualFixtures.isEnabled { return }
@@ -255,7 +256,7 @@ struct SoundingMacApp: App {
             DecksCommands()
             MessagingCommands()
             MacPrepCommands()
-            MacRekordboxImportCommands()
+            MacImportExportCommands()
         }
 
 
@@ -272,15 +273,6 @@ struct SoundingMacApp: App {
                 #endif
         }
         .windowResizability(.contentSize)
-
-        Window("Prep", id: MacPrepCommands.windowID) {
-            MacPrepView()
-                .tint(Color.scAccent)
-                #if DEBUG
-                .modifier(MacDebugColorScheme())
-                #endif
-        }
-        .defaultSize(width: 1180, height: 760)
 
         MenuBarExtra("Sounding", systemImage: "waveform.circle.fill") {
             MacMenuBarPlayerView()
@@ -481,11 +473,16 @@ struct MacMenuBarPlayerView: View {
 
 struct TransportCommands: Commands {
     @Environment(\.openWindow) private var openWindow
+    @FocusedValue(\.macPrepLane) private var prepLane
 
     var body: some Commands {
         CommandMenu("Playback") {
             Button {
-                MacTransport.playPause()
+                if let prepLane {
+                    prepLane.togglePlay()
+                } else {
+                    MacTransport.playPause()
+                }
             } label: {
                 Label("Play/Pause", systemImage: "playpause")
             }
@@ -657,6 +654,12 @@ struct LibraryCommands: Commands {
                 IdentifySongPresenter.shared.showHistory()
             } label: {
                 Label("Recently Identified", systemImage: "clock")
+            }
+            Divider()
+            Button {
+                MissingAnalysisRun.shared.startLibrary()
+            } label: {
+                Label("Analyse Missing Tracks…", systemImage: "waveform.badge.magnifyingglass")
             }
         }
     }
@@ -1429,3 +1432,72 @@ private struct MacNewMessageSheet: View {
 }
 
 extension OutputRouter: IntentPlaybackSink {}
+
+struct MacPrepCommands: Commands {
+    @FocusedValue(\.macPrep) private var model
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandMenu("Prep") {
+            Button("Prep") {
+                openWindow(id: "main")
+                MacPrepRoute.shared.inspectCurrent()
+            }
+            .keyboardShortcut("i", modifiers: .command)
+            Button("Prep Now Playing") {
+                openWindow(id: "main")
+                MacPrepRoute.shared.inspectNowPlaying()
+            }
+            .keyboardShortcut("p", modifiers: [.option, .command])
+            Divider()
+            Group {
+                Button("Set Downbeat at Cursor") { model?.setDownbeat() }
+                    .keyboardShortcut("d", modifiers: .command)
+                Button("Lock Grid") { model?.toggleLock() }
+                    .keyboardShortcut("l", modifiers: [.option, .command])
+                Button("Halve Tempo") { model?.halveTempo() }
+                    .keyboardShortcut("[", modifiers: .command)
+                Button("Double Tempo") { model?.doubleTempo() }
+                    .keyboardShortcut("]", modifiers: .command)
+                Divider()
+                Button(TrackMapCopy.saveCuePoint) { model?.trackMap.saveCue() }
+                Button(TrackMapCopy.addLoop) { model?.trackMap.addLoop() }
+                ForEach(TrackMapModel.MixRole.allCases, id: \.self) { role in
+                    Button("Set \(role.title)") { model?.trackMap.setMix(role) }
+                }
+                Button(TrackMapCopy.delete) { model?.trackMap.deleteSelected() }
+            }
+            .disabled(model == nil)
+        }
+    }
+}
+
+struct MacImportExportCommands: Commands {
+    @FocusedValue(\.macUSBExportSource) private var exportSource
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(after: .importExport) {
+            Menu("Import") {
+                Button("Import rekordbox Library…") {
+                    openWindow(id: "main")
+                    MacRekordboxFolderPresenter.choose()
+                }
+                Button("Import rekordbox XML…") {
+                    openWindow(id: "main")
+                    guard MacRekordboxLibrary.shared.chooseXML() else { return }
+                    MacRootSelection.shared.requestRekordboxXMLImport()
+                }
+            }
+            Button("Export to USB…") {
+                openWindow(id: "main")
+                if let exportSource {
+                    MacRootSelection.shared.request(usbExport: exportSource)
+                } else {
+                    MacRootSelection.shared.requestLibraryUSBExport()
+                }
+            }
+            .keyboardShortcut("e", modifiers: [.shift, .command])
+        }
+    }
+}

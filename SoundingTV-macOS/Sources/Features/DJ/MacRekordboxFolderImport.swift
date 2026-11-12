@@ -226,8 +226,12 @@ final class MacRekordboxFolderImport: ObservableObject {
 // MARK: - Presentation
 
 @MainActor
-enum MacRekordboxFolderPresenter {
-    private static var active: (sheet: NSWindow, parent: NSWindow?, model: MacRekordboxFolderImport)?
+final class MacRekordboxFolderPresenter: ObservableObject {
+    static let shared = MacRekordboxFolderPresenter()
+
+    @Published var model: MacRekordboxFolderImport?
+
+    private init() {}
 
     nonisolated static func accepts(_ url: URL) -> Bool {
         guard url.isFileURL else { return false }
@@ -237,10 +241,7 @@ enum MacRekordboxFolderPresenter {
     }
 
     static func choose() {
-        guard active == nil else {
-            active?.sheet.makeKeyAndOrderFront(nil)
-            return
-        }
+        guard shared.model == nil else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
@@ -249,46 +250,50 @@ enum MacRekordboxFolderPresenter {
         panel.showsHiddenFiles = true
         panel.message = "Choose a rekordbox USB or SD drive, your rekordbox folder, or a collection exported as XML."
         panel.prompt = "Import"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        present(url)
+        if let window = MacMainWindow.current {
+            panel.beginSheetModal(for: window) { response in
+                guard response == .OK, let url = panel.url else { return }
+                present(url)
+            }
+        } else {
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            present(url)
+        }
     }
 
     static func present(_ url: URL) {
-        guard active == nil, accepts(url) else { return }
+        guard shared.model == nil, accepts(url) else { return }
         let model = MacRekordboxFolderImport(url: url)
-        let host = NSHostingController(rootView: MacRekordboxFolderSheet(model: model) { dismiss() })
-        let sheet = NSWindow(contentViewController: host)
-        sheet.appearance = (NSApp.keyWindow ?? NSApp.mainWindow)?.effectiveAppearance
-        sheet.setContentSize(NSSize(width: MacRekordboxFolderSheet.width, height: MacRekordboxFolderSheet.height))
-        let parent = NSApp.keyWindow ?? NSApp.mainWindow
-        active = (sheet, parent, model)
-        if let parent {
-            parent.beginSheet(sheet)
-        } else {
-            sheet.title = "Import rekordbox Library"
-            sheet.center()
-            sheet.makeKeyAndOrderFront(nil)
-        }
+        shared.model = model
         model.start()
     }
 
     static func dismiss() {
-        guard let current = active else { return }
-        active = nil
-        current.model.finish()
-        if let parent = current.parent, parent.attachedSheet === current.sheet {
-            parent.endSheet(current.sheet)
-        } else {
-            current.sheet.close()
-        }
+        guard let current = shared.model else { return }
+        shared.model = nil
+        current.finish()
     }
 }
 
-struct MacRekordboxImportCommands: Commands {
-    var body: some Commands {
-        CommandGroup(after: .importExport) {
-            Button("Import rekordbox Library…") { MacRekordboxFolderPresenter.choose() }
-        }
+extension MacRekordboxFolderImport: Identifiable {}
+
+private struct MacRekordboxFolderImportPresentation: ViewModifier {
+    @ObservedObject private var presenter = MacRekordboxFolderPresenter.shared
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: Binding(
+                get: { presenter.model },
+                set: { if $0 == nil { MacRekordboxFolderPresenter.dismiss() } }
+            )) { model in
+                MacRekordboxFolderSheet(model: model) { MacRekordboxFolderPresenter.dismiss() }
+            }
+    }
+}
+
+extension View {
+    func macRekordboxFolderImportPresentation() -> some View {
+        modifier(MacRekordboxFolderImportPresentation())
     }
 }
 

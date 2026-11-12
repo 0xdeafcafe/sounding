@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 enum TrackSortKey: String, CaseIterable, Identifiable, Codable, Sendable {
@@ -14,13 +15,16 @@ enum TrackSortKey: String, CaseIterable, Identifiable, Codable, Sendable {
     case likes      = "Likes"
     case album      = "Album"
     case released   = "Released"
+    case cues       = "Cues"
+    case grid       = "Grid"
 
     var id: String { rawValue }
 
     var defaultAscending: Bool {
         switch self {
         case .title, .artist, .key, .genre, .duration, .source, .album: return true
-        case .dateAdded, .bpm, .plays, .energy, .likes, .released: return false
+        case .dateAdded, .bpm, .plays, .energy, .likes, .released, .cues: return false
+        case .grid: return true
         }
     }
 
@@ -39,8 +43,14 @@ enum TrackSortKey: String, CaseIterable, Identifiable, Codable, Sendable {
         case .likes:     return "heart"
         case .album:     return "square.stack"
         case .released:  return "calendar.badge.clock"
+        case .cues:      return "circle.grid.2x2"
+        case .grid:      return "lock"
         }
     }
+
+    var isPrepOnly: Bool { self == .cues || self == .grid }
+
+    static let menuCases: [TrackSortKey] = allCases.filter { !$0.isPrepOnly }
 
     func title(dateLabel: String) -> String {
         self == .dateAdded ? dateLabel : rawValue
@@ -167,6 +177,8 @@ enum TrackSort {
             }
         case .released:
             return rank(lhs.createdAt, rhs.createdAt, order: order, by: <)
+        case .cues, .grid:
+            return .orderedSame
         }
     }
 
@@ -211,7 +223,7 @@ enum TrackSort {
             return track.createdAt.formatted(date: .abbreviated, time: .omitted)
         case .genre:
             return (analysis?.genre ?? track.genre).map(GenrePresentation.displayName(for:))
-        case .title, .artist, .duration, nil:
+        case .title, .artist, .duration, .cues, .grid, nil:
             return nil
         }
     }
@@ -443,6 +455,7 @@ enum TrackCollection {
             case .plays: return hasPlays
             case .source: return mixedSources
             case .album: return hasAlbums
+            case .cues, .grid: return false
             default: return true
             }
         }
@@ -484,10 +497,45 @@ final class TrackAnalysisStore: ObservableObject {
     }
     private(set) var revision = 0
 
+    private var known: [String: Track] = [:]
+    private var changed: Set<String> = []
+    private var changedEverything = false
+    private var cancellable: AnyCancellable?
+
+    init() {
+        cancellable = NotificationCenter.default.publisher(for: .analysisDataDidChange)
+            .receive(on: RunLoop.main)
+            .handleEvents(receiveOutput: { [weak self] note in
+                let trackIds = note.userInfo?[AnalysisDataChange.trackIdsKey] as? [String]
+                MainActor.assumeIsolated { self?.noteChange(trackIds) }
+            })
+            .debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.reloadChanged() }
+            }
+    }
+
     func load(for tracks: [Track]) async {
         guard !tracks.isEmpty else { return }
+        for track in tracks { known[track.id] = track }
         let fresh = await AnalysisLookup.summaries(for: tracks)
         guard !fresh.isEmpty else { return }
         summaries.merge(fresh) { _, new in new }
+    }
+
+    private func noteChange(_ trackIds: [String]?) {
+        guard let trackIds else {
+            changedEverything = true
+            return
+        }
+        changed.formUnion(trackIds.filter { known[$0] != nil })
+    }
+
+    private func reloadChanged() {
+        let tracks = changedEverything ? Array(known.values) : changed.compactMap { known[$0] }
+        changed.removeAll()
+        changedEverything = false
+        guard !tracks.isEmpty else { return }
+        Task { await load(for: tracks) }
     }
 }

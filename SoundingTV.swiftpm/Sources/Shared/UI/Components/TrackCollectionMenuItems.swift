@@ -34,7 +34,7 @@ struct TrackCollectionMenuItems: View {
     @Binding var query: TrackCollectionQuery
     var density: Binding<TrackListDensity>? = nil
     var showsColumns: Binding<Bool>? = nil
-    var sortKeys: [TrackSortKey] = TrackSortKey.allCases
+    var sortKeys: [TrackSortKey] = TrackSortKey.menuCases
     var dateLabel = "Date Added"
     var naturalOrderLabel: String? = nil
     var filters: [TrackFilter] = TrackFilter.allCases

@@ -813,6 +813,7 @@ struct PlaylistContextMenu: View {
             Label("Share", systemImage: "square.and.arrow.up")
         }
         PlaylistManagementMenuItems(playlist: playlist)
+        AnalyseMissingMenuItems(tracks: playlist.tracks ?? [])
     }
 }
 
@@ -1083,7 +1084,8 @@ private struct LibrarySectionDetailView: View {
                             showsColumns: showsColumns,
                             sortKeys: TrackCollection.availableSortKeys(for: viewModel.likedTracks, analysis: analysisStore.summaries),
                             dateLabel: "Date Liked",
-                            filters: section == .sets ? TrackFilter.allCases.filter { $0 != .sets } : TrackFilter.allCases
+                            filters: section == .sets ? TrackFilter.allCases.filter { $0 != .sets } : TrackFilter.allCases,
+                            analyseTracks: section == .sets ? derivedRows().sets : derivedRows().liked
                         )
                     }
                 }
@@ -1408,6 +1410,8 @@ private struct LibrarySectionDetailView: View {
                         loadAll: startLoadingAll,
                         stop: stopLoadingAll
                     )
+                    MissingAnalysisProgressLine()
+                        .listRowSeparator(.hidden)
                 }
                 if showsColumnHeader {
                     TrackColumnsHeader(
@@ -2218,6 +2222,7 @@ struct TrackActionMenuItems: View {
             }
         }
         TrackTempoKeyMenuItems(track: track)
+        AnalyseMissingMenuItems(tracks: [track])
     }
 }
 

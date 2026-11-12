@@ -4,25 +4,29 @@ import AVFoundation
 import CoreAudioKit
 
 @MainActor
-final class MacEffectWindows: NSObject, NSWindowDelegate {
-    static let shared = MacEffectWindows()
+final class MacEffectEditors: ObservableObject {
+    static let shared = MacEffectEditors()
 
-    private struct Entry {
-        let panel: NSPanel
+    struct Editor: Identifiable {
+        let slot: MixEngine.EffectSlot
         let component: MacEffectComponentID
+        let title: String
+        let controller: NSViewController?
         let parameters: MacEffectParameterModel?
+        let size: NSSize
+
+        var id: String { "\(slot.coreSlot)|\(component)" }
     }
 
-    private var entries: [MixEngine.EffectSlot: Entry] = [:]
+    @Published private(set) var editors: [MixEngine.EffectSlot: Editor] = [:]
     private var pending: [MixEngine.EffectSlot: MacEffectComponentID] = [:]
+
+    private init() {}
 
     func show(_ audioUnit: AUAudioUnit, effect: MixEngine.LoadedEffect, slot: MixEngine.EffectSlot) {
         let component = MacEffectComponentID(effect)
-        if let entry = entries[slot] {
-            if entry.component == component {
-                entry.panel.makeKeyAndOrderFront(nil)
-                return
-            }
+        if let entry = editors[slot] {
+            if entry.component == component { return }
             close(slot)
         }
         guard pending[slot] != component else { return }
@@ -38,24 +42,33 @@ final class MacEffectWindows: NSObject, NSWindowDelegate {
 
     func close(_ slot: MixEngine.EffectSlot) {
         pending[slot] = nil
-        guard let entry = entries.removeValue(forKey: slot) else { return }
+        guard let entry = editors.removeValue(forKey: slot) else { return }
         entry.parameters?.stop()
-        entry.panel.delegate = nil
-        entry.panel.close()
+    }
+
+    func dismiss(_ slot: MixEngine.EffectSlot) {
+        guard editors[slot] != nil else { return }
+        close(slot)
+        MacEffectRack.shared.remember(slot)
     }
 
     func sync(with effects: [MixEngine.EffectSlot: MixEngine.LoadedEffect]) {
-        for (slot, entry) in entries where effects[slot].map(MacEffectComponentID.init) != entry.component {
+        for (slot, entry) in editors where effects[slot].map(MacEffectComponentID.init) != entry.component {
             close(slot)
         }
     }
 
+    func binding(for slot: MixEngine.EffectSlot) -> Binding<Editor?> {
+        Binding(
+            get: { self.editors[slot] },
+            set: { if $0 == nil { self.dismiss(slot) } }
+        )
+    }
+
     private func present(_ controller: NSViewController?, audioUnit: AUAudioUnit, component: MacEffectComponentID, title: String, slot: MixEngine.EffectSlot) {
-        let content: NSViewController
         var parameters: MacEffectParameterModel?
         var size: NSSize
         if let controller {
-            content = controller
             size = controller.preferredContentSize
             if size.width < 1 || size.height < 1 { size = controller.view.fittingSize }
             if size.width < 1 || size.height < 1 { size = controller.view.frame.size }
@@ -63,36 +76,10 @@ final class MacEffectWindows: NSObject, NSWindowDelegate {
         } else {
             let model = MacEffectParameterModel(audioUnit: audioUnit)
             parameters = model
-            content = NSHostingController(rootView: MacEffectParameterForm(model: model))
             let rows = CGFloat(max(model.parameters.count, 3))
             size = NSSize(width: 460, height: min(560, 60 + rows * 34))
         }
-
-        let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: size),
-            styleMask: controller == nil ? [.titled, .closable, .resizable, .utilityWindow] : [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        panel.title = title
-        panel.isReleasedWhenClosed = false
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = true
-        panel.contentViewController = content
-        panel.setContentSize(size)
-        if controller == nil { panel.contentMinSize = NSSize(width: 360, height: 160) }
-        panel.delegate = self
-        panel.center()
-        entries[slot] = Entry(panel: panel, component: component, parameters: parameters)
-        panel.makeKeyAndOrderFront(nil)
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        guard let panel = notification.object as? NSPanel,
-              let slot = entries.first(where: { $0.value.panel === panel })?.key,
-              let entry = entries.removeValue(forKey: slot) else { return }
-        entry.parameters?.stop()
-        MacEffectRack.shared.remember(slot)
+        editors[slot] = Editor(slot: slot, component: component, title: title, controller: controller, parameters: parameters, size: size)
     }
 
     struct ViewControllerBox: @unchecked Sendable {
@@ -105,6 +92,37 @@ final class MacEffectWindows: NSObject, NSWindowDelegate {
             Task { @MainActor in completion(box) }
         }
     }
+}
+
+struct MacEffectEditorView: View {
+    let editor: MacEffectEditors.Editor
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(editor.title)
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+            if let controller = editor.controller {
+                MacEffectAudioUnitView(controller: controller)
+                    .frame(width: editor.size.width, height: editor.size.height)
+            } else if let parameters = editor.parameters {
+                MacEffectParameterForm(model: parameters)
+                    .frame(width: editor.size.width, height: editor.size.height)
+            }
+        }
+    }
+}
+
+private struct MacEffectAudioUnitView: NSViewControllerRepresentable {
+    let controller: NSViewController
+
+    func makeNSViewController(context: Context) -> NSViewController { controller }
+
+    func updateNSViewController(_ nsViewController: NSViewController, context: Context) {}
 }
 
 @MainActor

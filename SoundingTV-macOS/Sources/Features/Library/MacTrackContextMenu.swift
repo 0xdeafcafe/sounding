@@ -89,6 +89,7 @@ struct MacTrackContextMenu: View {
     var contextPlaylist: Playlist? = nil
     var context: [Track] = []
     var presentsTempoKey: (@MainActor (Track) -> Void)? = nil
+    var analysisTracks: [Track]? = nil
 
     @ObservedObject private var engagement = MacTrackEngagement.shared
     @ObservedObject private var downloads = DownloadManager.shared
@@ -199,6 +200,8 @@ struct MacTrackContextMenu: View {
                 Label("Analyse Again", systemImage: "arrow.clockwise")
             }
             .disabled(track.streamURL == nil)
+
+            AnalyseMissingMenuItems(tracks: analysisTracks ?? [track])
 
             Button {
                 Task { await MacAnalysisIndex.shared.forgetAnalysis(forTrackId: track.id) }

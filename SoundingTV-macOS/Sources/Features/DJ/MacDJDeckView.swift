@@ -31,6 +31,8 @@ struct MacDJDeckView: View {
     private func deckBody(wide: Bool, width: CGFloat) -> some View {
         header
             .frame(height: 50, alignment: .top)
+            .contentShape(Rectangle())
+            .contextMenu { MacDeckPrepMenuItems(deck: deck) }
         infoRow
             .frame(height: 24)
             .padding(.top, 4)

@@ -143,7 +143,6 @@ final class MacPrepModel: ObservableObject {
     @Published var showsUSBExport = false
     @Published var inspectorChoice: Bool?
     @Published var isInspectorShown = true
-    @Published var zoomWindow: TimeInterval = 16
 
     let store: CueStore
     let stick: MacPrepStickModel
@@ -179,8 +178,8 @@ final class MacPrepModel: ObservableObject {
         trackMap = TrackMapModel(board: CueBoard(store: store))
         stickChanges = stick.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         trackMapChanges = trackMap.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
-        trackMap.livePosition = { [weak self] in self?.cursorSeconds ?? 0 }
-        trackMap.onSeek = { [weak self] seconds in self?.cursorSeconds = seconds }
+        trackMap.livePosition = { [weak self] in self?.playheadSeconds ?? self?.cursorSeconds ?? 0 }
+        trackMap.onSeek = { [weak self] seconds in self?.seek(to: seconds) }
         trackMap.onEdit = { [weak self] in await self?.refreshAfterEdit() }
         trackMap.onStoreChange = { [weak self] in await self?.refreshAfterEdit() }
     }
@@ -444,7 +443,7 @@ final class MacPrepModel: ObservableObject {
         guard interval > 0 else { return }
         let bpm = (60 / interval * 100).rounded() / 100
         if editableGrid == nil {
-            applyGrid(PrepGrid(segments: [PrepTempoSegment(startMillis: CueTime.millis(fromSeconds: cursorSeconds), bpm: bpm)]), action: "Tap Tempo")
+            applyGrid(PrepGrid(segments: [PrepTempoSegment(startMillis: CueTime.millis(fromSeconds: markSeconds), bpm: bpm)]), action: "Tap Tempo")
         } else {
             setBPM(bpm)
         }
@@ -490,7 +489,7 @@ final class MacPrepModel: ObservableObject {
     }
 
     func setDownbeat() {
-        let millis = CueTime.millis(fromSeconds: cursorSeconds)
+        let millis = CueTime.millis(fromSeconds: markSeconds)
         let base = editableGrid ?? PrepGrid(segments: [PrepTempoSegment(startMillis: millis, bpm: 120)])
         applyGrid(PrepGridEditor.setDownbeat(base, atMillis: millis), action: "Set Downbeat")
     }
@@ -570,15 +569,27 @@ final class MacPrepModel: ObservableObject {
         }
     }
 
+    var markSeconds: TimeInterval { trackMap.markTime }
+
+    func seek(to seconds: TimeInterval) {
+        cursorSeconds = seconds
+        guard let id = detail?.trackId, PlayerService.shared.currentTrack?.id == id else { return }
+        PlayerService.shared.seek(to: seconds, expectedTrackID: id)
+    }
+
     func togglePlay() {
         guard let id = detail?.trackId else { return }
         let player = PlayerService.shared
+        let moved = trackMap.scrubPreview != nil
+        let seconds = markSeconds
+        trackMap.scrubPreview = nil
+        cursorSeconds = seconds
         if player.currentTrack?.id == id {
-            player.togglePlayPause()
+            if moved { player.seek(to: seconds, expectedTrackID: id) }
+            if !(moved && player.isPlaying) { player.togglePlayPause() }
             return
         }
         guard let track = tracks.track(id) else { return }
-        let seconds = cursorSeconds
         Task {
             await player.play(track, in: [track])
             if seconds > 0.5 { player.seek(to: seconds, expectedTrackID: id) }

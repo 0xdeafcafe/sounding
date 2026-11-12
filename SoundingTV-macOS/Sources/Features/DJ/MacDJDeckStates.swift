@@ -79,7 +79,7 @@ struct MacDJNoGridControls: View {
     let deck: MixEngine.Deck
 
     @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.undoManager) private var undoManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -92,9 +92,16 @@ struct MacDJNoGridControls: View {
                     .foregroundStyle(.white.opacity(0.35))
                     .accessibilityLabel("Sync, unavailable without a grid")
                 Group {
-                    Button("Tap Tempo") { openPrep() }
-                    Button("Set Downbeat") { openPrep() }
-                    Button("Edit in Prep") { openPrep() }
+                    Button("Tap Tempo") { MacDeckPrepActions.tap(deck, undoManager: undoManager) }
+                        .help("Tap the beat four times to set the tempo")
+                        .disabled(!MacDeckPrepActions.canEdit(deck))
+                    Button("Set Downbeat") { MacDeckPrepActions.setDownbeat(deck, undoManager: undoManager) }
+                        .help("Set the downbeat at the playhead")
+                        .disabled(!MacDeckPrepActions.canEdit(deck))
+                    Button("Add Cue") { MacDeckPrepActions.addCue(deck) }
+                        .help("Add a hot cue at the playhead")
+                        .disabled(!MacDeckPrepActions.canEdit(deck))
+                    Button("Edit in Prep") { MacDeckPrepActions.openPrep(deck) }
                 }
                 .buttonStyle(MacDJControlButtonStyle(height: 26))
                 .fixedSize()
@@ -107,9 +114,104 @@ struct MacDJNoGridControls: View {
                 .labelStyle(MacDJAutoLabelStyle())
         }
     }
+}
 
-    private func openPrep() {
-        MacPrepRoute.shared.openWindow(trackId: MacDeckTrackRegistry.shared.track(for: deck)?.id, open: openWindow)
+struct MacDeckPrepMenuItems: View {
+    let deck: MixEngine.Deck
+
+    @Environment(\.undoManager) private var undoManager
+
+    var body: some View {
+        Group {
+            Button("Set Downbeat") { MacDeckPrepActions.setDownbeat(deck, undoManager: undoManager) }
+            Button("Tap Tempo") { MacDeckPrepActions.tap(deck, undoManager: undoManager) }
+            Button("Add Cue") { MacDeckPrepActions.addCue(deck) }
+        }
+        .disabled(!MacDeckPrepActions.canEdit(deck))
+        Button("Edit in Prep") { MacDeckPrepActions.openPrep(deck) }
+            .disabled(MacDeckTrackRegistry.shared.track(for: deck) == nil)
+    }
+}
+
+@MainActor
+enum MacDeckPrepActions {
+    private static var taps: [MixEngine.Deck: [Date]] = [:]
+
+    static func canEdit(_ deck: MixEngine.Deck) -> Bool {
+        guard let track = MacDeckTrackRegistry.shared.track(for: deck) else { return false }
+        return MacDeckControlSurface.djDenial(.prep, source: track.source) == nil
+    }
+
+    static func openPrep(_ deck: MixEngine.Deck) {
+        if let track = MacDeckTrackRegistry.shared.track(for: deck) { MacPrepRoute.shared.inspect(track) }
+    }
+
+    static func setDownbeat(_ deck: MixEngine.Deck, undoManager: UndoManager?) {
+        let millis = CueTime.millis(fromSeconds: MixEngine.shared.livePosition(of: deck))
+        edit(deck, action: "Set Downbeat", undoManager: undoManager) { grid in
+            PrepGridEditor.setDownbeat(grid ?? PrepGrid(segments: [PrepTempoSegment(startMillis: millis, bpm: 120)]), atMillis: millis)
+        }
+    }
+
+    static func tap(_ deck: MixEngine.Deck, undoManager: UndoManager?, now: Date = Date()) {
+        var times = taps[deck] ?? []
+        if let last = times.last, now.timeIntervalSince(last) > 2 { times.removeAll() }
+        times.append(now)
+        if times.count > 8 { times.removeFirst(times.count - 8) }
+        taps[deck] = times
+        guard times.count >= 4, let first = times.first, let last = times.last else { return }
+        let interval = last.timeIntervalSince(first) / Double(times.count - 1)
+        guard interval > 0 else { return }
+        let bpm = (60 / interval * 100).rounded() / 100
+        let millis = CueTime.millis(fromSeconds: MixEngine.shared.livePosition(of: deck))
+        edit(deck, action: "Tap Tempo", undoManager: undoManager) { grid in
+            guard let grid else { return PrepGrid(segments: [PrepTempoSegment(startMillis: millis, bpm: bpm)]) }
+            return PrepGridEditor.setBPM(grid, bpm: bpm)
+        }
+    }
+
+    static func addCue(_ deck: MixEngine.Deck) {
+        guard canEdit(deck), let track = MacDeckTrackRegistry.shared.track(for: deck) else { return }
+        let console = MacConsoleController.shared
+        let taken = Set((console.hotCues[deck.rawValue] ?? []).compactMap(\.hotCueIndex))
+        if let slot = (0..<CuePoint.hotCueSlotCount).first(where: { !taken.contains($0) }) {
+            console.hotCue(deck, index: slot)
+            return
+        }
+        let millis = CueTime.millis(fromSeconds: MixEngine.shared.livePosition(of: deck))
+        Task { _ = await CueStore.shared.addMemoryCue(trackId: track.id, positionMillis: millis) }
+    }
+
+    private static func edit(_ deck: MixEngine.Deck, action: String, undoManager: UndoManager?, change: @escaping (PrepGrid?) -> PrepGrid) {
+        guard canEdit(deck), let track = MacDeckTrackRegistry.shared.track(for: deck) else { return }
+        let store = CueStore.shared
+        let duration = MixEngine.shared[deck].duration > 0 ? MixEngine.shared[deck].duration : track.duration
+        Task {
+            let prep = await store.prep(forTrack: track.id)
+            let previous = prep?.grid
+            let grid = change(previous?.value)
+            await store.setUserGrid(trackId: track.id, grid)
+            apply(grid, to: deck, trackId: track.id, duration: duration)
+            undoManager?.registerUndo(withTarget: store) { _ in
+                MainActor.assumeIsolated { restore(previous, deck: deck, trackId: track.id, duration: duration) }
+            }
+            undoManager?.setActionName(action)
+        }
+    }
+
+    private static func restore(_ field: PrepField<PrepGrid>?, deck: MixEngine.Deck, trackId: String, duration: TimeInterval) {
+        let store = CueStore.shared
+        Task {
+            var prep = await store.prep(forTrack: trackId) ?? TrackPrep(trackId: trackId)
+            prep.grid = field.map { PrepField($0.value, source: $0.source, updatedAtMillis: CueTime.nowMillis(), writerId: store.writerId) }
+            await store.savePrep(prep)
+            apply(field?.value, to: deck, trackId: trackId, duration: duration)
+        }
+    }
+
+    private static func apply(_ grid: PrepGrid?, to deck: MixEngine.Deck, trackId: String, duration: TimeInterval) {
+        guard MixEngine.shared[deck].trackId == trackId || MacDeckTrackRegistry.shared.track(for: deck)?.id == trackId else { return }
+        MixEngine.shared.setBeatGrid(grid?.beatGrid(durationSeconds: duration, confidence: 0.9), for: deck)
     }
 }
 
