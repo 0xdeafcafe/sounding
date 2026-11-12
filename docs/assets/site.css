@@ -113,6 +113,7 @@ html.live[data-side] .side { display: grid; }
 .live .side > :is(h1, h2, .h2, p), .live .caps > .cap, .live .try > p, .live .foot p { width: fit-content; max-width: 100%; }
 .live .hero .side { top: clamp(72px, 10.5vh, 128px); transform: none; width: min(41vw, 39rem); gap: .8rem; }
 .live .listen .side { width: min(28vw, 27rem); }
+.live .listen .side.b { top: 37%; }
 .live .output .side { width: min(26vw, 25rem); }
 .live .decks .side.a { top: auto; bottom: clamp(28px, 7vh, 72px); transform: none; width: min(43vw, 40rem); }
 .live .decks .side.b { width: min(26vw, 25rem); }
