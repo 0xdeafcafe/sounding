@@ -452,7 +452,7 @@ enum DJBeatOnly {
 
     static func grid(_ tracked: BeatTrackerResult, barsPerPhrase: Int = 8) -> BeatGrid? {
         guard !tracked.isPhaseReliable || tracked.downbeatConfidence < phraseLockDownbeatConfidence, tracked.downbeats.count >= 2 else { return nil }
-        return tracked.beatOnlyGrid(barsPerPhrase: barsPerPhrase)
+        return tracked.beatOnlyGrid(barsPerPhrase: barsPerPhrase, anchoredOnStrongestSection: true)
     }
 
     static func reason(_ shape: DJPlanShape, bar: TimeInterval) -> String? {

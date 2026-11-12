@@ -26,13 +26,16 @@ sed -e 's/let overLimit = steps > profile.maxCamelotSteps$/let overLimit = steps
 for f in DJMixRules DJMoveTemplates DJScoringTerms; do
   if cmp -s "$DJ/$f.swift" "$P/$f.swift"; then echo "patch did not apply to $f.swift" >&2; exit 1; fi
 done
+CORE="$REPO/SoundingTV.swiftpm/Sources/Core"
+SOURCES=()
+while IFS= read -r line; do
+  case "$line" in
+    */DJ/DJMoveTemplates.swift|*/DJ/DJScoringTerms.swift|*/DJ/DJMixRules.swift) SOURCES+=("$P/${line##*/}") ;;
+    *) SOURCES+=("$line") ;;
+  esac
+done < <(bash "$REPO/tools/lib/engine-sources.sh" "$CORE" render level types planner)
 xcrun swiftc -O -swift-version 5 -o "${GATES_BIN:-$BUILD/automix-pack}" \
-  "$DJ/MixRenderCore.swift" "$DJ/MixDeckFX.swift" "$DJ/MixMeters.swift" "$DJ/MixTimeline.swift" "$DJ/MixDSP.swift" "$DJ/MixSource.swift" "$DJ/MixAudioUnitHost.swift" \
-  "$DJ/DJEngineConstants.swift" "$DJ/MixPerformance.swift" "$REPO/SoundingTV.swiftpm/Sources/Core/Settings/MixPerformanceLevel.swift" "$DJ/DJTypes.swift" "$DJ/MixMoves.swift" "$DJ/DJProfileID.swift" \
-  "$AN/BeatTracker.swift" "$AN/BeatTrackerCore.swift" "$AN/GenreDistance.swift" "$AN/GenreDetection.swift" "$AN/GenreTaxonomy.swift" "$AN/GenreDetector.swift" "$AN/AI/AIAudioAnalysis.swift" \
-  "$DJ/DJCore.swift" "$DJ/DJTemplates.swift" "$P/DJMoveTemplates.swift" "$P/DJScoringTerms.swift" "$DJ/DJProfiles.swift" "$P/DJMixRules.swift" \
-  "$DJ/PhantomDJEngine.swift" "$DJ/LoopMath.swift" "$DJ/DJContentBounds.swift" "$DJ/DJIntro.swift" "$DJ/AutoMixFeedback.swift" "$DJ/DJLearnedPriors.swift" "$DJ/DJFlowSelector.swift" "$DJ/AutoMixStyle.swift" "$DJ/MixPlanRecord.swift" "$DJ/AutoMixNet.swift" "$DJ/AutoMixNetFeatures.swift" "$DJ/AutoMixNetPlanning.swift" "$DJ/LearnedSetPriors.swift" "$DJ/SetIntent.swift" "$AN/TimbreEmbedding.swift" "$DJ/AutoMixLanguage.swift" "$DJ/AutoMixLanguageModel.swift" \
-  "$REPO/SoundingTV.swiftpm/Sources/Core/Support/Log.swift" \
+  "${SOURCES[@]}" \
   "$EVAL/Shim.swift" "$BUILD/Director.swift" "$EVAL/Trim.swift" "$EVAL/Cases.swift" "$EVAL/Render.swift" "$EVAL/Plot.swift" \
   "$HERE/AIGateStubs.swift" "${GATES_MAIN:-$HERE/Pack/main.swift}"
 [ -n "$GATES_BUILD_ONLY" ] && exit 0

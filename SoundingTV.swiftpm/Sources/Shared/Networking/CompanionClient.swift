@@ -146,7 +146,6 @@ final class CompanionClient: ObservableObject {
 
     private static let snapshotDefaultsKey = "red.forbes.sounding.remoteNowPlaying.v1"
     private static let snapshotPersistInterval: Duration = .seconds(5)
-    private static let staleAfter: TimeInterval = 15
     private static let inactiveGrace: Duration = .seconds(30)
     private let snapshotWriter = SnapshotWriter()
     private var snapshotGeneration: UInt64 = 0
@@ -190,10 +189,31 @@ final class CompanionClient: ObservableObject {
 
     private var pendingContinuousControls: [String: PendingContinuousControl] = [:]
 
+    private enum PendingCommand {
+        case queue(MessageType, fromIndex: Int, toIndex: Int, trackId: String)
+        case control(MessageType, deck: ControlDeck, parameter: ControlParameter, value: Double, value2: Double)
+    }
+
+    private var pendingCommands = CompanionCommandOutbox<PendingCommand>()
+    private nonisolated(unsafe) var pendingCommandsExpiry: Task<Void, Never>?
+    private var lastHeartbeatAt: Date?
+    private var connectedAt: Date?
+    #if os(iOS)
+    private var backgroundCommandTask: UIBackgroundTaskIdentifier = .invalid
+    #endif
+
     private var cueReplayGuard = ReplayGuard()
     private var cuePushHighWaterMark: Int64 = 0
     private var libraryPushHighWaterMark: Int64?
     private var libraryPushMarks: [String: Int64] = [:]
+    private var analysisSentKeys: Set<String> = []
+    private var analysisRequestedTrackIds: Set<String> = []
+    var prefetchesAnalysisForOutput = false {
+        didSet {
+            guard prefetchesAnalysisForOutput != oldValue else { return }
+            if prefetchesAnalysisForOutput { scheduleAnalysisPush() }
+        }
+    }
     private let synchronizationID = "companion.client.\(UUID().uuidString)"
 
     private nonisolated(unsafe) var browser: NWBrowser?
@@ -352,6 +372,7 @@ final class CompanionClient: ObservableObject {
         inactiveGraceTask?.cancel()
         persistTask?.cancel()
         peerSignInTimeout?.cancel()
+        pendingCommandsExpiry?.cancel()
         browser?.cancel()
     }
 
@@ -392,7 +413,7 @@ final class CompanionClient: ObservableObject {
             let wasSuspended = inactiveGraceTask != nil
             inactiveGraceTask?.cancel()
             inactiveGraceTask = nil
-            if state == .connected, Date().timeIntervalSince(lastFrameAt) > Self.staleAfter {
+            if state == .connected, CompanionHeartbeat.controllerIsStale(lastFrameAt: lastFrameAt, now: Date()) {
                 Log.link.info("[CompanionClient] connection went quiet while inactive; reconnecting")
                 retry()
             } else {
@@ -456,6 +477,7 @@ final class CompanionClient: ObservableObject {
     }
 
     func waitUntilReachable(timeout: Duration) async -> Bool {
+        if state == .idle { connect() }
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if isReachable { return true }
@@ -465,8 +487,25 @@ final class CompanionClient: ObservableObject {
         return isReachable
     }
 
+    func waitUntilLive(timeout: Duration) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if isReachable, telemetry.isLive { return true }
+            if !isReachable, case .failed = state { return false }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return isReachable && telemetry.isLive
+    }
+
+    var connectionPhase: CompanionConnectionPhase {
+        let hasFailed: Bool
+        if case .failed = state { hasFailed = true } else { hasFailed = false }
+        return .resolve(isReachable: isReachable, isLive: telemetry.isLive, hasFailed: hasFailed)
+    }
+
     private func activate(_ next: LinkedCompanionStore.LinkRecord?) {
         teardown()
+        discardPendingCommands()
         resetMirroredState()
         link = next
         guard next != nil else {
@@ -693,9 +732,13 @@ final class CompanionClient: ObservableObject {
                 try? await Task.sleep(for: .seconds(2))
                 guard !Task.isCancelled, let self else { return }
                 guard case .connected = self.state else { continue }
-                guard Date().timeIntervalSince(self.lastFrameAt) > Self.staleAfter else { continue }
+                let now = Date()
+                guard CompanionHeartbeat.controllerIsStale(lastFrameAt: self.lastFrameAt, now: now) else {
+                    self.sendHeartbeatIfDue(at: now)
+                    continue
+                }
 
-                Log.link.info("[CompanionClient] no frames for \(Int(Self.staleAfter), privacy: .public)s; reconnecting")
+                Log.link.info("[CompanionClient] no frames for \(Int(CompanionHeartbeat.controllerStaleAfter), privacy: .public)s; reconnecting")
                 self.teardown()
                 self.connect()
                 return
@@ -759,9 +802,135 @@ final class CompanionClient: ObservableObject {
         }
     }
 
+    private func sendHeartbeatIfDue(at now: Date) {
+        guard let link, CompanionHeartbeat.isDue(lastSentAt: lastHeartbeatAt, now: now) else { return }
+        lastHeartbeatAt = now
+        transmitNow(.acknowledgment(sessionId: link.sessionId))
+    }
+
+    // MARK: - Pending commands
+
+    private func hold(_ command: PendingCommand, key: String?) {
+        guard link != nil else { return }
+        pendingCommands.enqueue(command, key: key, at: Date())
+        Log.link.info("[CompanionClient] holding a command until \(self.linkedName, privacy: .public) is connected")
+        holdForBackgroundCommands()
+        schedulePendingCommandsExpiry()
+        switch state {
+        case .idle, .failed:
+            if case .failed = state { reconnectDelay = Self.initialReconnectDelay }
+            connect()
+        case .unlinked, .searching, .connecting, .connected:
+            break
+        }
+    }
+
+    private func flushPendingCommands() {
+        let commands = pendingCommands.drain(at: Date())
+        pendingCommandsExpiry?.cancel()
+        pendingCommandsExpiry = nil
+        if !commands.isEmpty {
+            Log.link.info("[CompanionClient] sending \(commands.count, privacy: .public) held commands to \(self.linkedName, privacy: .public)")
+        }
+        for command in commands {
+            switch command {
+            case let .queue(type, fromIndex, toIndex, trackId):
+                guard let signer else { continue }
+                transmitCommand(signer.queue(type, fromIndex: fromIndex, toIndex: toIndex, trackId: trackId, revision: appliedRevision))
+            case let .control(type, deck, parameter, value, value2):
+                transmitControl(type, deck: deck, parameter: parameter, value: value, value2: value2, continuous: false)
+            }
+        }
+        releaseBackgroundCommandsSoon()
+    }
+
+    private func discardPendingCommands() {
+        pendingCommands.removeAll()
+        pendingCommandsExpiry?.cancel()
+        pendingCommandsExpiry = nil
+        releaseBackgroundCommands()
+    }
+
+    private func schedulePendingCommandsExpiry() {
+        guard pendingCommandsExpiry == nil, let deadline = pendingCommands.nextExpiry else { return }
+        let delay = max(0.1, deadline.timeIntervalSinceNow + 0.05)
+        pendingCommandsExpiry = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            self.pendingCommandsExpiry = nil
+            let dropped = self.pendingCommands.expire(at: Date())
+            if dropped > 0 {
+                Log.link.info("[CompanionClient] dropped \(dropped, privacy: .public) held commands; \(self.linkedName, privacy: .public) didn't connect in time")
+            }
+            if self.pendingCommands.isEmpty {
+                self.releaseBackgroundCommands()
+            } else {
+                self.schedulePendingCommandsExpiry()
+            }
+        }
+    }
+
+    private func holdForBackgroundCommands() {
+        #if os(iOS)
+        guard UIApplication.shared.applicationState == .background, backgroundCommandTask == .invalid else { return }
+        backgroundCommandTask = UIApplication.shared.beginBackgroundTask(withName: "Sounding Remote") { [weak self] in
+            Task { @MainActor in self?.releaseBackgroundCommands() }
+        }
+        #endif
+    }
+
+    private func releaseBackgroundCommandsSoon() {
+        #if os(iOS)
+        guard backgroundCommandTask != .invalid else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            self?.releaseBackgroundCommands()
+        }
+        #endif
+    }
+
+    private func releaseBackgroundCommands() {
+        #if os(iOS)
+        guard backgroundCommandTask != .invalid else { return }
+        let task = backgroundCommandTask
+        backgroundCommandTask = .invalid
+        if UIApplication.shared.applicationState == .background, pendingCommands.isEmpty {
+            disconnect()
+        }
+        UIApplication.shared.endBackgroundTask(task)
+        #endif
+    }
+
+    private static func pendingKey(for type: MessageType) -> String? {
+        switch type {
+        case .transportPlay, .transportPause: return "transport.playing"
+        case .transportSeek: return "transport.seek"
+        case .transportShuffle: return "transport.shuffle"
+        case .transportRepeat: return "transport.repeat"
+        case .transportSleepTimer: return "transport.sleep"
+        case .djEnable, .djDisable: return "dj.enabled"
+        case .djAutoEnable, .djAutoDisable: return "dj.auto"
+        default: return nil
+        }
+    }
+
+    private static func holdsWhileDisconnected(_ type: MessageType) -> Bool {
+        switch type {
+        case .transportPlay, .transportPause, .transportNext, .transportPrevious, .transportSeek,
+             .transportShuffle, .transportRepeat, .transportSleepTimer,
+             .djEnable, .djDisable, .djAutoEnable, .djAutoDisable,
+             .queueAdd, .queueRemove, .queueReorder, .queueJump:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func dropConnection() {
         livenessWatchdog?.cancel()
         livenessWatchdog = nil
+        lastHeartbeatAt = nil
+        connectedAt = nil
         pendingContinuousControls.removeAll()
         connectTimeout?.cancel()
         connectTimeout = nil
@@ -774,6 +943,7 @@ final class CompanionClient: ObservableObject {
         appliedDJRevision = 0
         cuePushHighWaterMark = 0
         libraryPushHighWaterMark = nil
+        analysisSentKeys = []
         lastDeviceStatusMillis = 0
         lastContinueSessionMillis = 0
         if peerNeedsSignIn { peerNeedsSignIn = false }
@@ -901,9 +1071,11 @@ final class CompanionClient: ObservableObject {
             lastWaitingError = nil
             state = .connected
             lastFrameAt = Date()
+            connectedAt = lastFrameAt
             Log.link.info("[CompanionClient] connected to \(self.linkedName, privacy: .public)")
             startLivenessWatchdog()
             announceAndRequestQueue()
+            flushPendingCommands()
             synchronization.registerNearbySink(id: synchronizationID) { [weak self] domain in
                 guard domain == .cues else { return }
                 self?.scheduleCuePush()
@@ -915,16 +1087,34 @@ final class CompanionClient: ObservableObject {
                 self?.sendContinueSession(session)
             }
             if let own = ContinueFrom.shared.latestOwn { sendContinueSession(own) }
+            scheduleAnalysisPush()
         case .waiting:
             lastWaitingError = channel?.lastError
         case .failed:
             let failure = CompanionFailure.classify(channel?.lastError)
+            let reconnectsAtOnce = connectionWasSettled
             dropConnection()
-            fail(failure)
+            reconnectAfterDrop(failure, atOnce: reconnectsAtOnce)
         case .closed:
+            let reconnectsAtOnce = connectionWasSettled
             dropConnection()
-            fail(.closed)
+            reconnectAfterDrop(.closed, atOnce: reconnectsAtOnce)
         }
+    }
+
+    private var connectionWasSettled: Bool {
+        guard state == .connected, let readyAt = connectedAt else { return false }
+        return Date().timeIntervalSince(readyAt) >= CompanionHeartbeat.interval
+    }
+
+    private func reconnectAfterDrop(_ failure: CompanionFailure, atOnce: Bool) {
+        guard atOnce, link != nil else {
+            fail(failure)
+            return
+        }
+        Log.link.info("[CompanionClient] connection to \(self.linkedName, privacy: .public) dropped; reconnecting")
+        state = .idle
+        connect()
     }
 
     private func handle(_ message: TokenTransferMessage) async {
@@ -954,6 +1144,7 @@ final class CompanionClient: ObservableObject {
             if !hasSnapshot { hasSnapshot = true }
             Log.link.debug("[CompanionClient] rx queue_state rev=\(queue.revision, privacy: .public) tracks=\(queue.tracks.count, privacy: .public)")
             schedulePersistSnapshot()
+            scheduleAnalysisPush()
 
         case .playbackState:
             guard let playback = message.playback else { return }
@@ -1301,12 +1492,18 @@ final class CompanionClient: ObservableObject {
         }
         #endif
         guard let signer else { return }
+        guard isReachable else {
+            if Self.holdsWhileDisconnected(type) {
+                hold(.queue(type, fromIndex: fromIndex, toIndex: toIndex, trackId: trackId), key: nil)
+            }
+            return
+        }
         transmitCommand(signer.queue(type, fromIndex: fromIndex, toIndex: toIndex, trackId: trackId, revision: appliedRevision))
     }
 
     @discardableResult
     private func transmitCommand(_ message: TokenTransferMessage) -> Bool {
-        guard connection != nil else {
+        guard connection != nil, isReachable else {
             Log.link.info("[CompanionClient] dropped \(message.type.rawValue, privacy: .public); \(self.linkedName, privacy: .public) isn't connected")
             return false
         }
@@ -1366,6 +1563,51 @@ final class CompanionClient: ObservableObject {
             sessionId: link.sessionId,
             payload: ContinueSessionPayload.create(body: body, sessionId: link.sessionId, secret: secret)
         ))
+    }
+
+    private func scheduleAnalysisPush() {
+        guard prefetchesAnalysisForOutput, connection != nil else { return }
+        gateway.submit(
+            lane: .companionBulk,
+            key: "\(synchronizationID).analysis"
+        ) { [weak self] in
+            await self?.runAnalysisPush()
+        }
+    }
+
+    private func runAnalysisPush() async {
+        guard prefetchesAnalysisForOutput, connection != nil, let link, let secret = link.secret else { return }
+        let playing = RemoteQueueProjection.playingIndex(
+            tracks: tracks, currentIndex: currentIndex, presentedTrackId: telemetry.playback?.trackId
+        ) ?? currentIndex
+        let upcoming = AnalysisPeerPush.upcomingTrackIds(queue: tracks.map(\.id), currentIndex: playing)
+        guard !upcoming.isEmpty else { return }
+        let records = await AnalysisCache.shared.syncRecords(forTrackIds: upcoming)
+        for trackId in upcoming where AnalysisPeerPush.needsMeasuredAnalysis(trackId, records: records) {
+            guard analysisRequestedTrackIds.insert(trackId).inserted else { continue }
+            requestPreAnalysis(trackId)
+        }
+        for batch in AnalysisPeerPush.batches(records, alreadySent: analysisSentKeys) {
+            guard connection != nil, let body = AnalysisPeerBody(records: batch).encoded() else { return }
+            let payload = AnalysisPeerPayload.create(
+                body: body, recordCount: batch.count, sessionId: link.sessionId, secret: secret
+            )
+            transmitNow(.analysisSync(sessionId: link.sessionId, payload: payload))
+            analysisSentKeys.formUnion(batch.map(AnalysisPeerPush.sentKey))
+        }
+    }
+
+    private func requestPreAnalysis(_ trackId: String) {
+        guard let candidate = DownloadManager.shared.backlogCandidate(trackId: trackId) else { return }
+        AutomaticAnalysisScheduler.shared.schedule(
+            candidate.track,
+            trigger: .downloaded,
+            localAudio: DownloadManager.localAudioProvider(for: trackId),
+            transcoding: candidate.transcoding
+        ) { [weak self] state in
+            guard state == .complete else { return }
+            self?.scheduleAnalysisPush()
+        }
     }
 
     private func scheduleLikesPushIfSupported() {
@@ -1703,6 +1945,18 @@ extension CompanionClient {
             return
         }
 
+        guard isReachable else {
+            if Self.holdsWhileDisconnected(type) {
+                hold(
+                    .control(type, deck: deck, parameter: parameter, value: value, value2: value2),
+                    key: Self.pendingKey(for: type)
+                )
+            } else {
+                Log.link.info("[CompanionClient] dropped \(type.rawValue, privacy: .public); \(self.linkedName, privacy: .public) isn't connected")
+            }
+            return
+        }
+
         transmitControl(
             type, deck: deck, parameter: parameter, value: value, value2: value2,
             continuous: type.isContinuousControl
@@ -1740,7 +1994,7 @@ extension CompanionClient {
         continuous: Bool,
         bypassGateway: Bool = false
     ) {
-        guard let signer, connection != nil else { return }
+        guard let signer, connection != nil, isReachable else { return }
 
         if continuous { controlSequence &+= 1 }
 
@@ -1834,6 +2088,9 @@ final class OutputRouter: ObservableObject {
     private var lateMoveGuard: Task<Void, Never>?
     private var routedTrackId: String?
     private var systemSyncScheduled = false
+    private var remoteWasAudible = false
+    private var localLastPlayedAt: Date?
+    private var followScheduled = false
 
     init(
         client: CompanionClient,
@@ -1863,6 +2120,11 @@ final class OutputRouter: ObservableObject {
             current = linked
         }
         #endif
+        $current
+            .map { !$0.isLocal }
+            .removeDuplicates()
+            .sink { [weak client] isRemote in client?.prefetchesAnalysisForOutput = isRemote }
+            .store(in: &cancellables)
         client.objectWillChange
             .sink { [weak self] _ in
                 Task { @MainActor in
@@ -1887,10 +2149,52 @@ final class OutputRouter: ObservableObject {
             }
             .store(in: &cancellables)
         client.telemetry.objectWillChange
-            .sink { [weak self] _ in self?.scheduleSystemNowPlaying() }
+            .sink { [weak self] _ in
+                self?.scheduleSystemNowPlaying()
+                self?.scheduleFollowCheck()
+            }
+            .store(in: &cancellables)
+        player.$isPlaying
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.localLastPlayedAt = self.now()
+            }
             .store(in: &cancellables)
         refreshOutputs()
         scheduleSystemNowPlaying()
+    }
+
+    private func scheduleFollowCheck() {
+        guard !followScheduled else { return }
+        followScheduled = true
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            self.followScheduled = false
+            self.followRemotePlaybackIfIdle()
+        }
+    }
+
+    private func followRemotePlaybackIfIdle() {
+        let playback = client.telemetry.playback
+        let audible = client.isReachable && client.telemetry.isLive
+            && playback?.isPlaying == true && playback?.trackId != nil
+        let wasAudible = remoteWasAudible
+        remoteWasAudible = audible
+        guard let device = linkedDevice,
+              OutputFollow.shouldFollow(
+                currentIsLocal: current.isLocal,
+                isMoving: isMoving,
+                localIsPlaying: player.isPlaying,
+                localLastPlayedAt: localLastPlayedAt,
+                remoteIsAudible: audible,
+                remoteWasAudible: wasAudible,
+                now: now()
+              ) else { return }
+        Log.link.info("[OutputRouter] \(device.name, privacy: .public) is playing and this device isn't; following it")
+        select(device, remember: false)
     }
 
     private func scheduleSystemNowPlaying() {
@@ -2052,6 +2356,7 @@ final class OutputRouter: ObservableObject {
     }
 
     private static let focusTimeout: Duration = .seconds(8)
+    private static let remoteStateTimeout: Duration = .seconds(2)
 
     private func reconcileWithLink() {
         guard !current.isLocal else { return }
@@ -2067,6 +2372,7 @@ final class OutputRouter: ObservableObject {
         if remember {
             restore = nil
             preference.remember(device)
+            if device.isLocal { localLastPlayedAt = now() }
         }
         guard device != current else { return }
         if !device.isLocal { notice = nil }
@@ -2075,6 +2381,22 @@ final class OutputRouter: ObservableObject {
 
     @discardableResult
     func move(to device: OutputDevice) async -> String? {
+        await move(to: device, forcing: nil)
+    }
+
+    @discardableResult
+    func control(_ device: OutputDevice) async -> String? {
+        guard !device.isLocal else { return nil }
+        return await move(to: device, forcing: .controlRemote)
+    }
+
+    @discardableResult
+    func send(to device: OutputDevice) async -> String? {
+        guard !device.isLocal else { return nil }
+        return await move(to: device, forcing: .sendThisDevice)
+    }
+
+    private func move(to device: OutputDevice, forcing forced: OutputHandover?) async -> String? {
         guard device != current else { return nil }
         guard !isMoving else { return "Playback is already moving." }
         isMoving = true
@@ -2086,17 +2408,30 @@ final class OutputRouter: ObservableObject {
             return await moveHere()
         }
         if isRemote {
-            return await moveBetweenLinked(to: device)
+            guard forced == .controlRemote else { return await moveBetweenLinked(to: device) }
+            select(.thisDevice, remember: false)
         }
-        if player.currentTrack?.isLocal == true {
+        if forced != .controlRemote, player.isPlaying, player.currentTrack?.isLocal == true {
             return Self.localTracksNotice(on: device, playingHere: false)
         }
         if let problem = await focus(on: device) { return problem }
+        _ = await client.waitUntilLive(timeout: Self.remoteStateTimeout)
 
-        guard let track = player.currentTrack else {
-            Log.link.info("[OutputRouter] output is now \(device.name, privacy: .public); nothing was playing here")
+        let remote = client.telemetry.isLive ? client.telemetry.playback : nil
+        let handover = forced ?? OutputHandover.plan(
+            localIsPlaying: player.isPlaying,
+            localHasTrack: player.currentTrack != nil,
+            remoteIsPlaying: remote?.isPlaying == true,
+            remoteHasTrack: remote?.trackId != nil
+        )
+        guard handover == .sendThisDevice, let track = player.currentTrack else {
+            Log.link.info("[OutputRouter] output is now \(device.name, privacy: .public); controlling what it plays")
+            if forced == .controlRemote, player.isPlaying { player.pause() }
             select(device)
             return nil
+        }
+        if track.isLocal {
+            return Self.localTracksNotice(on: device, playingHere: false)
         }
 
         let ids = player.queue.filter { !$0.isLocal }.map(\.id)
@@ -2315,6 +2650,9 @@ final class OutputRouter: ObservableObject {
         }
         if track.isLocal {
             return await playHere(track, in: context, collectionId: collectionId, source: source, instead: current)
+        }
+        if !client.isReachable, client.connectionPhase == .connecting {
+            _ = await client.waitUntilReachable(timeout: Self.focusTimeout)
         }
         guard client.isReachable else { return "\(current.name) isn't reachable right now." }
         if let source { PlaybackQueueSourceDirectory.note(source) }

@@ -70,15 +70,21 @@ struct BeatTrackerResult: Codable, Sendable, Equatable {
         return sectionStarts[best]
     }
 
-    func beatOnlyGrid(barsPerPhrase: Int = 8) -> BeatGrid? {
+    var strongestSectionBar: Int? {
+        guard let start = strongestSectionStart, !downbeats.isEmpty else { return nil }
+        return downbeats.indices.min { abs(downbeats[$0] - start) < abs(downbeats[$1] - start) }
+    }
+
+    func beatOnlyGrid(barsPerPhrase: Int = 8, anchoredOnStrongestSection: Bool = false) -> BeatGrid? {
         guard let bpm, isBeatReliable else { return nil }
+        let offset = anchoredOnStrongestSection ? strongestSectionBar.map { $0 % max(1, barsPerPhrase) } ?? phraseOffsetBars : phraseOffsetBars
         return BeatGrid.fromMeasuredBars(
             bpm: bpm,
             beats: beats,
             bars: downbeats,
             barsPerPhrase: barsPerPhrase,
             confidence: 0.92 * beatConfidence * (beatPhaseConfidence ?? 1),
-            phraseOffsetBars: phraseOffsetBars
+            phraseOffsetBars: offset
         )
     }
 
@@ -720,8 +726,15 @@ struct BarProfile: Codable, Sendable, Equatable {
     let loop8: [Float]
     var bands: [Float]? = nil
     var tonality: [Float]? = nil
+    var beats: [Float]? = nil
 
     static let sparseDensity: Float = 0.5
+    static let beatsPerBar = 4
+
+    func beatLevel(bar: Int, beat: Int) -> Float? {
+        guard let beats, bar * Self.beatsPerBar + beat < beats.count, beat >= 0, beat < Self.beatsPerBar else { return nil }
+        return beats[bar * Self.beatsPerBar + beat]
+    }
 
     func band(_ k: Int, bar: Int) -> Float? {
         guard let bands, bar * 4 + k < bands.count else { return nil }
@@ -737,6 +750,7 @@ struct BarProfile: Codable, Sendable, Equatable {
         var vectors = [[Float]](repeating: [], count: count)
         var barBands = [Float](repeating: 0, count: count * 4)
         var barTonality = [Float](repeating: 0, count: count)
+        var beatLevels = [Float](repeating: -90, count: count * beatsPerBar)
         let slowCount = features.slowCount
         for b in 0..<count {
             let start = downbeats[b]
@@ -760,6 +774,15 @@ struct BarProfile: Codable, Sendable, Equatable {
                 var sum: Float = 0
                 for f in lo..<hi { sum += features.level[f] }
                 level[b] = 10 * log10(max(1e-10, sum / Float(max(1, hi - lo))))
+                let span = Float(hi - lo) / Float(beatsPerBar)
+                for k in 0..<beatsPerBar {
+                    let q0 = lo + Int(Float(k) * span)
+                    let q1 = max(q0 + 1, min(hi, lo + Int(Float(k + 1) * span)))
+                    guard q1 <= features.level.count else { continue }
+                    var part: Float = 0
+                    for f in q0..<q1 { part += features.level[f] }
+                    beatLevels[b * beatsPerBar + k] = 10 * log10(max(1e-10, part / Float(q1 - q0)))
+                }
             }
             let s0 = max(0, Int(features.slowIndex(ofTime: start).rounded()))
             let s1 = min(slowCount, max(s0 + 1, Int(features.slowIndex(ofTime: end).rounded())))
@@ -821,7 +844,8 @@ struct BarProfile: Codable, Sendable, Equatable {
             loop4: (0..<count).map { round3(loopability($0, 4)) },
             loop8: (0..<count).map { round3(loopability($0, 8)) },
             bands: barBands.map(round3),
-            tonality: barTonality.map(round3)
+            tonality: barTonality.map(round3),
+            beats: beatLevels.map { ($0 * 10).rounded() / 10 }
         )
     }
 

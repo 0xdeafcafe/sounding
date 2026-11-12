@@ -19,6 +19,7 @@ final class WatchLinkClient: NSObject, ObservableObject {
     @Published private(set) var settings: WatchSettingsSnapshot = .empty
     @Published private(set) var queue: WatchQueueSnapshot = .empty
     @Published private(set) var continueOffer: WatchContinueOffer?
+    @Published private(set) var devicePresence: WatchDevicePresence = .empty
     @Published private(set) var isReachable = false
     @Published private(set) var isCompanionInstalled = false
 
@@ -371,6 +372,10 @@ final class WatchLinkClient: NSObject, ObservableObject {
         if let data = context[WatchLinkKey.continueOffer] as? Data {
             let offer = WatchLinkCodec.decode(WatchContinueOffer.self, from: data)
             if offer != continueOffer { continueOffer = offer }
+        }
+        if let data = context[WatchLinkKey.devicePresence] as? Data {
+            let presence = WatchLinkCodec.decode(WatchDevicePresence.self, from: data) ?? .empty
+            if presence != devicePresence { devicePresence = presence }
         }
         if let data = context[WatchLinkKey.offlineManifest] as? Data,
            let manifest = WatchLinkCodec.decode(WatchOfflineManifest.self, from: data) {

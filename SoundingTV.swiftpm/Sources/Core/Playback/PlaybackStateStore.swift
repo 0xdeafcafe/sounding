@@ -27,7 +27,7 @@ enum PlaybackStateStore {
         }
 
         var wantsMix: Bool {
-            collectionAutoMixWasActive == true || autoMixWasActive == true || djSessionWasRequested == true
+            collectionAutoMixWasActive == true || autoMixWasActive == true
         }
     }
 
@@ -106,6 +106,23 @@ enum PlaybackPersistenceAccountPolicy {
     ) -> String? {
         if isSignedOut { return guestAccountID }
         return authenticatedAccountID ?? currentUserID ?? rememberedAccountID
+    }
+}
+
+enum PlaybackAccountReadiness: Equatable {
+    case resolveNow
+    case waitForAccount
+
+    static let maximumWait: Duration = .seconds(10)
+
+    static func decision(
+        trackIsLocal: Bool,
+        isSignedOut: Bool,
+        isEstablishingSession: Bool,
+        hasAccessToken: Bool
+    ) -> PlaybackAccountReadiness {
+        guard !trackIsLocal, !isSignedOut, !hasAccessToken else { return .resolveNow }
+        return isEstablishingSession ? .waitForAccount : .resolveNow
     }
 }
 

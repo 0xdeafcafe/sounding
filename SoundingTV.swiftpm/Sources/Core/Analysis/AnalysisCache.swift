@@ -959,7 +959,8 @@ extension AnalysisCache: AnalysisSyncStore {
         while sqlite3_step(stmt) == SQLITE_ROW {
             if let record = Self.decodeSyncRow(stmt, fallbackProducerId: localProducerId) { out.append(record) }
         }
-        return out
+        let order = Dictionary(trackIds.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        return out.sorted { (order[$0.trackId] ?? .max) < (order[$1.trackId] ?? .max) }
     }
 
     func localSummaries(for cacheKeys: [String]) async -> [String: AnalysisSyncLocalSummary] {

@@ -12,8 +12,8 @@ struct HomeView: View {
     @EnvironmentObject var playerService: PlayerService
     @EnvironmentObject var authService: AuthenticationService
     @EnvironmentObject var navigationState: NavigationState
-    @ObservedObject private var dj = DJTransitionService.shared
     @ObservedObject private var continueFrom = ContinueFrom.shared
+    @ObservedObject private var presence = DevicePresenceModel.shared
     @FocusState private var focus: BrowseFocus?
     @State private var showsInitialLoadingIndicator = false
     @State private var showingDJStartConfiguration = false
@@ -24,7 +24,8 @@ struct HomeView: View {
             shelves: viewModel.shelves,
             offer: continueFrom.offer,
             nowPlaying: playerService.currentTrack,
-            isPlaying: playerService.isPlaying
+            isPlaying: playerService.isPlaying,
+            otherDevice: presence.primary
         )
     }
 
@@ -44,7 +45,7 @@ struct HomeView: View {
                                 HomeHeroCarousel(
                                     items: layout.hero,
                                     inset: inset,
-                                    isAutoMixOn: dj.isEnabled,
+                                    isAutoMixOn: playerService.isAutoMixEnabled,
                                     focus: $focus,
                                     action: perform,
                                     currentArtwork: $heroArtworkURL
@@ -129,7 +130,12 @@ struct HomeView: View {
             continueFrom.accept(offer, play: true)
         case (.continueFrom(let offer), .secondary):
             withAnimation { continueFrom.dismiss(offer) }
+        case (.otherDevice(let entry), _):
+            presence.perform(.playHere, on: entry)
         case (.nowPlaying, .primary):
+            if !playerService.playbackRequested, !playerService.isPlaying {
+                playerService.play()
+            }
             navigationState.showNowPlaying()
         case (.nowPlaying, .secondary):
             startOrOpenAutoMix()
@@ -147,7 +153,10 @@ struct HomeView: View {
     }
 
     private func startOrOpenAutoMix() {
-        if dj.isEnabled {
+        if playerService.isAutoMixEnabled {
+            navigationState.showNowPlaying()
+        } else if playerService.isDJSessionEnabled {
+            playerService.setAutomaticMixEnabled(true)
             navigationState.showNowPlaying()
         } else if SettingsStore.shared.hasStoredValue(SettingKeys.DJStartOptions.self) {
             playerService.startDJSession(configuration: SettingsStore.shared.djStartConfiguration)
@@ -664,7 +673,8 @@ struct HomeHeroAction {
 struct HomeHeroItem: Identifiable {
     enum Kind {
         case continueFrom(ContinueFrom.Offer)
-        case nowPlaying(Track)
+        case otherDevice(DevicePresenceEntry)
+        case nowPlaying(Track, isPlaying: Bool)
         case track(Track, queue: [Track])
         case playlist(Playlist)
         case station(SystemPlaylist)
@@ -693,8 +703,12 @@ struct HomeHeroItem: Identifiable {
         switch kind {
         case .continueFrom:
             return HomeHeroAction(title: "Play", symbol: "play.fill", identifier: "home.continueFrom.play")
-        case .nowPlaying:
-            return HomeHeroAction(title: "Now Playing", symbol: "waveform", identifier: "home.hero.nowPlaying")
+        case .otherDevice:
+            return HomeHeroAction(title: "Play Here", symbol: "play.fill", identifier: "home.otherDevice.playHere")
+        case .nowPlaying(_, let isPlaying):
+            return isPlaying
+                ? HomeHeroAction(title: "Now Playing", symbol: "waveform", identifier: "home.hero.nowPlaying")
+                : HomeHeroAction(title: "Play", symbol: "play.fill", identifier: "home.hero.nowPlaying")
         case .track, .playlist, .station:
             return HomeHeroAction(title: "Play", symbol: "play.fill", identifier: "home.hero.\(id).play")
         }
@@ -704,6 +718,8 @@ struct HomeHeroItem: Identifiable {
         switch kind {
         case .continueFrom:
             return HomeHeroAction(title: "Not Now", identifier: "home.continueFrom.dismiss")
+        case .otherDevice:
+            return nil
         case .nowPlaying:
             return HomeHeroAction(
                 title: isAutoMixOn ? "Auto Mix On" : "Start Auto Mix",
@@ -736,10 +752,24 @@ struct HomeHeroItem: Identifiable {
         )
     }
 
+    static func otherDevice(_ entry: DevicePresenceEntry, now: Date = Date()) -> HomeHeroItem {
+        let artist = entry.artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        return HomeHeroItem(
+            id: "presence.\(entry.id)",
+            kind: .otherDevice(entry),
+            eyebrow: entry.caption(at: now),
+            eyebrowSymbol: entry.deviceClass.symbolName,
+            title: entry.displayTitle,
+            subtitle: artist.isEmpty ? nil : artist,
+            artworkURL: entry.artworkURL,
+            identity: entry.trackID
+        )
+    }
+
     static func nowPlaying(_ track: Track, isPlaying: Bool) -> HomeHeroItem {
         HomeHeroItem(
             id: "nowPlaying",
-            kind: .nowPlaying(track),
+            kind: .nowPlaying(track, isPlaying: isPlaying),
             eyebrow: isPlaying ? "Playing" : "Paused",
             eyebrowSymbol: isPlaying ? "waveform" : "pause.fill",
             title: track.title,
@@ -826,10 +856,13 @@ struct HomeLayout {
 
     var isEmpty: Bool { hero.isEmpty && shelves.isEmpty }
 
-    init(shelves: [HomeShelf], offer: ContinueFrom.Offer?, nowPlaying: Track?, isPlaying: Bool) {
+    init(shelves: [HomeShelf], offer: ContinueFrom.Offer?, nowPlaying: Track?, isPlaying: Bool, otherDevice: DevicePresenceEntry? = nil) {
         var hero: [HomeHeroItem] = []
         if let offer { hero.append(.continueFrom(offer)) }
         if let nowPlaying { hero.append(.nowPlaying(nowPlaying, isPlaying: isPlaying)) }
+        if let otherDevice, otherDevice.id != offer.map({ "device:\($0.session.deviceID)" }) {
+            hero.append(.otherDevice(otherDevice))
+        }
 
         var remaining = shelves
         let source = remaining.firstIndex { shelf in

@@ -570,7 +570,7 @@ struct MixMoveBuilder {
         ramp(.crossfade, at: landing, to: physical(1), over: Self.echoOutCrossfadeBars * bar, curve: .smooth)
         let lowsBack = landing + Self.echoOutLowReturnBars * bar
         ramp(.eqLow(inc), at: lowsBack, to: 0, over: Self.echoOutLowRampBars * bar, curve: .smooth)
-        ramp(.eqLow(out), at: lowsBack + Self.echoOutOutgoingLowLagBars * bar, to: MixEngine.bassKillDecibels, over: Self.echoOutLowRampBars * bar, curve: .smooth)
+        ramp(.eqLow(out), at: lowsBack + Self.echoOutOutgoingLowLagBars * bar, to: MixEngine.bassKillDecibels, over: Self.echoOutLowRampBars * bar, curve: .power)
         echoTail(from: landing, bars: move.tailBars)
         if locks { at(wall(move.totalBars), .phaseUnlock(deck: inc)) }
     }

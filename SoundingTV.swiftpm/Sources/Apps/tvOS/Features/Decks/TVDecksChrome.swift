@@ -40,20 +40,23 @@ struct TVDecksChromeStyle: ButtonStyle {
                 .labelStyle(.titleAndIcon)
                 .padding(.horizontal, diameter == nil ? 36 : 0)
                 .frame(width: diameter, height: diameter ?? 76)
-                .foregroundStyle(isFocused ? Color.scChromeFocusOn : Color.scTextPrimary)
-                .opacity(isAvailable || isFocused ? 1 : 0.45)
+                .foregroundStyle(labelColor)
                 .background {
-                    if isFocused {
-                        Capsule().fill(Color.scChromeFocus)
-                    } else {
-                        Color.clear.liquidGlass(in: Capsule(), tint: isProminent ? Color.white.opacity(0.22) : nil)
-                    }
+                    Capsule()
+                        .fill(Color.scChromeFocus)
+                        .opacity(isFocused ? 1 : 0)
                 }
+                .liquidGlass(in: Capsule(), tint: isProminent ? Color.white.opacity(0.22) : nil)
                 .contentShape(Capsule())
                 .scaleEffect(configuration.isPressed ? 1.02 : (isFocused ? 1.08 : 1))
                 .shadow(color: isFocused ? Color.scFocusShadow : .clear, radius: 18, y: 10)
                 .focusEffectDisabled()
                 .animation(reduceMotion ? nil : Motion.focus, value: isFocused)
+        }
+
+        private var labelColor: Color {
+            if isFocused { return Color.scChromeFocusOn }
+            return isAvailable ? Color.scTextPrimary : Color.scTextSecondary
         }
     }
 }

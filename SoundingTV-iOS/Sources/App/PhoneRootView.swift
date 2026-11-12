@@ -8,6 +8,7 @@ struct PhoneRootView: View {
     @EnvironmentObject private var pairing: DevicePairingFlow
     @ObservedObject private var credentials = SoundCloudCredentialSource.shared
     @ObservedObject private var continueFrom = ContinueFrom.shared
+    @ObservedObject private var presence = DevicePresenceModel.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -146,21 +147,6 @@ struct PhoneRootView: View {
         }
     }
 
-    private static let cachingImageSession: URLSession = {
-        let configuration = URLSessionConfiguration.default
-        let cache = URLCache(memoryCapacity: 20 * 1024 * 1024, diskCapacity: 200 * 1024 * 1024)
-        configuration.urlCache = cache
-        MemoryRelief.addHandler { _ in
-            cache.memoryCapacity = 0
-            cache.memoryCapacity = 20 * 1024 * 1024
-        }
-        return URLSession(
-            configuration: configuration,
-            delegate: NetworkActivityTaskObserver(feature: .artwork),
-            delegateQueue: nil
-        )
-    }()
-
     var body: some View {
         content
             .task {
@@ -188,14 +174,14 @@ struct PhoneRootView: View {
                     }
                 }
             }
-            .applyAsyncImageSessionIfAvailable(Self.cachingImageSession)
+            .artworkImageCaching()
             .task { await credentials.prepareStoreAtLaunch() }
             .onChange(of: credentials.isSignedOut) { _, isSignedOut in
                 refreshState()
                 if !isSignedOut { didLeaveWelcome = false }
                 if isSignedOut {
                     isNowPlayingExpanded = false
-                    Self.cachingImageSession.configuration.urlCache?.removeAllCachedResponses()
+                    ArtworkImageSession.clear()
                     ArtworkColors.shared.lockAccount()
                     NowPlayingPalette.shared.lockAccount()
                 }
@@ -316,7 +302,7 @@ struct PhoneRootView: View {
     private func playerChrome<Content: View>(_ content: Content, showsAccessory: Bool = true) -> some View {
         content
             .modifier(BottomAccessoryModifier(
-                hasNowPlaying: (coordinator.nowPlaying != nil || PadLayout.isPad || coordinator.continueOffer(from: continueFrom) != nil) && showsAccessory,
+                hasNowPlaying: (coordinator.nowPlaying != nil || PadLayout.isPad || coordinator.continueOffer(from: continueFrom) != nil || presence.primary != nil) && showsAccessory,
                 isExpanded: $isNowPlayingExpanded,
                 heroID: nowPlayingHeroID,
                 namespace: nowPlayingNamespace
@@ -612,11 +598,25 @@ private struct PadRootTabs: View {
 
     private var visibleSelection: Binding<PhoneRootView.PhoneTab> {
         Binding(
-            get: { hidesSections ? selection.compactTab : selection },
+            get: { hidesSections ? selection.compactTab : sidebarSelection },
             set: { tab in
                 if tab != selection { selection = tab }
             }
         )
+    }
+
+    private var sidebarSelection: PhoneRootView.PhoneTab {
+        let resolved = PadSidebarTarget.resolve(selection)
+        switch resolved {
+        case .playlistFolder(let id) where !folders.contains(where: { $0.id == id }):
+            return .playlists
+        case .pinnedFolder(let id) where !pinned.folderIDs.contains(id):
+            return .playlists
+        case .playlist(let id) where !pinned.showsTab(forPlaylist: id):
+            return .playlists
+        default:
+            return resolved
+        }
     }
 
     private var customizationBinding: Binding<TabViewCustomization> {
@@ -1001,6 +1001,13 @@ private struct PadPinnedState: Equatable {
         }
         return state
     }
+
+    func showsTab(forPlaylist id: String) -> Bool {
+        items.contains { item in
+            if case .playlist(let pinnedID) = item.target, pinnedID == id { return true }
+            return item.children.contains { $0.id == id }
+        }
+    }
 }
 
 private struct PadPinnedPlaylistPage: View {
@@ -1228,17 +1235,6 @@ private struct PadSidebarAccount: View {
                 identity: user?.id ?? "SoundCloud account"
             )
             .accessibilityHidden(true)
-        }
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func applyAsyncImageSessionIfAvailable(_ session: URLSession) -> some View {
-        if #available(iOS 27.0, *) {
-            self.asyncImageURLSession(session)
-        } else {
-            self
         }
     }
 }

@@ -249,6 +249,23 @@ struct MoveBlendTemplate: TransitionTemplate {
     let displayName = "Blend"
     let requiredCapabilities: ExecutorCapabilities = [.crossfade, .threeBandEQ, .timeStretch, .entryCue, .sampleAccurateCue, .mixTimeline]
 
+    static let holdBars = [2, 4]
+
+    static func heldOverDip(_ option: DJHandover.Option, move: MixMove, outgoing: TrackFeatures, incoming: TrackFeatures) -> MixMove? {
+        guard option.bars >= 16, let bar = incoming.beatGrid?.barDuration, bar > 0,
+              let arrival = DJMoveSupport.downbeat(incoming, from: option.arrival, bars: option.bars - option.swapBars),
+              DJContentBounds.dips(incoming, from: arrival - bar, to: arrival + DJContentBounds.handoverCheckBars * bar) else { return nil }
+        for hold in holdBars {
+            guard let end = DJMoveSupport.downbeat(outgoing, from: option.exit.seconds, bars: option.bars + hold), end < outgoing.duration - 1,
+                  let later = DJMoveSupport.downbeat(incoming, from: arrival, bars: hold) else { return nil }
+            if DJContentBounds.dips(incoming, from: later - bar, to: later + DJContentBounds.handoverCheckBars * bar) { continue }
+            var held = MixMove.blend(bars: option.bars + hold, swapAt: option.swapBars)
+            held.shape = move.shape
+            return held
+        }
+        return nil
+    }
+
     func admits(outgoing: TrackFeatures, incoming: TrackFeatures, profile: DJProfile) -> TemplateAdmission {
         guard DJMoveSupport.measured(outgoing, profile), DJMoveSupport.measured(incoming, profile) else {
             return .rejected(reason: "\(displayName): blending needs measured downbeats on both tracks")
@@ -270,6 +287,9 @@ struct MoveBlendTemplate: TransitionTemplate {
                 }
                 let short = option.bars <= DJMixRules.shortBlendBars
                 plans.append(DJMoveSupport.plan(id, move, profile: profile, outgoing: outgoing, incoming: incoming, exit: option.exit, entry: option.entry, relation: relation, ratePercent: short ? max(profile.maxAbsRatePercent, DJMixRules.shortBlendRatePercent) : nil))
+                if let held = Self.heldOverDip(option, move: move, outgoing: outgoing, incoming: incoming) {
+                    plans.append(DJMoveSupport.plan(id, held, profile: profile, outgoing: outgoing, incoming: incoming, exit: option.exit, entry: option.entry, relation: relation, ratePercent: short ? max(profile.maxAbsRatePercent, DJMixRules.shortBlendRatePercent) : nil))
+                }
             }
             return plans
         }
@@ -667,6 +687,8 @@ enum DJJumpPlanner {
 }
 
 enum DJMoveRails {
+    static let vocalMaskBars = 4.0
+
     static func vocalPhraseVeto(_ plan: DJTransitionPlan, window: (start: TimeInterval, length: TimeInterval), outgoing: TrackFeatures, incoming: TrackFeatures, beat: TimeInterval, bar: TimeInterval) -> String? {
         guard plan.move?.kind != .loopMix else { return nil }
         let outStart = plan.exit.seconds + window.start
@@ -678,7 +700,8 @@ enum DJMoveRails {
         }
         guard incoming.provenance.contains(.measuredVocals) else { return nil }
         let entry = plan.entry.seconds
-        if incoming.vocalRanges.contains(where: { $0.lowerBound < entry - beat && $0.upperBound > entry + beat }) {
+        let masked = eqBlend ? entry + min(plan.bassSwapAtSeconds, vocalMaskBars * bar) * plan.incomingRateRatio : entry
+        if incoming.vocalRanges.contains(where: { $0.lowerBound < entry - beat && $0.upperBound > entry + beat && !(eqBlend && $0.upperBound <= masked) }) {
             return "the incoming would land inside a vocal phrase"
         }
         guard outgoing.provenance.contains(.measuredVocals), window.length > beat,
@@ -968,6 +991,17 @@ enum DJMoveRails {
         return nil
     }
 
+    static let vetoFallDecibels: Float = 6.5
+    static let vetoJumpDecibels: Float = 10
+
+    static func lookAheadVeto(_ plan: DJTransitionPlan, outgoing: TrackFeatures, incoming: TrackFeatures) -> String? {
+        guard plan.templateId != DJTemplates.cutOnTheOne, plan.move?.kind != .echoOut,
+              let reading = DJLookAhead.read(plan, outgoing: outgoing, incoming: incoming) else { return nil }
+        if reading.fall > vetoFallDecibels { return "the room would drop \(Int(reading.fall.rounded())) dB as the decks change over" }
+        if reading.jump > vetoJumpDecibels { return "the incoming would jump \(Int(reading.jump.rounded())) dB during the handover" }
+        return nil
+    }
+
     static func veto(_ plan: DJTransitionPlan, outgoing: TrackFeatures, incoming: TrackFeatures, profile: DJProfile, history: SetHistory) -> String? {
         let window = DJMoveSupport.overlapWindow(plan, outgoing: outgoing)
         let bar = outgoing.beatGrid?.barDuration ?? 2
@@ -979,6 +1013,9 @@ enum DJMoveRails {
             return reason
         }
         if let reason = dropOpeningVeto(plan, outgoing: outgoing) {
+            return reason
+        }
+        if let reason = lookAheadVeto(plan, outgoing: outgoing, incoming: incoming) {
             return reason
         }
         let overlapBars = window.length / max(0.1, bar)
@@ -1517,7 +1554,9 @@ enum DJPhraseCut {
         if let cue = outgoing.preferredExitSeconds, cue >= max(1, outgoing.earliestExitSeconds - 0.05), cue <= latest {
             return [DJMoveSupport.downbeat(outgoing, from: cue, bars: 0) ?? cue]
         }
-        let floor = max(outgoing.earliestExitSeconds, DJMoveRails.energyPayoffEnd(outgoing) ?? 0, outgoing.duration * 0.45)
+        let settled = max(outgoing.earliestExitSeconds, outgoing.duration * 0.45)
+        let payoff = max(settled, DJMoveRails.energyPayoffEnd(outgoing) ?? 0)
+        let floor = latest - Double(MixMove.echoOut.leadBars + MixMove.echoOut.tailBars) * bar > payoff ? payoff : settled
         guard latest > floor else { return [] }
         var phrases = outgoing.phraseBoundaries.filter { $0 >= floor - 0.05 && $0 <= latest }
         if phrases.isEmpty { phrases = grid.phraseStarts(from: floor, through: latest) }
@@ -1529,6 +1568,16 @@ enum DJPhraseCut {
     static let searchExits = 3
     static let searchEntries = 3
     static let searchRankCost: Float = 0.75
+    static let quietThrowDecibels: Float = 6
+    static let quietThrowCost: Float = 3
+
+    static func quietThrow(_ outgoing: TrackFeatures, line: TimeInterval) -> Bool {
+        guard let levels = DJLookAhead.Levels(outgoing), let bar = outgoing.beatGrid?.barDuration, bar > 0 else { return false }
+        let steps = Int((bar / DJLookAhead.step).rounded())
+        var total: Float = 0
+        for k in 0..<steps { total += DJLookAhead.power(levels.relative(line - bar + Double(k) * DJLookAhead.step)) }
+        return DJLookAhead.decibels(total / Float(max(1, steps))) < -quietThrowDecibels
+    }
 
     static func plan(outgoing: TrackFeatures, incoming: TrackFeatures?, incomingTrackId: String?, profile: DJProfile, reason: String, near: TimeInterval? = nil) -> PhantomDJEngine.Plan? {
         let lines = exits(outgoing, near: near)
@@ -1542,7 +1591,8 @@ enum DJPhraseCut {
                 guard let incoming else { return plan }
                 if line != first, plan.templateId != DJMoveIDs.echoOut { continue }
                 let excess = DJLookAhead.read(DJPlanShape(plan), outgoing: outgoing, incoming: incoming)?.risk ?? 0
-                let cost = excess + Float(exitRank + entryRank) * searchRankCost
+                let quiet = quietThrow(outgoing, line: line) ? quietThrowCost : 0
+                let cost = excess + quiet + Float(exitRank + entryRank) * searchRankCost
                 if best.map({ cost < $0.cost }) ?? true { best = (plan, cost) }
             }
         }
@@ -1635,15 +1685,21 @@ enum DJLookAhead {
     static let floorDecibels: Float = 30
     static let postBars = 2.0
     static let lowKillDecibels: Float = -3
+    static let blendHeldBackDecibels: Float = -7
     static let echoTailBars = 8.0
+    static let laterBars = 8
+    static let laterDipDecibels: Float = 6
+    static let laterPenalty = 0.12
+    static let laterRisk: Float = 2
 
     struct Reading: Equatable, Sendable {
         let fall: Float
         let jump: Float
         let at: TimeInterval
+        var breaksSoon = false
         var passes: Bool { fall <= DJLookAhead.fallDecibels && jump <= DJLookAhead.jumpDecibels }
         var excess: Float { max(0, fall - DJLookAhead.fallDecibels) + max(0, jump - DJLookAhead.jumpDecibels) }
-        var risk: Float { max(0, fall - DJLookAhead.riskFallDecibels) + max(0, jump - DJLookAhead.jumpDecibels) }
+        var risk: Float { max(0, fall - DJLookAhead.riskFallDecibels) + max(0, jump - DJLookAhead.jumpDecibels) + (breaksSoon ? DJLookAhead.laterRisk : 0) }
     }
 
     struct Levels {
@@ -1655,9 +1711,22 @@ enum DJLookAhead {
             guard let profile = track.barProfile, track.barStarts.count == profile.level.count, profile.level.count >= 8 else { return nil }
             let measured = profile.level.filter { $0 > -89 }
             guard measured.count >= 8 else { return nil }
-            starts = track.barStarts
-            level = profile.level
             body = DJMoveRails.percentile(measured, 0.75)
+            let per = BarProfile.beatsPerBar
+            guard let beats = profile.beats, beats.count == profile.level.count * per else {
+                starts = track.barStarts
+                level = profile.level
+                return
+            }
+            let bars = track.barStarts
+            var s: [TimeInterval] = []
+            s.reserveCapacity(beats.count)
+            for index in bars.indices {
+                let length = index + 1 < bars.count ? bars[index + 1] - bars[index] : bars[index] - bars[max(0, index - 1)]
+                for k in 0..<per { s.append(bars[index] + length * Double(k) / Double(per)) }
+            }
+            starts = s
+            level = beats
         }
 
         func relative(_ seconds: TimeInterval) -> Float {
@@ -1685,7 +1754,7 @@ enum DJLookAhead {
 
     static func penalty(_ plan: DJTransitionPlan, outgoing: TrackFeatures, incoming: TrackFeatures) -> Double {
         guard let reading = read(plan, outgoing: outgoing, incoming: incoming), reading.risk > 0 else { return 0 }
-        return min(0.4, 0.12 + 0.03 * Double(reading.risk))
+        return (reading.breaksSoon ? laterPenalty : 0) + (reading.fall > riskFallDecibels || reading.jump > jumpDecibels ? min(0.4, 0.12 + 0.03 * Double(reading.risk)) : 0)
     }
 
     static func read(_ plan: DJTransitionPlan, outgoing: TrackFeatures, incoming: TrackFeatures) -> Reading? {
@@ -1717,6 +1786,7 @@ enum DJLookAhead {
             outFadeStart = max(inStart, end - 4 * bar); outFadeEnd = end; inFullAt = min(end, inStart + fadeIn)
         }
         let landsOnOne = cut || kind == .fxBuild || kind == .loopRoll || kind == .dropOnTheOne || kind == .cut
+        let heldBack = !cut && !echo && !landsOnOne && (kind == .blend || kind == nil)
         let swapAt = shape.bassSwapAt > 0 ? shape.bassSwapAt : inFullAt
         let incomingEnd = map.incomingSourceEnd ?? shape.entry
         func outgoingSource(_ t: TimeInterval) -> TimeInterval? {
@@ -1731,7 +1801,7 @@ enum DJLookAhead {
         var sum: [Float] = []
         var inc: [Float] = []
         var settled: [Bool] = []
-        var t = -fallWindow
+        var t = -fallWindow - step
         let stop = end + postBars * bar
         while t <= stop {
             var total: Float = 0
@@ -1747,7 +1817,7 @@ enum DJLookAhead {
             if let s = incomingSource(t) {
                 let gain = cut || echo || landsOnOne ? 1 : (kind == .loopMix ? 0.1 + 0.9 * ramp(t, from: inStart, to: inFullAt) : ramp(t, from: inStart, to: inFullAt))
                 if gain > 0.001 {
-                    incoming = max(-floorDecibels, i.relative(s) + amplitudeDecibels(gain) + (t < swapAt ? lowKillDecibels : 0))
+                    incoming = max(-floorDecibels, i.relative(s) + amplitudeDecibels(gain) + (t < swapAt ? (heldBack ? blendHeldBackDecibels * Float(1 - ramp(t, from: inStart, to: swapAt)) + lowKillDecibels : lowKillDecibels) : 0))
                     total += power(incoming)
                 }
             }
@@ -1769,6 +1839,20 @@ enum DJLookAhead {
             }
             if k + 1 < inc.count, settled[k] { jump = max(jump, inc[k + 1] - inc[k]) }
         }
-        return Reading(fall: fall, jump: jump, at: at)
+        return Reading(fall: fall, jump: jump, at: at, breaksSoon: breaksSoon(i, from: incomingEnd + postBars * bar * rate, bar: bar * rate))
+    }
+}
+
+extension DJLookAhead {
+    static func breaksSoon(_ levels: Levels, from start: TimeInterval, bar: TimeInterval) -> Bool {
+        guard bar > 0 else { return false }
+        let steps = Int((bar / step).rounded())
+        for index in 0..<(laterBars - Int(postBars)) {
+            let from = start + Double(index) * bar
+            var total: Float = 0
+            for k in 0..<steps { total += power(levels.relative(from + Double(k) * step)) }
+            if decibels(total / Float(max(1, steps))) < -laterDipDecibels { return true }
+        }
+        return false
     }
 }

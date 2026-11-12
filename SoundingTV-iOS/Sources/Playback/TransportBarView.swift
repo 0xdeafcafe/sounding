@@ -79,6 +79,7 @@ struct TransportBarView: View {
     @ObservedObject private var listenTogether = ListenTogether.shared
     @ObservedObject private var setlists = SetlistIntelligenceStore.shared
     @ObservedObject private var continueFrom = ContinueFrom.shared
+    @ObservedObject private var presence = DevicePresenceModel.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.tabViewBottomAccessoryPlacement) private var accessoryPlacement
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -168,12 +169,14 @@ struct TransportBarView: View {
                 .accessibilityAction(named: "Open Now Playing") { expand() }
                 .accessibilityAction(named: "Lyrics") { open(.lyrics) }
                 .accessibilityAction(named: "Up Next") { open(.upNext) }
+                .accessibilityActions { presenceAccessibilityActions(otherDevices) }
             } else {
                 notPlayingBar
             }
         }
         .foregroundStyle(HierarchicalShapeStyle.primary)
         .tint(Color.primary)
+        .devicePresenceFailureAlert()
         .environment(\.colorScheme, barColorScheme)
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
@@ -309,6 +312,11 @@ struct TransportBarView: View {
             .padding(.leading, wideIdentityInset)
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            if !otherDevices.isEmpty {
+                presenceMenu(otherDevices, wide: miniBarSpan == .roomy)
+                    .padding(.horizontal, 6)
+            }
+
             HStack(spacing: 2) {
                 moreMenu(snapshot)
                 if !setlists.isMix(trackID: snapshot.trackId, title: snapshot.title, duration: snapshot.duration) {
@@ -327,9 +335,109 @@ struct TransportBarView: View {
 
             Spacer(minLength: Space.hair)
 
+            if !otherDevices.isEmpty {
+                presenceMenu(otherDevices, wide: false)
+            }
+
             miniTransportButtons(snapshot)
         }
         .contentShape(miniBarShape)
+    }
+
+    // MARK: - Other devices
+
+    private var otherDevices: [DevicePresenceEntry] {
+        presence.others(excludingOutput: true)
+    }
+
+    private func presenceMenu(_ entries: [DevicePresenceEntry], wide: Bool) -> some View {
+        Menu {
+            DevicePresenceMenuItems(entries: entries)
+        } label: {
+            Group {
+                if wide {
+                    DevicePresenceLine(entries: entries)
+                        .font(.footnote)
+                        .frame(maxWidth: 260, alignment: .trailing)
+                } else {
+                    DevicePresenceBadge(entries: entries, font: .body)
+                }
+            }
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(.rect)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize(horizontal: !wide, vertical: false)
+        .accessibilityLabel(DevicePresence.summary(localTitle: nil, others: entries, now: Date()))
+        .accessibilityHint("Shows your other devices")
+    }
+
+    @ViewBuilder
+    private func presenceAccessibilityActions(_ entries: [DevicePresenceEntry]) -> some View {
+        if let entry = entries.first {
+            ForEach(presence.actions(for: entry)) { action in
+                Button(accessibilityTitle(action, entry: entry)) { presence.perform(action, on: entry) }
+            }
+        }
+    }
+
+    private func accessibilityTitle(_ action: DevicePresenceModel.Action, entry: DevicePresenceEntry) -> String {
+        action == .playHere ? "Play \(entry.displayName)\u{2019}s Track Here" : presence.title(for: action, entry: entry)
+    }
+
+    private func presenceBar(_ entry: DevicePresenceEntry, all: [DevicePresenceEntry]) -> some View {
+        let size: CGFloat = isWide ? wideArtSize : (isInline ? 30 : 38)
+        let now = Date()
+        return Menu {
+            DevicePresenceMenuItems(entries: all)
+        } label: {
+            HStack(spacing: isInline ? Spacing.sm : 11) {
+                miniArtwork(
+                    entry.artworkURL?.absoluteString,
+                    identity: entry.trackID,
+                    artist: entry.artist,
+                    size: size
+                )
+                .opacity(entry.isLive ? 1 : 0.7)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(entry.displayTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if !isInline {
+                        HStack(spacing: 4) {
+                            Image(systemName: entry.deviceClass.symbolName)
+                            Text(entry.caption(at: now))
+                                .lineLimit(1)
+                            if let more = DevicePresence.moreLabel(count: all.count) {
+                                Text(more)
+                                    .fontWeight(.semibold)
+                                    .monospacedDigit()
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "ellipsis")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+            }
+            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+            .padding(.horizontal, Space.tight)
+            .padding(.vertical, isInline ? 4 : 2)
+            .contentShape(miniBarShape)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .accessibilityLabel(DevicePresence.summary(localTitle: nil, others: all, now: now))
+        .accessibilityHint("Shows what you can do with it")
     }
 
     private func miniBarInline(_ snapshot: NowPlayingSnapshot) -> some View {
@@ -366,6 +474,8 @@ struct TransportBarView: View {
     private var notPlayingBar: some View {
         if let pending = coordinator.continueOffer(from: continueFrom) {
             offerBar(pending.offer, isLoading: pending.isLoading)
+        } else if let entry = presence.primary {
+            presenceBar(entry, all: presence.entries)
         } else {
             idleBar
         }
@@ -435,6 +545,7 @@ struct TransportBarView: View {
                 Button { continueFrom.dismiss(offer) } label: {
                     Label("Not Now", systemImage: "xmark")
                 }
+                DevicePresenceMenuItems(entries: presence.entries)
             }
         }
         .opacity(hasArrived(offer) ? 1 : 0)
@@ -602,6 +713,7 @@ struct TransportBarView: View {
                 Image(systemName: coordinator.currentOutput.isLocal ? "airplay.audio" : coordinator.currentOutput.symbolName)
             }
         }
+        DevicePresenceMenuItems(entries: otherDevices)
     }
 
     private func moreMenu(_ snapshot: NowPlayingSnapshot) -> some View {
@@ -689,7 +801,7 @@ struct TransportBarView: View {
 
     private func subtitle(for snapshot: NowPlayingSnapshot) -> String {
         guard let name = remoteOutputName(for: snapshot) else { return snapshot.displayArtist }
-        return "Playing on \(name)"
+        return snapshot.isAvailable ? "Playing on \(name)" : "Connecting to \(name)…"
     }
 
     private func identityContent(
@@ -735,7 +847,9 @@ struct TransportBarView: View {
 
     private func accessibilityLabel(for snapshot: NowPlayingSnapshot) -> String {
         var label = "Now Playing, \(snapshot.displayTitle) by \(snapshot.displayArtist)"
-        if let name = remoteOutputName(for: snapshot) { label += ", on \(name)" }
+        if let name = remoteOutputName(for: snapshot) {
+            label += snapshot.isAvailable ? ", on \(name)" : ", connecting to \(name)"
+        }
         if snapshot.isLoading {
             label += ", loading"
         } else if !snapshot.showsPauseGlyph {
@@ -743,6 +857,8 @@ struct TransportBarView: View {
         }
         if isAutoMixOn { label += ", Auto Mix on" }
         if let failure = snapshot.failureMessage { label += ", \(failure)" }
+        let others = DevicePresence.summary(localTitle: nil, others: otherDevices, now: Date())
+        if !others.isEmpty { label += ". \(others)" }
         return label
     }
 

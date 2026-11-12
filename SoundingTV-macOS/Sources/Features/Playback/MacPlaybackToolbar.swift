@@ -145,6 +145,7 @@ struct MacNowPlayingCapsule: View {
     @Environment(\.outputRouter) private var outputRouter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var continueFrom = ContinueFrom.shared
+    @ObservedObject private var presence = DevicePresenceModel.shared
     @State private var scrubTime: TimeInterval?
     @State private var isHovering = false
 
@@ -154,17 +155,25 @@ struct MacNowPlayingCapsule: View {
     static let height: CGFloat = 38
     static let artworkSize: CGFloat = 30
 
+    private var otherDevices: [DevicePresenceEntry] {
+        presence.others(excludingOutput: true)
+    }
+
     var body: some View {
         Group {
             if let track = model.track {
                 playing(track)
             } else if let offer = continueFrom.offer ?? continueFrom.loading {
                 offerCapsule(offer, isLoading: continueFrom.offer == nil)
+            } else if let entry = presence.primary {
+                presenceCapsule(entry, all: presence.entries)
             } else {
                 idle
             }
         }
         .animation(reduceMotion ? nil : .smooth, value: continueFrom.offer?.id)
+        .animation(reduceMotion ? nil : .smooth, value: presence.primary?.id)
+        .devicePresenceFailureAlert()
         .frame(width: width, height: Self.height)
         .contentShape(Capsule())
         .onChange(of: continueFrom.expandRequest) { _, _ in open() }
@@ -218,12 +227,84 @@ struct MacNowPlayingCapsule: View {
                 .foregroundStyle(MacSecondaryStyle())
                 .frame(height: 10)
             }
+
+            if !otherDevices.isEmpty {
+                presenceMenu(otherDevices)
+            }
         }
         .padding(.leading, (Self.height - Self.artworkSize) / 2)
-        .padding(.trailing, Self.height / 2)
+        .padding(.trailing, otherDevices.isEmpty ? Self.height / 2 : (Self.height - Self.artworkSize) / 2)
         .contextMenu {
             MacTrackContextMenu(track: track)
+            DevicePresenceMenuItems(entries: otherDevices)
         }
+    }
+
+    private func presenceMenu(_ entries: [DevicePresenceEntry]) -> some View {
+        let summary = DevicePresence.summary(localTitle: nil, others: entries, now: Date())
+        return Menu {
+            DevicePresenceMenuItems(entries: entries)
+        } label: {
+            DevicePresenceBadge(entries: entries, font: .subheadline)
+                .frame(minWidth: Self.artworkSize, minHeight: Self.artworkSize)
+                .contentShape(Capsule())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(summary)
+        .accessibilityLabel(summary)
+        .accessibilityHint("Shows your other devices")
+    }
+
+    private func presenceCapsule(_ entry: DevicePresenceEntry, all: [DevicePresenceEntry]) -> some View {
+        let now = Date()
+        let summary = DevicePresence.summary(localTitle: nil, others: all, now: now)
+        return Menu {
+            DevicePresenceMenuItems(entries: all)
+        } label: {
+            HStack(spacing: 8) {
+                ArtworkThumbnail(
+                    url: entry.artworkURL,
+                    identity: entry.trackID,
+                    size: Self.artworkSize,
+                    cornerRadius: 7,
+                    crownContext: entry.artist
+                )
+                .opacity(entry.isLive ? 1 : 0.7)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(entry.displayTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Image(systemName: entry.deviceClass.symbolName)
+                        Text(entry.caption(at: now))
+                            .lineLimit(1)
+                        if let more = DevicePresence.moreLabel(count: all.count) {
+                            Text(more)
+                                .fontWeight(.semibold)
+                                .monospacedDigit()
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(MacSecondaryStyle())
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.leading, (Self.height - Self.artworkSize) / 2)
+            .padding(.trailing, Self.height / 2)
+            .contentShape(Capsule())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .help(summary)
+        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 6)))
+        .accessibilityLabel(summary)
+        .accessibilityHint("Shows what you can do with it")
     }
 
     private func titleLine(_ track: Track) -> some View {
@@ -308,6 +389,7 @@ struct MacNowPlayingCapsule: View {
         .contextMenu {
             if !isLoading {
                 Button("Not Now", systemImage: "xmark") { continueFrom.dismiss(offer) }
+                DevicePresenceMenuItems(entries: presence.entries)
             }
         }
         .help("Open \(title) here, paused")
@@ -317,9 +399,11 @@ struct MacNowPlayingCapsule: View {
         .accessibilityHint("Opens Now Playing, paused")
     }
 
+    private static let appIcon = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+
     private var idle: some View {
         HStack(spacing: 8) {
-            Image(nsImage: NSApplication.shared.applicationIconImage)
+            Image(nsImage: Self.appIcon)
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 26, height: 26)
@@ -342,11 +426,32 @@ private struct MacRouteSubtitle: View {
 
     var body: some View {
         if router.isRemote {
-            Label("Playing on \(router.current.name)", systemImage: router.current.symbolName)
-                .labelStyle(.titleAndIcon)
-                .foregroundStyle(Color.scAccent)
+            MacRemoteRouteLabel(device: router.current, client: router.client, telemetry: router.client.telemetry)
         } else {
             Text(artist)
+        }
+    }
+}
+
+private struct MacRemoteRouteLabel: View {
+    let device: OutputDevice
+    @ObservedObject var client: CompanionClient
+    @ObservedObject var telemetry: CompanionTelemetry
+
+    var body: some View {
+        switch client.connectionPhase {
+        case .live:
+            Label("Playing on \(device.name)", systemImage: device.symbolName)
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(Color.scAccent)
+        case .connecting:
+            Label("Connecting to \(device.name)…", systemImage: device.symbolName)
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(.secondary)
+        case .unreachable:
+            Label("\(device.name) isn’t reachable", systemImage: "wifi.exclamationmark")
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(.secondary)
         }
     }
 }

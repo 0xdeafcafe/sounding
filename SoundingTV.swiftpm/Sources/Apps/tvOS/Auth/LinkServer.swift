@@ -1203,9 +1203,16 @@ final class SameAccountLinkAdvertiser: ObservableObject {
     private var stateSubscription: AnyCancellable?
     private var approvalSubscription: AnyCancellable?
     private var approvedName: String?
+    private var devicesSubscription: AnyCancellable?
 
     init() {
         server.playsChime = false
+        devicesSubscription = CompanionServer.shared.$devices
+            .map { $0.compactMap(\.deviceId) }
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshLinkedPeers() }
         stateSubscription = server.$state
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in self?.serverChanged(state) }
@@ -1222,7 +1229,6 @@ final class SameAccountLinkAdvertiser: ObservableObject {
     }
 
     func update(accountId: String?, isActive: Bool) {
-        Log.link.info("[SameAccountLink] update signedIn=\(accountId != nil, privacy: .public) active=\(isActive, privacy: .public) holds=\(self.holds, privacy: .public)")
         self.accountId = accountId
         self.isActive = isActive
         if isActive, accountId?.isEmpty == false { LinkOwnerKeyCloud.shared.refreshIfNeeded() }
@@ -1240,7 +1246,7 @@ final class SameAccountLinkAdvertiser: ObservableObject {
     }
 
     func refreshLinkedPeers() {
-        guard isAdvertising else { return }
+        guard isAdvertising, server.state == .advertising, server.linkApproval == nil else { return }
         begin()
     }
 
@@ -1292,20 +1298,61 @@ final class SameAccountLinkAdvertiser: ObservableObject {
 final class SameAccountPhoneBrowser: ObservableObject {
     static let shared = SameAccountPhoneBrowser()
 
+    struct Advertised: Equatable {
+        let serviceName: String
+        let entries: [String: String]?
+    }
+
     @Published private(set) var nearbyName: String?
 
     private nonisolated(unsafe) var browser: NWBrowser?
     private var accountId: String?
     private var linkedDeviceIds: [String] = []
+    private var adverts: [Advertised] = []
+    private var restart: Task<Void, Never>?
+    private var devicesSubscription: AnyCancellable?
 
-    func update(accountId: String?, linkedDeviceIds: [String]) {
-        self.linkedDeviceIds = linkedDeviceIds
+    init() {
+        devicesSubscription = CompanionServer.shared.$devices
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] devices in
+                self?.linkedDeviceIds = devices.compactMap(\.deviceId)
+                self?.rematch()
+            }
+    }
+
+    static func nearbyName(in adverts: [Advertised], accountId: String?, linkedDeviceIds: [String]) -> String? {
+        guard let accountId, !accountId.isEmpty else { return nil }
+        for advert in adverts.sorted(by: { $0.serviceName < $1.serviceName }) {
+            guard advert.serviceName.hasPrefix(BonjourConstants.nearbyServiceName + "-"),
+                  let entries = advert.entries,
+                  let hint = LinkAccountHint.decode(entries),
+                  hint.matches(accountId: accountId),
+                  !linkedDeviceIds.contains(where: { hint.isLinked(toDeviceId: $0) }) else { continue }
+            let name = entries[LinkAccountHint.nameKey]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return name.isEmpty ? "An iPhone" : String(name.prefix(LinkPeerIdentity.maximumNameLength))
+        }
+        return nil
+    }
+
+    func update(accountId: String?) {
         guard accountId != self.accountId || (accountId != nil && browser == nil) else { return }
         self.accountId = accountId
+        stopBrowsing()
+        guard accountId != nil else { return }
+        startBrowsing()
+    }
+
+    private func stopBrowsing() {
+        restart?.cancel()
+        restart = nil
         browser?.cancel()
         browser = nil
-        nearbyName = nil
-        guard accountId != nil else { return }
+        adverts = []
+        rematch()
+    }
+
+    private func startBrowsing() {
         let parameters = NWParameters()
         parameters.includePeerToPeer = true
         let newBrowser = NWBrowser(
@@ -1313,33 +1360,58 @@ final class SameAccountPhoneBrowser: ObservableObject {
             using: parameters
         )
         newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
-            Task { @MainActor in self?.handle(results) }
+            let adverts = results.compactMap(Self.advertised)
+            Task { @MainActor in self?.receive(adverts) }
+        }
+        newBrowser.stateUpdateHandler = { [weak self] state in
+            Task { @MainActor in self?.browserChanged(state) }
         }
         newBrowser.start(queue: .main)
         browser = newBrowser
     }
 
-    private func handle(_ results: Set<NWBrowser.Result>) {
-        guard let accountId else { return }
-        let match = results.first { result in
-            guard case .service(let name, _, _, _) = result.endpoint,
-                  name.hasPrefix(BonjourConstants.nearbyServiceName + "-"),
-                  case .bonjour(let record) = result.metadata,
-                  let advert = LinkAccountHint.decode(record),
-                  advert.matches(accountId: accountId) else { return false }
-            return !linkedDeviceIds.contains { advert.isLinked(toDeviceId: $0) }
+    private nonisolated static func advertised(_ result: NWBrowser.Result) -> Advertised? {
+        guard case .service(let name, _, _, _) = result.endpoint,
+              name.hasPrefix(BonjourConstants.nearbyServiceName + "-") else { return nil }
+        if case .bonjour(let record) = result.metadata { return Advertised(serviceName: name, entries: record.dictionary) }
+        return Advertised(serviceName: name, entries: nil)
+    }
+
+    private func browserChanged(_ state: NWBrowser.State) {
+        switch state {
+        case .failed(let error):
+            Log.link.error("[SameAccountLink] nearby browser failed: \(String(describing: error), privacy: .public)")
+            browser?.cancel()
+            browser = nil
+            restart?.cancel()
+            restart = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled, let self, self.accountId != nil, self.browser == nil else { return }
+                self.startBrowsing()
+            }
+        case .waiting(let error):
+            Log.link.error("[SameAccountLink] nearby browser waiting: \(String(describing: error), privacy: .public)")
+        default:
+            break
         }
-        var name: String?
-        if let match, case .bonjour(let record) = match.metadata,
-           case .string(let value)? = record.getEntry(for: LinkAccountHint.nameKey), !value.isEmpty {
-            name = String(value.prefix(LinkPeerIdentity.maximumNameLength))
-        } else if match != nil {
-            name = "An iPhone"
+    }
+
+    private func receive(_ adverts: [Advertised]) {
+        guard browser != nil else { return }
+        if adverts != self.adverts {
+            let withoutTXT = adverts.filter { $0.entries == nil }.count
+            Log.link.info("[SameAccountLink] nearby adverts: \(adverts.count, privacy: .public), without TXT: \(withoutTXT, privacy: .public)")
         }
+        self.adverts = adverts
+        rematch()
+    }
+
+    private func rematch() {
+        let name = Self.nearbyName(in: adverts, accountId: accountId, linkedDeviceIds: linkedDeviceIds)
         if name != nearbyName {
             Log.link.info("[SameAccountLink] nearby same-account device: \(name ?? "none", privacy: .public)")
+            nearbyName = name
         }
-        nearbyName = name
     }
 }
 

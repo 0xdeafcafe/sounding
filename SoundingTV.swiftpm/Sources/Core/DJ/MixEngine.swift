@@ -239,7 +239,7 @@ final class MixEngine: ObservableObject {
 
     let core: MixRenderCore
     private let engine = AVAudioEngine()
-    private var outputVolume: Double = PlayerService.storedVolume()
+    private var outputVolume: Double = PlayerService.launchVolume()
     private let sourceNode: AVAudioSourceNode
     var sampleRate: Double { core.sampleRate }
 

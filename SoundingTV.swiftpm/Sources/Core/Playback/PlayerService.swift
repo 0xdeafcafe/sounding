@@ -219,7 +219,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     @Published private(set) var outputRoute: AudioOutputRoute = .unknown
     @Published private(set) var activeCollectionId: String?
     @Published private(set) var queueSource: PlaybackQueueSource?
-    @Published private(set) var volume: Double = PlayerService.storedVolume()
+    @Published private(set) var volume: Double = PlayerService.launchVolume()
     private var loudnessGain: Double = 1
     var streamLoudnessGain: Double { loudnessGain }
     private var sleepFadeGain: Double = 1
@@ -1091,6 +1091,9 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             }
         }
 
+        await waitForPlaybackAccount(track: track)
+        guard playbackPipeline.accepts(token) else { return }
+
         if startsInEngine {
             teardownAVPlayer(invalidatePipeline: false, keepingParked: true)
             _ = transitionPlayback(
@@ -1183,6 +1186,29 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             }
             finishPlaybackFailure(error, token: token)
             teardownPeerContent()
+        }
+    }
+
+    private func playbackAccountReadiness(for track: Track) -> PlaybackAccountReadiness {
+        let credentials = SoundCloudCredentialSource.shared
+        return PlaybackAccountReadiness.decision(
+            trackIsLocal: track.isLocal,
+            isSignedOut: credentials.isSignedOut,
+            isEstablishingSession: credentials.isEstablishingSessionAtLaunch,
+            hasAccessToken: SubscriptionService.shared.hasAuthenticatedSession
+        )
+    }
+
+    private func waitForPlaybackAccount(track: Track) async {
+        #if DEBUG
+        guard !isVisualFixtureInstalled else { return }
+        #endif
+        guard playbackAccountReadiness(for: track) == .waitForAccount else { return }
+        Log.playback.info("play waits for the account before resolving \(track.id, privacy: .public)")
+        let deadline = ContinuousClock.now + PlaybackAccountReadiness.maximumWait
+        while playbackAccountReadiness(for: track) == .waitForAccount, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(250))
+            if Task.isCancelled { return }
         }
     }
 
@@ -2523,9 +2549,6 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
             CollectionQualityOverrideStore.shared.policy(for: $0)
         }
         collectionAutoMixRequested = snapshot.collectionAutoMixWasActive == true
-        if snapshot.djSessionWasRequested == true {
-            djModeRequested = true
-        }
         if snapshot.autoMixWasActive == true, !collectionAutoMixRequested {
             autoMixSettingEnabled = true
         }
@@ -3054,6 +3077,25 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
     nonisolated static func clampedVolume(_ value: Double) -> Double {
         guard value.isFinite else { return 1 }
         return min(1, max(0, value))
+    }
+
+    nonisolated static let audibleLaunchVolumeFloor = 0.05
+
+    nonisolated static var hasLocalVolumeControl: Bool {
+        #if os(tvOS)
+        false
+        #else
+        true
+        #endif
+    }
+
+    nonisolated static func launchVolume(stored: Double, hasLocalVolumeControl: Bool) -> Double {
+        guard !hasLocalVolumeControl, stored < audibleLaunchVolumeFloor else { return stored }
+        return 1
+    }
+
+    static func launchVolume(_ defaults: UserDefaults = .standard) -> Double {
+        launchVolume(stored: storedVolume(defaults), hasLocalVolumeControl: hasLocalVolumeControl)
     }
 
     func setVolume(_ value: Double) {

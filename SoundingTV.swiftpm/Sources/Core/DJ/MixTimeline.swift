@@ -192,6 +192,7 @@ struct MixTransitionTimelineInput: Sendable {
 
 extension MixTimeline {
     static let echoDryCutSeconds: TimeInterval = 0.005
+    static let filterLowReturnBeats = 4.0
 
     static func transition(_ input: MixTransitionTimelineInput) -> MixTimeline {
         if let move = input.move { return Self.move(move, input) }
@@ -258,7 +259,9 @@ extension MixTimeline {
             let swapOver = min(input.bassSwapSeconds ?? min(0.5, window * 0.2), halfBeat)
             let at = min(max(0, swapAt), max(0, window - swapOver))
             timeline.add(at, .ramp(.eqLow(outgoing), to: MixEngine.bassKillDecibels, frames: frames(swapOver), curve: .power), sampleRate: sr)
-            timeline.add(at, .ramp(.eqLow(incoming), to: 0, frames: frames(swapOver), curve: .power), sampleRate: sr)
+            let lowReturn = input.filterAccent == nil ? swapOver : max(swapOver, Self.filterLowReturnBeats * halfBeat * 2)
+            let lowFrom = max(0, min(lowReturn > swapOver ? at - halfBeat : at, window - lowReturn))
+            timeline.add(lowFrom, .ramp(.eqLow(incoming), to: 0, frames: frames(lowReturn), curve: .power), sampleRate: sr)
             switch input.filterAccent {
             case .outgoingFilterClose:
                 let sweepFrom = input.phaseLock ? window * 0.5 : 0

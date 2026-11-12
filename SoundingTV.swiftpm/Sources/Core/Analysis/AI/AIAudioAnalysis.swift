@@ -138,6 +138,9 @@ extension BarProfile {
             out.bands = map.flatMap { bands[($0 * 4)..<($0 * 4 + 4)] }
         }
         if let tonality, tonality.count == source.count { out.tonality = pick(tonality) }
+        if let beats, beats.count == source.count * BarProfile.beatsPerBar {
+            out.beats = map.flatMap { beats[($0 * BarProfile.beatsPerBar)..<($0 * BarProfile.beatsPerBar + BarProfile.beatsPerBar)] }
+        }
         return out
     }
 }

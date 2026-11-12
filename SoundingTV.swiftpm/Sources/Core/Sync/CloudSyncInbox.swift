@@ -165,7 +165,7 @@ final class SynchronizationGateway {
         switch type {
         case .queueState, .playbackState, .djState:
             return .companionState
-        case .cueSync, .likesSync:
+        case .cueSync, .likesSync, .analysisSync:
             return .companionBulk
         default:
             if type.isQueueCommand || type.isControlCommand {

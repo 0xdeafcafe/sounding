@@ -77,9 +77,25 @@ struct DJContentBounds: Equatable, Sendable {
         let sorted = profile.level.filter { $0 > -89 }.sorted()
         guard sorted.count >= 8 else { return false }
         let body = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.75))]
+        if beatFalls(track, from: from, to: to) { return true }
         return track.barStarts.enumerated().contains { index, start in
             start >= from - 0.05 && start < to && profile.level[index] < body - handoverDipDecibels
         }
+    }
+
+    static let beatFallDecibels: Float = 6
+
+    static func beatFalls(_ track: TrackFeatures, from: TimeInterval, to: TimeInterval) -> Bool {
+        let per = BarProfile.beatsPerBar
+        guard let beats = track.barProfile?.beats, beats.count == track.barStarts.count * per else { return false }
+        for (index, start) in track.barStarts.enumerated() where start >= from - 0.05 && start < to {
+            for k in 0..<per {
+                let i = index * per + k
+                guard i > 0, beats[i - 1] > -89 else { continue }
+                if beats[i - 1] - beats[i] > beatFallDecibels { return true }
+            }
+        }
+        return false
     }
 
     static func dropsOut(_ track: TrackFeatures, from: TimeInterval, to: TimeInterval) -> Bool {
@@ -233,7 +249,8 @@ extension TrackFeatures {
             return BarProfile(
                 level: Array(p.level.prefix(n)), density: Array(p.density.prefix(n)),
                 loop4: Array(p.loop4.prefix(n)), loop8: Array(p.loop8.prefix(n)),
-                bands: p.bands.map { Array($0.prefix(n * 4)) }, tonality: p.tonality.map { Array($0.prefix(n)) }
+                bands: p.bands.map { Array($0.prefix(n * 4)) }, tonality: p.tonality.map { Array($0.prefix(n)) },
+                beats: p.beats.map { Array($0.prefix(n * BarProfile.beatsPerBar)) }
             )
         }
         var copy = TrackFeatures(

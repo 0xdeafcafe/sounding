@@ -1,5 +1,7 @@
+#include <stdbool.h>
 #include <stdlib.h>
 #include "mlx/c/stream.h"
+#include "mlx/c/ops.h"
 
 mlx_stream mlx_stream_new_thread_unsafe(mlx_device dev) { return mlx_stream_new_device(dev); }
 
@@ -31,6 +33,25 @@ MISSING(mlx_trunc)
 MISSING(mlx_unique)
 MISSING(mlx_unstack_axis)
 MISSING(mlx_vecdot)
-MISSING(mlx_linspace_endpoint)
-MISSING(mlx_ones_like_dtype)
-MISSING(mlx_zeros_like_dtype)
+
+int mlx_linspace_endpoint(mlx_array* res, double start, double stop, int num, bool endpoint, mlx_dtype dtype, const mlx_stream s) {
+    if (endpoint || num < 2) return mlx_linspace(res, start, stop, num, dtype, s);
+    double last = start + (stop - start) * (double)(num - 1) / (double)num;
+    return mlx_linspace(res, start, last, num, dtype, s);
+}
+
+int mlx_ones_like_dtype(mlx_array* res, const mlx_array a, mlx_dtype dtype, const mlx_stream s) {
+    mlx_array t = mlx_array_new();
+    int rc = mlx_ones_like(&t, a, s);
+    if (rc == 0) rc = mlx_astype(res, t, dtype, s);
+    mlx_array_free(t);
+    return rc;
+}
+
+int mlx_zeros_like_dtype(mlx_array* res, const mlx_array a, mlx_dtype dtype, const mlx_stream s) {
+    mlx_array t = mlx_array_new();
+    int rc = mlx_zeros_like(&t, a, s);
+    if (rc == 0) rc = mlx_astype(res, t, dtype, s);
+    mlx_array_free(t);
+    return rc;
+}

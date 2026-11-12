@@ -50,13 +50,27 @@ struct TVDeckHead: View {
         .accessibilityLabel(accessibilityText(deck))
     }
 
+    @ViewBuilder
     private func artwork(_ deck: DeckLiveSnapshot) -> some View {
-        ArtworkImage(url: deck.track?.largeArtworkURL ?? deck.track?.artworkURL, variant: .hero, identity: deck.trackId ?? "decks.\(slot.rawValue)")
-            .aspectRatio(1, contentMode: .fill)
-            .frame(width: 248, height: 248)
-            .clipShape(RoundedRectangle(cornerRadius: Corner.panel, style: .continuous))
-            .shadow(color: .black.opacity(0.45), radius: 30, y: 16)
-            .matchedGeometryEffect(id: "art.\(deck.trackId ?? slot.rawValue)", in: namespace)
+        if let track = deck.track {
+            ArtworkImage(url: track.largeArtworkURL ?? track.artworkURL, variant: .hero, identity: track.id)
+                .aspectRatio(1, contentMode: .fill)
+                .frame(width: 248, height: 248)
+                .clipShape(RoundedRectangle(cornerRadius: Corner.panel, style: .continuous))
+                .shadow(color: .black.opacity(0.45), radius: 30, y: 16)
+                .matchedGeometryEffect(id: "art.\(track.id)", in: namespace)
+        } else {
+            RoundedRectangle(cornerRadius: Corner.panel, style: .continuous)
+                .fill(Color.black.opacity(0.26))
+                .overlay {
+                    Image(systemName: "opticaldisc")
+                        .font(.system(size: 64, weight: .regular))
+                        .foregroundStyle(Color.scTextTertiary)
+                }
+                .frame(width: 248, height: 248)
+                .matchedGeometryEffect(id: "art.\(slot.rawValue)", in: namespace)
+                .accessibilityHidden(true)
+        }
     }
 
     private func details(_ deck: DeckLiveSnapshot) -> some View {

@@ -242,3 +242,23 @@ private struct TVDecksBackdropLayer: View {
         .accessibilityHidden(true)
     }
 }
+
+enum TVDecksEntry: Equatable {
+    case stayOnNowPlaying
+    case openDecks
+    case configureFirst
+
+    enum Event: Equatable {
+        case nowPlayingAppeared
+        case choseDecks
+    }
+
+    static func entry(for event: Event, sessionIsActive: Bool, hasStartOptions: Bool) -> TVDecksEntry {
+        switch event {
+        case .nowPlayingAppeared:
+            return .stayOnNowPlaying
+        case .choseDecks:
+            return sessionIsActive || hasStartOptions ? .openDecks : .configureFirst
+        }
+    }
+}

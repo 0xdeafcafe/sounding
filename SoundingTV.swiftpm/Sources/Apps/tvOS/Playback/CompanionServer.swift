@@ -42,12 +42,14 @@ final class CompanionServer: ObservableObject {
         let contentServer: PeerContentServer
         var listener: NWListener?
         var listenerRestart: Task<Void, Never>?
+        var isListening = false
         var replayGuard = ReplayGuard()
         var sessionReplayGuard = ReplayGuard()
         var cueReplayGuard = ReplayGuard()
         var likesReplayGuard = ReplayGuard()
         var localMusicReplayGuard = ReplayGuard()
         var continueSessionReplayGuard = ReplayGuard()
+        var analysisReplayGuard = ReplayGuard()
 
         init(sessionId: String, secret: Data, contentServer: PeerContentServer) {
             self.sessionId = sessionId
@@ -60,6 +62,7 @@ final class CompanionServer: ObservableObject {
             listenerRestart = nil
             listener?.cancel()
             listener = nil
+            isListening = false
         }
     }
 
@@ -73,6 +76,8 @@ final class CompanionServer: ObservableObject {
         var cuePushHighWaterMark: Int64 = 0
         var isReady = false
         var hasContinueSession = false
+        var sendsHeartbeats = false
+        let connectedAt = ContinuousClock.now
         var lastActivityAt = ContinuousClock.now
         var decksLeaseUntil: ContinuousClock.Instant?
 
@@ -473,9 +478,10 @@ final class CompanionServer: ObservableObject {
             )
 
             let sessionId = session.sessionId
+            let listenerID = ObjectIdentifier(newListener)
             newListener.stateUpdateHandler = { [weak self] state in
                 Task { @MainActor in
-                    self?.handleListenerState(state, sessionId: sessionId)
+                    self?.handleListenerState(state, sessionId: sessionId, listenerID: listenerID)
                 }
             }
 
@@ -497,16 +503,58 @@ final class CompanionServer: ObservableObject {
         }
     }
 
-    private func handleListenerState(_ state: NWListener.State, sessionId: String) {
+    private func handleListenerState(_ state: NWListener.State, sessionId: String, listenerID: ObjectIdentifier) {
+        guard let session = sessions[sessionId], let listener = session.listener,
+              ObjectIdentifier(listener) == listenerID else { return }
         switch state {
         case .ready:
+            session.isListening = true
             Log.link.info("[CompanionServer] Advertising remote control service")
         case .failed(let error):
+            session.isListening = false
             lastError = "Remote listener failed: \(error.localizedDescription)"
             scheduleListenerRestart(sessionId: sessionId)
+        case .cancelled:
+            session.isListening = false
+            Log.link.info("[CompanionServer] remote control service stopped unexpectedly; restarting")
+            scheduleListenerRestart(sessionId: sessionId)
+        case .waiting(let error):
+            session.isListening = false
+            Log.link.info("[CompanionServer] remote control service waiting: \(error.localizedDescription, privacy: .public)")
         default:
             break
         }
+    }
+
+    func setActive(_ active: Bool) {
+        guard active, !sessions.isEmpty else { return }
+        sweepUnresponsivePeers()
+        for session in sessions.values where !session.isListening && session.listenerRestart == nil {
+            Log.link.info("[CompanionServer] back in the foreground; restarting the remote control service")
+            startListener(for: session)
+        }
+        for peer in readyPeers {
+            sendSnapshot(to: peer)
+            sendDeviceStatus(to: peer)
+        }
+    }
+
+    private func sweepUnresponsivePeers() {
+        let now = ContinuousClock.now
+        for peer in Array(peers.values) {
+            let unresponsive = CompanionHeartbeat.peerIsUnresponsive(
+                isReady: peer.isReady,
+                sendsHeartbeats: peer.sendsHeartbeats,
+                connectedFor: Self.seconds(now - peer.connectedAt),
+                silentFor: Self.seconds(now - peer.lastActivityAt)
+            )
+            if unresponsive { removePeer(peer, reason: "stopped responding") }
+        }
+    }
+
+    private static func seconds(_ duration: Duration) -> TimeInterval {
+        let parts = duration.components
+        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
     }
 
     private func scheduleListenerRestart(sessionId: String) {
@@ -686,6 +734,8 @@ final class CompanionServer: ObservableObject {
             handleLocalMusicOffer(message, from: peer, session: session)
         } else if message.type == .continueSession {
             handleContinueSession(message, from: peer, session: session)
+        } else if message.type == .analysisSync {
+            handleAnalysisSync(message, from: peer, session: session)
         } else if message.type == .authHandoffSessionOffer {
             handleAuthHandoffSessionOffer(message, from: peer, session: session)
         } else if message.type == .linkRevoke {
@@ -693,6 +743,7 @@ final class CompanionServer: ObservableObject {
         } else if message.type == .sessionRevoke {
             handleSessionRevoke(message, from: peer, session: session)
         } else if message.type == .acknowledgment {
+            peer.sendsHeartbeats = true
             return
         } else {
             sendError("Unsupported message", to: peer)
@@ -736,6 +787,22 @@ final class CompanionServer: ObservableObject {
         commands.prepare(lane: peer.id) { [weak self] in
             await self?.synchronization.adoptNearbyCueState(body)
             return nil
+        }
+    }
+
+    private func handleAnalysisSync(_ message: TokenTransferMessage, from peer: Peer, session: TrustedSession) {
+        guard let payload = message.analysisSync,
+              payload.verify(sessionId: session.sessionId, secret: session.secret),
+              payload.isFresh(),
+              session.analysisReplayGuard.admit(payload.nonce),
+              let body = AnalysisPeerBody.decode(payload.body),
+              payload.recordCount == body.records.count else {
+            sendError("Analysis sync rejected", to: peer)
+            return
+        }
+        Task.detached(priority: .utility) {
+            let adopted = await AnalysisPeerPush.adopt(body, into: AnalysisCache.shared)
+            Log.analysis.info("Adopted \(adopted, privacy: .public) of \(body.records.count, privacy: .public) analysis records over Companion")
         }
     }
 
@@ -1590,6 +1657,7 @@ final class CompanionServer: ObservableObject {
     }
 
     private func sendLivenessPing() {
+        sweepUnresponsivePeers()
         let targets = readyPeers
         guard !targets.isEmpty else { return }
         if playbackFrames.isEmpty { buildPlaybackFrame() }
