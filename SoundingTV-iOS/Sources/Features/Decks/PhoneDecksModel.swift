@@ -33,6 +33,7 @@ final class PhoneDecksModel: ObservableObject {
 
     private init() {
         surface.model = self
+        surface.attachControllers()
         #if DEBUG
         if let name = ProcessInfo.processInfo.environment["SOUNDING_TV_DJ_FIXTURE"] {
             fixture = Self.fixture(named: name)

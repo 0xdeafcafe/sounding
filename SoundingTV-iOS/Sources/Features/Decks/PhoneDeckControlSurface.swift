@@ -1,7 +1,8 @@
 import Foundation
+import UIKit
 
 @MainActor
-final class PhoneDeckControlSurface: DeckControlSurface {
+final class PhoneDeckControlSurface: DeckControlSurface, DeckFeedbackSource {
     weak var model: PhoneDecksModel?
 
     private var engine: MixEngine { MixEngine.shared }
@@ -78,6 +79,36 @@ final class PhoneDeckControlSurface: DeckControlSurface {
     }
 
     func jog(_ group: DeckGroup, ticks: Double) {}
+
+    func feedbackState(for deck: MixEngine.Deck) -> DeckFeedbackState {
+        let state = engine[deck]
+        var feedback = DeckFeedbackState()
+        feedback.isLoaded = state.status.isReady
+        feedback.isPlaying = state.isPlaying
+        feedback.isCueing = cuePreviewing.contains(deck)
+        feedback.isLooping = state.loopStartSeconds != nil
+        feedback.isSynced = model?.synced.contains(deck) == true
+        feedback.hotCues = Set((0..<DeckControl.hotCueCount).filter { model?.hotCue($0, on: deck) != nil })
+        feedback.position = engine.currentPlayhead(for: deck)
+        feedback.duration = state.duration
+        feedback.level = Double(state.level)
+        feedback.beatPhase = DeckFeedbackSync.beatPhase(deck, at: feedback.position, in: engine)
+        return feedback
+    }
+
+    func attachControllers() {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+        DJControllerHub.shared.attach(
+            surface: self,
+            access: {
+                ControllerDeckAccess(allowsStreaming: SubscriptionService.shared.djGearDenial(.controllers, isSoundCloudTrack: true, personalUnlocked: false) == nil)
+            },
+            content: { [weak self] deck in
+                ControllerDeckContent(source: self?.model?.tracks[deck]?.source)
+            }
+        )
+        DJControllerHub.shared.start()
+    }
 
     // MARK: Transport
 

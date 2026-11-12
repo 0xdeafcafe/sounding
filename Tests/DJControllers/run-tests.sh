@@ -18,6 +18,7 @@ xcrun swiftc -swift-version 6 -O -o "$WORK/dj-controller-tests" \
   "$CORE/DJControllers/ControllerMIDIMessage.swift" \
   "$CORE/DJControllers/ControllerMapping.swift" \
   "$CORE/DJControllers/ControllerProfile.swift" \
+  "$CORE/DJControllers/ControllerFeedback.swift" \
   "$CORE/DJControllers/ControllerDeckAccess.swift" \
   "$CORE/DJControllers/ControllerInputRouter.swift"
 

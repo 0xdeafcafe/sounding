@@ -16,6 +16,7 @@ struct PhoneDecksView: View {
     @State private var picking: PhoneDeckPickTarget?
     @State private var showingView = false
     @State private var showingPlayOn = false
+    @State private var showingControllers = false
     @State private var tempoKey: TempoKeyRequest?
     @State private var notice: String?
     @State private var place: Place?
@@ -71,6 +72,9 @@ struct PhoneDecksView: View {
         .sheet(isPresented: $showingPlayOn) {
             ConnectSheet(onDone: { showingPlayOn = false })
                 .environmentObject(coordinator)
+        }
+        .sheet(isPresented: $showingControllers) {
+            DJControllersSheet()
         }
         .sheet(item: $tempoKey, onDismiss: { refreshAnalysis() }) { request in
             TrackTempoKeySheet(track: request.track)
@@ -352,6 +356,9 @@ struct PhoneDecksView: View {
             }
             Section {
                 Button("Decks View\u{2026}", systemImage: "slider.horizontal.3") { showingView = true }
+                if UIDevice.current.userInterfaceIdiom == .pad {
+                    Button("Controllers\u{2026}", systemImage: SidebarSymbol.hardware) { showingControllers = true }
+                }
                 if DecksOrientationLock.isAvailable {
                     Toggle("Lock to Landscape", systemImage: "lock.rotation", isOn: $locksLandscape)
                 }

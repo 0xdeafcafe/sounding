@@ -25,6 +25,10 @@ struct ControllerMIDIMessage: Hashable, Sendable {
     var data1: UInt8 { kind == .pitchBend ? UInt8(value & 0x7F) : number }
     var data2: UInt8 { kind == .pitchBend ? UInt8((value >> 7) & 0x7F) : UInt8(min(value, 127)) }
 
+    var universalPacketWord: UInt32 {
+        (UInt32(0x2) << 28) | (UInt32(status) << 16) | (UInt32(data1) << 8) | UInt32(data2)
+    }
+
     init(kind: Kind, channel: UInt8, number: UInt8, value: UInt16) {
         self.kind = kind
         self.channel = channel & 0x0F

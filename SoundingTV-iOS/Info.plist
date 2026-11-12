@@ -106,6 +106,7 @@
 	<array>
 		<string>_soundingtv._tcp</string>
 		<string>_sonos._tcp</string>
+		<string>_apple-midi._udp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan the code on your Apple TV to link it.</string>
@@ -116,7 +117,7 @@
 	<key>NSHomeKitUsageDescription</key>
 	<string>Sounding sets the lights you choose to follow the music: colours from the artwork, brightness from the energy.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Connect to your Apple TV and Sonos speakers over your local network.</string>
+	<string>Connect to your Apple TV, Sonos speakers and network MIDI controllers over your local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Sounding listens only when you ask: to name a song playing around you with Shazam, or to hear your Apple TV’s chime when you sign it in. No audio is kept.</string>
 	<key>NSSupportsLiveActivities</key>

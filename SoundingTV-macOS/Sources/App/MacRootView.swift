@@ -1742,26 +1742,8 @@ private struct HardwarePane: View {
 
     var body: some View {
         Form {
-            SwiftUI.Section {
-                if let error = midi.lastError {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
-                } else if midi.controllers.isEmpty {
-                    Text("No controllers connected")
-                        .foregroundStyle(MacSecondaryStyle())
-                } else {
-                    ForEach(midi.controllers) { controller in
-                        LabeledContent(controller.name) {
-                            Text(controller.profileName ?? "Not Supported")
-                                .foregroundStyle(MacSecondaryStyle())
-                        }
-                    }
-                }
-            } header: {
-                Text("Controllers")
-            } footer: {
-                Text("Supported controllers work in Decks as soon as you plug them in.")
-            }
+            DJControllersSection(hub: midi)
+            NetworkMIDISection(hub: midi)
 
             SwiftUI.Section {
                 LabeledContent("Status", value: playersStatus)

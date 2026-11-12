@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-final class MacDeckControlSurface: DeckControlSurface {
+final class MacDeckControlSurface: DeckControlSurface, DeckFeedbackSource {
     static let shared = MacDeckControlSurface()
 
     private var engine: MixEngine { MixEngine.shared }
@@ -147,6 +147,22 @@ final class MacDeckControlSurface: DeckControlSurface {
     }
 
     // MARK: Jog and loops
+
+    func feedbackState(for deck: MixEngine.Deck) -> DeckFeedbackState {
+        let state = engine[deck]
+        var feedback = DeckFeedbackState()
+        feedback.isLoaded = state.status.isReady
+        feedback.isPlaying = state.isPlaying
+        feedback.isCueing = console.cuePreviewing[deck.rawValue] == true
+        feedback.isLooping = state.loopStartSeconds != nil
+        feedback.hotCues = Set((console.hotCues[deck.rawValue] ?? []).compactMap(\.hotCueIndex))
+        feedback.position = engine.currentPlayhead(for: deck)
+        feedback.duration = state.duration
+        feedback.level = Double(state.level)
+        feedback.isSynced = DeckFeedbackSync.isTempoMatched(deck, in: engine)
+        feedback.beatPhase = DeckFeedbackSync.beatPhase(deck, at: feedback.position, in: engine)
+        return feedback
+    }
 
     private static let maxBendFraction = 0.08
     private static let ticksForMaxBend = 64.0
