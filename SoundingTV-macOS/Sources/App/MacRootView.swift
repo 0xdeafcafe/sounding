@@ -1517,7 +1517,7 @@ private struct MacSidebar: View {
     }
 
     private var sourceList: some View {
-        List {
+        List(selection: listSelection) {
             Section {
                 ForEach(primary) { navigationRow(for: $0) }
             }
@@ -1537,11 +1537,28 @@ private struct MacSidebar: View {
             playlistsSection
         }
         .listStyle(.sidebar)
-        .tint(Color.scAccent)
-        .macListKeyboardSelection(ids: selectableSections, selection: $selection)
         .dropDestination(for: PlaylistReference.self) { items, _ in
             withAnimation(.snappy) { pins.acceptDragOut(items.map(\.child)) }
         }
+    }
+
+    private var listSelection: Binding<MacRootView.Section?> {
+        Binding(
+            get: { selection },
+            set: { chosen in
+                guard let chosen, chosen != selection else { return }
+                if case .playlist(let id) = chosen, let playlist = sidebarPlaylist(id) {
+                    onOpenPlaylist(playlist)
+                } else {
+                    selection = chosen
+                }
+            }
+        )
+    }
+
+    private func sidebarPlaylist(_ id: String) -> Playlist? {
+        for case .playlist(let playlist) in pinnedItems where playlist.id == id { return playlist }
+        return folderStore.playlist(id)
     }
 
     private var pinnedItems: [SidebarPinItem] {
@@ -1578,11 +1595,9 @@ private struct MacSidebar: View {
     }
 
     private func playlistRow(_ playlist: Playlist, systemImage: String) -> some View {
-        MacSidebarLabel(playlist.title, systemImage: systemImage)
-            .macSelectableRow(MacRootView.Section.playlist(id: playlist.id), selection: Binding(
-                get: { selection },
-                set: { _ in onOpenPlaylist(playlist) }
-            ))
+        Label(playlist.title, systemImage: systemImage)
+            .lineLimit(1)
+            .tag(MacRootView.Section.playlist(id: playlist.id))
             .contextMenu { MacPlaylistContextMenu(playlist: playlist) }
     }
 
@@ -1626,23 +1641,6 @@ private struct MacSidebar: View {
         Button(isShown.wrappedValue ? "Hide \(title)" : "Show \(title)") { isShown.wrappedValue.toggle() }
     }
 
-    private var selectableSections: [MacRootView.Section] {
-        var sections = primary
-        if arePinsExpanded {
-            for item in pinnedItems {
-                switch item {
-                case .playlist(let playlist): sections.append(.playlist(id: playlist.id))
-                case .folder(let folder): sections.append(.pinnedFolder(id: folder.id))
-                }
-            }
-        }
-        if isLibraryExpanded { sections += libraryItems }
-        if arePlaylistsExpanded {
-            sections += [.playlists, .likes, .mixes]
-        }
-        return sections
-    }
-
     private var playlistsSection: some View {
         Section(isExpanded: $arePlaylistsExpanded) {
             navigationRow(for: .playlists)
@@ -1657,8 +1655,9 @@ private struct MacSidebar: View {
     }
 
     private func navigationRow(for section: MacRootView.Section) -> some View {
-        MacSidebarLabel(section.title, systemImage: section.symbol)
-            .macSelectableRow(section, selection: $selection)
+        Label(section.title, systemImage: section.symbol)
+            .lineLimit(1)
+            .tag(section)
     }
 
     @ViewBuilder
@@ -1695,10 +1694,8 @@ private struct MacSidebar: View {
         .buttonStyle(.plain)
         .macHoverRowHighlight()
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.bottom, 8)
         .frame(maxWidth: .infinity)
-        .background(MacVisualEffectBackground(role: .sidebar))
-        .overlay(alignment: .top) { Divider() }
         .accessibilityLabel(accountStatus.map { "\(accountTitle), \($0)" } ?? accountTitle)
         .accessibilityHint(credentials.hasConfirmedAccount ? "Opens Settings" : "Signs in to SoundCloud")
     }
@@ -1768,11 +1765,12 @@ private struct MacPinnedFolderRow<PlaylistRow: View>: View {
                 }
             }
         } label: {
-            MacSidebarLabel(folder.name, systemImage: SidebarSymbol.folder)
-                .macSelectableRow(MacRootView.Section.pinnedFolder(id: folder.id), selection: $selection)
+            Label(folder.name, systemImage: SidebarSymbol.folder)
+                .lineLimit(1)
                 .contextMenu { PlaylistFolderMenuActions(folder: folder) }
                 .playlistFolderDropTarget(folder.id, highlightCorner: 6)
         }
+        .tag(MacRootView.Section.pinnedFolder(id: folder.id))
     }
 }
 
@@ -1925,18 +1923,17 @@ struct MacSettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            List {
+            List(selection: selection) {
                 ForEach(Array(MacSettingsPane.sidebarGroups.enumerated()), id: \.offset) { _, group in
                     Section {
                         ForEach(group) { pane in
                             SettingsIconLabel(pane.rawValue, icon: pane.icon)
-                                .macSelectableRow(pane, selection: selection)
+                                .tag(pane)
                         }
                     }
                 }
             }
             .listStyle(.sidebar)
-            .macListKeyboardSelection(ids: MacSettingsPane.sidebarGroups.flatMap { $0 }, selection: selection)
             .navigationSplitViewColumnWidth(min: 224, ideal: 232, max: 264)
             .toolbar(removing: .sidebarToggle)
         } detail: {
@@ -2047,7 +2044,6 @@ extension MacRootView {
                 HStack(spacing: 0) {
                     MacSidebar(selection: .constant(section))
                         .frame(width: 240)
-                        .background(MacVisualEffectBackground(role: .sidebar).ignoresSafeArea())
                     Divider()
                     Spacer()
                 }
