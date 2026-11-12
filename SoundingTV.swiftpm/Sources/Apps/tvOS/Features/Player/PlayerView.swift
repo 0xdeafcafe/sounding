@@ -23,6 +23,8 @@ struct PlayerView: View {
     @State private var showingLyrics = false
     @State private var setlistLocalFileURL: URL?
     @State private var safeTop: CGFloat = 0
+    @State private var pinnedTop: CGFloat = 0
+    @State private var mainDisabled = false
     @FocusState private var focus: NPFocus?
     @StateObject private var commentsStore = TrackCommentsStore()
     @StateObject private var engagement = TrackEngagementStore()
@@ -33,16 +35,11 @@ struct PlayerView: View {
     static let tabBarFloor: CGFloat = 112
 
     private var contentTop: CGFloat {
-        max(safeTop, Self.tabBarFloor) + SCBrowseMetrics.contentTopInset
+        max(pinnedTop, Self.tabBarFloor) - safeTop + SCBrowseMetrics.contentTopInset
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            withCovers(withLifecycle(rootStack))
-                .onChange(of: proxy.safeAreaInsets.top, initial: true) { _, top in
-                    if top > safeTop { safeTop = top }
-                }
-        }
+        withCovers(withLifecycle(rootStack))
             .task(id: playerService.currentTrack?.id) {
                 commentsStore.ensureLoaded(for: playerService.currentTrack)
             }
@@ -81,7 +78,6 @@ struct PlayerView: View {
 
     private var rootStack: some View {
         ZStack {
-            backdrop
             if showingLyrics {
                 NPLyricsScreen(
                     track: playerService.currentTrack,
@@ -97,7 +93,7 @@ struct PlayerView: View {
                 .transition(.opacity)
             } else {
                 mainContent
-                    .disabled(panel != nil || idle.isIdle)
+                    .disabled(panel != nil || mainDisabled)
                     .transition(.opacity)
             }
             if idle.isIdle, let track = playerService.currentTrack {
@@ -110,11 +106,20 @@ struct PlayerView: View {
             if let panel {
                 panelView(panel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .padding(.trailing, 80)
+                    .padding(.trailing, Space.page)
                     .padding(.top, contentTop)
+                    .padding(.bottom, Space.section)
                     .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .background { backdrop.ignoresSafeArea() }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { top in
+            safeTop = top
+            if top > pinnedTop { pinnedTop = top }
+        }
+        .toolbarVisibility(idle.isIdle ? .hidden : .visible, for: .tabBar)
         .environment(\.colorScheme, .dark)
     }
 
@@ -134,7 +139,6 @@ struct PlayerView: View {
 
     private func withLifecycle<V: View>(_ view: V) -> some View {
         view
-        .ignoresSafeArea()
         .animation(reduceMotion ? nil : Motion.settle, value: panel == nil)
         .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: showingLyrics)
         .onExitCommand(perform: exitAction)
@@ -175,7 +179,12 @@ struct PlayerView: View {
         if isIdle {
             if let current = focus { lastMainFocus = current }
             focus = NPFocus.idle
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                if idle.isIdle { mainDisabled = true }
+            }
         } else {
+            mainDisabled = false
             focus = lastMainFocus
         }
     }
@@ -350,9 +359,9 @@ struct PlayerView: View {
             Spacer(minLength: 24)
             tape
         }
-        .padding(.horizontal, Spacing.screen)
+        .padding(.horizontal, Space.page)
         .padding(.top, contentTop)
-        .padding(.bottom, 56)
+        .padding(.bottom, Space.section)
     }
 
     private var tape: some View {
@@ -372,7 +381,7 @@ struct PlayerView: View {
                     isPlaying: playerService.isPlaying,
                     isActive: !idle.isIdle,
                     accent: artworkColors.current.accent,
-                    marks: waveformMarks,
+                    entries: setlists.tracklist(for: playerService.currentTrack?.id)?.entries ?? [],
                     showsBubble: panel == nil,
                     reduceMotion: reduceMotion,
                     focus: $focus,
@@ -397,18 +406,12 @@ struct PlayerView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let caption = StationLibrary.shared.caption(for: playerService.queueSource) {
+            if let caption = StationLibrary.shared.caption(for: playerService.queueSource) ?? collectionTitle.map({ "From \($0)" }) {
                 Text(caption)
-                    .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.66))
-                    .lineLimit(1)
-                    .padding(.bottom, 14)
-            } else if let collectionTitle {
-                Text("From \(collectionTitle)")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(Color.white.opacity(0.66))
                     .lineLimit(1)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, Spacing.sm)
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text(playerService.currentTrack?.title ?? "Not Playing")
@@ -549,21 +552,12 @@ struct PlayerView: View {
         .focusSection()
     }
 
-    private var waveformMarks: [TimeInterval] {
-        switch panel {
-        case .comments:
-            return commentsStore.timedComments.compactMap(\.timeInTrack)
-        default:
-            return SetlistIntelligenceStore.shared.tracklist(for: playerService.currentTrack?.id)?.entries.map(\.startSeconds) ?? []
-        }
-    }
-
     private func ambientOverlay(_ track: Track) -> some View {
         NPAmbientOverlay(
             title: track.title,
             artist: track.user.displayName,
             artistTint: artistTint,
-            isCentred: !reduceMotion,
+            artworkTop: contentTop + Self.ambientArtworkGrowth,
             titleTop: contentTop + Self.ambientArtworkGrowth * 2 + Self.ambientArtworkSide + Space.section
         )
             .contentShape(Rectangle())
@@ -777,10 +771,10 @@ private struct NPUpNextColumnRow: View {
             HStack(spacing: 20) {
                 ArtworkImage(url: track.artworkURL, identity: track.id)
                     .aspectRatio(1, contentMode: .fill)
-                    .frame(width: 64, height: 64)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .frame(width: 84, height: 84)
+                    .clipShape(RoundedRectangle(cornerRadius: Corner.thumb, style: .continuous))
                     .kyleCrowned(user: track.user, context: track.title)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(track.title)
                         .font(.body.weight(.semibold))
                         .npInk(.primary)
@@ -793,7 +787,7 @@ private struct NPUpNextColumnRow: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 18)
-            .frame(height: 88)
+            .frame(height: 110)
         }
         .buttonStyle(NPRowStyle())
         .focused(focus, equals: .row(rowID))
