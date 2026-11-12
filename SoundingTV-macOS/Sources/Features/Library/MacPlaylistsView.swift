@@ -453,6 +453,8 @@ struct MacPlaylistContextMenu: View {
             Label("Export to USB…", systemImage: "externaldrive.badge.plus")
         }
 
+        AnalyseMissingMenuItems(tracks: playlist.tracks ?? [], scopeTitle: playlist.title)
+
         Divider()
 
         Button {
