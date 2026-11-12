@@ -297,14 +297,6 @@ extension View {
     }
 }
 
-struct MacRekordboxImportCommands: Commands {
-    var body: some Commands {
-        CommandGroup(after: .importExport) {
-            Button("Import rekordbox Library…") { MacRekordboxFolderPresenter.choose() }
-        }
-    }
-}
-
 private struct MacRekordboxFolderDrop: ViewModifier {
     let onImported: () -> Void
     @State private var isTargeted = false

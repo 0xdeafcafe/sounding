@@ -76,7 +76,7 @@ struct MacLibrarySettingsTab: View {
             } header: {
                 Text("Prep")
             } footer: {
-                Text("Beat grids, cue points and loops for each track. Export puts your own files and their prep on a stick.")
+                Text("Appearance applies to the Prep inspector. Export puts your own files and their prep on a stick.")
             }
         }
         .formStyle(.grouped)
