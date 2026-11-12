@@ -660,7 +660,8 @@ final class CompanionClient: ObservableObject {
                 } else {
                     self.needsSignInSessionIds.remove(record.sessionId)
                 }
-            case .revoked:
+            case .revoked(let explicit):
+                if explicit { Self.recordUnlinked(record) }
                 self.drop(sessionId: record.sessionId)
             case .delivered, .unreachable:
                 break

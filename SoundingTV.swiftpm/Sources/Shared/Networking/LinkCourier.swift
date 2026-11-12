@@ -6,7 +6,7 @@ final class LinkCourier {
     enum Outcome: Equatable {
         case delivered
         case status(needsSignIn: Bool)
-        case revoked
+        case revoked(explicit: Bool)
         case unreachable(CompanionFailure)
     }
 
@@ -75,9 +75,9 @@ final class LinkCourier {
         guard message.sessionId == sessionId else { return }
         switch message.type {
         case .linkRevoke:
-            guard message.verifiedRevoke(sessionId: sessionId, secret: secret) != nil else { return }
+            guard let revoke = message.verifiedRevoke(sessionId: sessionId, secret: secret) else { return }
             channel.send(.acknowledgment(sessionId: sessionId)) { [weak self] _ in
-                self?.finish(.revoked)
+                self?.finish(.revoked(explicit: revoke.isExplicitUnlink))
             }
         case .acknowledgment where outgoing != nil:
             finish(.delivered)

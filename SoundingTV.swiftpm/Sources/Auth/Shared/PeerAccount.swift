@@ -134,3 +134,56 @@ struct KnownLinkLedger: Codable, Equatable, Sendable {
         ledger.save(defaults: defaults)
     }
 }
+
+extension PeerAccount {
+    init(user: User) {
+        self.init(userId: user.id, name: user.displayName, username: user.username, avatarURL: user.avatarURL?.absoluteString)
+    }
+}
+
+enum LinkEstablishPolicy {
+    enum OfferHint: Equatable, Sendable {
+        case signedOut
+        case sameAccount
+        case otherAccount
+        case notSeen
+    }
+
+    enum Opening: Equatable, Sendable {
+        case tokenTransfer
+        case linkEstablish
+    }
+
+    static func hint(for advert: LinkAccountHint.Advert?, offerSeen: Bool, accountId: String?) -> OfferHint {
+        guard offerSeen else { return .notSeen }
+        guard let advert else { return .signedOut }
+        guard let accountId, advert.matches(accountId: accountId) else { return .otherAccount }
+        return .sameAccount
+    }
+
+    static func opening(for hint: OfferHint) -> Opening {
+        hint == .signedOut ? .tokenTransfer : .linkEstablish
+    }
+
+    static func sendsCredentials(_ established: LinkEstablishedPayload) -> Bool {
+        established.needsCredentials
+    }
+
+    static func fallsBackToTokenTransfer(_ hint: OfferHint) -> Bool {
+        switch hint {
+        case .notSeen, .sameAccount, .signedOut: return true
+        case .otherAccount: return false
+        }
+    }
+
+    static func isSameAccountApproval(digest: String?, salt: Data?, accountId: String?) -> Bool {
+        guard let digest, let mine = Data(base64Encoded: digest), let salt,
+              let accountId, !accountId.isEmpty else { return false }
+        return LinkAccountHint.constantTimeEqual(mine, LinkAccountHint.accountDigest(accountId: accountId, salt: salt))
+    }
+
+    static func helloDigest(accountId: String?, salt: Data?) -> String? {
+        guard let accountId, !accountId.isEmpty, let salt, salt.count == LinkAccountHint.saltLength else { return nil }
+        return LinkAccountHint.accountDigest(accountId: accountId, salt: salt).base64EncodedString()
+    }
+}
