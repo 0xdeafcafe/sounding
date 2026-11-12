@@ -8,7 +8,7 @@ enum LibraryShelfMetrics {
 }
 
 enum LibraryPageMetrics {
-    static let sidebarWidth: CGFloat = 360
+    static let sidebarWidth: CGFloat = 400
     static let columnGap: CGFloat = 60
     static let rowHeight: CGFloat = 60
     static let embeddedColumns = 4
@@ -165,6 +165,35 @@ struct LibrarySidebarRowStyle: ButtonStyle {
                 .opacity(configuration.isPressed ? 0.85 : 1)
                 .focusEffectDisabled()
                 .animation(reduceMotion ? nil : Motion.focus, value: isFocused)
+        }
+    }
+}
+
+struct TVListSearchable: ViewModifier {
+    let isOn: Bool
+    @Binding var text: String
+    let prompt: String
+
+    func body(content: Content) -> some View {
+        if isOn {
+            content.searchable(text: $text, prompt: prompt)
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func tvListSearchable(_ isOn: Bool, text: Binding<String>, prompt: String) -> some View {
+        modifier(TVListSearchable(isOn: isOn, text: text, prompt: prompt))
+    }
+
+    func tvListSearchCover<Page: View>(isPresented: Binding<Bool>, @ViewBuilder page: @escaping () -> Page) -> some View {
+        fullScreenCover(isPresented: isPresented) {
+            NavigationStack {
+                page()
+            }
+            .background { BrowseBackdrop() }
         }
     }
 }
