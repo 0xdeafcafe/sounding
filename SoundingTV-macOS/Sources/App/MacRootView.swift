@@ -2062,7 +2062,6 @@ extension MacRootView {
                         model.cursorSeconds = 0.12 + 48 * (240 / 120.0) + 0.5
                         model.selectedCueId = model.detail?.cues.first { $0.hotCueIndex == 1 }?.id
                     }
-                    .environment(\.colorScheme, env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SCHEME"] == "dark" ? .dark : .light)
                     .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
             } else if env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SHEET"] == "plan" {
                 MacDJPlanSheet(perform: .shared, fixture: DJPlanModel.fixture())
@@ -2116,6 +2115,9 @@ extension MacRootView {
                 case .playlists: MacPlaylistsView(model: MacPlaylistsModel()).environmentObject(SoundCloudCredentialSource.shared)
                 case .account where env["SOUNDING_TV_MAC_SETTINGS_PANE"] == MacSettingsPane.autoMix.rawValue:
                     AutoMixMovesView()
+                        .environment(\.colorScheme, env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SCHEME"] == "dark" ? .dark : .light)
+                case .account where env["SOUNDING_TV_MAC_SETTINGS_PANE"] == MacSettingsPane.library.rawValue:
+                    MacLibrarySettingsTab()
                         .environment(\.colorScheme, env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SCHEME"] == "dark" ? .dark : .light)
                 case .account where env["SOUNDING_TV_MAC_SETTINGS_PANE"] == MacSettingsPane.devices.rawValue:
                     MacDevicesSettingsTab()

@@ -19,19 +19,10 @@ struct MacPrepView: View {
     }
 }
 
-private struct PrepAppearanceEnvironment: ViewModifier {
-    @ObservedObject private var settings = SettingsStore.shared
-
-    func body(content: Content) -> some View {
-        content.transformEnvironment(\.colorScheme) { scheme in
-            if let forced = settings.prepAppearance.colorScheme { scheme = forced }
-        }
-    }
-}
-
 struct MacPrepInspectorPane: View {
     let track: Track
     @StateObject private var model: MacPrepModel
+    @ObservedObject private var settings = SettingsStore.shared
     @Environment(\.openWindow) private var openWindow
 
     init(track: Track, model: @autoclosure @escaping () -> MacPrepModel = MacPrepModel()) {
@@ -72,7 +63,7 @@ struct MacPrepInspectorPane: View {
             }
         }
         .task(id: track.id) { await model.show(trackId: track.id) }
-        .modifier(PrepAppearanceEnvironment())
+        .preferredColorScheme(settings.prepAppearance.colorScheme)
     }
 }
 
