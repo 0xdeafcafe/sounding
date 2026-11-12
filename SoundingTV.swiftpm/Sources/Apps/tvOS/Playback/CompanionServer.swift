@@ -153,6 +153,7 @@ final class CompanionServer: ObservableObject {
     private let commands = CompanionCommandPipeline()
 
     private var pendingAuthHandoffSessionContinuation: CheckedContinuation<AuthHandoffSessionOfferPayload?, Never>?
+    private var pendingAuthHandoffSessionRequest: UUID?
 
     private let credentials: SoundCloudCredentialSource
     private var signInObservation: AnyCancellable?
@@ -302,14 +303,18 @@ final class CompanionServer: ObservableObject {
         guard !readyPeers.isEmpty else { return nil }
 
         return await withCheckedContinuation { continuation in
+            pendingAuthHandoffSessionContinuation?.resume(returning: nil)
             pendingAuthHandoffSessionContinuation = continuation
+            let request = UUID()
+            pendingAuthHandoffSessionRequest = request
             for peer in readyPeers {
                 send(.authHandoffSessionRequest(sessionId: peer.sessionId), to: peer)
             }
 
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(20))
-                guard let self, let pending = self.pendingAuthHandoffSessionContinuation else { return }
+                guard let self, self.pendingAuthHandoffSessionRequest == request,
+                      let pending = self.pendingAuthHandoffSessionContinuation else { return }
                 self.pendingAuthHandoffSessionContinuation = nil
                 pending.resume(returning: nil)
             }
@@ -1578,7 +1583,7 @@ final class CompanionServer: ObservableObject {
             if decksRemote != nil { decksRemote = nil }
             return
         }
-        let name = devices.first { $0.sessionId == holder.sessionId }?.displayName ?? "iPhone"
+        let name = devices.first { $0.sessionId == holder.sessionId }?.displayName ?? "Linked Device"
         var next = DecksRemote(name: name, touchedAt: decksRemote?.touchedAt)
         if let peer, peer === holder, (next.touchedAt.map { Date().timeIntervalSince($0) > 2 } ?? true) {
             next.touchedAt = Date()
@@ -2216,7 +2221,7 @@ final class CompanionServer: ObservableObject {
         peer.announcedAccount = true
         let device = devices.first { $0.sessionId == session.sessionId }
         guard let text = TVControllerAccount.connectedCapsule(device: device?.displayName ?? "A device", controller: account, tv: localAccount) else { return }
-        accountNotice = AccountNotice(text: text, symbol: device?.deviceClass?.symbolName ?? "iphone")
+        accountNotice = AccountNotice(text: text, symbol: PeerDevice(deviceClass: device?.deviceClass).symbolName)
     }
 
     // MARK: - Account switch

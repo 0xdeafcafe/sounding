@@ -88,6 +88,7 @@ final class LinkServer: ObservableObject {
     @Published private(set) var numericComparisonCode: String?
     @Published private(set) var isLinkInProgress = false
     @Published private(set) var connectingDeviceName: String?
+    @Published private(set) var peerDevice = PeerDevice.unknown
 
     private var awaitingHandoff = false
     private nonisolated(unsafe) var linkProgressTimeout: Task<Void, Never>?
@@ -296,6 +297,7 @@ final class LinkServer: ObservableObject {
         finishLinkProgress()
         ownerProvenLink = false
         connectingDeviceName = nil
+        peerDevice = .unknown
         linkedPeerName = nil
         timeoutTask?.cancel()
         timeoutTask = nil
@@ -491,6 +493,7 @@ final class LinkServer: ObservableObject {
             let identity = message.peer
             if let identity, identity.verify(sessionId: credentials.sessionId, secret: credentials.secret) {
                 connectingDeviceName = Self.displayName(identity.name, deviceClass: identity.deviceClass)
+                peerDevice = PeerDevice(rawClass: identity.deviceClass, name: identity.name)
             }
             validationTask = Task { [weak self] in
                 let validation = await Self.validate(payload.oauthToken)
@@ -508,9 +511,7 @@ final class LinkServer: ObservableObject {
 
                 guard payload.refreshToken?.isEmpty == false,
                       payload.clientId?.isEmpty == false else {
-                    self.sendTokenRejected(
-                        "Your SoundCloud login has expired. Please sign in again on your iPhone."
-                    )
+                    self.sendTokenRejected(TVPairingCopy.signInAgain(on: self.peerDevice))
                     return
                 }
 
@@ -528,9 +529,7 @@ final class LinkServer: ObservableObject {
                     self.sendError("Couldn't reach SoundCloud to renew your login. Check the network and try again.")
 
                 case .unrecoverable:
-                    self.sendTokenRejected(
-                        "Your SoundCloud login has expired. Please sign in again on your iPhone."
-                    )
+                    self.sendTokenRejected(TVPairingCopy.signInAgain(on: self.peerDevice))
                 }
             }
 
@@ -597,6 +596,7 @@ final class LinkServer: ObservableObject {
         let identity = message.peer.flatMap { $0.verify(sessionId: session.sessionId, secret: session.secret) ? $0 : nil }
         if let identity {
             connectingDeviceName = Self.displayName(identity.name, deviceClass: identity.deviceClass)
+            peerDevice = PeerDevice(rawClass: identity.deviceClass, name: identity.name)
         }
         let account = CompanionServer.shared.localAccount
         let reply = LinkEstablishedPayload.create(
@@ -928,6 +928,7 @@ final class LinkServer: ObservableObject {
         }
         let approval = LinkApproval(deviceName: Self.displayName(peerName, deviceClass: hello.deviceClass), code: code, account: approvalAccount)
         beginLinkProgress(name: approval.deviceName, timeout: BonjourConstants.linkApprovalTimeout)
+        peerDevice = PeerDevice(rawClass: hello.deviceClass, name: peerName)
         numericPendingApproval = approval
         let tvPublicKey = ephemeralKey.publicKey.rawRepresentation.base64EncodedString()
         let owner = ownerProof(
@@ -1261,6 +1262,7 @@ final class SameAccountLinkAdvertiser: ObservableObject {
 
     @Published private(set) var isAdvertising = false
     @Published private(set) var linkedName: String?
+    @Published private(set) var linkedClass: DeviceClass?
 
     private var accountId: String?
     private var isActive = false
@@ -1353,9 +1355,11 @@ final class SameAccountLinkAdvertiser: ObservableObject {
         server.ownerAccountId = accountId
         server.onTokenReceived = { [weak self] _, _, _, _ in
             Log.link.info("[SameAccountLink] linked; keeping this Apple TV's own session")
+            self?.linkedClass = self?.server.peerDevice.deviceClass
             self?.linkedName = self?.approvedName
         }
         server.onLinked = { [weak self] in
+            self?.linkedClass = self?.server.peerDevice.deviceClass
             self?.linkedName = self?.approvedName ?? self?.server.connectingDeviceName
         }
         Log.link.info("[SameAccountLink] advertising for \(linked.count, privacy: .public) linked devices")
@@ -1417,7 +1421,7 @@ final class SameAccountPhoneBrowser: ObservableObject {
                   hint.matches(accountId: accountId),
                   !linkedDeviceIds.contains(where: { hint.isLinked(toDeviceId: $0) }) else { continue }
             let name = entries[LinkAccountHint.nameKey]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return name.isEmpty ? "An iPhone" : String(name.prefix(LinkPeerIdentity.maximumNameLength))
+            return name.isEmpty ? TVPairingCopy.unnamedDevice : String(name.prefix(LinkPeerIdentity.maximumNameLength))
         }
         return nil
     }
@@ -1505,6 +1509,7 @@ final class SameAccountPhoneBrowser: ObservableObject {
 @MainActor
 final class NearbyPhonePresence: ObservableObject {
     @Published private(set) var name: String?
+    @Published private(set) var kind: DeviceClass?
 
     private nonisolated(unsafe) var browser: NWBrowser?
 
@@ -1531,19 +1536,22 @@ final class NearbyPhonePresence: ObservableObject {
         browser?.cancel()
         browser = nil
         name = nil
+        kind = nil
     }
 
     private func handle(_ results: Set<NWBrowser.Result>) {
-        let names = results.compactMap { result -> String? in
+        let nearby = results.compactMap { result -> (name: String, kind: DeviceClass?)? in
             guard case .service(let service, _, _, _) = result.endpoint,
                   service.hasPrefix(BonjourConstants.nearbyServiceName + "-"),
-                  case .bonjour(let record) = result.metadata else { return nil }
-            return NearbyPresenceTXT.name(record)
+                  case .bonjour(let record) = result.metadata,
+                  let name = NearbyPresenceTXT.name(record) else { return nil }
+            return (name, NearbyPresenceTXT.kind(record))
         }
-        let next = names.sorted().first
-        if next != name {
-            Log.link.info("[NearbyPhonePresence] nearby: \(next ?? "none", privacy: .public)")
+        let next = nearby.min { $0.name < $1.name }
+        if next?.name != name {
+            Log.link.info("[NearbyPhonePresence] nearby: \(next?.name ?? "none", privacy: .public)")
         }
-        name = next
+        name = next?.name
+        kind = next?.kind
     }
 }

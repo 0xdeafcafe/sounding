@@ -6,6 +6,7 @@ struct NPLyricsScreen: View {
     let clock: PlaybackClock
     let isPlaying: Bool
     var accent: Color = Color.white.opacity(0.66)
+    var topInset: CGFloat = 64
     let onSeek: (TimeInterval) -> Void
 
     @State private var playhead = LyricsPlayhead.idle
@@ -15,7 +16,7 @@ struct NPLyricsScreen: View {
             header
                 .focusable(!lyricsTakeFocus)
                 .focusEffectDisabled()
-                .padding(.top, 64)
+                .padding(.top, topInset)
                 .padding(.bottom, 8)
             NowPlayingLyrics(track: track, nextTrack: nextTrack, playhead: playhead, style: .tv, onSeek: onSeek)
                 .frame(maxWidth: 1380, maxHeight: .infinity, alignment: .leading)

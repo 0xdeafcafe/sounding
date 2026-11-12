@@ -65,6 +65,7 @@ struct TVAccountMenu: View {
                 Text(user?.displayName ?? "Account")
                     .font(.tvBodyEmph)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             .padding(.leading, Space.tight)
             .padding(.trailing, Space.base)
@@ -118,7 +119,9 @@ private struct TVOwnConnections: View {
 
 private struct TVPeopleDirectory: View {
     @ObservedObject var model: PeopleDirectoryModel
+    var isSearchPage = false
     @State private var query = ""
+    @State private var showsSearch = false
 
     private static let artworkLookahead = 12
 
@@ -148,8 +151,20 @@ private struct TVPeopleDirectory: View {
                         .focusEffectDisabled()
                 } else {
                     VStack(alignment: .leading, spacing: Space.section) {
-                        PeopleSortMenu(model: model, showsSelection: true)
-                            .focusSection()
+                        HStack(spacing: Space.snug) {
+                            PeopleSortMenu(model: model, showsSelection: true)
+                            if !isSearchPage {
+                                Button {
+                                    showsSearch = true
+                                } label: {
+                                    Label("Search", systemImage: "magnifyingglass")
+                                }
+                                .buttonStyle(.bordered)
+                                .buttonBorderShape(.capsule)
+                                .accessibilityIdentifier("social.search")
+                            }
+                        }
+                        .focusSection()
                         grid(people)
                     }
                 }
@@ -157,7 +172,11 @@ private struct TVPeopleDirectory: View {
             .padding(.bottom, Space.section)
         }
         .scrollClipDisabled()
-        .searchable(text: $query, prompt: "Search \(model.kind.rawValue)")
+        .tvListSearchable(isSearchPage, text: $query, prompt: "Search \(model.kind.rawValue)")
+        .tvListSearchCover(isPresented: $showsSearch) {
+            TVPeopleDirectory(model: model, isSearchPage: true)
+                .padding(.top, SCBrowseMetrics.contentTopInset)
+        }
         .peopleActionAlert(model)
         .task { await model.load() }
     }

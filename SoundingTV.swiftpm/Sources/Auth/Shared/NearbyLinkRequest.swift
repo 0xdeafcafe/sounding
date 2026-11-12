@@ -6,7 +6,8 @@ import Security
 struct NearbyLinkRequest: Equatable, Hashable, Sendable, Identifiable {
     static let recordType = "NearbyLinkRequest"
     static let recordPrefix = "nearbylink-"
-    static let subscriptionID = "nearby-link-requests-v1"
+    static let subscriptionID = "nearby-link-requests-v2"
+    static let subscriptionIDs: Set<String> = [subscriptionID, "nearby-link-requests-v1"]
     static let withdrawalSubscriptionID = "nearby-link-requests-gone-v1"
     static let category = "LINK_REQUEST"
     static let titleKey = "LINK_REQUEST_TITLE"
@@ -24,6 +25,44 @@ struct NearbyLinkRequest: Equatable, Hashable, Sendable, Identifiable {
         static let createdAt = "createdAt"
         static let expiresAt = "expiresAt"
         static let all = [tvName, tvKind, tvTag, accountTag, linkedDevices, createdAt, expiresAt]
+        static let notified = [tvName, tvKind, tvTag, accountTag, expiresAt]
+    }
+
+    struct Notice: Equatable, Sendable {
+        let recordName: String
+        let zoneName: String
+        let ownerName: String
+        let tvName: String?
+        let tvKind: DeviceClass
+        let tvTag: String?
+        let expiresAt: Date?
+
+        var recordID: CKRecord.ID {
+            CKRecord.ID(recordName: recordName, zoneID: CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName))
+        }
+
+        init?(remoteNotification userInfo: [AnyHashable: Any]) {
+            guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
+                  let subscriptionID = notification.subscriptionID,
+                  NearbyLinkRequest.subscriptionIDs.contains(subscriptionID),
+                  let recordID = notification.recordID,
+                  NearbyLinkRequest.nonce(fromRecordName: recordID.recordName) != nil else { return nil }
+            let fields = notification.recordFields ?? [:]
+            let name = (fields[Field.tvName] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters)) ?? ""
+            let tag = fields[Field.tvTag] as? String ?? ""
+            recordName = recordID.recordName
+            zoneName = recordID.zoneID.zoneName
+            ownerName = recordID.zoneID.ownerName
+            tvName = name.isEmpty ? nil : String(name.prefix(NearbyLinkRequest.maximumNameLength))
+            tvKind = (fields[Field.tvKind] as? String).flatMap(DeviceClass.init(rawValue:)) ?? .tv
+            tvTag = tag.isEmpty ? nil : tag
+            expiresAt = NearbyLinkRequest.date(fields[Field.expiresAt])
+        }
+
+        func isExpired(at now: Date = .now) -> Bool {
+            guard let expiresAt else { return false }
+            return now >= expiresAt
+        }
     }
 
     enum Verdict: Equatable, Sendable {
@@ -149,14 +188,6 @@ struct NearbyLinkRequest: Equatable, Hashable, Sendable, Identifiable {
         var fields: [String: Any] = [:]
         for key in Field.all { fields[key] = record[key] }
         if let nonce = Self.nonce(fromRecordName: record.recordID.recordName) { fields["nonce"] = nonce }
-        self.init(fields: fields)
-    }
-
-    init?(remoteNotification userInfo: [AnyHashable: Any]) {
-        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
-              notification.subscriptionID == Self.subscriptionID,
-              var fields = notification.recordFields else { return nil }
-        if let name = notification.recordID?.recordName, let nonce = Self.nonce(fromRecordName: name) { fields["nonce"] = nonce }
         self.init(fields: fields)
     }
 

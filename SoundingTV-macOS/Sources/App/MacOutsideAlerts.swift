@@ -9,6 +9,7 @@ enum MacOutsideAlerts {
 
     static func install() {
         guard activation == nil else { return }
+        OutsideAlertSweeper.shared.install()
         activation = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { _ in Task { await refresh() } }
         Task {
@@ -25,11 +26,12 @@ enum MacOutsideAlerts {
         await OutsideAlerts.tidyDelivered()
     }
 
-    static func presentation(for signIn: AccountSignIn) -> UNNotificationPresentationOptions {
-        OutsideAlerts.verdict(for: signIn) == .show ? [.banner, .list, .sound] : []
+    static func presentation(for notice: AccountSignIn.Notice) async -> UNNotificationPresentationOptions {
+        guard case .found(let signIn) = await OutsideAlerts.signIn(for: notice) else { return [] }
+        return OutsideAlerts.verdict(for: signIn) == .show ? [.banner, .list, .sound] : []
     }
 
-    static func open(_ signIn: AccountSignIn, action: OutsideAlerts.Response) {
+    static func open(_ notice: AccountSignIn.Notice, action: OutsideAlerts.Response) {
         guard action == .open else { return }
         MacSettingsNavigation.shared.selection = .devices
         OutsideAlertRoutes.shared.showsDevices = true
@@ -41,20 +43,23 @@ enum MacOutsideAlerts {
         bringForward()
     }
 
-    static func presentation(for request: NearbyLinkRequest) -> UNNotificationPresentationOptions {
-        guard OutsideAlerts.verdict(for: request) == .show else { return [] }
+    static func presentation(for notice: NearbyLinkRequest.Notice) async -> UNNotificationPresentationOptions {
+        guard !NSApp.isActive,
+              case .found(let request) = await OutsideAlerts.linkRequest(for: notice),
+              OutsideAlerts.verdict(for: request) == .show else { return [] }
         return NSApp.isActive ? [] : [.banner, .list, .sound]
     }
 
-    static func open(_ request: NearbyLinkRequest, action: OutsideAlerts.Response) {
+    static func open(_ notice: NearbyLinkRequest.Notice, action: OutsideAlerts.Response) async {
         switch action {
         case .open:
-            guard OutsideAlerts.verdict(for: request).allowsLinking else { return }
+            guard case .found(let request) = await OutsideAlerts.linkRequest(for: notice),
+                  OutsideAlerts.verdict(for: request).allowsLinking else { return }
             bringForward()
             MacTVLinking.shared.card.linkWhenSeen(name: request.tvName, kind: request.tvKind, within: 15)
         case .notNow:
-            NearbyLinkInbox.shared.notNow(request)
-            Task { await OutsideAlerts.snooze(request) }
+            NearbyLinkInbox.shared.notNow(notice)
+            await OutsideAlerts.snooze(notice)
         case .dismissed:
             break
         }

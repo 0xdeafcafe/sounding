@@ -618,3 +618,62 @@ final class CompanionRejectionTests: XCTestCase {
         XCTAssertTrue(TVControllerAccount.acceptsAuthHandoff(needsSignIn: true, requestOutstanding: true))
     }
 }
+
+final class TVPairingCopyTests: XCTestCase {
+    private let pad = PeerDevice(deviceClass: .pad, name: "Alex's iPad")
+    private let namedOnly = PeerDevice(deviceClass: nil, name: "Alex's Mac mini")
+
+    func testUnknownPeerUsesNeutralWording() {
+        let peer = PeerDevice.unknown
+        XCTAssertFalse(peer.isKnown)
+        XCTAssertEqual(peer.symbolName, PeerDevice.neutralSymbolName)
+        XCTAssertEqual(TVPairingCopy.finishOn(peer), "Finish on your device.")
+        XCTAssertEqual(TVPairingCopy.connected(peer), "Device connected")
+        XCTAssertEqual(TVPairingCopy.found(peer), "Device found")
+        XCTAssertEqual(TVPairingCopy.connectedFinish(peer), "Connected. Finish on your device.")
+        XCTAssertEqual(TVPairingCopy.droppedOff(peer), "Your device dropped off")
+        XCTAssertEqual(TVPairingCopy.signInOnceMore(peer), "Try again for a fresh code, then sign in on your device once more.")
+        XCTAssertEqual(TVPairingCopy.signInAgain(on: peer), "Your SoundCloud login has expired. Please sign in again on your device.")
+    }
+
+    func testKnownClassIsNamedWithItsOwnWordingAndSymbol() {
+        XCTAssertTrue(pad.isKnown)
+        XCTAssertEqual(pad.symbolName, DeviceClass.pad.symbolName)
+        XCTAssertEqual(TVPairingCopy.finishOn(pad), "Finish on your iPad.")
+        XCTAssertEqual(TVPairingCopy.connected(pad), "iPad connected")
+        XCTAssertEqual(TVPairingCopy.droppedOff(pad), "Your iPad dropped off")
+        XCTAssertEqual(TVPairingCopy.signInAgain(on: PeerDevice(deviceClass: .mac)), "Your SoundCloud login has expired. Please sign in again on your Mac.")
+        XCTAssertEqual(TVPairingCopy.finishOn(PeerDevice(deviceClass: .phone)), "Finish on your iPhone.")
+    }
+
+    func testNameWithoutClassIsUsedVerbatim() {
+        XCTAssertTrue(namedOnly.isKnown)
+        XCTAssertEqual(namedOnly.symbolName, PeerDevice.neutralSymbolName)
+        XCTAssertEqual(TVPairingCopy.finishOn(namedOnly), "Finish on Alex's Mac mini.")
+        XCTAssertEqual(TVPairingCopy.connected(namedOnly), "Alex's Mac mini connected")
+        XCTAssertEqual(TVPairingCopy.droppedOff(namedOnly), "Alex's Mac mini dropped off")
+    }
+
+    func testBlankNameCountsAsUnknown() {
+        XCTAssertEqual(PeerDevice(deviceClass: nil, name: "  \n"), .unknown)
+        XCTAssertEqual(PeerDevice(rawClass: nil, name: ""), .unknown)
+    }
+
+    func testRawClassResolvesOnlyKnownValues() {
+        XCTAssertEqual(PeerDevice(rawClass: "mac").deviceClass, .mac)
+        XCTAssertEqual(PeerDevice(rawClass: "pad", name: "x").deviceClass, .pad)
+        XCTAssertNil(PeerDevice(rawClass: "toaster").deviceClass)
+        XCTAssertNil(PeerDevice(rawClass: nil).deviceClass)
+    }
+
+    func testStaticLinesNeverNameAKindOfDevice() {
+        XCTAssertEqual(TVPairingCopy.pickerTitle, "Sign in with Another Device")
+        XCTAssertEqual(TVPairingCopy.unnamedDevice, "A device")
+        for line in [TVPairingCopy.scanHint, TVPairingCopy.notified, TVPairingCopy.pickerConnecting, TVPairingCopy.pickerTitle, TVPairingCopy.unnamedDevice] {
+            XCTAssertFalse(line.contains("iPhone"), line)
+            XCTAssertFalse(line.contains("iPad"), line)
+        }
+        XCTAssertEqual(TVPairingCopy.scanAccessibility, "Sign-in QR code. Scan it with your phone's camera.")
+        XCTAssertEqual(TVPairingCopy.nearbyHint("Alex's iPad"), "Alex's iPad is nearby: open Sounding on it to sign in.")
+    }
+}

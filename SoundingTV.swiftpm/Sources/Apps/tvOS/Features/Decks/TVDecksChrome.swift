@@ -137,7 +137,7 @@ struct TVDecksRemoteChip: View {
 
     var body: some View {
         if let remote = model.remote {
-            Label(model.isRemoteMixing ? "Mixing from \(remote.name)" : "\(remote.name) is connected", systemImage: "iphone.gen3")
+            Label(model.isRemoteMixing ? "Mixing from \(remote.name)" : "\(remote.name) is connected", systemImage: PeerDevice.neutralSymbolName)
                 .font(.tvCalloutEmph)
                 .foregroundStyle(Color.scTextPrimary)
                 .lineLimit(1)

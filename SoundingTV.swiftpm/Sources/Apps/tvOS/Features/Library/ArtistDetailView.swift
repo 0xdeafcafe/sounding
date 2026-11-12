@@ -85,7 +85,7 @@ struct ArtistDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("You\u{2019}ll need to pair with your iPhone again to sign back in.")
+            Text("You\u{2019}ll need to link your device again to sign back in.")
         }
         .task { await viewModel.loadOverviewIfNeeded() }
         .task(id: user.id) { await loadProfile() }

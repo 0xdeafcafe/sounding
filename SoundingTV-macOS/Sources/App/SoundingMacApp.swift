@@ -336,14 +336,14 @@ private final class MacActivityNotificationDelegate: NSObject, UNUserNotificatio
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         let userInfo = notification.request.content.userInfo
-        if let signIn = AccountSignIn(remoteNotification: userInfo) {
-            return await MacOutsideAlerts.presentation(for: signIn)
+        if let notice = AccountSignIn.Notice(remoteNotification: userInfo) {
+            return await MacOutsideAlerts.presentation(for: notice)
         }
         if let request = SignInRequest(remoteNotification: userInfo) {
             return request.isExpired() ? [] : [.banner, .list, .sound]
         }
-        if let link = NearbyLinkRequest(remoteNotification: userInfo) {
-            return await MacOutsideAlerts.presentation(for: link)
+        if let notice = NearbyLinkRequest.Notice(remoteNotification: userInfo) {
+            return await MacOutsideAlerts.presentation(for: notice)
         }
         return [.banner, .sound]
     }
@@ -354,16 +354,16 @@ private final class MacActivityNotificationDelegate: NSObject, UNUserNotificatio
     ) async {
         let userInfo = response.notification.request.content.userInfo
         let action = OutsideAlerts.response(for: response.actionIdentifier)
-        if let signIn = AccountSignIn(remoteNotification: userInfo) {
-            await MacOutsideAlerts.open(signIn, action: action)
+        if let notice = AccountSignIn.Notice(remoteNotification: userInfo) {
+            await MacOutsideAlerts.open(notice, action: action)
             return
         }
         if let request = SignInRequest(remoteNotification: userInfo) {
             await MacOutsideAlerts.open(request, action: action)
             return
         }
-        if let link = NearbyLinkRequest(remoteNotification: userInfo) {
-            await MacOutsideAlerts.open(link, action: action)
+        if let notice = NearbyLinkRequest.Notice(remoteNotification: userInfo) {
+            await MacOutsideAlerts.open(notice, action: action)
             return
         }
         if let target = ScoutNotifications.target(from: userInfo) {

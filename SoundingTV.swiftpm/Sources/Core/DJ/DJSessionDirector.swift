@@ -1164,10 +1164,10 @@ final class DJSessionDirector: ObservableObject {
 
         phantomPlanTasks[trackId] = Task { @MainActor [weak self] in
             guard let self else { return }
-            let legacyAnalyses: [String: TrackAnalysis] = Dictionary(uniqueKeysWithValues: ([track] + candidates).compactMap { candidate -> (String, TrackAnalysis)? in
+            let legacyAnalyses: [String: TrackAnalysis] = Dictionary(([track] + candidates).compactMap { candidate -> (String, TrackAnalysis)? in
                 guard case .analyzed(let analysis) = self.host.transitionService.state(for: candidate.id) else { return nil }
                 return (candidate.id, analysis)
-            })
+            }, uniquingKeysWith: { first, _ in first })
             let userCues = await self.host.cues.cues(forTracks: ([track] + candidates).map(\.id))
             let plan = await Self.computePhantomPlan(
                 for: track,

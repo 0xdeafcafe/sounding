@@ -146,7 +146,7 @@ final class HomeKitLightingBackend: NSObject, HomeLightingBackend, HMHomeManager
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let gate = WriteGate(remaining: writes.count, continuation: continuation)
             for (characteristic, value) in writes {
-                characteristic.writeValue(value) { error in gate.finish(error) }
+                characteristic.writeValue(value) { @Sendable error in gate.finish(error) }
             }
         }
     }

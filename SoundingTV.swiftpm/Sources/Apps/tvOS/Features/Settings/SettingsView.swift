@@ -25,7 +25,7 @@ private enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .downloads: return "Offline music and storage"
         case .analysis: return "Tempo, key and genre"
         case .musicFolders: return "Your own music from your Mac, iPhone, iPad and iCloud"
-        case .devices: return "iPhones and Macs linked to this Apple TV"
+        case .devices: return "iPhones, iPads and Macs linked to this Apple TV"
         case .homeLighting: return "Lights that follow the music"
         case .about: return "Version, screensaver, and reset"
         }
@@ -772,7 +772,7 @@ private struct DevicesSettings: View {
         content
             .settingsScreen(
                 "Remotes & Devices",
-                subtitle: "iPhones and Macs linked to this Apple TV."
+                subtitle: "iPhones, iPads and Macs linked to this Apple TV."
             )
             .fullScreenCover(isPresented: $isAddingDevice) {
                 QRCodeLoginView(onClose: { isAddingDevice = false }, purpose: .companion)
@@ -794,7 +794,7 @@ private struct DevicesSettings: View {
                 Button("Forget All Devices", role: .destructive) { server.unpair() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Linked iPhones and Macs lose access to this Apple TV until they're added again.")
+                Text("Linked devices lose access to this Apple TV until they're added again.")
             }
     }
 
@@ -826,7 +826,7 @@ private struct DevicesSettings: View {
             } header: {
                 SettingsSectionTitle("Devices")
             } footer: {
-                Text(server.devices.isEmpty ? "Link an iPhone or Mac to play music on this Apple TV and control it." : "Linked iPhones and Macs can play music on this Apple TV and control it.")
+                Text(server.devices.isEmpty ? "Link an iPhone, iPad or Mac to play music on this Apple TV and control it." : "Linked devices can play music on this Apple TV and control it.")
                     .settingsFooterStyle()
             }
 

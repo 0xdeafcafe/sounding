@@ -51,21 +51,16 @@ enum NPInkLevel {
     case tertiary
 }
 
-extension EnvironmentValues {
-    @Entry var npOnLight = false
-}
-
 struct NPInk: ViewModifier {
     let level: NPInkLevel
     @Environment(\.isFocused) private var isFocused
-    @Environment(\.npOnLight) private var onLight
 
     func body(content: Content) -> some View {
         content.foregroundStyle(color)
     }
 
     private var color: Color {
-        if isFocused || onLight {
+        if isFocused {
             switch level {
             case .primary: return Color.scChromeFocusOn
             case .secondary: return Color.black.opacity(0.62)
@@ -191,13 +186,12 @@ struct NPPillStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .environment(\.npOnLight, isSelected)
                 .background {
                     Capsule()
                         .fill(Color.scChromeFocus)
                         .opacity(isFocused ? 1 : 0)
                 }
-                .liquidGlass(in: Capsule(), tint: isSelected ? Color.white.opacity(0.88) : nil)
+                .liquidGlass(in: Capsule(), tint: isSelected ? Color.white.opacity(0.3) : nil)
                 .contentShape(Capsule())
                 .scaleEffect(isFocused ? 1.08 : 1)
                 .shadow(color: isFocused ? Color.scFocusShadow : .clear, radius: 16, y: 8)

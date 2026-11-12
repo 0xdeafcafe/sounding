@@ -1,10 +1,13 @@
 import SwiftUI
 
 struct TVHistoryView: View {
+    var isSearchPage = false
+
     @ObservedObject private var history = ListeningHistory.shared
     @EnvironmentObject private var playerService: PlayerService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var searchText = ""
+    @State private var showsSearch = false
 
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -37,15 +40,18 @@ struct TVHistoryView: View {
                 .scrollClipDisabled()
             }
         }
-        .searchable(text: $searchText, prompt: "Search History")
+        .tvListSearchable(isSearchPage, text: $searchText, prompt: "Search History")
+        .tvListSearchCover(isPresented: $showsSearch) {
+            TVHistoryView(isSearchPage: true)
+        }
         .task { await history.load() }
     }
 
     private func header(queue: [Track]) -> some View {
         VStack(alignment: .leading, spacing: Space.base) {
             LibraryDetailHeader(title: LibraryFilter.history.label, subtitle: nil)
-            if !queue.isEmpty {
-                HStack(spacing: Space.snug) {
+            HStack(spacing: Space.snug) {
+                if !queue.isEmpty {
                     Button {
                         ListeningHistory.notePlayback()
                         Task { await PlayActions.play(tracks: queue, collectionId: ListeningHistory.collectionID) }
@@ -62,10 +68,18 @@ struct TVHistoryView: View {
                     }
                     .accessibilityIdentifier("history.shuffle")
                 }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .focusSection()
+                if !isSearchPage {
+                    Button {
+                        showsSearch = true
+                    } label: {
+                        Label("Search", systemImage: "magnifyingglass")
+                    }
+                    .accessibilityIdentifier("history.search")
+                }
             }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .focusSection()
         }
     }
 

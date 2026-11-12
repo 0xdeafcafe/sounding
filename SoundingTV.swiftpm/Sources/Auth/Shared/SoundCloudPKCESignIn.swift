@@ -195,15 +195,17 @@ private final class PKCEPresenter: NSObject, ASWebAuthenticationPresentationCont
             waited += 1
         }
         guard let anchor else { throw ASWebAuthenticationSessionError(.presentationContextNotProvided) }
+        active?.session?.cancel()
         let presenter = PKCEPresenter(anchor: anchor)
         active = presenter
-        defer { active = nil }
+        defer { if active === presenter { active = nil } }
         return try await withCheckedThrowingContinuation { continuation in
+            let once = ResumeOnce(continuation)
             let session = ASWebAuthenticationSession(url: url, callback: .customScheme(scheme)) { callback, error in
                 if let callback {
-                    continuation.resume(returning: callback)
+                    once.resume(.success(callback))
                 } else {
-                    continuation.resume(throwing: error ?? ASWebAuthenticationSessionError(.canceledLogin))
+                    once.resume(.failure(error ?? ASWebAuthenticationSessionError(.canceledLogin)))
                 }
             }
             session.presentationContextProvider = presenter
@@ -211,8 +213,25 @@ private final class PKCEPresenter: NSObject, ASWebAuthenticationPresentationCont
             presenter.session = session
             if !session.start() {
                 presenter.session = nil
-                continuation.resume(throwing: ASWebAuthenticationSessionError(.presentationContextInvalid))
+                once.resume(.failure(ASWebAuthenticationSessionError(.presentationContextInvalid)))
             }
+        }
+    }
+
+    private final class ResumeOnce: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<URL, Error>?
+
+        init(_ continuation: CheckedContinuation<URL, Error>) {
+            self.continuation = continuation
+        }
+
+        func resume(_ result: Result<URL, Error>) {
+            lock.lock()
+            let pending = continuation
+            continuation = nil
+            lock.unlock()
+            pending?.resume(with: result)
         }
     }
 

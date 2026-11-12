@@ -8,6 +8,23 @@ private struct WatchPayloadBox: @unchecked Sendable {
     init(_ values: [String: Any]) { self.values = values }
 }
 
+private final class OfferReplyOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completion: (@Sendable (WatchSessionOffer?) -> Void)?
+
+    init(_ completion: @escaping @Sendable (WatchSessionOffer?) -> Void) {
+        self.completion = completion
+    }
+
+    func finish(_ offer: WatchSessionOffer?) {
+        lock.lock()
+        let pending = completion
+        completion = nil
+        lock.unlock()
+        pending?(offer)
+    }
+}
+
 @MainActor
 final class WatchLinkClient: NSObject, ObservableObject {
     static let shared = WatchLinkClient()
@@ -69,9 +86,7 @@ final class WatchLinkClient: NSObject, ObservableObject {
         guard let session, session.activationState == .activated else { return }
         let message = WatchLinkCodec.message(command.kind, command)
         if session.isReachable {
-            session.sendMessage(message, replyHandler: nil) { error in
-                Log.link.error("[WatchLink] send failed: \(error.localizedDescription, privacy: .public)")
-            }
+            Self.sendWithoutReply(message, on: session)
         } else if command.kind == .queue {
             session.transferUserInfo(message)
         } else {
@@ -212,23 +227,35 @@ final class WatchLinkClient: NSObject, ObservableObject {
         let message = WatchLinkCodec.message(.sessionRequest, request)
 
         return await withCheckedContinuation { continuation in
-            var resumed = false
-            session.sendMessage(message) { reply in
-                guard !resumed else { return }
-                resumed = true
-                guard WatchLinkCodec.kind(of: reply) == .sessionOffer,
-                      let offer = WatchLinkCodec.payload(WatchSessionOffer.self, from: reply)
-                else {
-                    continuation.resume(returning: nil)
-                    return
-                }
+            Self.requestOffer(message, on: session) { offer in
                 continuation.resume(returning: offer)
-            } errorHandler: { error in
-                guard !resumed else { return }
-                resumed = true
-                Log.link.error("[WatchLink] session request failed: \(error.localizedDescription, privacy: .public)")
-                continuation.resume(returning: nil)
             }
+        }
+    }
+
+    private nonisolated static func sendWithoutReply(_ message: [String: Any], on session: WCSession) {
+        session.sendMessage(message, replyHandler: nil) { error in
+            Log.link.error("[WatchLink] send failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private nonisolated static func requestOffer(
+        _ message: [String: Any],
+        on session: WCSession,
+        completion: @escaping @Sendable (WatchSessionOffer?) -> Void
+    ) {
+        let once = OfferReplyOnce(completion)
+        session.sendMessage(message) { reply in
+            guard WatchLinkCodec.kind(of: reply) == .sessionOffer,
+                  let offer = WatchLinkCodec.payload(WatchSessionOffer.self, from: reply)
+            else {
+                once.finish(nil)
+                return
+            }
+            once.finish(offer)
+        } errorHandler: { error in
+            Log.link.error("[WatchLink] session request failed: \(error.localizedDescription, privacy: .public)")
+            once.finish(nil)
         }
     }
 
