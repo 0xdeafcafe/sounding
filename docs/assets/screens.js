@@ -131,29 +131,37 @@ function bezier(x1, y1, x2, y2) {
 const ease = bezier(0.45, 0.05, 0.2, 1), easeIO = bezier(0.42, 0, 0.58, 1), easeOut = bezier(0, 0, 0.58, 1);
 
 // MARK: Text
-let M = null;
+let M = null, mFont = '';
 const widths = new Map(), fits = new Map(), wraps = new Map();
 const font = (f, w) => `${w} ${+(f * F).toFixed(2)}px ${FONT}`;
 function tw(s, f, w = 400) {
-  const k = `${F}|${w}|${f}|${s}`;
+  const k = `${w}|${s}`;
   let v = widths.get(k);
-  if (v === undefined) { M ||= document.createElement('canvas').getContext('2d'); M.font = font(f, w); v = M.measureText(s).width / F; widths.set(k, v); }
-  return v;
+  if (v === undefined) {
+    M ||= document.createElement('canvas').getContext('2d');
+    const ft = `${w} 100px ${FONT}`;
+    if (mFont !== ft) { M.font = ft; mFont = ft; }
+    v = M.measureText(s).width / 100;
+    widths.set(k, v);
+  }
+  return v * f;
 }
 function fit(s, f, w, max) {
   if (tw(s, f, w) <= max) return s;
-  const k = `${F}|${w}|${f}|${max}|${s}`;
+  const k = `${w}|${f}|${max}|${s}`;
   let v = fits.get(k);
   if (v === undefined) {
-    let lo = 0, hi = s.length;
-    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (tw(s.slice(0, m).trimEnd() + '…', f, w) <= max) lo = m; else hi = m - 1; }
-    v = s.slice(0, lo).trimEnd() + '…';
+    const cut = n => s.slice(0, n).trimEnd() + '…';
+    let n = Math.min(s.length - 1, Math.max(0, Math.floor(s.length * max / tw(s, f, w))));
+    while (n > 0 && tw(cut(n), f, w) > max) n--;
+    while (n < s.length - 1 && tw(cut(n + 1), f, w) <= max) n++;
+    v = cut(n);
     fits.set(k, v);
   }
   return v;
 }
 function wrap(s, f, w, max, n) {
-  const k = `${F}|${w}|${f}|${max}|${n}|${s}`;
+  const k = `${w}|${f}|${max}|${n}|${s}`;
   let v = wraps.get(k);
   if (v) return v;
   const words = s.split(' ');
@@ -1276,7 +1284,7 @@ function live(sc) {
   }
 }
 
-export function createScreens({ base = 'assets/', opaque = false } = {}) {
+export function createScreens({ base = 'assets/', opaque = false, budget = 0 } = {}) {
   shapes();
   const imgs = new Map();
   const S = { sec: 0, whole: -1, p: 0, idx: 0, row: 0, el: '0:00', left: `-${fmt(D)}`, now: `${T[0][2]} - ${T[0][1]}` };
@@ -1285,10 +1293,11 @@ export function createScreens({ base = 'assets/', opaque = false } = {}) {
     const r = { im: new Image(), ok: false, users: new Set() };
     r.im.decoding = 'async';
     r.p = new Promise(done => {
-      r.im.onload = () => { r.ok = true; for (const sc of r.users) { sc.L = {}; sc.dirty = true; } r.users.clear(); done(); };
+      const fin = () => { r.ok = true; for (const sc of r.users) { sc.L = {}; sc.dirty = true; } r.users.clear(); done(); };
       r.im.onerror = () => done();
+      r.im.src = base + file;
+      if (r.im.decode) r.im.decode().then(fin, () => done()); else r.im.onload = fin;
     });
-    r.im.src = base + file;
     imgs.set(file, r);
     return r.p;
   };
@@ -1419,8 +1428,16 @@ export function createScreens({ base = 'assets/', opaque = false } = {}) {
       for (const name in all) if (live(all[name])) all[name].dirty = true;
     },
     show(name, visible) { get(name).vis = !!visible; },
+    warm() {
+      const names = Object.keys(all);
+      let i = 0;
+      const go = () => { if (i >= names.length) return; const sc = all[names[i++]]; if (sc.dirty && !sc.vis) paint(sc); setTimeout(go, 90); };
+      go();
+    },
     step(dt) {
       const out = [];
+      const now = performance.now();
+      let painted = 0;
       for (const name in all) {
         const sc = all[name];
         for (const k in sc.a) {
@@ -1431,7 +1448,9 @@ export function createScreens({ base = 'assets/', opaque = false } = {}) {
           sc.dirty = true;
         }
         if (name === 'tv') chime(sc, dt);
-        if (sc.dirty && sc.vis) { paint(sc); sc.dirty = false; out.push(name); }
+        if (!sc.dirty || !sc.vis) continue;
+        if (budget && (painted >= budget || now - (sc.at || 0) < 30)) continue;
+        paint(sc); sc.dirty = false; sc.at = now; painted++; out.push(name);
       }
       return out;
     },
