@@ -56,7 +56,7 @@ struct MacRootView: View {
     @State private var inspectorWidth: CGFloat = 360
     @State private var columnVisibility = MacRootView.initialColumnVisibility
     @State private var columnVisibilityOutsideDecks: NavigationSplitViewVisibility?
-    @State private var decksMode: MacDJMode = .perform
+    @State private var prepInspectorTrack: Track?
 
     enum Section: Hashable, Identifiable {
         case search
@@ -70,6 +70,7 @@ struct MacRootView: View {
         case albums
         case artists
         case sets
+        case prep
         case setlists
         case downloads
         case history
@@ -103,6 +104,7 @@ struct MacRootView: View {
             case .albums: return "Albums"
             case .artists: return "Artists"
             case .sets: return "Sets"
+            case .prep: return "Prep"
             case .setlists: return "Setlists"
             case .downloads: return "Downloads"
             case .history: return "History"
@@ -136,6 +138,7 @@ struct MacRootView: View {
             case .albums: return SidebarSymbol.albums
             case .artists: return SidebarSymbol.artists
             case .sets: return SidebarSymbol.sets
+            case .prep: return SidebarSymbol.prep
             case .setlists: return SidebarSymbol.setlists
             case .downloads: return SidebarSymbol.downloads
             case .history: return SidebarSymbol.history
@@ -158,7 +161,7 @@ struct MacRootView: View {
 
         var worksSignedOut: Bool {
             switch self {
-            case .search, .home, .console, .hardware, .library, .albums, .artists, .setlists, .downloads, .history, .mixes, .account: return true
+            case .search, .home, .console, .hardware, .library, .albums, .artists, .prep, .setlists, .downloads, .history, .mixes, .account: return true
             default: return false
             }
         }
@@ -181,6 +184,7 @@ struct MacRootView: View {
             case "artists": return .artists
             case "albums": return .albums
             case "sets": return .sets
+            case "prep": return .prep
             case "setlists": return .setlists
             case "downloads": return .downloads
             case "history": return .history
@@ -570,19 +574,26 @@ struct MacRootView: View {
         } detail: {
             navigationDetail
                 .inspector(isPresented: Binding(
-                    get: { sidebarPlayerPane != nil },
-                    set: { if !$0 { sidebarPlayerPane = nil } }
+                    get: { isShowingInspector },
+                    set: { if !$0 { sidebarPlayerPane = nil; prepInspectorTrack = nil } }
                 )) {
-                    MacNowPlayingInspector(pane: Binding(
-                        get: { sidebarPlayerPane ?? .queue },
-                        set: { sidebarPlayerPane = $0 }
-                    ))
+                    Group {
+                        if let track = prepInspectorTrack {
+                            MacPrepInspectorPane(track: track)
+                        } else {
+                            MacNowPlayingInspector(pane: Binding(
+                                get: { sidebarPlayerPane ?? .queue },
+                                set: { sidebarPlayerPane = $0 }
+                            ))
+                        }
+                    }
                     .inspectorColumnWidth(min: 300, ideal: 360, max: 480)
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { inspectorWidth = $0 }
                 }
             .animation(reduceMotion ? nil : SCContentMotion.settle, value: sidebarPlayerPane)
+            .animation(reduceMotion ? nil : SCContentMotion.settle, value: prepInspectorTrack?.id)
             .environment(\.macMainSidebarVisible, columnVisibility != .detailOnly)
-            .environment(\.macMainInspectorVisible, sidebarPlayerPane != nil)
+            .environment(\.macMainInspectorVisible, isShowingInspector)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { windowWidth = $0 }
         .onChange(of: selection, initial: true) { _, section in
@@ -599,13 +610,24 @@ struct MacRootView: View {
                 withAnimation(reduceMotion ? nil : SCContentMotion.settle) { columnVisibility = saved }
             }
         }
-        .onReceive(MacDJPerformModel.shared.$mode.removeDuplicates()) { decksMode = $0 }
         .onReceive(MacDJPerformModel.shared.$isPanelOpen.removeDuplicates()) { isOpen in
-            if isOpen, selection == .console, decksMode == .perform, sidebarPlayerPane != nil { sidebarPlayerPane = nil }
+            if isOpen, selection == .console, isShowingInspector {
+                sidebarPlayerPane = nil
+                prepInspectorTrack = nil
+            }
+        }
+        .onChange(of: isShowingInspector) { _, shown in
+            guard shown, selection == .console else { return }
+            MacDJPerformModel.shared.isPanelOpen = false
         }
         .onChange(of: sidebarPlayerPane) { _, pane in
-            guard pane != nil, selection == .console else { return }
-            if decksMode == .perform { MacDJPerformModel.shared.isPanelOpen = false }
+            if pane != nil { prepInspectorTrack = nil }
+        }
+        .onReceive(MacPrepRoute.shared.$inspectedTrack.compactMap { $0 }) { track in
+            MacPrepRoute.shared.inspectedTrack = nil
+            isShowingNowPlaying = false
+            sidebarPlayerPane = nil
+            prepInspectorTrack = track
         }
         .navigationTitle("Sounding")
         .task {
@@ -863,9 +885,13 @@ struct MacRootView: View {
         .animation(reduceMotion ? nil : SCContentMotion.settle, value: player.currentTrack?.id)
     }
 
+    private var isShowingInspector: Bool {
+        sidebarPlayerPane != nil || prepInspectorTrack != nil
+    }
+
     private var capsuleWidth: CGFloat {
         let sidebar = columnVisibility == .detailOnly ? 0 : sidebarWidth + MacToolbarMetrics.edge
-        let inspector = sidebarPlayerPane == nil ? 0 : inspectorWidth
+        let inspector = isShowingInspector ? inspectorWidth : 0
         let detail = windowWidth - sidebar - inspector
         let windowControls = columnVisibility == .detailOnly ? MacToolbarMetrics.windowControls : 0
         let showsTitle = detailPath.isEmpty
@@ -892,7 +918,8 @@ struct MacRootView: View {
         guard detailPath.isEmpty else { return 0 }
         switch selection {
         case .likes: return 3
-        case .console: return decksMode == .perform ? 4 : decksMode == .prep ? 3 : 2
+        case .console: return 4
+        case .prep: return 1
         case .library, .friendsWithADJ, .account, nil: return 2
         case .search: return 4
         case .playlists, .myPlaylists, .likedPlaylists: return 2
@@ -1058,6 +1085,7 @@ struct MacRootView: View {
         case .albums: MacLibraryCollectionsPane(model: albumsCollection)
         case .artists: MacLibraryCollectionsPane(model: artistsCollection)
         case .sets: MacSetsPane(model: likesModel)
+        case .prep: MacPrepPane()
         case .setlists: MacSetsPane(model: likesModel)
         case .downloads: DownloadedMusicView().scrollContentBackground(.hidden)
         case .history: MacHistoryView()
@@ -1439,9 +1467,18 @@ private struct MacSidebar: View {
     @ObservedObject private var pins = SidebarPins.shared
     @ObservedObject private var folderStore = PlaylistFolderStore.shared
 
-    private let primary: [MacRootView.Section] = [
-        .search, .home, .console, .stations, .hardware,
-    ]
+    @EnvironmentObject private var midi: DJControllerHub
+    @ObservedObject private var players = DJPlayersController.shared
+
+    private var primary: [MacRootView.Section] {
+        var items: [MacRootView.Section] = [.home, .search, .console, .stations]
+        if showsHardware { items.append(.hardware) }
+        return items
+    }
+
+    private var showsHardware: Bool {
+        selection == .hardware || !midi.controllers.isEmpty || !players.players.isEmpty
+    }
 
     @State private var isShowingAuthentication = false
     @State private var isReauthentication = false
@@ -1552,6 +1589,7 @@ private struct MacSidebar: View {
         if showsAlbums { items.append(.albums) }
         if showsArtists { items.append(.artists) }
         if showsSets { items.append(.sets) }
+        items.append(.prep)
         if showsDownloads { items.append(.downloads) }
         if showsHistory { items.append(.history) }
         if showsPrivateShares { items.append(.friendsWithADJ) }
@@ -1634,7 +1672,7 @@ private struct MacSidebar: View {
                 accountAvatar
                 VStack(alignment: .leading, spacing: 1) {
                     Text(accountTitle)
-                        .font(.subheadline.weight(.medium))
+                        .font(.body)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     if let accountStatus {
@@ -1646,12 +1684,14 @@ private struct MacSidebar: View {
                 }
                 Spacer(minLength: 4)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .macHoverRowHighlight()
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
         .background(MacVisualEffectBackground(role: .sidebar))
         .overlay(alignment: .top) { Divider() }
@@ -1690,12 +1730,12 @@ private struct MacSidebar: View {
     @ViewBuilder
     private var accountAvatar: some View {
         if let url = credentials.accountUser?.avatarURL {
-            ArtworkThumbnail(url: url, identity: credentials.accountUser?.id ?? "", size: 28, cornerRadius: 14)
+            ArtworkThumbnail(url: url, identity: credentials.accountUser?.id ?? "", size: 24, cornerRadius: 12)
         } else {
             Image(systemName: "person.crop.circle.fill")
-                .font(.title)
+                .font(.title2)
                 .foregroundStyle(MacSecondaryStyle())
-                .frame(width: 28, height: 28)
+                .frame(width: 24, height: 24)
                 .accessibilityHidden(true)
         }
     }
@@ -1959,6 +1999,12 @@ extension MacRootView {
         }
 
         let section = Section.debugInitial()
+        var prepFixture: MacPrepModel?
+        if env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SHEET"] == "prep-inspector" {
+            let store = MacPrepFixtures.makeStore()
+            await MacPrepFixtures.seed(store)
+            prepFixture = await DJPrepFixtures.model(store: store, tier: .goPlus)
+        }
         let harness = Group {
             if env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SHEET"] == "queue-panel" {
                 HStack(spacing: 0) {
@@ -1997,11 +2043,25 @@ extension MacRootView {
                 HStack(spacing: 0) {
                     MacSidebar(selection: .constant(section))
                         .frame(width: 240)
+                        .background(MacVisualEffectBackground(role: .sidebar).ignoresSafeArea())
                     Divider()
                     Spacer()
                 }
                 .environmentObject(SoundCloudCredentialSource.shared)
+                .environmentObject(DJControllerHub.shared)
                 .environment(\.colorScheme, env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SCHEME"] == "dark" ? .dark : .light)
+            } else if let model = prepFixture {
+                MacPrepInspectorPane(track: VisualFixtures.tracks[6], model: model)
+                    .frame(width: 360)
+                    .task {
+                        try? await Task.sleep(for: .milliseconds(600))
+                        model.cursorSeconds = 0.12 + 48 * (240 / 120.0) + 0.5
+                        model.selectedCueId = model.detail?.cues.first { $0.hotCueIndex == 1 }?.id
+                    }
+                    .environment(\.colorScheme, env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SCHEME"] == "dark" ? .dark : .light)
+                    .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
+            } else if env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SHEET"] == "plan" {
+                MacDJPlanSheet(perform: .shared, fixture: DJPlanModel.fixture())
             } else if env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SHEET"] == "welcome" || env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SHEET"] == "music-step" {
                 MacOnboardingView(
                     step: env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SHEET"] == "welcome" ? .welcome : .music,
@@ -2031,6 +2091,7 @@ extension MacRootView {
                 case .albums: MacLibraryCollectionsPane(model: LibraryCollectionsModel(kind: .albums))
                 case .artists: MacLibraryCollectionsPane(model: LibraryCollectionsModel(kind: .artists))
                 case .sets: MacSetsPane(model: MacLibraryModel(mode: .liked)).environmentObject(SoundCloudCredentialSource.shared)
+                case .prep: MacPrepPane().environmentObject(SoundCloudCredentialSource.shared)
                 case .mixes: MixHistoryHarness.staticView(route: env["SOUNDING_TV_MIXES_ROUTE"], width: width)
                         .environment(\.colorScheme, env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SCHEME"] == "dark" ? .dark : .light)
                 case .myPlaylists: MacPlaylistsView(model: MacPlaylistsModel(), scope: .mine).environmentObject(SoundCloudCredentialSource.shared)
@@ -2069,7 +2130,7 @@ extension MacRootView {
 
         let djSheet = env["SOUNDING_TV_MAC_DJ_SHEET"]?.lowercased()
         let capturesFullWindow = env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_FULL"] == "1"
-        let isDecks = section == .console || djSheet != nil || env["SOUNDING_TV_MAC_DJ_PAGE"] != nil
+        let isDecks = section == .console || djSheet != nil || env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SHEET"] == "plan"
         let scheme = env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SCHEME"]?.lowercased() ?? (isDecks ? "dark" : "light")
         let appearance: NSAppearance.Name = scheme == "dark" ? .darkAqua : .aqua
 

@@ -87,14 +87,31 @@ enum MacRowSelectionStyle {
     case sidebar
     case content
 
-    var fill: Color { .scAccent }
+    func fill(_ scheme: ColorScheme) -> Color {
+        switch self {
+        case .sidebar: return Color.primary.opacity(scheme == .dark ? 0.14 : 0.08)
+        case .content: return .scAccent
+        }
+    }
 
-    var ink: Color { .scAccentOn }
+    var ink: Color? {
+        switch self {
+        case .sidebar: return nil
+        case .content: return .scAccentOn
+        }
+    }
 
     var outerInset: CGFloat {
         switch self {
         case .sidebar: return 10
         case .content: return 6
+        }
+    }
+
+    var verticalPadding: CGFloat {
+        switch self {
+        case .sidebar: return 3
+        case .content: return 4
         }
     }
 }
@@ -118,20 +135,21 @@ struct MacSelectableRow<Value: Hashable>: ViewModifier {
     let value: Value
     @Binding var selection: Value?
     let style: MacRowSelectionStyle
+    @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
         let isSelected = selection == value
-        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         Button {
             selection = value
         } label: {
             content
                 .environment(\.macRowSelectionInk, isSelected ? style.ink : nil)
-                .foregroundStyle(isSelected ? style.ink : Color.primary)
+                .foregroundStyle(isSelected ? (style.ink ?? Color.primary) : Color.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(shape.fill(isSelected ? style.fill : Color.clear))
+                .padding(.vertical, style.verticalPadding)
+                .background(shape.fill(isSelected ? style.fill(colorScheme) : Color.clear))
                 .contentShape(shape)
         }
         .buttonStyle(.plain)
@@ -186,10 +204,10 @@ struct MacSidebarLabel: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Image(systemName: systemImage)
                 .symbolVariant(.none)
-                .fontWeight(.regular)
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(selectionInk ?? Color.scAccent)
                 .frame(width: 20)
                 .accessibilityHidden(true)
