@@ -96,7 +96,7 @@ struct TVStationsView: View {
                     seed: seed,
                     style: .tv,
                     artworkSide: Self.heroArtwork,
-                    titleFont: .system(size: 56, weight: .bold)
+                    titleFont: .title2.weight(.bold)
                 ) {
                     EmptyView()
                 }

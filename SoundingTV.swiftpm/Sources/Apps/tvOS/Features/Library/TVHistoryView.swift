@@ -23,8 +23,10 @@ struct TVHistoryView: View {
                     ListeningHistoryStatusView(phase: history.phase) {
                         Task { await history.load(force: true) }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .padding(.top, SCBrowseMetrics.contentTopInset)
+                .padding(.bottom, Space.section)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 ScrollView(.vertical) {
