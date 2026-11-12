@@ -215,6 +215,7 @@ struct PlayerView: View {
                     showingComments = false
                 }
             )
+            .npCover()
         }
         .fullScreenCover(isPresented: $showingDetails) {
             if let track = playerService.currentTrack {
@@ -223,10 +224,12 @@ struct PlayerView: View {
                     open(.tracklist, from: .details)
                 }
                 .tvTrackActionsHost()
+                .npCover()
             }
         }
         .fullScreenCover(isPresented: $showingTrackMap) {
             TrackMapView(model: trackMap, palette: artworkColors.current)
+                .npCover()
         }
         .fullScreenCover(isPresented: $showingSetlist) {
             if let track = playerService.currentTrack {
@@ -241,6 +244,7 @@ struct PlayerView: View {
                         Task { await playerService.play(result, in: [result]) }
                     }
                 )
+                .npCover()
             }
         }
         .onChange(of: authService.sessionHealth) { _, health in
@@ -871,5 +875,14 @@ private struct NPLineArtLayer: View {
             wideTipAnchor: UnitPoint(x: 0.42, y: 0.95),
             isActive: isActive
         )
+    }
+}
+
+extension View {
+    func npCover() -> some View {
+        frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { BrowseBackdrop().ignoresSafeArea() }
+            .environment(\.colorScheme, .dark)
+            .preferredColorScheme(.dark)
     }
 }
