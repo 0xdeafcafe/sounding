@@ -789,9 +789,12 @@ final class MacLibraryModel: ObservableObject {
 
     private func likedSource() -> PagedSource<Track> {
         PagedSource(
-            first: { [unowned self] in await likedIndexChunk(offset: 0, limit: Self.pageSize) },
-            next: { [unowned self] cursor in
-                guard case .offset(let offset) = cursor else { return PagedChunk(items: []) }
+            first: { [weak self] in
+                guard let self else { return PagedChunk(items: []) }
+                return await likedIndexChunk(offset: 0, limit: Self.pageSize)
+            },
+            next: { [weak self] cursor in
+                guard let self, case .offset(let offset) = cursor else { return PagedChunk(items: []) }
                 return await likedIndexChunk(offset: offset, limit: Self.pageSize)
             }
         )
@@ -810,20 +813,22 @@ final class MacLibraryModel: ObservableObject {
             }.value
         }
         return PagedSource(
-            first: { [unowned self] in
+            first: { [weak self] in
                 let page = try await SoundCloudAPI.shared.getLibrary(limit: Self.pageSize)
                 let found = await shares(page)
-                await persist(section, tracks: found, nextHref: page.nextHref)
+                await self?.persist(section, tracks: found, nextHref: page.nextHref)
                 return PagedChunk(items: found, next: page.nextHref.map { .url($0) })
             },
-            next: { [unowned self] cursor in
+            next: { [weak self] cursor in
                 switch cursor {
-                case .offset(let offset): return await cachedChunk(section: section, offset: offset)
+                case .offset(let offset):
+                    guard let self else { return PagedChunk(items: []) }
+                    return await cachedChunk(section: section, offset: offset)
                 case .start: throw APIError.notFound
                 case .url(let url):
                     let page = try await SoundCloudAPI.shared.getPage(LibraryItem.self, from: url)
                     let found = await shares(page)
-                    await persist(section, tracks: found, nextHref: page.nextHref)
+                    await self?.persist(section, tracks: found, nextHref: page.nextHref)
                     return PagedChunk(items: found, next: page.nextHref.map { .url($0) })
                 }
             }
