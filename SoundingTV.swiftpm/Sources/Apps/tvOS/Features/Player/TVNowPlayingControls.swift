@@ -100,6 +100,9 @@ struct NPCircleStyle: ButtonStyle {
         Styled(configuration: configuration, diameter: diameter, label: label, isOn: isOn)
     }
 
+    static let labelGap: CGFloat = 14
+    static let labelRow: CGFloat = 30
+
     private struct Styled: View {
         let configuration: Configuration
         let diameter: CGFloat
@@ -118,27 +121,28 @@ struct NPCircleStyle: ButtonStyle {
                         .opacity(isFocused ? 1 : 0)
                 }
                 .overlay { if isFocused { NPFocusSheen(shape: Circle()) } }
-                .background(Circle().fill(Color.white.opacity(isOn ? 0.3 : 0.14)))
+                .background(Circle().fill(Color.white.opacity(isOn ? 0.26 : 0.14)))
                 .overlay(Circle().strokeBorder(Color.white.opacity(isFocused ? 0 : 0.1), lineWidth: 1))
                 .contentShape(Circle())
+                .scaleEffect(isFocused ? 1.08 : 1)
+                .shadow(color: isFocused ? Color.scFocusShadow : .clear, radius: 22, y: 12)
+                .opacity(configuration.isPressed ? 0.85 : 1)
+                .focusEffectDisabled()
+                .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.85), value: isFocused)
                 .overlay(alignment: .top) {
                     if !label.isEmpty {
                         Text(label)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.white)
                             .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+                            .lineLimit(1)
                             .fixedSize()
-                            .offset(y: diameter + 18)
+                            .offset(y: diameter + NPCircleStyle.labelGap)
                             .opacity(isFocused ? 1 : 0)
+                            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isFocused)
                             .accessibilityHidden(true)
                     }
                 }
-                .scaleEffect(isFocused ? 1.1 : 1)
-                .offset(y: isFocused ? -3 : 0)
-                .shadow(color: isFocused ? Color.scFocusShadow : .clear, radius: 22, y: 12)
-                .opacity(configuration.isPressed ? 0.85 : 1)
-                .focusEffectDisabled()
-                .animation(reduceMotion ? nil : Motion.focus, value: isFocused)
         }
     }
 }
@@ -209,7 +213,7 @@ struct NPIconButton: View {
     let id: NPFocus
     var focus: FocusState<NPFocus?>.Binding
     var diameter: CGFloat = 76
-    var iconSize: CGFloat = 34
+    var iconSize: CGFloat = 30
     var isOn = false
     var accessibilityTitle: String?
     var accessibilityValue = ""

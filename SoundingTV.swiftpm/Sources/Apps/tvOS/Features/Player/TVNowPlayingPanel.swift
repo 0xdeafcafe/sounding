@@ -614,7 +614,9 @@ private struct NPTracklistRow: View {
                     .font(.caption)
                     .monospacedDigit()
                     .npInk(.tertiary)
-                    .frame(width: 90, alignment: .leading)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .frame(width: 112, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.body.weight(.semibold))

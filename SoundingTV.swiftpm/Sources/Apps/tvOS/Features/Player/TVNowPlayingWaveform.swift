@@ -35,6 +35,7 @@ struct NPWaveform: View {
     private static let minimumBar: CGFloat = 0.08
     private static let labelRow: CGFloat = 36
     private static let dotRow: CGFloat = 28
+    private static let timeWidth: CGFloat = 130
     static let tapeThreshold: TimeInterval = 360
     private static let tapeWindow: TimeInterval = 450
 
@@ -53,8 +54,13 @@ struct NPWaveform: View {
             let position = displayedPosition(at: context.date)
             let active = showsBubble && preview == nil ? activeComment(at: position) : nil
             VStack(spacing: 0) {
-                NPTapeLabels(entries: entries, position: position, pinsCurrent: isTape, x: { x(for: $0, at: position) })
-                    .frame(width: Self.width, height: Self.labelRow)
+                NPTapeLabels(
+                    entries: entries,
+                    position: position,
+                    pinsCurrent: isTape,
+                    size: CGSize(width: Self.width, height: Self.labelRow),
+                    x: { x(for: $0, at: position) }
+                )
                 scrubLane(position: position, bubbleComment: active)
                 NPTapeDots(entries: entries, comments: timed, accent: accent, x: { x(for: $0, at: position) })
                     .frame(width: Self.width, height: Self.dotRow)
@@ -230,14 +236,29 @@ struct NPWaveform: View {
     }
 
     private func times(position: TimeInterval, hidesHint: Bool) -> some View {
-        HStack {
+        HStack(spacing: 28) {
             Text(NPFormat.time(position))
-            Spacer()
-            Text(hint)
-                .font(.caption2.weight(.medium))
-                .opacity(isFocused && !hidesHint ? 0.7 : 0)
-            Spacer()
+                .frame(minWidth: Self.timeWidth, alignment: .leading)
+            if isTape {
+                NPTapeMiniMap(
+                    bars: bars,
+                    progress: duration > 0 ? position / duration : 0,
+                    window: duration > 0 ? min(Self.tapeWindow, duration) / duration : 1,
+                    isFocused: isFocused
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: 22)
+                .opacity(hidesHint ? 0 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: hidesHint)
+            } else {
+                Spacer()
+                Text(hint)
+                    .font(.caption2.weight(.medium))
+                    .opacity(isFocused && !hidesHint ? 0.7 : 0)
+                Spacer()
+            }
             Text("\u{2212}\(NPFormat.time(max(0, duration - position)))")
+                .frame(minWidth: Self.timeWidth, alignment: .trailing)
         }
         .font(.caption.weight(.medium))
         .monospacedDigit()
@@ -414,51 +435,107 @@ private struct NPTapeLabels: View {
     let entries: [TracklistEntry]
     let position: TimeInterval
     let pinsCurrent: Bool
+    let size: CGSize
     let x: (TimeInterval) -> CGFloat
 
-    private struct Slot {
+    private struct Slot: Identifiable {
+        let id: String
         let x: CGFloat
         let label: String
         let hasTick: Bool
+        var width: CGFloat = 0
     }
 
+    private static let tickGap: CGFloat = 14
+    private static let slotGap: CGFloat = 28
+    private static let minimumWidth: CGFloat = 60
+
     var body: some View {
-        Canvas { context, size in
-            guard !entries.isEmpty else { return }
-            var slots: [Slot] = []
-            let currentIndex = entries.lastIndex { $0.startSeconds <= position }
-            if let currentIndex {
-                let entry = entries[currentIndex]
-                let px = x(entry.startSeconds)
-                if pinsCurrent, px < 0 {
-                    slots.append(Slot(x: 0, label: entry.segment.displayLabel, hasTick: false))
-                } else if px >= 0, px <= size.width {
-                    slots.append(Slot(x: px, label: entry.segment.displayLabel, hasTick: true))
-                }
-            }
-            let upcoming = currentIndex.map { $0 + 1 } ?? 0
-            for entry in entries[upcoming...] {
-                let px = x(entry.startSeconds)
-                guard px >= 0 else { continue }
-                guard px <= size.width else { break }
-                slots.append(Slot(x: px, label: entry.segment.displayLabel, hasTick: true))
-            }
-            for (index, slot) in slots.enumerated() {
-                let next = index + 1 < slots.count ? slots[index + 1].x : size.width
-                let textX = slot.x + (slot.hasTick ? 14 : 0)
-                let available = next - textX - 20
-                guard available > 48 else { continue }
+        ZStack(alignment: .topLeading) {
+            ForEach(slots(in: size.width)) { slot in
                 if slot.hasTick {
-                    context.fill(
-                        Path(CGRect(x: slot.x - 1, y: size.height * 0.25, width: 2, height: size.height * 0.75)),
-                        with: .color(.white.opacity(0.55))
-                    )
+                    Rectangle()
+                        .fill(Color.white.opacity(0.55))
+                        .frame(width: 2, height: size.height * 0.75)
+                        .offset(x: slot.x - 1, y: size.height * 0.25)
                 }
-                var clipped = context
-                clipped.clip(to: Path(CGRect(x: textX, y: 0, width: available, height: size.height)))
-                let text = Text(slot.label).font(.caption.weight(.medium)).foregroundStyle(.white.opacity(0.72))
-                clipped.draw(clipped.resolve(text), at: CGPoint(x: textX, y: size.height / 2), anchor: .leading)
+                Text(slot.label)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Color.white.opacity(0.72))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(width: slot.width, height: size.height, alignment: .leading)
+                    .offset(x: slot.x + (slot.hasTick ? Self.tickGap : 0))
             }
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .clipped()
+        .accessibilityHidden(true)
+    }
+
+    private func slots(in width: CGFloat) -> [Slot] {
+        guard !entries.isEmpty else { return [] }
+        var slots: [Slot] = []
+        let currentIndex = entries.lastIndex { $0.startSeconds <= position }
+        if let currentIndex {
+            let entry = entries[currentIndex]
+            let px = x(entry.startSeconds)
+            if pinsCurrent, px < 0 {
+                slots.append(Slot(id: "pinned", x: 0, label: entry.segment.displayLabel, hasTick: false))
+            } else if px >= 0, px <= width {
+                slots.append(Slot(id: "entry\(currentIndex)", x: px, label: entry.segment.displayLabel, hasTick: true))
+            }
+        }
+        let upcoming = currentIndex.map { $0 + 1 } ?? 0
+        for (offset, entry) in entries[upcoming...].enumerated() {
+            let px = x(entry.startSeconds)
+            guard px >= 0 else { continue }
+            guard px <= width else { break }
+            slots.append(Slot(id: "entry\(upcoming + offset)", x: px, label: entry.segment.displayLabel, hasTick: true))
+        }
+        var sized: [Slot] = []
+        for (index, slot) in slots.enumerated() {
+            let next = index + 1 < slots.count ? slots[index + 1].x : width
+            let textX = slot.x + (slot.hasTick ? Self.tickGap : 0)
+            let available = next - textX - Self.slotGap
+            guard available >= Self.minimumWidth else { continue }
+            var fitted = slot
+            fitted.width = available
+            sized.append(fitted)
+        }
+        return sized
+    }
+}
+
+private struct NPTapeMiniMap: View {
+    let bars: [Float]
+    let progress: Double
+    let window: Double
+    let isFocused: Bool
+
+    private static let pitch: CGFloat = 2.5
+
+    var body: some View {
+        Canvas(rendersAsynchronously: false) { context, size in
+            let count = Int(size.width / Self.pitch)
+            guard count > 0 else { return }
+            let values = bars.isEmpty ? Array(repeating: Float(0.2), count: count) : SCWaveformSampler.resample(bars, toCount: count)
+            let playedWidth = CGFloat(min(1, max(0, progress))) * size.width
+            var played = Path()
+            var rest = Path()
+            for (index, value) in values.enumerated() {
+                let x = CGFloat(index) * Self.pitch
+                let height = max(1.5, CGFloat(value) * size.height * 0.7)
+                let rect = CGRect(x: x, y: (size.height - height) / 2, width: 1.4, height: height)
+                if x < playedWidth { played.addRect(rect) } else { rest.addRect(rect) }
+            }
+            context.fill(rest, with: .color(.white.opacity(0.3)))
+            context.fill(played, with: .color(.white.opacity(0.85)))
+            let thumbWidth = max(10, CGFloat(window) * size.width)
+            let thumbX = min(max(0, CGFloat(progress - window / 2) * size.width), size.width - thumbWidth)
+            let thumb = Path(roundedRect: CGRect(x: thumbX, y: -2, width: thumbWidth, height: size.height + 4), cornerRadius: 4)
+            context.fill(thumb, with: .color(.white.opacity(0.1)))
+            context.stroke(thumb, with: .color(.white.opacity(isFocused ? 1 : 0.7)), lineWidth: 1.5)
         }
         .accessibilityHidden(true)
     }
@@ -507,13 +584,20 @@ struct NPCommentBubble: View {
     let comment: Comment
     var maxWidth: CGFloat = 640
 
+    private var text: String {
+        let flat = comment.body.replacingOccurrences(of: "\n", with: " ")
+        let cap = max(12, Int(maxWidth / 13))
+        guard flat.count > cap else { return flat }
+        return String(flat.prefix(cap - 1)).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             ArtworkImage(url: comment.user.avatarURL, icon: "person.fill", identity: comment.user.id)
                 .frame(width: 40, height: 40)
                 .clipShape(Circle())
                 .kyleCrowned(user: comment.user, context: comment.user.displayName)
-            Text(comment.body)
+            Text(text)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.white)
                 .lineLimit(1)
@@ -521,7 +605,7 @@ struct NPCommentBubble: View {
         .padding(.leading, 8)
         .padding(.trailing, 22)
         .padding(.vertical, 8)
-        .frame(maxWidth: maxWidth, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
         .background(Capsule().fill(Color.black.opacity(0.3)))
         .accessibilityHidden(true)
     }
