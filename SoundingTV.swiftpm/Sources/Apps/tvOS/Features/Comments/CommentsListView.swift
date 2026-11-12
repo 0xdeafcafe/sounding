@@ -8,13 +8,13 @@ struct CommentsListView: View {
 
     @EnvironmentObject var navigationState: NavigationState
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-    @FocusState private var closeFocused: Bool
     @FocusState private var focusedRow: String?
 
+    private static let contentTop: CGFloat = 96
+    private static let columnWidth: CGFloat = 1400
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 36) {
+        VStack(alignment: .leading, spacing: Space.roomy) {
             header
 
             Group {
@@ -42,80 +42,63 @@ struct CommentsListView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.top, Space.page)
+        .padding(.top, Self.contentTop)
         .padding(.horizontal, Space.page)
         .padding(.bottom, Space.section)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .ignoresSafeArea(edges: [.horizontal, .bottom])
-        .background { backdrop }
-        .environment(\.colorScheme, .dark)
-        .defaultFocus($closeFocused, true)
-        .onAppear { DispatchQueue.main.async { closeFocused = true } }
-    }
-
-    private var backdrop: some View {
-        ZStack {
-            NPBackdrop(artworkURL: track?.artworkURL, palette: palette, isAnimating: !reduceMotion && scenePhase == .active)
-            NPLegibilityScrim(palette: palette)
-            Color.black.opacity(0.22)
-        }
         .ignoresSafeArea()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        .background { NPCoverBackdrop(artworkURL: track?.artworkURL, palette: palette) }
+        .environment(\.colorScheme, .dark)
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 26) {
-            ArtworkImage(url: track?.artworkURL, identity: track?.id)
-                .aspectRatio(1, contentMode: .fill)
-                .frame(width: 104, height: 104)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .shadow(color: .black.opacity(0.4), radius: 18, y: 10)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Space.hair) {
+            Text(track?.title ?? "")
+                .font(.callout)
+                .foregroundStyle(Color.white.opacity(0.66))
+                .lineLimit(1)
+            HStack(alignment: .firstTextBaseline, spacing: Space.base) {
                 Text("Comments")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
-                Text(subtitle)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(Color.white.opacity(0.66))
-                    .lineLimit(1)
+                if let count = countText {
+                    Text(count)
+                        .font(.callout)
+                        .foregroundStyle(Color.white.opacity(0.66))
+                        .lineLimit(1)
+                }
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
-            Spacer()
-            PanelCloseButton { dismiss() }
-                .focused($closeFocused)
-                .accessibilityIdentifier("comments.close")
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("comments.header")
     }
 
-    private var subtitle: String {
-        guard let track else { return "" }
-        guard store.state == .loaded, !store.comments.isEmpty else { return track.title }
-        return "\(track.title) \u{00B7} \(store.pager.countText(singular: "comment", plural: "comments"))"
+    private var countText: String? {
+        guard store.state == .loaded, !store.comments.isEmpty else { return nil }
+        return store.pager.countText(singular: "comment", plural: "comments")
     }
 
     private var commentsList: some View {
         let threadSet = CommentThreadBuilder.build(store.comments)
         let firstRootID = (threadSet.timed.first ?? threadSet.untimed.first)?.root.id
         return ScrollView {
-            LazyVStack(alignment: .leading, spacing: 6) {
+            LazyVStack(alignment: .leading, spacing: Space.hair) {
                 if !threadSet.timed.isEmpty {
                     sectionHeader("On This Track")
                     threadRows(threadSet.timed)
                 }
                 if !threadSet.untimed.isEmpty {
                     sectionHeader("General")
-                        .padding(.top, threadSet.timed.isEmpty ? 0 : 30)
+                        .padding(.top, threadSet.timed.isEmpty ? 0 : Space.roomy)
                     threadRows(threadSet.untimed)
                 }
                 if let paging = TVPaging(store.pager) {
                     TVPagedFooter(paging: paging)
                 }
             }
-            .frame(maxWidth: 1400, alignment: .leading)
-            .padding(.bottom, 80)
+            .frame(maxWidth: Self.columnWidth, alignment: .leading)
+            .padding(.bottom, Space.section)
         }
         .scrollClipDisabled()
         .scrollIndicators(.hidden)
@@ -126,8 +109,8 @@ struct CommentsListView: View {
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(.headline)
-            .foregroundStyle(.white)
-            .padding(.bottom, 8)
+            .foregroundStyle(Color.white.opacity(0.66))
+            .padding(.bottom, Space.tight)
             .accessibilityAddTraits(.isHeader)
     }
 
@@ -184,10 +167,9 @@ private struct TVCommentRow: View {
                 onSeek(time)
             } label: {
                 SCCommentRow(comment: comment, isReply: isReply, style: Self.style)
-                    .padding(.horizontal, Space.snug)
-                    .padding(.vertical, Space.tight)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, Space.snug)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(RoundedRectangle(cornerRadius: Corner.card, style: .continuous))
             }
             .buttonStyle(CommentRowStyle(isSeekable: isSeekable))
             .focused(focus, equals: comment.id)
@@ -195,33 +177,17 @@ private struct TVCommentRow: View {
             .accessibilityIdentifier("comments.row.\(comment.id)")
 
             if let onSearch {
-                SearchThisButton(action: onSearch)
-                    .accessibilityIdentifier("comments.search.\(comment.id)")
+                Button(action: onSearch) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 26, weight: .semibold))
+                }
+                .buttonStyle(NPCircleStyle(diameter: Control.circle, label: "Search"))
+                .accessibilityLabel("Search")
+                .accessibilityHint("Searches SoundCloud for this comment's track")
+                .accessibilityIdentifier("comments.search.\(comment.id)")
             }
         }
-        .padding(.horizontal, Space.snug)
-    }
-}
-
-private struct SearchThisButton: View {
-    let action: () -> Void
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        Button(action: action) {
-            Label("Search", systemImage: "magnifyingglass")
-                .font(.tvCaptionEmph)
-                .foregroundStyle(focused ? Color.scChromeFocusOn : Color.scTextPrimary)
-                .padding(.horizontal, Space.snug)
-                .padding(.vertical, Space.tight)
-                .background { Capsule().fill(Color.scChromeFocus).opacity(focused ? 1 : 0) }
-                .liquidGlass(in: Capsule(), interactive: true)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(SCShapeButtonStyle(shape: Capsule(), sizeClass: .card))
-        .focused($focused)
-        .accessibilityLabel("Search")
-        .accessibilityHint("Searches SoundCloud for this comment's track")
+        .padding(.leading, -22)
     }
 }
 
@@ -252,6 +218,7 @@ private struct CommentRowStyle: ButtonStyle {
                         .opacity(isFocused ? 1 : 0)
                         .allowsHitTesting(false)
                 }
+                .contentShape(shape)
                 .scaleEffect(isFocused ? 1.02 : 1)
                 .offset(y: isFocused ? -2 : 0)
                 .shadow(color: isFocused ? Color.scFocusShadow : .clear, radius: 20, y: 10)

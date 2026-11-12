@@ -427,8 +427,8 @@ final class FocusWalkTests: XCTestCase {
             "SOUNDING_TV_COMMENTS_OPEN": "1",
         ])
 
-        let close = app.descendants(matching: .any)["comments.close"]
-        XCTAssertTrue(close.waitForExistence(timeout: 20), "The comments sheet never appeared.")
+        let header = app.descendants(matching: .any)["comments.header"]
+        XCTAssertTrue(header.waitForExistence(timeout: 20), "The comments sheet never appeared.")
         XCTAssertNotNil(focusedElement(in: app), "The comments sheet opened with nothing focused.")
 
         var seen = Set<String>()
