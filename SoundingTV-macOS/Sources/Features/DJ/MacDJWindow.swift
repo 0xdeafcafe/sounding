@@ -140,8 +140,6 @@ struct MacDJWindow: View {
 
     private var modeShortcuts: some View {
         Group {
-            Button("Plan") { model.isPlanPresented = true }
-                .keyboardShortcut("3", modifiers: .command)
             Button("Library") {
                 model.panelTab = .library
                 model.isPanelOpen = true
