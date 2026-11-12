@@ -806,8 +806,13 @@ private struct DevicesSettings: View {
                     Button {
                         deviceToForget = device
                     } label: {
-                        LabeledContent(device.displayName) {
+                        LabeledContent {
                             Text(server.connectedSessionIds.contains(device.sessionId) ? "Connected" : "Not Connected")
+                        } label: {
+                            Text(device.displayName)
+                            if let line = TVControllerAccount.settingsLine(controller: server.controllerAccounts[device.sessionId], tv: server.localAccount) {
+                                Text(line)
+                            }
                         }
                     }
                     .accessibilityHint("Forget this device")

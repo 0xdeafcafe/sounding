@@ -1448,6 +1448,7 @@
 		C329FFE4FC118944803F13F2 /* DeckIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 630EEA79EF77D15B803A3846 /* DeckIdentity.swift */; };
 		C33E57FE84341DC446F9CE79 /* DJProfileID.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF7181E37010C1237A9B365 /* DJProfileID.swift */; };
 		C3860E5F8B783B7C259353C1 /* QRCodeLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2F783549E5E0E04685FCD42 /* QRCodeLoginView.swift */; };
+		07B5DC944F5E6D26049A4E7A /* TVAccountSwitchPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA863DFAD4F72EE61FBB34A8 /* TVAccountSwitchPrompt.swift */; };
 		C41C25AEFBE390CA8615605F /* SilentWebReauthorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 453FAC68BC6D522B12675844 /* SilentWebReauthorizer.swift */; };
 		5C0DE1A1B2C3D4E5F6A7B802 /* SoundCloudWebSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0DE1A1B2C3D4E5F6A7B801 /* SoundCloudWebSignIn.swift */; };
 		5C0DE1A1B2C3D4E5F6A7B803 /* SoundCloudWebSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0DE1A1B2C3D4E5F6A7B801 /* SoundCloudWebSignIn.swift */; };
@@ -2767,6 +2768,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 		0E38E7B6118FF16253854869 /* PlayingNextQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayingNextQueue.swift; sourceTree = "<group>"; };
 		E236A303EE3DCD35A1B6B0DE /* LibraryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCache.swift; sourceTree = "<group>"; };
 		E2F783549E5E0E04685FCD42 /* QRCodeLoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeLoginView.swift; sourceTree = "<group>"; };
+		CA863DFAD4F72EE61FBB34A8 /* TVAccountSwitchPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAccountSwitchPrompt.swift; sourceTree = "<group>"; };
 		E34C065550AD22D6F5AF3F80 /* PlaylistDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistDetailViewModel.swift; sourceTree = "<group>"; };
 		E36F4AAD4B02783E526F4703 /* TopShelfPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopShelfPublisher.swift; sourceTree = "<group>"; };
 		E589F94C88C4B0D5CF906AE7 /* PulseTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTimeline.swift; sourceTree = "<group>"; };
@@ -3854,6 +3856,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				22710E872DBA5B00AC5DA4D4 /* LinkServer.swift */,
 				0C1509652B992B6C67280341 /* QRCodeGenerator.swift */,
 				E2F783549E5E0E04685FCD42 /* QRCodeLoginView.swift */,
+				CA863DFAD4F72EE61FBB34A8 /* TVAccountSwitchPrompt.swift */,
 				5161A7E0C0FFEE0000000001 /* SignInEvents.swift */,
 				95F2D8C6E7B4BACDBD09381B /* SignInRequestPublisher.swift */,
 				4E1A5C0000000000000000B1 /* NearbyLinkRequestPublisher.swift */,
@@ -6661,6 +6664,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				0C488026C43DA1F3E307D697 /* PulseTimeline.swift in Sources */,
 				7B394650B7E7611A24BF62FA /* QRCodeGenerator.swift in Sources */,
 				C3860E5F8B783B7C259353C1 /* QRCodeLoginView.swift in Sources */,
+				07B5DC944F5E6D26049A4E7A /* TVAccountSwitchPrompt.swift in Sources */,
 				B921A477B6CF5DFEABA9CADD /* SoundingQRCode.swift in Sources */,
 				ACA101532805BF8BA90D5A95 /* RemoteOutputTarget.swift in Sources */,
 				6853DD9E7E9B53CFBD5CD5A3 /* OutputPresence.swift in Sources */,

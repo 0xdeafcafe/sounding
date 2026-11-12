@@ -180,7 +180,7 @@ struct QRCodeLoginView: View {
             Button("Allow") { bonjourServer.approveLink() }
             Button("Don't Allow", role: .cancel) { bonjourServer.declineLink() }
         } message: { approval in
-            Text("Only allow it if \(approval.deviceName) shows this code.\n\n\(Self.grouped(approval.code))")
+            Text("\(Self.approvalMessage(approval))\n\n\(Self.grouped(approval.code))")
                 .monospacedDigit()
                 .multilineTextAlignment(.center)
         }
@@ -442,7 +442,7 @@ struct QRCodeLoginView: View {
             if state == .completed { return "It can now play music on this Apple TV and control it." }
             return "Link an iPhone, iPad or Mac to this Apple TV."
         }
-        return state == .completed ? "Enjoy your music." : SoundingWelcome.tagline
+        return state == .completed ? TVAccountCopy.tvSignedInSubtitle(authService.currentUser.map(PeerAccount.init(user:))) : SoundingWelcome.tagline
     }
 
     private var isPairingHandoffActive: Bool {
@@ -486,6 +486,13 @@ struct QRCodeLoginView: View {
                 onClose?()
             }
         }
+        bonjourServer.onLinked = {
+            completionTask = Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                guard !Task.isCancelled else { return }
+                onClose?()
+            }
+        }
         advertiseSignedInAccount()
         bonjourServer.start()
         startTimer()
@@ -518,7 +525,17 @@ struct QRCodeLoginView: View {
     }
 
     private var approvalTitle: String {
-        "Allow “\(bonjourServer.linkApproval?.deviceName ?? "A nearby device")” to link to this Apple TV?"
+        let name = bonjourServer.linkApproval?.deviceName ?? "A nearby device"
+        if bonjourServer.linkApproval?.account == .different { return TVAccountCopy.tvAllowTitle(device: name) }
+        return "Allow “\(name)” to link to this Apple TV?"
+    }
+
+    static func approvalMessage(_ approval: LinkServer.LinkApproval) -> String {
+        switch approval.account {
+        case .none: return "Only allow it if \(approval.deviceName) shows this code."
+        case .same: return TVAccountCopy.tvAllowMessage(device: approval.deviceName, sameAccount: true)
+        case .different: return TVAccountCopy.tvAllowMessage(device: approval.deviceName, sameAccount: false)
+        }
     }
 
     private static func grouped(_ code: String) -> String {

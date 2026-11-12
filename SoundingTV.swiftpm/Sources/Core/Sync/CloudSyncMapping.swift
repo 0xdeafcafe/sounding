@@ -266,25 +266,47 @@ enum CloudSyncMapping {
 
     static let sessionRecordID = CKRecord.ID(recordName: "session", zoneID: CloudSyncZone.session)
 
+    static func sessionRecordID(accountTag: String) -> CKRecord.ID {
+        CKRecord.ID(recordName: "session-\(accountTag)", zoneID: CloudSyncZone.session)
+    }
+
+    private static let accountTagKey = "accountTag"
+    private static let accountNameKey = "accountName"
+    private static let writerNameKey = "writerName"
+    private static let writerKindKey = "writerKind"
+    private static let accountMarker = "#acct."
+
     static func record(
         for session: SyncedSoundCloudSession,
-        updating existingRecord: CKRecord? = nil
+        updating existingRecord: CKRecord? = nil,
+        perAccount: Bool = false
     ) -> CKRecord {
-        // Do not reuse an existing record: older records contain plaintext
-        // fields with these names, which collide with encryptedValues.
+        let recordID = perAccount ? session.accountTag.map(sessionRecordID(accountTag:)) ?? sessionRecordID : sessionRecordID
         let record = CKRecord(
             recordType: CloudSyncRecordType.session,
-            recordID: sessionRecordID
+            recordID: recordID
         )
-        assert(record.recordID == sessionRecordID)
         assert(record.recordType == CloudSyncRecordType.session)
+        if recordID != sessionRecordID {
+            record.encryptedValues[accountTagKey] = session.accountTag as CKRecordValue?
+            record.encryptedValues[accountNameKey] = session.accountName as CKRecordValue?
+            record.encryptedValues[writerNameKey] = session.writerName as CKRecordValue?
+            record.encryptedValues[writerKindKey] = session.writerKind as CKRecordValue?
+        }
         record.encryptedValues[encryptedOAuthTokenKey] = session.oauthToken as CKRecordValue
         record.encryptedValues[encryptedRefreshTokenKey] = session.refreshToken as CKRecordValue?
         record.encryptedValues[encryptedClientIdKey] = session.clientId as CKRecordValue?
         record["expiresAtMillis"] = session.expiresAtMillis as CKRecordValue?
         record["updatedAtMillis"] = (session.issuedAtMillis ?? session.updatedAtMillis) as CKRecordValue
-        record["writerId"] = sessionWriterField(writerId: session.writerId, issued: session.issuedAtMillis != nil, generation: session.generation) as CKRecordValue
+        let writerId = session.accountTag.map { session.writerId + accountMarker + $0 } ?? session.writerId
+        record["writerId"] = sessionWriterField(writerId: writerId, issued: session.issuedAtMillis != nil, generation: session.generation) as CKRecordValue
         return record
+    }
+
+    static func splitAccountMarker(_ writerId: String) -> (writerId: String, accountTag: String?) {
+        guard let range = writerId.range(of: accountMarker) else { return (writerId, nil) }
+        let tag = String(writerId[range.upperBound...])
+        return (String(writerId[..<range.lowerBound]), tag.isEmpty ? nil : tag)
     }
 
     private static let issuanceMarker = "#issued.g"
@@ -306,8 +328,9 @@ enum CloudSyncMapping {
               let writerField = record["writerId"] as? String
         else { return nil }
         let writer = parseSessionWriterField(writerField)
-        let writerId = writer.writerId
-        return SyncedSoundCloudSession(
+        let marked = splitAccountMarker(writer.writerId)
+        let writerId = marked.writerId
+        let session = SyncedSoundCloudSession(
             oauthToken: oauthToken,
             refreshToken: record.encryptedValues[encryptedRefreshTokenKey] as? String,
             clientId: record.encryptedValues[encryptedClientIdKey] as? String,
@@ -316,6 +339,12 @@ enum CloudSyncMapping {
             writerId: writerId,
             issuedAtMillis: writer.issued ? updatedAtMillis : nil,
             generation: writer.generation
+        )
+        return session.describingAccount(
+            tag: record.encryptedValues[accountTagKey] as? String ?? marked.accountTag,
+            name: record.encryptedValues[accountNameKey] as? String,
+            writerName: record.encryptedValues[writerNameKey] as? String,
+            writerKind: record.encryptedValues[writerKindKey] as? String
         )
     }
 }

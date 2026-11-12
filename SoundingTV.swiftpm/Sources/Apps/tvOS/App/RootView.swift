@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import UIKit
+import Combine
 
 struct RootView: View {
     @EnvironmentObject var authService: AuthenticationService
@@ -37,6 +38,7 @@ struct RootView: View {
             }
             .ambientScreen(isEnabled: authService.isAuthenticated)
             .modifier(SameAccountLinking())
+            .modifier(TVAccountSwitchPrompt())
             .userActivity(
                 HandoffActivityType.nowPlaying,
                 isActive: authService.isAuthenticated && playerService.currentTrack != nil
@@ -226,6 +228,7 @@ private struct SameAccountLinking: ViewModifier {
     @ObservedObject private var server = SameAccountLinkAdvertiser.shared.server
     @ObservedObject private var nearby = SameAccountPhoneBrowser.shared
     @State private var linkedBanner: String?
+    @State private var accountNotice: CompanionServer.AccountNotice?
     @State private var dismissedNearbyName: String?
 
     private var accountKey: String {
@@ -235,8 +238,8 @@ private struct SameAccountLinking: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .bottom) {
-                if let banner = linkedBanner ?? nearbyHint {
-                    Label(banner, systemImage: DeviceClass.phone.symbolName)
+                if let banner = linkedBanner ?? accountNotice?.text ?? nearbyHint {
+                    Label(banner, systemImage: linkedBanner == nil ? accountNotice?.symbol ?? DeviceClass.phone.symbolName : DeviceClass.phone.symbolName)
                         .font(.tvCaption)
                         .foregroundStyle(Color.scTextPrimary)
                         .padding(.horizontal, Space.base)
@@ -249,16 +252,16 @@ private struct SameAccountLinking: ViewModifier {
                         .accessibilityAddTraits(.updatesFrequently)
                 }
             }
-            .animation(.smooth, value: linkedBanner ?? nearbyHint)
+            .animation(.smooth, value: linkedBanner ?? accountNotice?.text ?? nearbyHint)
             .alert(
-                "Allow “\(server.linkApproval?.deviceName ?? "A nearby device")” to link to this Apple TV?",
+                approvalTitle,
                 isPresented: Binding(get: { server.linkApproval != nil }, set: { if !$0, server.linkApproval != nil { server.declineLink() } }),
                 presenting: server.linkApproval
             ) { _ in
                 Button("Allow") { server.approveLink() }
                 Button("Don't Allow", role: .cancel) { server.declineLink() }
             } message: { approval in
-                Text("It's signed in to your SoundCloud account. Only allow it if it shows this code.\n\n\(Self.grouped(approval.code))")
+                Text("\(QRCodeLoginView.approvalMessage(approval))\n\n\(Self.grouped(approval.code))")
                     .monospacedDigit()
                     .multilineTextAlignment(.center)
             }
@@ -277,14 +280,28 @@ private struct SameAccountLinking: ViewModifier {
                     if nearby.nearbyName == name { dismissedNearbyName = name }
                 }
             }
+            .onReceive(CompanionServer.shared.$accountNotice.compactMap { $0 }) { notice in
+                accountNotice = notice
+                AccessibilityNotification.Announcement(notice.text).post()
+                Task {
+                    try? await Task.sleep(for: .seconds(4))
+                    if accountNotice?.id == notice.id { accountNotice = nil }
+                }
+            }
             .onChange(of: advertiser.linkedName) { _, name in
                 guard let name else { return }
-                linkedBanner = "\(name) is linked"
+                linkedBanner = TVAccountCopy.tvLinkedCapsule(device: name)
                 Task {
                     try? await Task.sleep(for: .seconds(4))
                     linkedBanner = nil
                 }
             }
+    }
+
+    private var approvalTitle: String {
+        let name = server.linkApproval?.deviceName ?? "A nearby device"
+        if server.linkApproval?.account == .different { return TVAccountCopy.tvAllowTitle(device: name) }
+        return "Allow “\(name)” to link to this Apple TV?"
     }
 
     private var nearbyHint: String? {

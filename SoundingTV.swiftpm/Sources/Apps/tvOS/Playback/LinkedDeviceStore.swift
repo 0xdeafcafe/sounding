@@ -170,14 +170,16 @@ struct RevokedLink: Codable, Equatable, Identifiable, Sendable {
     let secretBase64: String
     let name: String
     let revokedAt: Date
+    var reason: LinkRevokePayload.Reason?
 
     var id: String { sessionId }
     var secret: Data? { Data(base64Encoded: secretBase64) }
 
-    init(_ device: LinkedDevice, revokedAt: Date = Date()) {
+    init(_ device: LinkedDevice, reason: LinkRevokePayload.Reason? = nil, revokedAt: Date = Date()) {
         sessionId = device.sessionId
         secretBase64 = device.secretBase64
         name = device.displayName
+        self.reason = reason
         self.revokedAt = revokedAt
     }
 }

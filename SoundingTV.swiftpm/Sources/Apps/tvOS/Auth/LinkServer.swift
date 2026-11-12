@@ -97,9 +97,16 @@ final class LinkServer: ObservableObject {
     @Published private(set) var chimeCode: ChimeCode?
 
     struct LinkApproval: Equatable, Identifiable {
+        enum Account: Equatable {
+            case none
+            case same
+            case different
+        }
+
         let id = UUID()
         let deviceName: String
         let code: String
+        var account: Account = .none
     }
 
     static let chimeRedeemGrace: TimeInterval = 45
@@ -122,6 +129,7 @@ final class LinkServer: ObservableObject {
     private var numericApprovedOnTV = false
     private var numericConfirmedByPeer = false
     private var numericOwnerKey: LinkOwnerKey?
+    private var ownerProvenLink = false
     private var numericOwnerTranscript: LinkOwnerProof.Transcript?
     private var numericPendingApproval: LinkApproval?
     private nonisolated(unsafe) var offerConnectionIdleTimeout: Task<Void, Never>?
@@ -161,6 +169,10 @@ final class LinkServer: ObservableObject {
     }
 
     var onTokenReceived: ((String, String?, String?, Date?) -> Void)?
+
+    var onLinked: (() -> Void)?
+
+    var keepsOwnSession: Bool { CompanionServer.shared.localAccount != nil }
 
     var rendezvous: String?
 
@@ -280,6 +292,7 @@ final class LinkServer: ObservableObject {
 
     func stop() {
         finishLinkProgress()
+        ownerProvenLink = false
         connectingDeviceName = nil
         linkedPeerName = nil
         timeoutTask?.cancel()
@@ -458,6 +471,9 @@ final class LinkServer: ObservableObject {
         }
 
         switch message.type {
+        case .linkEstablish:
+            handleLinkEstablish(message, session: credentials)
+
         case .tokenTransfer:
             guard let payload = message.payload else {
                 sendError("Missing token payload")
@@ -560,7 +576,47 @@ final class LinkServer: ObservableObject {
 
         CompanionServer.shared.pair(with: session, identity: identity)
 
+        if keepsOwnSession {
+            Log.link.info("[LinkServer] linked a device while signed in; keeping this Apple TV's own session")
+            onLinked?()
+            return
+        }
+        SessionProvenance.record(ownerProvenLink ? .linkedPeer : .guest)
         onTokenReceived?(token, refreshToken, payload.clientId, expiresAt)
+    }
+
+    private func handleLinkEstablish(_ message: TokenTransferMessage, session: SessionCredentials) {
+        guard let establish = message.linkEstablish,
+              establish.verify(sessionId: session.sessionId, secret: session.secret),
+              establish.isFresh() else {
+            sendError("Invalid signature")
+            return
+        }
+        let identity = message.peer.flatMap { $0.verify(sessionId: session.sessionId, secret: session.secret) ? $0 : nil }
+        if let identity {
+            connectingDeviceName = Self.displayName(identity.name, deviceClass: identity.deviceClass)
+        }
+        let account = CompanionServer.shared.localAccount
+        let reply = LinkEstablishedPayload.create(
+            needsCredentials: account == nil,
+            account: account?.encoded(),
+            sessionId: session.sessionId,
+            secret: session.secret
+        )
+        if let data = try? TokenTransferMessage.linkEstablished(sessionId: session.sessionId, payload: reply).framed() {
+            connection?.send(content: data, completion: .contentProcessed { _ in })
+        }
+        guard account != nil else {
+            Log.link.info("[LinkServer] a device asked to link; this Apple TV needs its sign-in")
+            state = .receivingToken
+            return
+        }
+        state = .completed
+        timeoutTask?.cancel()
+        stopChime()
+        CompanionServer.shared.pair(with: session, identity: identity)
+        Log.link.info("[LinkServer] linked a device without a token")
+        onLinked?()
     }
 
     private func sendAcknowledgment(payload: TokenPayload? = nil) {
@@ -796,6 +852,7 @@ final class LinkServer: ObservableObject {
                !numericApprovedOnTV, linkApproval == nil {
                 if LinkOwnerProof.verify(message.numericConfirm?.ownerProof, role: .initiator, key: ownerKey.material, transcript: transcript) {
                     numericApprovedOnTV = true
+                    ownerProvenLink = true
                     Log.link.info("[LinkServer] same owner verified; linking without asking")
                 } else {
                     Log.link.info("[LinkServer] no same-owner proof; asking on this Apple TV")
@@ -860,7 +917,13 @@ final class LinkServer: ObservableObject {
         numericPeerName = peerName
         numericApprovedOnTV = false
         numericConfirmedByPeer = false
-        let approval = LinkApproval(deviceName: Self.displayName(peerName, deviceClass: hello.deviceClass), code: code)
+        let approvalAccount: LinkApproval.Account
+        if let ownerAccountId, !ownerAccountId.isEmpty {
+            approvalAccount = LinkEstablishPolicy.isSameAccountApproval(digest: hello.accountDigest, salt: accountHint?.salt, accountId: ownerAccountId) ? .same : .different
+        } else {
+            approvalAccount = .none
+        }
+        let approval = LinkApproval(deviceName: Self.displayName(peerName, deviceClass: hello.deviceClass), code: code, account: approvalAccount)
         beginLinkProgress(name: approval.deviceName, timeout: BonjourConstants.linkApprovalTimeout)
         numericPendingApproval = approval
         let tvPublicKey = ephemeralKey.publicKey.rawRepresentation.base64EncodedString()
@@ -1271,6 +1334,9 @@ final class SameAccountLinkAdvertiser: ObservableObject {
         server.onTokenReceived = { [weak self] _, _, _, _ in
             Log.link.info("[SameAccountLink] linked; keeping this Apple TV's own session")
             self?.linkedName = self?.approvedName
+        }
+        server.onLinked = { [weak self] in
+            self?.linkedName = self?.approvedName ?? self?.server.connectingDeviceName
         }
         Log.link.info("[SameAccountLink] advertising for \(linked.count, privacy: .public) linked devices")
         server.start()
