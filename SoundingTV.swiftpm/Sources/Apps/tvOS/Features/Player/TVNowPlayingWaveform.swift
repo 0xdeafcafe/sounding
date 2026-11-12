@@ -8,7 +8,7 @@ struct NPWaveform: View {
     let isPlaying: Bool
     let isActive: Bool
     let accent: Color
-    let marks: [TimeInterval]
+    let entries: [TracklistEntry]
     let showsBubble: Bool
     let reduceMotion: Bool
     var focus: FocusState<NPFocus?>.Binding
@@ -33,6 +33,8 @@ struct NPWaveform: View {
     private static let pitch: CGFloat = 6.2
     private static let barWidth: CGFloat = 3.4
     private static let minimumBar: CGFloat = 0.08
+    private static let labelRow: CGFloat = 36
+    private static let dotRow: CGFloat = 28
     static let tapeThreshold: TimeInterval = 360
     private static let tapeWindow: TimeInterval = 450
 
@@ -51,7 +53,11 @@ struct NPWaveform: View {
             let position = displayedPosition(at: context.date)
             let active = showsBubble && preview == nil ? activeComment(at: position) : nil
             VStack(spacing: 0) {
+                NPTapeLabels(entries: entries, position: position, pinsCurrent: isTape, x: { x(for: $0, at: position) })
+                    .frame(width: Self.width, height: Self.labelRow)
                 scrubLane(position: position, bubbleComment: active)
+                NPTapeDots(entries: entries, comments: timed, accent: accent, x: { x(for: $0, at: position) })
+                    .frame(width: Self.width, height: Self.dotRow)
                 times(position: position, hidesHint: active != nil)
             }
             .frame(width: Self.width)
@@ -157,6 +163,15 @@ struct NPWaveform: View {
 
     fileprivate static let layout = (width: width, height: height, pitch: pitch, barWidth: barWidth, minimumBar: minimumBar)
 
+    private func x(for time: TimeInterval, at position: TimeInterval) -> CGFloat {
+        guard duration > 0 else { return -1 }
+        if isTape {
+            let window = min(Self.tapeWindow, duration)
+            return Self.width / 2 + CGFloat((time - position) / window) * Self.width
+        }
+        return CGFloat(time / duration) * Self.width
+    }
+
     private func displayedPosition(at date: Date) -> TimeInterval {
         if let preview { return preview }
         guard isPlaying else { return restingPosition }
@@ -179,9 +194,7 @@ struct NPWaveform: View {
             duration: duration,
             progress: duration > 0 ? position / duration : 0,
             mode: .centered(windowSeconds: min(Self.tapeWindow, duration)),
-            cueMarkers: duration > 0 ? marks.map {
-                SCWaveformMarker(id: "mark.\($0)", position: $0 / duration, color: accent.opacity(0.85))
-            } : [],
+            cueMarkers: [],
             playheadEmphasis: preview == nil ? 0 : 1,
             placeholder: .loading,
             identity: track?.id,
@@ -212,9 +225,6 @@ struct NPWaveform: View {
                 .frame(width: Self.width, height: Self.height, alignment: .leading)
                 .frame(width: Self.width * progress, height: Self.height, alignment: .leading)
                 .clipped()
-            if !marks.isEmpty, duration > 0 {
-                NPMarks(marks: marks, duration: duration, color: accent.opacity(0.85)).equatable()
-            }
         }
         .accessibilityHidden(true)
     }
@@ -246,7 +256,7 @@ struct NPWaveform: View {
             let x = isTape ? Self.width / 2 : Self.width * min(1, max(0, time / duration))
             let left = min(max(x - 110, 110), Self.width - 110 - 360)
             NPCommentBubble(comment: comment, maxWidth: min(640, Self.width - 110 - left - 110))
-                .offset(x: left, y: Self.height + 14)
+                .offset(x: left, y: Self.height + 8 + Self.dotRow + 4)
                 .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
                 .id(comment.id)
                 .allowsHitTesting(false)
@@ -400,20 +410,103 @@ private enum NPBarImage {
     }
 }
 
-private struct NPMarks: View, Equatable {
-    let marks: [TimeInterval]
-    let duration: TimeInterval
-    let color: Color
+private struct NPTapeLabels: View {
+    let entries: [TracklistEntry]
+    let position: TimeInterval
+    let pinsCurrent: Bool
+    let x: (TimeInterval) -> CGFloat
+
+    private struct Slot {
+        let x: CGFloat
+        let label: String
+        let hasTick: Bool
+    }
 
     var body: some View {
-        let layout = NPWaveform.layout
         Canvas { context, size in
-            for mark in marks {
-                let x = size.width * min(1, max(0, mark / duration))
-                context.fill(Path(CGRect(x: x - 1, y: 0, width: 2, height: size.height)), with: .color(color))
+            guard !entries.isEmpty else { return }
+            var slots: [Slot] = []
+            let currentIndex = entries.lastIndex { $0.startSeconds <= position }
+            if let currentIndex {
+                let entry = entries[currentIndex]
+                let px = x(entry.startSeconds)
+                if pinsCurrent, px < 0 {
+                    slots.append(Slot(x: 0, label: entry.segment.displayLabel, hasTick: false))
+                } else if px >= 0, px <= size.width {
+                    slots.append(Slot(x: px, label: entry.segment.displayLabel, hasTick: true))
+                }
+            }
+            let upcoming = currentIndex.map { $0 + 1 } ?? 0
+            for entry in entries[upcoming...] {
+                let px = x(entry.startSeconds)
+                guard px >= 0 else { continue }
+                guard px <= size.width else { break }
+                slots.append(Slot(x: px, label: entry.segment.displayLabel, hasTick: true))
+            }
+            for (index, slot) in slots.enumerated() {
+                let next = index + 1 < slots.count ? slots[index + 1].x : size.width
+                let textX = slot.x + (slot.hasTick ? 14 : 0)
+                let available = next - textX - 20
+                guard available > 48 else { continue }
+                if slot.hasTick {
+                    context.fill(
+                        Path(CGRect(x: slot.x - 1, y: size.height * 0.25, width: 2, height: size.height * 0.75)),
+                        with: .color(.white.opacity(0.55))
+                    )
+                }
+                var clipped = context
+                clipped.clip(to: Path(CGRect(x: textX, y: 0, width: available, height: size.height)))
+                let text = Text(slot.label).font(.caption.weight(.medium)).foregroundStyle(.white.opacity(0.72))
+                clipped.draw(clipped.resolve(text), at: CGPoint(x: textX, y: size.height / 2), anchor: .leading)
             }
         }
-        .frame(width: layout.width, height: layout.height)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct NPTapeDots: View {
+    let entries: [TracklistEntry]
+    let comments: [Comment]
+    let accent: Color
+    let x: (TimeInterval) -> CGFloat
+
+    private static let bucket: CGFloat = 28
+
+    var body: some View {
+        Canvas { context, size in
+            let midY = size.height / 2
+            for entry in entries where entry.startSeconds > 0 {
+                let px = x(entry.startSeconds)
+                guard px >= 0, px <= size.width else { continue }
+                context.fill(Path(ellipseIn: CGRect(x: px - 6, y: midY - 6, width: 12, height: 12)), with: .color(accent.opacity(0.9)))
+            }
+            guard !comments.isEmpty else { return }
+            var buckets: [Int: (x: CGFloat, count: Int)] = [:]
+            for comment in comments {
+                guard let time = comment.timeInTrack else { continue }
+                let px = x(time)
+                guard px >= 0, px <= size.width else { continue }
+                let key = Int(px / Self.bucket)
+                if let existing = buckets[key] {
+                    buckets[key] = (existing.x, existing.count + 1)
+                } else {
+                    buckets[key] = (px, 1)
+                }
+            }
+            for (_, bucket) in buckets {
+                if bucket.count == 1 {
+                    context.fill(Path(ellipseIn: CGRect(x: bucket.x - 5, y: midY - 5, width: 10, height: 10)), with: .color(.white.opacity(0.5)))
+                } else {
+                    let label = Text("\(bucket.count)").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.9))
+                    let resolved = context.resolve(label)
+                    let textSize = resolved.measure(in: CGSize(width: 80, height: size.height))
+                    let pill = CGRect(x: bucket.x - textSize.width / 2 - 10, y: midY - 12, width: textSize.width + 20, height: 24)
+                    context.fill(Path(roundedRect: pill, cornerRadius: 12), with: .color(.white.opacity(0.2)))
+                    context.draw(resolved, at: CGPoint(x: bucket.x, y: midY), anchor: .center)
+                }
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
