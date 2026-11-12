@@ -516,13 +516,7 @@ actor SCArtworkStore {
     nonisolated static func decode(_ data: Data, maxPixelSize: Int) -> CGImage? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
-        let thumbnailOptions = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
-        ] as [CFString: Any] as CFDictionary
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions)
+        return ImageThumbnail.create(from: source, maxPixelSize: maxPixelSize, cacheImmediately: true)
     }
 
     nonisolated static func downscale(_ image: CGImage, maxPixelSize: Int) -> CGImage? {
