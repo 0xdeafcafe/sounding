@@ -98,6 +98,7 @@ struct CommentsListView: View {
                 }
             }
             .frame(maxWidth: Self.columnWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, Space.section)
         }
         .scrollClipDisabled()

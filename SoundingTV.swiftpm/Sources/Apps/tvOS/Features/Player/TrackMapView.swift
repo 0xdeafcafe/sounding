@@ -41,7 +41,6 @@ struct TrackMapView: View {
                 .scrollIndicators(.hidden)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .focusSection()
-                footer
             }
         }
         .padding(.top, Self.contentTop)
@@ -89,27 +88,31 @@ struct TrackMapView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.base) {
+        HStack(alignment: .bottom, spacing: Space.base) {
             VStack(alignment: .leading, spacing: Space.hair) {
                 Text(model.trackTitle.isEmpty ? TrackMapCopy.nothingPlaying : model.trackTitle)
                     .font(.callout)
                     .foregroundStyle(Color.white.opacity(0.66))
                     .lineLimit(1)
-                Text(TrackMapCopy.title)
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: Space.snug) {
+                    Text(TrackMapCopy.title)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if model.cueCount > 0 {
+                        Text(TrackMapCopy.count(model.cueCount))
+                            .font(.callout)
+                            .foregroundStyle(Color.white.opacity(0.66))
+                            .lineLimit(1)
+                    }
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
             .accessibilityIdentifier("trackMap.header")
             Spacer(minLength: Space.base)
-            if model.cueCount > 0 {
-                Text(TrackMapCopy.count(model.cueCount))
-                    .font(.callout)
-                    .foregroundStyle(Color.white.opacity(0.66))
-                    .lineLimit(1)
-            }
+            footer
+                .fixedSize()
         }
     }
 
