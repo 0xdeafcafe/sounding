@@ -630,6 +630,11 @@ struct MacRootView: View {
             sidebarPlayerPane = nil
             prepInspectorTrack = track
         }
+        .onReceive(MacPrepRoute.shared.$selectedTrack.compactMap { $0 }) { track in
+            guard let current = prepInspectorTrack, current.id != track.id else { return }
+            MacPrepLibraryIndex.shared.install([track])
+            prepInspectorTrack = track
+        }
         .navigationTitle("Sounding")
         .task {
             if nowPlayingPresentation.presentationRequest > 0 {

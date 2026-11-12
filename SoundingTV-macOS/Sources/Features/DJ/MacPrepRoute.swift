@@ -18,7 +18,10 @@ final class MacPrepRoute: ObservableObject {
     func inspectCurrent() {
         if let track = selectedTrack ?? MacNowPlayingModel.shared.track { inspect(track) }
     }
-}
+
+    func inspectNowPlaying() {
+        if let track = MacNowPlayingModel.shared.track ?? selectedTrack { inspect(track) }
+    }}
 
 @MainActor
 enum MacMainWindow {

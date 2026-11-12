@@ -1432,6 +1432,11 @@ struct MacPrepCommands: Commands {
                 openWindow(id: "main")
                 MacPrepRoute.shared.inspectCurrent()
             }
+            .keyboardShortcut("i", modifiers: .command)
+            Button("Prep Now Playing") {
+                openWindow(id: "main")
+                MacPrepRoute.shared.inspectNowPlaying()
+            }
             .keyboardShortcut("p", modifiers: [.option, .command])
             Button("Import rekordbox Library…") {
                 openWindow(id: "main")
