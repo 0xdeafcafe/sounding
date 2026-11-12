@@ -575,6 +575,7 @@ struct MacOnboardingView: View {
     let onMusicAnswered: (_ addedFolder: Bool) -> Void
 
     @State private var isSigningIn = false
+    @StateObject private var continueOffer = ContinueAsOffer()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let signInTint = MusicStepPage.tint
@@ -616,14 +617,21 @@ struct MacOnboardingView: View {
     private var welcome: some View {
         VStack(spacing: 24) {
             SoundingWelcomeTitle(messageFont: .title3, messageStyle: AnyShapeStyle(MacSecondaryStyle()), spacing: 8)
+            if let line = LinkedTVAccounts.welcomeLine() {
+                Text(line)
+                    .foregroundStyle(.secondary)
+            }
             VStack(spacing: 10) {
-                Button { isSigningIn = true } label: {
-                    Text("Sign In with SoundCloud").frame(maxWidth: 280)
+                ContinueAsOfferView(model: continueOffer)
+                    .frame(maxWidth: 280)
+                    .tint(Self.signInTint)
+                if continueOffer.offer == nil {
+                    macSignInButton
+                        .buttonStyle(.glassProminent)
+                        .keyboardShortcut(.defaultAction)
+                } else {
+                    macSignInButton.buttonStyle(.glass)
                 }
-                .buttonStyle(.glassProminent)
-                .tint(Self.signInTint)
-                .controlSize(.extraLarge)
-                .keyboardShortcut(.defaultAction)
 
                 Button(action: onUseWithoutSoundCloud) {
                     Text("Use Without SoundCloud")
@@ -636,5 +644,14 @@ struct MacOnboardingView: View {
                 .pointerStyle(.link)
             }
         }
+        .onAppear { continueOffer.refresh(isSignedOut: true) }
+    }
+
+    private var macSignInButton: some View {
+        Button { isSigningIn = true } label: {
+            Text("Sign In with SoundCloud").frame(maxWidth: 280)
+        }
+        .tint(Self.signInTint)
+        .controlSize(.extraLarge)
     }
 }

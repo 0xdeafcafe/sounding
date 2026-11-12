@@ -435,3 +435,14 @@ struct ContinueAsOfferView: View {
         }
     }
 }
+
+enum LinkedTVAccounts {
+    static func welcomeLine() -> String? {
+        let records = TVAccountRecord.loadAll()
+        for link in LinkedCompanionStore.loadAll() where link.peerClass == .tv {
+            guard let record = records[link.sessionId], record.state == .signedIn, let account = record.account else { continue }
+            return TVAccountCopy.welcomeLine(tv: link.peerName, account: account)
+        }
+        return nil
+    }
+}
