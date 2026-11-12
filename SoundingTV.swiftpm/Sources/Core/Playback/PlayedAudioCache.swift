@@ -201,30 +201,37 @@ final class PlayedAudioCache {
         maximumBytes: Int64
     ) async -> FillOutcome {
         let trackID = fill.track.id
-        let plain: URL
+        let sealed: URL
+        let bytes: Int64
         do {
             if fill.transcoding.isProgressive {
                 var request = URLRequest(url: fill.streamURL)
                 request.cachePolicy = .reloadIgnoringLocalCacheData
-                let (downloaded, response) = try await session.download(for: request)
+                let (stream, response) = try await session.bytes(for: request)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 if status == 429 {
-                    try? FileManager.default.removeItem(at: downloaded)
+                    stream.task.cancel()
                     return .rateLimited
                 }
                 guard (200..<300).contains(status) else {
-                    try? FileManager.default.removeItem(at: downloaded)
+                    stream.task.cancel()
                     return .skipped
                 }
                 let ext = DownloadSourceSelection.fileExtension(for: fill.transcoding)
-                plain = staging.appendingPathComponent("\(trackID)-partial-\(UUID().uuidString).\(ext)")
-                try FileManager.default.moveItem(at: downloaded, to: plain)
+                let target = staging.appendingPathComponent("\(trackID)-partial-\(UUID().uuidString).\(ext)")
+                guard let written = try await seal(stream, to: target, key: key, maximumBytes: maximumBytes) else {
+                    return .skipped
+                }
+                sealed = target
+                bytes = written
             } else {
-                plain = try await DownloadHLSAssembler.assemble(
+                sealed = try await DownloadHLSAssembler.assemble(
                     playlistURL: fill.streamURL,
                     scratchDirectory: staging,
-                    trackId: trackID
+                    trackId: trackID,
+                    sealingWith: key
                 ) { _ in }
+                bytes = (try? sealed.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init) ?? 0
             }
         } catch {
             if let gateway = error as? SoundCloudGatewayError {
@@ -236,23 +243,56 @@ final class PlayedAudioCache {
             if case DownloadError.trafficStopped = error { return .rateLimited }
             return .skipped
         }
-        defer { try? FileManager.default.removeItem(at: plain) }
-        let bytes = (try? plain.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init) ?? 0
+        defer { try? FileManager.default.removeItem(at: sealed) }
         guard bytes > 0, bytes <= maximumBytes else { return .skipped }
-        let fileExtension = plain.pathExtension.isEmpty ? "audio" : plain.pathExtension
+        let fileExtension = sealed.pathExtension.isEmpty ? "audio" : sealed.pathExtension
         let fileName = "\(trackID).\(UUID().uuidString.prefix(8)).sctv"
         let destination = directory.appendingPathComponent(fileName)
-        let encrypted = await Task.detached(priority: .utility) { () -> Bool in
-            do {
-                try DownloadVault.encryptFile(at: plain, to: destination, using: key)
-                return true
-            } catch {
-                try? FileManager.default.removeItem(at: destination)
-                return false
-            }
-        }.value
-        guard encrypted else { return .skipped }
+        do {
+            try FileManager.default.moveItem(at: sealed, to: destination)
+        } catch {
+            return .skipped
+        }
+        #if os(iOS) || os(tvOS) || os(watchOS)
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: destination.path
+        )
+        #endif
         return .stored(fileName: fileName, fileExtension: fileExtension, bytes: bytes)
+    }
+
+    private nonisolated static func seal(
+        _ stream: URLSession.AsyncBytes,
+        to url: URL,
+        key: SymmetricKey,
+        maximumBytes: Int64
+    ) async throws -> Int64? {
+        let flushBytes = 65_536
+        let writer = try DownloadVault.SealingWriter(url: url, key: key)
+        var buffer: [UInt8] = []
+        buffer.reserveCapacity(flushBytes)
+        do {
+            for try await byte in stream {
+                buffer.append(byte)
+                guard buffer.count >= flushBytes else { continue }
+                try writer.append(Data(buffer))
+                buffer.removeAll(keepingCapacity: true)
+                guard writer.plainBytes <= maximumBytes else {
+                    stream.task.cancel()
+                    writer.close()
+                    try? FileManager.default.removeItem(at: url)
+                    return nil
+                }
+            }
+            try writer.append(Data(buffer))
+            try writer.finish()
+            return writer.plainBytes
+        } catch {
+            writer.close()
+            try? FileManager.default.removeItem(at: url)
+            throw error
+        }
     }
 
     // MARK: - Removal

@@ -2528,6 +2528,63 @@ enum DownloadVault {
         }
     }
 
+    final class SealingWriter: @unchecked Sendable {
+        let url: URL
+        private(set) var plainBytes: Int64 = 0
+        private let key: SymmetricKey
+        private let handle: FileHandle
+        private var pending = Data()
+
+        init(url: URL, key: SymmetricKey) throws {
+            try? FileManager.default.removeItem(at: url)
+            guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+                throw DownloadVault.VaultError.writeFailed
+            }
+            self.url = url
+            self.key = key
+            handle = try FileHandle(forWritingTo: url)
+            do {
+                try handle.write(contentsOf: DownloadVault.magic)
+            } catch {
+                try? handle.close()
+                throw error
+            }
+        }
+
+        func append(_ data: Data) throws {
+            guard !data.isEmpty else { return }
+            plainBytes += Int64(data.count)
+            pending.append(data)
+            guard pending.count >= DownloadVault.chunkSize else { return }
+            var offset = pending.startIndex
+            while pending.endIndex - offset >= DownloadVault.chunkSize {
+                try seal(pending[offset..<(offset + DownloadVault.chunkSize)])
+                offset += DownloadVault.chunkSize
+            }
+            pending = Data(pending[offset...])
+        }
+
+        func finish() throws {
+            if !pending.isEmpty {
+                try seal(pending)
+                pending = Data()
+            }
+            try handle.synchronize()
+            try handle.close()
+        }
+
+        func close() {
+            try? handle.close()
+        }
+
+        private func seal(_ chunk: Data) throws {
+            let sealed = try AES.GCM.seal(chunk, using: key)
+            guard let combined = sealed.combined else { throw DownloadVault.VaultError.writeFailed }
+            try handle.write(contentsOf: DownloadVault.encodedLength(combined.count))
+            try handle.write(contentsOf: combined)
+        }
+    }
+
     static func encodedLength(_ count: Int) -> Data {
         let value = UInt32(count)
         return Data([
