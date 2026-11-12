@@ -12,6 +12,9 @@ enum TrackMapCopy {
     static let emptyTitle = "No Cue Points"
     static let emptyDescription = "Move along the timeline to a moment, then save it."
     static let suggested = "Suggested"
+    static let allCuePoints = "All Cue Points"
+    static let panelHint = "Hot cues, loops and mix points"
+    static let clickAgain = "Click Again"
     static let options = "Options"
     static let edit = "Edit…"
     static let editTitle = "Edit Cue Point"
@@ -47,6 +50,20 @@ enum TrackMapCopy {
     static func runsTo(_ time: String) -> String { "to \(time)" }
     static func bar(_ number: Int) -> String { "Bar \(number)" }
     static func suggested(_ reasoning: String) -> String { reasoning.isEmpty ? suggested : "\(suggested) · \(reasoning)" }
+    static func suggestionCaption(kind: CueKind, label: String) -> String {
+        switch kind {
+        case .mixIn: return suggested("Auto Mix would come in here")
+        case .mixOut: return suggested("Auto Mix would leave here")
+        case .loop: return suggested("A loop that fits here")
+        case .hotCue, .memory:
+            switch label.lowercased() {
+            case "drop": return suggested("Sounds like a drop")
+            case "breakdown": return suggested("Sounds like a breakdown")
+            case "often replayed": return suggested("You often come back here")
+            default: return suggested
+            }
+        }
+    }
     static func timelineValue(_ mark: String, of total: String) -> String { "\(mark) of \(total)" }
     static func count(_ count: Int) -> String { count == 1 ? "1 cue point" : "\(count) cue points" }
     static let fromRekordbox = "From rekordbox"
@@ -64,7 +81,7 @@ final class TrackMapModel: ObservableObject {
         var kind: CueKind { self == .mixIn ? .mixIn : .mixOut }
         var storeLabel: String { self == .mixIn ? "Mix in" : "Mix out" }
         var setCaption: String { self == .mixIn ? "Auto Mix starts this track here" : "Auto Mix leaves this track here" }
-        var unsetCaption: String { self == .mixIn ? "Not set. Auto Mix picks where to come in" : "Not set. Auto Mix picks where to leave" }
+        var unsetCaption: String { self == .mixIn ? "Not set · Auto Mix will pick where to come in" : "Not set · Auto Mix will pick where to leave" }
         var rowId: String { self == .mixIn ? "trackmap.mixin" : "trackmap.mixout" }
     }
 
@@ -434,7 +451,7 @@ final class TrackMapModel: ObservableObject {
                 id: role.rowId,
                 glyph: Glyph(shape: .diamond, fill: .hollow, color: CueColor.default(for: role.kind)),
                 title: role.title,
-                caption: TrackMapCopy.suggested(suggestion.reasoning),
+                caption: TrackMapCopy.suggestionCaption(kind: suggestion.kind, label: suggestion.label),
                 time: DJFormat.time(suggestion.positionSeconds),
                 isMuted: true,
                 seekSeconds: suggestion.positionSeconds,
@@ -495,7 +512,7 @@ final class TrackMapModel: ObservableObject {
             id: suggestion.id,
             glyph: Glyph(shape: suggestion.kind == .loop ? .square : .circle, fill: .hollow, color: suggestion.color),
             title: Self.title(for: suggestion),
-            caption: TrackMapCopy.suggested(suggestion.reasoning),
+            caption: TrackMapCopy.suggestionCaption(kind: suggestion.kind, label: suggestion.label),
             time: DJFormat.time(suggestion.positionSeconds),
             isMuted: true,
             seekSeconds: suggestion.positionSeconds,

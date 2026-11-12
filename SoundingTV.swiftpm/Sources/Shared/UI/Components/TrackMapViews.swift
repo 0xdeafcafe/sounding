@@ -54,12 +54,14 @@ struct TrackMapLane: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     #if os(tvOS)
-    private let markerWidth: CGFloat = 3
-    private let markerHeight: CGFloat = 26
-    private let phraseHeight: CGFloat = 6
+    private let markerWidth: CGFloat = 4
+    private let markerHeight: CGFloat = 44
+    private let markerCap: CGFloat = 16
+    private let phraseHeight: CGFloat = 8
     #else
     private let markerWidth: CGFloat = 2
     private let markerHeight: CGFloat = 16
+    private let markerCap: CGFloat = 0
     private let phraseHeight: CGFloat = 4
     #endif
 
@@ -111,6 +113,13 @@ struct TrackMapLane: View {
                 .frame(width: isLead ? markerWidth * 2 : markerWidth, height: isLead ? height : markerHeight)
                 .offset(x: x - (isLead ? markerWidth : markerWidth / 2))
                 .shadow(color: isLead ? color.opacity(0.7) : .clear, radius: isLead ? 12 : 0)
+            if markerCap > 0 {
+                Circle()
+                    .fill(color.opacity(marker.isSuggestion && !isLead ? 0.55 : 1))
+                    .overlay(Circle().strokeBorder(Color.black.opacity(0.35), lineWidth: 1))
+                    .frame(width: markerCap, height: markerCap)
+                    .offset(x: x - markerCap / 2, y: -markerCap / 2)
+            }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
