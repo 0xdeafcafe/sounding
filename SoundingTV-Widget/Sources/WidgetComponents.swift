@@ -6,6 +6,7 @@ import WidgetKit
 struct WidgetArtworkView: View {
     let item: SoundingSnapshot.Item?
     var radius: CGFloat = 10
+    var fallbackSymbol = "music.note"
 
     var body: some View {
         Group {
@@ -17,7 +18,7 @@ struct WidgetArtworkView: View {
             } else {
                 ZStack {
                     Rectangle().fill(.fill.tertiary)
-                    Image(systemName: "music.note")
+                    Image(systemName: fallbackSymbol)
                         .foregroundStyle(.secondary)
                 }
             }

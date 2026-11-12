@@ -60,6 +60,7 @@ final class WidgetArtworkWriter {
         if let nowPlaying = snapshot.nowPlaying { items.append(nowPlaying.item) }
         if let lastMix = snapshot.lastMix { items.append(lastMix.item) }
         items.append(contentsOf: snapshot.recents)
+        items.append(contentsOf: WidgetCollectionStore.load().map(\.artworkItem))
         var seen = Set<String>()
         return items.filter { seen.insert(WidgetArtworkStore.fileName(for: $0)).inserted }
     }

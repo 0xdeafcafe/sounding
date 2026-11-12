@@ -72,9 +72,9 @@ struct NowPlayingWidget: Widget {
         .configurationDisplayName("Now Playing")
         .description("What's playing in Sounding, with play and pause.")
         #if os(macOS)
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge])
         #else
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular, .accessoryInline])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge, .accessoryRectangular, .accessoryCircular, .accessoryInline])
         #endif
     }
 }
@@ -93,8 +93,11 @@ struct NowPlayingWidgetView: View {
         case .accessoryRectangular:
             rectangular
         #endif
-        case .systemMedium:
+        case .systemMedium, .systemExtraLarge:
             medium
+                .widgetURL(link)
+        case .systemLarge:
+            large
                 .widgetURL(link)
         default:
             small
@@ -221,6 +224,39 @@ struct NowPlayingWidgetView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            WidgetEmptyState(symbol: "waveform", title: "Nothing Playing", detail: "Play something in Sounding.")
+        }
+    }
+
+    @ViewBuilder
+    private var large: some View {
+        if let item = entry.item {
+            VStack(alignment: .leading, spacing: 12) {
+                WidgetArtworkView(item: item, radius: 16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(2)
+                        .widgetAccentable()
+                    Text(item.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(accessibilityLabel)
+                progress
+                    .progressViewStyle(.linear)
+                HStack(spacing: 0) {
+                    WidgetPlayPauseButton(isPlaying: entry.isPlaying)
+                    if entry.nowPlaying != nil {
+                        WidgetSkipButton()
+                    }
+                    Spacer(minLength: 0)
+                }
             }
         } else {
             WidgetEmptyState(symbol: "waveform", title: "Nothing Playing", detail: "Play something in Sounding.")
