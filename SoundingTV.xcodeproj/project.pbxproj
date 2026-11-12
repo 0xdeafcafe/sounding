@@ -505,6 +505,7 @@
 		4E1A5C0000000000000000C2 /* NearbyLinkRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1A5C0000000000000000C1 /* NearbyLinkRequestTests.swift */; };
 		5E0C0DE0A11CE00000000002 /* SoundingQRCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0C0DE0A11CE00000000001 /* SoundingQRCodeTests.swift */; };
 		5A3E0C1D2B4F6A7E8C9D0E1F /* SameAccountLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4F1D2E3C5A7B8F9D0E1F2A /* SameAccountLinkTests.swift */; };
+		683F7D8C0F79CBA7EBF7076C /* SessionSyncAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA66E4036450561AFB8C713D /* SessionSyncAccountTests.swift */; };
 		35B8B26914DD0642F0295750 /* PeerAccountWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8078A0E56096FF6DE086A54 /* PeerAccountWireTests.swift */; };
 		252326F590CFC675CF378BA8 /* TVAccountRelationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A794E72A0834259BD5310E13 /* TVAccountRelationTests.swift */; };
 		7C1A2B3D4E5F60718293A4B5 /* MacSameAccountOfferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D2B3C4E5F60718293A4B5C6 /* MacSameAccountOfferTests.swift */; };
@@ -2235,6 +2236,7 @@
 		4E1A5C0000000000000000C1 /* NearbyLinkRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyLinkRequestTests.swift; sourceTree = "<group>"; };
 		5E0C0DE0A11CE00000000001 /* SoundingQRCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundingQRCodeTests.swift; sourceTree = "<group>"; };
 		6B4F1D2E3C5A7B8F9D0E1F2A /* SameAccountLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SameAccountLinkTests.swift; sourceTree = "<group>"; };
+		FA66E4036450561AFB8C713D /* SessionSyncAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSyncAccountTests.swift; sourceTree = "<group>"; };
 		F8078A0E56096FF6DE086A54 /* PeerAccountWireTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerAccountWireTests.swift; sourceTree = "<group>"; };
 		A794E72A0834259BD5310E13 /* TVAccountRelationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAccountRelationTests.swift; sourceTree = "<group>"; };
 		8D2B3C4E5F60718293A4B5C6 /* MacSameAccountOfferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSameAccountOfferTests.swift; sourceTree = "<group>"; };
@@ -3552,6 +3554,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				4E1A5C0000000000000000C1 /* NearbyLinkRequestTests.swift */,
 				5E0C0DE0A11CE00000000001 /* SoundingQRCodeTests.swift */,
 				6B4F1D2E3C5A7B8F9D0E1F2A /* SameAccountLinkTests.swift */,
+				FA66E4036450561AFB8C713D /* SessionSyncAccountTests.swift */,
 				F8078A0E56096FF6DE086A54 /* PeerAccountWireTests.swift */,
 				A794E72A0834259BD5310E13 /* TVAccountRelationTests.swift */,
 				8D2B3C4E5F60718293A4B5C6 /* MacSameAccountOfferTests.swift */,
@@ -6142,6 +6145,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				4E1A5C0000000000000000C2 /* NearbyLinkRequestTests.swift in Sources */,
 				5E0C0DE0A11CE00000000002 /* SoundingQRCodeTests.swift in Sources */,
 				5A3E0C1D2B4F6A7E8C9D0E1F /* SameAccountLinkTests.swift in Sources */,
+				683F7D8C0F79CBA7EBF7076C /* SessionSyncAccountTests.swift in Sources */,
 				35B8B26914DD0642F0295750 /* PeerAccountWireTests.swift in Sources */,
 				252326F590CFC675CF378BA8 /* TVAccountRelationTests.swift in Sources */,
 				7C1A2B3D4E5F60718293A4B5 /* MacSameAccountOfferTests.swift in Sources */,
