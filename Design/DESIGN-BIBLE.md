@@ -573,34 +573,41 @@ Settings, forms, lists of real content, and most empty states (keep them stock).
 ---
 
 ## 10. The website (sounding.forbes.red, `docs/`)
-- **Structure:**
-  - a scroll-told page in the Apple product-page style: pinned scenes that snap between discrete states as you cross breakpoints, each change a complete 300–500 ms transition, never a half-state, with no scroll-jacking or page snapping. Only the cable is scrubbed by scroll;
-  - every scene state has a caption that says what you're looking at, so the page explains Sounding to someone who's never heard of it: a SoundCloud player for Apple devices, with DJ decks;
-  - 4–5 sections, with real app screenshots and the user's real music;
-  - **the line art is the fundamental design element:** contour dividers, echo-framed devices, sound rings at interaction points, colour masses as the only backgrounds;
-  - **one aux cable** draws itself in the hero ("Patch in": draw-on, then the jack clicks into the socket and the rings ripple), weaves down the entire page as you scroll, and plugs into the invite line at the end ("Invite only. I made this for me, and for a few people who now owe me a favour."). The site never mentions TestFlight.
-  - the cable draws from one scroll-to-length timeline across the whole page: no stalls, no jumps, loops included;
-  - the story: SoundCloud at the core, your own music beside it, made for Apple devices, a DJ in your pocket. Homepage order: hero; **Listen** (iPhone: Likes, a set, its tracklist, tap to jump); **Library** (iPad, "All of it, not the first hundred.": Tracks with BPM and key and pending marks, the Tempo & Key sheet with Tap Tempo, the mini player growing into Now Playing, a playlist page tinted from its artwork with Likes pinned in the sidebar); **Output**; "A DJ in your pocket." (Auto Mix on BPM and key, decks, your own music, link to the DJ page); "The small stuff." (synced lyrics with on-device translation, widgets in every size, the Watch's Smart Stack, controls and double tap, Siri snippets and Visual Intelligence and the Mac Dock menu and AppleScript, Focus filters, settings sync, Sonos, alarms, Identify Song); "Fair warning.";
-  - the Output scene shows iPhone, Apple TV, Mac, Apple Watch and a friend's iPhone: the TV shows its real sign-in screen (dark, as the app forces it: "Plug in. Turn it up.", QR plate, Play Sound, the countdown turning to "<name> is nearby: open Sounding on it to sign in.") while the nearby-TV card ("Apple TV · Not signed in", Sign In, Not Now) rises on the iPhone and Sign In plays the chime, Play On moves the track to the TV mid-track, the watch becomes the remote, then SharePlay. The scene ends with "More on the Apple TV ›";
-  - **routes to the other pages:** the hero has a row of two copper text links under the lede ("Sounding on Apple TV ›", "Sounding for DJs ›"), and the Output scene and the decks section each end with a "More on the Apple TV ›" or "More for DJs ›" link. Text links, never buttons or cards;
-  - HTML rebuilds of app screens carry `data-shot="<name>"` naming the real screenshot that should replace them (`ipad-library-tracks`, `ipad-tempo-and-key`, `ipad-now-playing`, `ipad-playlist-tinted`, `tv-sign-in`, `iphone-nearby-tv-card`).
-- **Navigation:** the header nav on every page is **Apple TV · DJ · Support** in lede-size semibold ink, with Home on the wordmark. The current page is marked with `aria-current="page"`, shown in copper with an underline. It stays visible on phones (it wraps under the wordmark rather than hiding). Footers list Home, Apple TV, DJ, Privacy and Support. Owner 2026-11-12: TV and DJ were "hidden basically" in the footer.
-- **Footer** says "Best with a SoundCloud account" (SoundCloud is optional; your own music works without it), then "Not affiliated with or endorsed by SoundCloud."
-- **Apple TV page** (`docs/tv/`, "Apple TV" in the nav and footers, linked from the homepage hero and Output scene and from the DJ page's "Fair warning"): the same system as the DJ page. Headline "Turn it up." Three pinned scenes: **Signed in by ear** (signed-out TV and the nearby card → the chime → a first link: the TV's Allow alert with the six-digit code and It Matches on the phone → automatic reconnect with "<device> is linked" on the TV and "Linked to <TV>" on the phone → switching the TV's account, asked on both devices), **Mid-track, onto the telly** (Play On sheet → the TV playing from the same second, and a playing TV is controlled, never replaced → the Watch as remote with Sounding's own volume → the iPad's bar saying "Living Room is playing…" with Control), **Made for the big one** (Top Shelf with Continue Listening → Now Playing with the scrubbable waveform → full-screen lyrics, drawn as bars so no lyrics are reproduced → SharePlay). Then "Decks from the sofa." (the phone or iPad drives the TV's own decks; Siri Remote gestures; channel faders, loops and hot cues not on the phone yet), "The small stuff." (one search, own music from other devices or iCloud, Continue and Handoff, Sonos and AirPlay from the TV, Home Lighting, Auto Mix settings and Match My Workout) and "Fair warning". TV-only mocks live in `tv.css`. Device names in mocks are names ("Alex's iPhone"), never a device type the TV wouldn't know.
-- **DJ page** (`docs/dj/`, linked as "DJ" in the nav and footer and from the homepage decks section): what the Mac app does for DJs, in the same system (hero jack, line-art cable to the CTA, state-based scenes with explaining captions, light and dark, reduced motion). Headline "Drop it on the one." Three pinned scenes: **Decks** (empty deck B → loaded → EQ, filter and crossfader → hot cues and a loop → DDJ-400), **Prep** (analysing → grid slightly off → Set Downbeat and Lock → hot cues A–H, memory cues, loops → an "Often replayed" suggestion), **cues on every device** (cue set on the Mac → iPhone and iPad → Apple TV → Auto Mix using a memory cue as the exit and a Drop hot cue as the entry). Then static sections: DJ Players ("Next to the CDJs", with the Pro DJ Link small print), rekordbox XML both ways plus USB sticks marked **coming** (the writer exists, there's no button in the app and it hasn't met a real CDJ), "Auto Mix, honestly" (play-out blends, cuts on the bar without measured downbeats, "play like a DJ" is **coming**), then "Fair warning" saying what's in the beta and what has only talked to a fake CDJ. Never mention the personal-only SoundCloud audio export.
-- **Shared scene engine:** `site.js` builds any `[data-scene]`. Scenes without a bespoke builder get a generic one that measures the `[data-visual]` box, draws three masses behind it and routes the cable around it. `[data-ring="<states>"]` anchors draw sound rings shown in those states, `[data-rig]` and `[data-rig-core]` mark where the last cable segment passes, and `[data-mass]` marks the backgrounds used when scenes aren't pinned. Shared pieces (`.visual`, `.ra`, `.prose`, `.rig`, `.routes`, `.more`) and the homepage mocks live in `site.css`; DJ-only mocks live in `dj.css` and Apple TV-only mocks in `tv.css`. Every page that uses `site.js` needs a `.hero` with `[data-hero-art]`, a `[data-rig]` with a `[data-rig-core]` after its last pinned scene, and a `[data-socket]` at the end.
-- **Headline:** "Plug in. All the way."
-- **Call to action:** none. The beta is invite only, so every page says "Invite only. I made this for me, and for a few people who now owe me a favour." in the hero and at the cable's socket, and never mentions TestFlight.
-- **Honesty block** replaces any sales pitch: not official, no support promised, you get what you're given. Keep the no-servers, no-account, no-analytics line, and say plainly what happens without a paid SoundCloud plan: SoundCloud tracks need Go or Go+, because Sounding can't play SoundCloud's ads; Go+ tracks need Go+; preview-only tracks won't play; DJ decks stream SoundCloud only on Go+; your own music needs no plan. The same rules appear on the Support page ("A track won't play") and the DJ page's "Fair warning".
-- **Claims are checked against the code** before they go on the site: e.g. the DDJ-400 is the only controller mapping, on the Mac and the iPad, with pad and button lights and level meters, and the Mac and iPad can join network MIDI sessions (no other controller is claimed); the Digital Crown is volume, not scrubbing; CarPlay isn't mentioned until Apple grants the entitlement; search on iPhone, iPad and Mac is SoundCloud or Library, and only the Apple TV searches both at once; the Watch's volume is Sounding's own (not the TV's or the phone's system volume), tracklists come from the description, comments and ShazamKit.
-- **Copy:** in Alex's own voice (the tone-of-voice skill): short, dry, British, first person. Type: lede 18–20 px, body 17 px, nothing under 16 px.
-- **Anti-slop:** must pass `Design/site/ANTI-SLOP.md`:
-  - no eyebrow labels, pill badges, gradients, glow blobs, three-card rows, numbered steps, slogans per section or default fonts;
-  - one radius, one spacing scale, one type scale.
-- **Technical:** static HTML/CSS/JS, no build step, no external requests. Every page has `noindex, nofollow`, plus `robots.txt` (`Disallow: /`, which covers new pages). CLS stays 0 and reduced motion is honoured. **Never modify `docs/auth/` or `docs/CNAME`.**
-- **Publishing:** a docs-only commit to `main`. Never push the app branch to publish the site.
-
----
+- **Source:** the site is built in the lab at `sounding-site-lab/v2` and published by copying it into `docs/` (live since 3f7405f8, 12 Nov 2026). It replaced the scroll-told HTML site and its `site.js` scene engine.
+- **Homepage:** one WebGL2 scene (no libraries), driven by scroll, with damped scroll and soft "stations" where the camera holds so the page never feels jumpy.
+  - **Opening:** "Plug in. All the way." A long aux lead with its jack, decks and a mixer on a table. Scroll, or "push the jack down", and the jack plugs in. Records can be dragged and knobs turned, playing a beat made for the page. "Unplug" undoes it.
+  - **Two sides:** a Listening ↔ DJing slider in the header crossfades the page between day (listening) and night (DJing).
+    - Listening: playback, Likes, a long set and its tracklist, Play On to the TV, the Watch as remote, SharePlay and Auto Mix.
+    - DJing: the Mac decks, cues, rekordbox, Prep, analysis, USB export and the CDJs.
+  - **Devices:** iPhone, a friend's iPhone, iPad, Mac, Apple TV and Apple Watch. Their screens are drawn from the real app (`screens.js`), redrawn at display resolution so they stay sharp on Retina. The TV's sign-in screen matches the app: dark, "Plug in. Turn it up.", the QR plate, "<device> is nearby: open Sounding on it to sign in." and Play Sound with its orange pulse.
+  - **Music:** the owner's real music. The featured set is Essy at Wildeburg 2025, with its real tracklist. Likes lead with Kyle Starkey, Pegassi, Benwal and HearThuG.
+  - **Text sits over the canvas:** selectable and clickable while the canvas stays interactive. The header text switches between dark and light ink against whatever is behind it, never on a blurred backing.
+  - **Order:** hero and DJ teaser; Listening (Likes, set, tracklist, rekordbox, Prep, USB); phone to TV and cues; Auto Mix and two decks; "Fair warning."; footer.
+- **Other pages:**
+  - Apple TV (`docs/tv/`);
+  - Features (`docs/features/`), listing every feature worth mentioning by platform, with unbuilt ones under "Maybe. I will if I want.";
+  - DJ (`docs/dj/`), privacy and support.
+- **Copy is the owner's, word for word.** The Fair warning, the footer and any line the owner writes go in exactly as written, typos included ("dissapointments", "greatful", "realiably", "the reals deals", "endorsed by me"), with no spelling, casing or quote fixes. Everything else is in the voice of the Fair warning: dry, British, first person, jokes in passing, "tbh" allowed.
+- **Footer:** "Mused lovingly in Amsterdam, 🇳🇱" then "Despite their many attempts, SoundCloud is not affiliated with or endorsed by me."
+- **Call to action:** none. The site is invite only and never mentions TestFlight or an App Store release beyond the Fair warning's joke.
+- **Plans:**
+  - Say plainly that a free account gets SoundCloud's previews and full tracks need Go or Go+.
+  - Never say that free accounts play SoundCloud tracks in full.
+  - Never mention the personal-only SoundCloud audio export.
+- **Claims are checked against the code** before they go on the site. Some examples:
+  - The Watch's crown sets the volume when it's controlling a TV, and scrubs when the phone is playing.
+  - The DDJ-400 is the only mapped controller.
+  - Export to USB (⇧⌘E) exists in Prep, but hasn't met a real CDJ.
+  - CarPlay isn't mentioned until Apple grants the entitlement.
+- **Technical:**
+  - static HTML/CSS/JS, no build step, no external requests;
+  - every page is `noindex, nofollow`, and `robots.txt` has `Disallow: /`;
+  - reduced motion is honoured;
+  - **Never modify `docs/auth/` or `docs/CNAME`.**
+- **Publishing:**
+  - a docs-only commit to `main`, copied from the lab;
+  - start from the current `docs/` on main;
+  - never push the app branch to publish the site.
 
 ## 11. Engineering rules that affect design
 - **No code comments,** except an occasional `// MARK:`.
