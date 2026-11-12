@@ -16,9 +16,10 @@ final class NotificationService: UNNotificationServiceExtension {
 }
 
 enum SignInRequestAlert {
-    static let subscriptionIDs: Set<String> = ["signin-requests-v2", "signin-requests-v1"]
+    static let subscriptionIDs: Set<String> = ["signin-requests-v3", "signin-requests-v2", "signin-requests-v1"]
     static let category = "SIGN_IN_REQUEST"
     static let maximumNameLength = 64
+    static let lifetime: TimeInterval = 600
 
     static func apply(to content: UNMutableNotificationContent, now: Date) {
         let notification = CKNotification(fromRemoteNotificationDictionary: content.userInfo)
@@ -30,9 +31,11 @@ enum SignInRequestAlert {
             content.title = String(localized: "\(shortName) wants to sign in")
             content.body = String(localized: "Tap to sign it in to Sounding from here.")
         }
-        content.threadIdentifier = "sign-in-requests"
+        let tag = (fields["tvTag"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        content.threadIdentifier = "sign-in-requests-" + (tag ?? name.lowercased())
         DeviceArtwork.attach(kind: fields["tvKind"] as? String, to: content)
-        if let expiresAt = fields["expiresAt"] as? Date, expiresAt <= now {
+        let expiresAt = AlertDate.read(fields["expiresAt"]) ?? AlertDate.read(fields["createdAt"])?.addingTimeInterval(lifetime)
+        if let expiresAt, expiresAt <= now {
             content.interruptionLevel = .passive
             content.relevanceScore = 0
         } else {
@@ -43,13 +46,13 @@ enum SignInRequestAlert {
 }
 
 enum LinkRequestAlert {
-    static let subscriptionID = "nearby-link-requests-v1"
+    static let subscriptionIDs: Set<String> = ["nearby-link-requests-v2", "nearby-link-requests-v1"]
     static let category = "LINK_REQUEST"
     static let maximumNameLength = 64
 
     static func apply(to content: UNMutableNotificationContent, now: Date) {
         let notification = CKNotification(fromRemoteNotificationDictionary: content.userInfo)
-        guard content.categoryIdentifier == category || notification?.subscriptionID == subscriptionID else { return }
+        guard content.categoryIdentifier == category || notification?.subscriptionID.map({ subscriptionIDs.contains($0) }) == true else { return }
         let fields = (notification as? CKQueryNotification)?.recordFields ?? [:]
         let name = (fields["tvName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters)) ?? ""
         if !name.isEmpty {
@@ -59,7 +62,7 @@ enum LinkRequestAlert {
         }
         content.threadIdentifier = "link-requests"
         DeviceArtwork.attach(kind: fields["tvKind"] as? String, to: content)
-        if let expiresAt = fields["expiresAt"] as? Date, expiresAt <= now {
+        if let expiresAt = AlertDate.read(fields["expiresAt"]), expiresAt <= now {
             content.interruptionLevel = .passive
             content.relevanceScore = 0
         } else {
@@ -70,7 +73,7 @@ enum LinkRequestAlert {
 }
 
 enum AccountSignInAlert {
-    static let subscriptionIDs: Set<String> = ["account-signins-v2", "account-signins-v1"]
+    static let subscriptionIDs: Set<String> = ["account-signins-v3", "account-signins-v2", "account-signins-v1"]
     static let category = "ACCOUNT_SIGN_IN"
     static let maximumNameLength = 64
 
@@ -87,6 +90,15 @@ enum AccountSignInAlert {
         content.threadIdentifier = "account-sign-ins"
         content.interruptionLevel = .timeSensitive
         content.relevanceScore = 0.8
+    }
+}
+
+enum AlertDate {
+    static func read(_ value: Any?) -> Date? {
+        if let date = value as? Date { return date }
+        guard let number = value as? NSNumber else { return nil }
+        let raw = number.doubleValue
+        return Date(timeIntervalSince1970: raw > 100_000_000_000 ? raw / 1000 : raw)
     }
 }
 

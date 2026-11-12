@@ -1,4 +1,5 @@
 import CloudKit
+import CryptoKit
 import Foundation
 import Security
 
@@ -12,21 +13,24 @@ struct SignInRequest: Equatable, Hashable, Sendable, Identifiable {
         static let tvName = "tvName"
         static let tvKind = "tvKind"
         static let rendezvous = "rendezvous"
+        static let tvTag = "tvTag"
         static let createdAt = "createdAt"
         static let expiresAt = "expiresAt"
-        static let all = [tvName, tvKind, rendezvous, createdAt, expiresAt]
+        static let all = [tvName, tvKind, rendezvous, tvTag, createdAt, expiresAt]
+        static let notified = [tvName, tvKind, rendezvous, tvTag, createdAt]
     }
 
     let rendezvous: String
     let tvName: String
     let tvKind: DeviceClass
+    let tvTag: String?
     let createdAt: Date
     let expiresAt: Date
 
     var id: String { rendezvous }
-    var recordName: String { "signin-\(rendezvous)" }
+    var recordName: String { "\(Self.recordPrefix)\(rendezvous)" }
 
-    init?(rendezvous: String, tvName: String, tvKind: DeviceClass = .tv, createdAt: Date, expiresAt: Date? = nil) {
+    init?(rendezvous: String, tvName: String, tvKind: DeviceClass = .tv, tvTag: String? = nil, createdAt: Date, expiresAt: Date? = nil) {
         let name = tvName.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
         guard Self.isValidRendezvous(rendezvous), !name.isEmpty else { return nil }
         let latest = createdAt.addingTimeInterval(Self.lifetime)
@@ -35,13 +39,26 @@ struct SignInRequest: Equatable, Hashable, Sendable, Identifiable {
         self.rendezvous = rendezvous
         self.tvName = String(name.prefix(Self.maximumNameLength))
         self.tvKind = tvKind
+        self.tvTag = tvTag.flatMap { $0.isEmpty ? nil : $0 }
         self.createdAt = createdAt
         self.expiresAt = expiry
     }
 
-    static func make(tvName: String, tvKind: DeviceClass = .current, now: Date = .now) -> SignInRequest? {
+    static func make(tvName: String, tvKind: DeviceClass = .current, tvTag: String? = nil, now: Date = .now) -> SignInRequest? {
         guard let rendezvous = makeRendezvous() else { return nil }
-        return SignInRequest(rendezvous: rendezvous, tvName: tvName, tvKind: tvKind, createdAt: now)
+        return SignInRequest(rendezvous: rendezvous, tvName: tvName, tvKind: tvKind, tvTag: tvTag, createdAt: now)
+    }
+
+    static func tvTag(deviceId: String) -> String {
+        let hash = SHA256.hash(data: Data("Sounding-SignInRequest-TV-v1|\(deviceId.lowercased())".utf8))
+        return String(hash.map { String(format: "%02x", $0) }.joined().prefix(24))
+    }
+
+    static func date(_ value: Any?) -> Date? {
+        if let date = value as? Date { return date }
+        guard let number = value as? NSNumber else { return nil }
+        let raw = number.doubleValue
+        return Date(timeIntervalSince1970: raw > 100_000_000_000 ? raw / 1000 : raw)
     }
 
     static func makeRendezvous() -> String? {
@@ -61,14 +78,15 @@ struct SignInRequest: Equatable, Hashable, Sendable, Identifiable {
     init?(fields: [String: Any]) {
         guard let rendezvous = fields[Field.rendezvous] as? String,
               let name = fields[Field.tvName] as? String,
-              let created = fields[Field.createdAt] as? Date else { return nil }
+              let created = Self.date(fields[Field.createdAt]) else { return nil }
         let kind = (fields[Field.tvKind] as? String).flatMap(DeviceClass.init(rawValue:)) ?? .tv
         self.init(
             rendezvous: rendezvous,
             tvName: name,
             tvKind: kind,
+            tvTag: fields[Field.tvTag] as? String,
             createdAt: created,
-            expiresAt: fields[Field.expiresAt] as? Date
+            expiresAt: Self.date(fields[Field.expiresAt])
         )
     }
 
@@ -92,13 +110,15 @@ struct SignInRequest: Equatable, Hashable, Sendable, Identifiable {
         record[Field.rendezvous] = rendezvous as CKRecordValue
         record[Field.tvName] = tvName as CKRecordValue
         record[Field.tvKind] = tvKind.rawValue as CKRecordValue
+        if let tvTag { record[Field.tvTag] = tvTag as CKRecordValue }
         record[Field.createdAt] = createdAt as CKRecordValue
         record[Field.expiresAt] = expiresAt as CKRecordValue
         return record
     }
 
-    static let subscriptionID = "signin-requests-v2"
-    static let subscriptionIDs: Set<String> = [subscriptionID, "signin-requests-v1"]
+    static let subscriptionID = "signin-requests-v3"
+    static let subscriptionIDs: Set<String> = [subscriptionID, "signin-requests-v2", "signin-requests-v1"]
+    static let recordPrefix = "signin-"
     static let titleKey = "SIGN_IN_REQUEST_TITLE"
     static let bodyKey = "SIGN_IN_REQUEST_BODY"
 

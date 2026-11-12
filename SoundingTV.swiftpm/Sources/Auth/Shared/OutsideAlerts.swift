@@ -12,27 +12,29 @@ final class OutsideAlertRoutes: ObservableObject {
 }
 
 enum OutsideAlerts {
-    static let signInRequestCategory = "SIGN_IN_REQUEST"
+    static let signInRequestCategory = OutsideAlertSubscription.signInRequestCategory
     static let linkAction = "SIGN_IN_REQUEST_LINK"
     static let notNowAction = "SIGN_IN_REQUEST_NOT_NOW"
     static let nearbyLinkAction = "LINK_REQUEST_LINK"
     static let nearbyNotNowAction = "LINK_REQUEST_NOT_NOW"
     static let showDevicesAction = "ACCOUNT_SIGN_IN_SHOW_DEVICES"
-    static let withdrawalSubscriptionID = "signin-requests-gone-v2"
+    static let withdrawalSubscriptionID = OutsideAlertSubscription.signInWithdrawalID
     static let withdrawalSubscriptionIDs: Set<String> = [
         withdrawalSubscriptionID,
         "signin-requests-gone-v1",
         NearbyLinkRequest.withdrawalSubscriptionID,
     ]
-    static let legacySubscriptionIDs: Set<String> = [
-        "signin-requests-v1",
-        "signin-requests-gone-v1",
-        "account-signins-v1",
-    ]
+    static let legacySubscriptionIDs = OutsideAlertSubscription.retiredIDs
 
     private static let subscriptionCheckKey = "outsideAlertSubscriptions.v2"
     private static let subscriptionCheckSpacing: TimeInterval = 24 * 3_600
-    private static let signInRecordPrefix = "signin-"
+    private static let signInRecordPrefix = SignInRequest.recordPrefix
+
+    enum Lookup<Value: Sendable>: Sendable {
+        case found(Value)
+        case gone
+        case unavailable
+    }
 
     enum Response: Equatable, Sendable {
         case open
@@ -104,16 +106,20 @@ enum OutsideAlerts {
             let missing = wanted.filter { !existing.contains($0.subscriptionID) }
             let obsolete = existing.intersection(legacySubscriptionIDs).sorted()
             var complete = true
-            if !missing.isEmpty || !obsolete.isEmpty {
-                let results = try await database.modifySubscriptions(saving: missing, deleting: obsolete)
+            if !missing.isEmpty {
+                let results = try await database.modifySubscriptions(saving: missing, deleting: [])
                 for (id, result) in results.saveResults {
                     guard case .failure(let error) = result else { continue }
                     complete = false
                     Log.link.info("[OutsideAlerts] \(id, privacy: .public) not saved: \(error.localizedDescription, privacy: .public)")
                 }
-                Log.link.info("[OutsideAlerts] saved \(missing.count, privacy: .public) subscriptions, removed \(obsolete.count, privacy: .public) old ones")
+                Log.link.info("[OutsideAlerts] saved \(missing.count, privacy: .public) subscriptions")
             }
             guard complete else { return }
+            if !obsolete.isEmpty {
+                _ = try await database.modifySubscriptions(saving: [], deleting: obsolete)
+                Log.link.info("[OutsideAlerts] removed \(obsolete.count, privacy: .public) old subscriptions")
+            }
             UserDefaults.standard.set(["build": build, "checkedAt": now.timeIntervalSince1970], forKey: subscriptionCheckKey)
         } catch {
             Log.link.info("[OutsideAlerts] subscriptions not checked: \(error.localizedDescription, privacy: .public)")
@@ -121,78 +127,102 @@ enum OutsideAlerts {
     }
 
     private static func subscriptions() -> [CKQuerySubscription] {
-        let requests = CKQuerySubscription(
-            recordType: SignInRequest.recordType,
-            predicate: NSPredicate(value: true),
-            subscriptionID: SignInRequest.subscriptionID,
-            options: [.firesOnRecordCreation]
-        )
-        let requestInfo = CKSubscription.NotificationInfo()
-        requestInfo.titleLocalizationKey = SignInRequest.titleKey
-        requestInfo.titleLocalizationArgs = [SignInRequest.Field.tvName]
-        requestInfo.alertLocalizationKey = SignInRequest.bodyKey
-        requestInfo.soundName = "default"
-        requestInfo.desiredKeys = SignInRequest.Field.all
-        requestInfo.collapseIDKey = SignInRequest.Field.rendezvous
-        requestInfo.category = signInRequestCategory
-        requestInfo.shouldSendMutableContent = true
-        requests.notificationInfo = requestInfo
+        OutsideAlertSubscription.all.map(\.querySubscription)
+    }
 
-        let withdrawals = CKQuerySubscription(
-            recordType: SignInRequest.recordType,
-            predicate: NSPredicate(value: true),
-            subscriptionID: withdrawalSubscriptionID,
-            options: [.firesOnRecordDeletion]
-        )
-        let withdrawalInfo = CKSubscription.NotificationInfo()
-        withdrawalInfo.shouldSendContentAvailable = true
-        withdrawals.notificationInfo = withdrawalInfo
+    // MARK: - Records behind a notification
 
-        let signIns = CKQuerySubscription(
-            recordType: AccountSignIn.recordType,
-            predicate: NSPredicate(value: true),
-            subscriptionID: AccountSignIn.subscriptionID,
-            options: [.firesOnRecordCreation]
-        )
-        let signInInfo = CKSubscription.NotificationInfo()
-        signInInfo.titleLocalizationKey = AccountSignIn.titleKey
-        signInInfo.alertLocalizationKey = AccountSignIn.bodyKey
-        signInInfo.alertLocalizationArgs = [AccountSignIn.Field.deviceName]
-        signInInfo.soundName = "default"
-        signInInfo.desiredKeys = AccountSignIn.Field.all
-        signInInfo.collapseIDKey = AccountSignIn.Field.collapse
-        signInInfo.category = AccountSignIn.category
-        signInInfo.shouldSendMutableContent = true
-        signIns.notificationInfo = signInInfo
+    static func linkRequest(for notice: NearbyLinkRequest.Notice) async -> Lookup<NearbyLinkRequest> {
+        await linkRequests(for: [notice])[notice.recordName] ?? .unavailable
+    }
 
-        let links = CKQuerySubscription(
-            recordType: NearbyLinkRequest.recordType,
-            predicate: NSPredicate(value: true),
-            subscriptionID: NearbyLinkRequest.subscriptionID,
-            options: [.firesOnRecordCreation]
-        )
-        let linkInfo = CKSubscription.NotificationInfo()
-        linkInfo.titleLocalizationKey = NearbyLinkRequest.titleKey
-        linkInfo.titleLocalizationArgs = [NearbyLinkRequest.Field.tvName]
-        linkInfo.alertLocalizationKey = NearbyLinkRequest.bodyKey
-        linkInfo.soundName = "default"
-        linkInfo.desiredKeys = NearbyLinkRequest.Field.all
-        linkInfo.collapseIDKey = NearbyLinkRequest.Field.tvTag
-        linkInfo.category = NearbyLinkRequest.category
-        linkInfo.shouldSendMutableContent = true
-        links.notificationInfo = linkInfo
+    static func signIn(for notice: AccountSignIn.Notice) async -> Lookup<AccountSignIn> {
+        await signIns(for: [notice])[notice.recordName] ?? .unavailable
+    }
 
-        let linkWithdrawals = CKQuerySubscription(
-            recordType: NearbyLinkRequest.recordType,
-            predicate: NSPredicate(value: true),
-            subscriptionID: NearbyLinkRequest.withdrawalSubscriptionID,
-            options: [.firesOnRecordDeletion]
-        )
-        let linkWithdrawalInfo = CKSubscription.NotificationInfo()
-        linkWithdrawalInfo.shouldSendContentAvailable = true
-        linkWithdrawals.notificationInfo = linkWithdrawalInfo
+    static func linkRequests(for notices: [NearbyLinkRequest.Notice]) async -> [String: Lookup<NearbyLinkRequest>] {
+        await fetch(notices.map { RecordReference(recordName: $0.recordName, zoneName: $0.zoneName, ownerName: $0.ownerName) }) {
+            NearbyLinkRequest(record: $0)
+        }
+    }
 
-        return [requests, withdrawals, signIns, links, linkWithdrawals]
+    static func signIns(for notices: [AccountSignIn.Notice]) async -> [String: Lookup<AccountSignIn>] {
+        await fetch(notices.map { RecordReference(recordName: $0.recordName, zoneName: $0.zoneName, ownerName: $0.ownerName) }) {
+            AccountSignIn(record: $0)
+        }
+    }
+
+    private struct RecordReference: Hashable, Sendable {
+        let recordName: String
+        let zoneName: String
+        let ownerName: String
+
+        init(recordName: String, zoneName: String, ownerName: String) {
+            self.recordName = recordName
+            self.zoneName = zoneName
+            self.ownerName = ownerName
+        }
+
+        init(_ recordID: CKRecord.ID) {
+            self.init(recordName: recordID.recordName, zoneName: recordID.zoneID.zoneName, ownerName: recordID.zoneID.ownerName)
+        }
+
+        var recordID: CKRecord.ID {
+            CKRecord.ID(recordName: recordName, zoneID: CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName))
+        }
+    }
+
+    private enum AlertRecord: Sendable {
+        case signInRequest(SignInRequest)
+        case nearbyLink(NearbyLinkRequest)
+        case accountSignIn(AccountSignIn)
+
+        init?(_ record: CKRecord) {
+            switch record.recordType {
+            case SignInRequest.recordType:
+                guard let request = SignInRequest(record: record) else { return nil }
+                self = .signInRequest(request)
+            case NearbyLinkRequest.recordType:
+                guard let request = NearbyLinkRequest(record: record) else { return nil }
+                self = .nearbyLink(request)
+            case AccountSignIn.recordType:
+                guard let signIn = AccountSignIn(record: record) else { return nil }
+                self = .accountSignIn(signIn)
+            default:
+                return nil
+            }
+        }
+    }
+
+    @concurrent
+    private static func fetch<Value: Sendable>(
+        _ references: [RecordReference],
+        decode: @Sendable (CKRecord) -> Value?
+    ) async -> [String: Lookup<Value>] {
+        let references = Array(Set(references))
+        guard !references.isEmpty,
+              CloudSyncEngineController.containerIdentifierIsEntitled(CloudSyncContainer.identifier) else { return [:] }
+        let container = CKContainer(identifier: CloudSyncContainer.identifier)
+        guard (try? await container.accountStatus()) == .available else { return [:] }
+        do {
+            let results = try await container.privateCloudDatabase.records(for: references.map(\.recordID))
+            var lookups: [String: Lookup<Value>] = [:]
+            for (id, result) in results {
+                switch result {
+                case .success(let record):
+                    lookups[id.recordName] = decode(record).map { Lookup<Value>.found($0) } ?? .gone
+                case .failure(let error as CKError) where error.code == .unknownItem:
+                    lookups[id.recordName] = .gone
+                case .failure(let error):
+                    lookups[id.recordName] = .unavailable
+                    Log.link.info("[OutsideAlerts] record not read: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+            return lookups
+        } catch {
+            Log.link.info("[OutsideAlerts] records not read: \(error.localizedDescription, privacy: .public)")
+            return [:]
+        }
     }
 
     // MARK: - Delivered notifications
@@ -212,7 +242,7 @@ enum OutsideAlerts {
         let delivered = await center.deliveredNotifications()
         let matching = delivered.filter { notification in
             let userInfo = notification.request.content.userInfo
-            if let link = NearbyLinkRequest(remoteNotification: userInfo) { return link.recordName == recordName }
+            if let link = NearbyLinkRequest.Notice(remoteNotification: userInfo) { return link.recordName == recordName }
             guard let query = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
                   let subscriptionID = query.subscriptionID,
                   SignInRequest.subscriptionIDs.contains(subscriptionID) else { return false }
@@ -226,21 +256,22 @@ enum OutsideAlerts {
     static func removeDeliveredLinkRequests(tvTag: String) async {
         let center = UNUserNotificationCenter.current()
         let delivered = await center.deliveredNotifications()
-        let matching = delivered.filter { NearbyLinkRequest(remoteNotification: $0.request.content.userInfo)?.tvTag == tvTag }
+        let matching = delivered.filter { NearbyLinkRequest.Notice(remoteNotification: $0.request.content.userInfo)?.tvTag == tvTag }
         guard !matching.isEmpty else { return }
         center.removeDeliveredNotifications(withIdentifiers: matching.map(\.request.identifier))
     }
 
-    static func snooze(_ request: NearbyLinkRequest, now: Date = .now) async {
-        await removeDeliveredLinkRequests(tvTag: request.tvTag)
+    static func snooze(_ notice: NearbyLinkRequest.Notice, now: Date = .now) async {
+        guard let tvTag = notice.tvTag else { return }
+        await removeDeliveredLinkRequests(tvTag: tvTag)
         guard CloudSyncEngineController.containerIdentifierIsEntitled(CloudSyncContainer.identifier) else { return }
         let container = CKContainer(identifier: CloudSyncContainer.identifier)
         guard (try? await container.accountStatus()) == .available else { return }
-        let snooze = NearbyLinkSnooze(tvTag: request.tvTag, snoozedAt: now)
+        let snooze = NearbyLinkSnooze(tvTag: tvTag, snoozedAt: now)
         do {
             _ = try await container.privateCloudDatabase.modifyRecords(
                 saving: [snooze.record()],
-                deleting: [CKRecord.ID(recordName: request.recordName)],
+                deleting: [notice.recordID],
                 savePolicy: .allKeys,
                 atomically: false
             )
@@ -273,17 +304,149 @@ enum OutsideAlerts {
     }
 
     @MainActor
-    static func tidyDelivered() async {
+    static func tidyDelivered(resolvedDevices: Set<String> = [], now: Date = .now) async {
         let center = UNUserNotificationCenter.current()
-        let delivered = await center.deliveredNotifications()
-        let stale = delivered.filter { notification in
-            let userInfo = notification.request.content.userInfo
-            if let request = SignInRequest(remoteNotification: userInfo) { return request.isExpired() }
-            if let link = NearbyLinkRequest(remoteNotification: userInfo) { return verdict(for: link) != .show }
-            if let signIn = AccountSignIn(remoteNotification: userInfo) { return verdict(for: signIn) != .show }
-            return false
+        var references: [String: RecordReference] = [:]
+        var alerts: [DeliveredOutsideAlert] = []
+        for notification in await center.deliveredNotifications() {
+            guard let alert = deliveredAlert(notification, references: &references) else { continue }
+            alerts.append(alert)
         }
+        guard !alerts.isEmpty else { return }
+        let lookups = alerts
+            .filter { OutsideAlertSweep.needsRecord($0, now: now, resolvedDevices: resolvedDevices) }
+            .compactMap { references[$0.recordName] }
+        var records: [String: OutsideAlertSweep.RecordState] = [:]
+        if !lookups.isEmpty {
+            for (name, lookup) in await fetch(lookups, decode: { AlertRecord($0) }) {
+                switch lookup {
+                case .found(let record): records[name] = state(of: record, now: now)
+                case .gone: records[name] = .gone
+                case .unavailable: break
+                }
+            }
+        }
+        let stale = OutsideAlertSweep.stale(alerts, now: now, records: records, resolvedDevices: resolvedDevices)
         guard !stale.isEmpty else { return }
-        center.removeDeliveredNotifications(withIdentifiers: stale.map(\.request.identifier))
+        center.removeDeliveredNotifications(withIdentifiers: Array(stale))
+        Log.link.info("[OutsideAlerts] cleared \(stale.count, privacy: .public) alerts that no longer apply")
+    }
+
+    @MainActor
+    private static func state(of record: AlertRecord, now: Date) -> OutsideAlertSweep.RecordState {
+        switch record {
+        case .signInRequest(let request):
+            return request.isExpired(at: now) ? .resolved : .live
+        case .nearbyLink(let request):
+            return verdict(for: request, now: now) == .show ? .live : .resolved
+        case .accountSignIn(let signIn):
+            return verdict(for: signIn) == .show ? .live : .resolved
+        }
+    }
+
+    private static func deliveredAlert(_ notification: UNNotification, references: inout [String: RecordReference]) -> DeliveredOutsideAlert? {
+        let id = notification.request.identifier
+        let userInfo = notification.request.content.userInfo
+        if let notice = NearbyLinkRequest.Notice(remoteNotification: userInfo) {
+            references[notice.recordName] = RecordReference(notice.recordID)
+            return DeliveredOutsideAlert(
+                id: id,
+                kind: .nearbyLink,
+                recordName: notice.recordName,
+                device: OutsideAlertSweep.device(name: notice.tvName, kind: notice.tvKind),
+                expiresAt: notice.expiresAt,
+                deliveredAt: notification.date
+            )
+        }
+        if let notice = AccountSignIn.Notice(remoteNotification: userInfo) {
+            references[notice.recordName] = RecordReference(notice.recordID)
+            return DeliveredOutsideAlert(
+                id: id,
+                kind: .accountSignIn,
+                recordName: notice.recordName,
+                createdAt: notice.createdAt,
+                deliveredAt: notification.date
+            )
+        }
+        guard let query = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
+              let subscriptionID = query.subscriptionID,
+              SignInRequest.subscriptionIDs.contains(subscriptionID),
+              let recordID = query.recordID,
+              recordID.recordName.hasPrefix(SignInRequest.recordPrefix) else { return nil }
+        references[recordID.recordName] = RecordReference(recordID)
+        let request = SignInRequest(remoteNotification: userInfo)
+        return DeliveredOutsideAlert(
+            id: id,
+            kind: .signInRequest,
+            recordName: recordID.recordName,
+            device: request.flatMap { OutsideAlertSweep.device(name: $0.tvName, kind: $0.tvKind) },
+            createdAt: request?.createdAt,
+            expiresAt: request?.expiresAt,
+            deliveredAt: notification.date
+        )
+    }
+}
+
+@MainActor
+final class OutsideAlertSweeper {
+    static let shared = OutsideAlertSweeper()
+
+    private var subscriptions: Set<AnyCancellable> = []
+    private var pending: Task<Void, Never>?
+
+    func install() {
+        guard subscriptions.isEmpty else { return }
+        LinkClient.transfers
+            .filter { $0.state == .completed }
+            .sink { [weak self] transfer in self?.linked(sessionId: transfer.sessionId) }
+            .store(in: &subscriptions)
+        SoundCloudCredentialSource.shared.$state
+            .map { $0.currentUser?.id }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in self?.sweep() }
+            .store(in: &subscriptions)
+    }
+
+    func sweep(resolvedDevices: Set<String> = []) {
+        let previous = pending
+        pending = Task {
+            await previous?.value
+            await OutsideAlerts.tidyDelivered(resolvedDevices: resolvedDevices)
+        }
+    }
+
+    private func linked(sessionId: String) {
+        let identities = LinkedCompanionStore.loadAll()
+            .filter { $0.sessionId == sessionId }
+            .map { SameAccountLinkOffer.identity(name: $0.peerName, kind: $0.peerClass) }
+        sweep(resolvedDevices: Set(identities))
+    }
+}
+
+extension OutsideAlertSubscription {
+    var querySubscription: CKQuerySubscription {
+        let subscription = CKQuerySubscription(
+            recordType: recordType,
+            predicate: NSPredicate(value: true),
+            subscriptionID: id,
+            options: trigger == .creation ? [.firesOnRecordCreation] : [.firesOnRecordDeletion]
+        )
+        let info = CKSubscription.NotificationInfo()
+        if isVisible {
+            info.titleLocalizationKey = titleKey
+            info.titleLocalizationArgs = titleArgs.isEmpty ? nil : titleArgs
+            info.alertLocalizationKey = alertKey
+            info.alertLocalizationArgs = alertArgs.isEmpty ? nil : alertArgs
+            info.soundName = "default"
+            info.desiredKeys = desiredKeys
+            info.collapseIDKey = collapseIDKey
+            info.category = category
+            info.shouldSendMutableContent = true
+        } else {
+            info.shouldSendContentAvailable = true
+        }
+        subscription.notificationInfo = info
+        return subscription
     }
 }

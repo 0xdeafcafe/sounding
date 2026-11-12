@@ -94,6 +94,7 @@ final class TVSignInNotifications: NSObject, ObservableObject, @preconcurrency U
         linkWatch = LinkClient.transfers
             .filter { $0.state == .completed }
             .sink { [weak self] _ in self?.primeAfterLink() }
+        OutsideAlertSweeper.shared.install()
         Task { await OutsideAlerts.registerCategories() }
         #if DEBUG
         if ProcessInfo.processInfo.environment["SOUNDING_TV_SIGNIN_NOTIFY_STORY"] == "priming" {
@@ -139,10 +140,11 @@ final class TVSignInNotifications: NSObject, ObservableObject, @preconcurrency U
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         let userInfo = notification.request.content.userInfo
-        if let signIn = AccountSignIn(remoteNotification: userInfo) {
+        if let notice = AccountSignIn.Notice(remoteNotification: userInfo) {
+            guard case .found(let signIn) = await OutsideAlerts.signIn(for: notice) else { return [] }
             return OutsideAlerts.verdict(for: signIn) == .show ? [.banner, .list, .sound] : []
         }
-        if NearbyLinkRequest(remoteNotification: userInfo) != nil {
+        if NearbyLinkRequest.Notice(remoteNotification: userInfo) != nil {
             return []
         }
         guard let request = SignInRequest(remoteNotification: userInfo) else {
@@ -161,20 +163,21 @@ final class TVSignInNotifications: NSObject, ObservableObject, @preconcurrency U
             return
         }
         let action = OutsideAlerts.response(for: response.actionIdentifier)
-        if let link = NearbyLinkRequest(remoteNotification: userInfo) {
+        if let notice = NearbyLinkRequest.Notice(remoteNotification: userInfo) {
             switch action {
             case .open:
-                guard OutsideAlerts.verdict(for: link).allowsLinking else { return }
+                guard case .found(let link) = await OutsideAlerts.linkRequest(for: notice),
+                      OutsideAlerts.verdict(for: link).allowsLinking else { return }
                 NearbyLinkInbox.shared.link(link)
             case .notNow:
-                NearbyLinkInbox.shared.notNow(link)
-                await OutsideAlerts.snooze(link)
+                NearbyLinkInbox.shared.notNow(notice)
+                await OutsideAlerts.snooze(notice)
             case .dismissed:
                 break
             }
             return
         }
-        if AccountSignIn(remoteNotification: userInfo) != nil {
+        if AccountSignIn.Notice(remoteNotification: userInfo) != nil {
             guard action == .open else { return }
             OutsideAlertRoutes.shared.showsDevices = true
             return

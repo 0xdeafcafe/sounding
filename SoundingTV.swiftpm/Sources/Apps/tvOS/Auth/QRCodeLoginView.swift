@@ -206,7 +206,7 @@ struct QRCodeLoginView: View {
             if newState == .timeout, LinkServer.debugStateOverride == nil {
                 startSession()
             }
-            if newState == .advertising { requestPublisher?.publish() }
+            if newState == .advertising { requestPublisher?.publish(userStarted: onClose != nil) }
             if newState == .completed { requestPublisher?.withdraw() }
             updateChime()
         }

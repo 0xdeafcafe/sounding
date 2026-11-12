@@ -10,8 +10,9 @@ import UIKit
 
 struct AccountSignIn: Codable, Equatable, Hashable, Sendable {
     static let recordType = "AccountSignIn"
-    static let subscriptionID = "account-signins-v2"
-    static let subscriptionIDs: Set<String> = [subscriptionID, "account-signins-v1"]
+    static let subscriptionID = "account-signins-v3"
+    static let subscriptionIDs: Set<String> = [subscriptionID, "account-signins-v2", "account-signins-v1"]
+    static let recordPrefix = "account-signin-"
     static let category = "ACCOUNT_SIGN_IN"
     static let titleKey = "ACCOUNT_SIGN_IN_TITLE"
     static let bodyKey = "ACCOUNT_SIGN_IN_BODY"
@@ -27,6 +28,35 @@ struct AccountSignIn: Codable, Equatable, Hashable, Sendable {
         static let collapse = "collapse"
         static let createdAt = "createdAt"
         static let all = [subject, announcer, accountTag, deviceName, deviceKind, collapse, createdAt]
+        static let notified = [deviceName, deviceKind, collapse, accountTag, createdAt]
+    }
+
+    struct Notice: Equatable, Sendable {
+        let recordName: String
+        let zoneName: String
+        let ownerName: String
+        let createdAt: Date?
+
+        var recordID: CKRecord.ID {
+            CKRecord.ID(recordName: recordName, zoneID: CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName))
+        }
+
+        init?(remoteNotification userInfo: [AnyHashable: Any]) {
+            guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
+                  let subscriptionID = notification.subscriptionID,
+                  AccountSignIn.subscriptionIDs.contains(subscriptionID),
+                  let recordID = notification.recordID,
+                  recordID.recordName.hasPrefix(AccountSignIn.recordPrefix) else { return nil }
+            recordName = recordID.recordName
+            zoneName = recordID.zoneID.zoneName
+            ownerName = recordID.zoneID.ownerName
+            createdAt = AccountSignIn.date(notification.recordFields?[Field.createdAt])
+        }
+
+        func isStale(at now: Date = .now) -> Bool {
+            guard let createdAt else { return false }
+            return now.timeIntervalSince(createdAt) > AccountSignIn.freshness
+        }
     }
 
     enum Verdict: Equatable, Sendable {
@@ -54,7 +84,7 @@ struct AccountSignIn: Codable, Equatable, Hashable, Sendable {
         self.createdAt = createdAt
     }
 
-    var recordName: String { "account-signin-\(accountTag)-\(subject)" }
+    var recordName: String { "\(Self.recordPrefix)\(accountTag)-\(subject)" }
     var ledgerKey: String { "\(accountTag)|\(subject)" }
 
     var collapseKey: String {
@@ -107,14 +137,6 @@ struct AccountSignIn: Codable, Equatable, Hashable, Sendable {
         guard record.recordType == Self.recordType else { return nil }
         var fields: [String: Any] = [:]
         for key in Field.all { fields[key] = record[key] }
-        self.init(fields: fields)
-    }
-
-    init?(remoteNotification userInfo: [AnyHashable: Any]) {
-        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
-              let subscriptionID = notification.subscriptionID,
-              Self.subscriptionIDs.contains(subscriptionID),
-              let fields = notification.recordFields else { return nil }
         self.init(fields: fields)
     }
 

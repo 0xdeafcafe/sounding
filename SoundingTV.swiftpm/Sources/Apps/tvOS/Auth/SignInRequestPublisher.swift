@@ -13,6 +13,9 @@ final class SignInRequestPublisher {
         case withdrawn
     }
 
+    nonisolated static let spacing: TimeInterval = SignInRequest.lifetime
+    private static let lastPublishedKey = "signInRequest.lastPublished.v1"
+
     private(set) var phase: Phase = .idle
     private(set) var request: SignInRequest?
     let rendezvous: String?
@@ -57,20 +60,42 @@ final class SignInRequestPublisher {
         return CloudSyncEngineController.containerIdentifierIsEntitled(CloudSyncContainer.identifier)
     }
 
-    func publish(tvName: String = UIDevice.current.name) {
-        guard phase == .idle, let database, let rendezvous,
-              let request = SignInRequest(rendezvous: rendezvous, tvName: tvName, tvKind: .current, createdAt: .now) else { return }
+    nonisolated static func mayPublish(now: Date, lastPublishedAt: Date?, userStarted: Bool) -> Bool {
+        guard !userStarted, let lastPublishedAt, now >= lastPublishedAt else { return true }
+        return now.timeIntervalSince(lastPublishedAt) >= spacing
+    }
+
+    private static var lastPublishedAt: Date? {
+        get { UserDefaults.standard.object(forKey: lastPublishedKey) as? Date }
+        set { UserDefaults.standard.set(newValue, forKey: lastPublishedKey) }
+    }
+
+    func publish(tvName: String = UIDevice.current.name, userStarted: Bool = false, now: Date = .now) {
+        guard phase == .idle, let database, let rendezvous else { return }
+        guard Self.mayPublish(now: now, lastPublishedAt: Self.lastPublishedAt, userStarted: userStarted) else {
+            Log.link.info("[SignInRequest] not asking again so soon")
+            return
+        }
+        guard let request = SignInRequest(
+            rendezvous: rendezvous,
+            tvName: tvName,
+            tvKind: .current,
+            tvTag: SignInRequest.tvTag(deviceId: LinkPeerIdentity.localDeviceId()),
+            createdAt: now
+        ) else { return }
         phase = .saving
         self.request = request
+        let previous = ledger.recordNames.filter { $0 != request.recordName }
         ledger.add(request.recordName)
-        let record = request.record()
+        let ledger = ledger
         saveTask = Task { [weak self] in
             do {
                 guard try await CKContainer(identifier: CloudSyncContainer.identifier).accountStatus() == .available else {
                     self?.phase = .withdrawn
                     return
                 }
-                _ = try await database.modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys, atomically: false)
+                try await Self.save(request, replacing: previous, in: database, ledger: ledger)
+                Self.lastPublishedAt = request.createdAt
                 guard let self, !Task.isCancelled, self.phase == .saving else { return }
                 self.phase = .sent
                 Log.link.info("[SignInRequest] asked this account's iPhones to sign in")
@@ -80,6 +105,44 @@ final class SignInRequestPublisher {
                 self?.phase = .withdrawn
             }
         }
+    }
+
+    private nonisolated static func save(
+        _ request: SignInRequest,
+        replacing previous: [String],
+        in database: CKDatabase,
+        ledger: SignInRequestLedger
+    ) async throws {
+        let record = request.record()
+        let results = try await database.modifyRecords(
+            saving: [record],
+            deleting: previous.map { CKRecord.ID(recordName: $0) },
+            savePolicy: .allKeys,
+            atomically: false
+        )
+        var outcomes: [String: Error?] = [:]
+        for (id, result) in results.deleteResults {
+            switch result {
+            case .success: outcomes[id.recordName] = .some(nil)
+            case .failure(let error): outcomes[id.recordName] = error
+            }
+        }
+        ledger.remove(SignInRequestLedger.settled(outcomes))
+        guard case .failure(let error) = results.saveResults[record.recordID] else { return }
+        guard request.tvTag != nil,
+              let code = (error as? CKError)?.code,
+              code == .invalidArguments || code == .serverRejectedRequest,
+              let untagged = SignInRequest(
+                  rendezvous: request.rendezvous,
+                  tvName: request.tvName,
+                  tvKind: request.tvKind,
+                  createdAt: request.createdAt,
+                  expiresAt: request.expiresAt
+              ) else { throw error }
+        let retry = untagged.record()
+        let second = try await database.modifyRecords(saving: [retry], deleting: [], savePolicy: .allKeys, atomically: false)
+        if case .failure(let error) = second.saveResults[retry.recordID] { throw error }
+        Log.link.info("[SignInRequest] sent without a TV tag: \(error.localizedDescription, privacy: .public)")
     }
 
     func withdraw() {
