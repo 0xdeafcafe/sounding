@@ -719,20 +719,14 @@ struct PlayerView: View {
                     chosen = likes.collection.map(\.item).filter { $0.duration >= 1200 }.max { score($0) < score($1) }
                     print("[NPDebug] tracklist lines", chosen.map(score) ?? 0)
                 }
-            } else if raw == "goplus" {
-                print("[NPDebug] looking for a FairPlay-only liked track")
-                do {
-                    let likes = try await SoundCloudAPI.shared.getLikedTracks(limit: 100)
-                    chosen = likes.collection.map(\.item).first { $0.needsFairPlay }
-                } catch {
-                    print("[NPDebug] liked tracks failed", String(describing: error))
-                }
+            } else if FairPlayDebugPlayback.isRequested {
+                chosen = await FairPlayDebugPlayback.likedFairPlayTrack()
             } else {
                 chosen = try? await SoundCloudAPI.shared.getTrack(id: raw)
             }
             print("[NPDebug] play track", chosen?.id ?? "none", chosen?.title ?? "")
             if let chosen {
-                await playerService.play(chosen, in: [chosen] + playerService.queue.prefix(3))
+                await playerService.play(chosen, in: FairPlayDebugPlayback.queue(starting: chosen, existing: playerService.queue))
             }
         }
         if env["SOUNDING_TV_DJ_OPEN"] == "1" {

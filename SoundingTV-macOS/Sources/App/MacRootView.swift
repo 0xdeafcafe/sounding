@@ -686,6 +686,10 @@ struct MacRootView: View {
             if let tour = ProcessInfo.processInfo.environment["SOUNDING_TV_MAC_TOUR"] {
                 await runDebugTour(tour)
             }
+            if FairPlayDebugPlayback.isRequested {
+                try? await Task.sleep(for: .seconds(3))
+                await FairPlayDebugPlayback.playLikedFairPlayTrack(on: .shared)
+            }
             #endif
         }
         .onChange(of: credentials.isSignedOut) { _, isSignedOut in
