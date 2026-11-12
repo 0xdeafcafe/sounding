@@ -159,7 +159,7 @@ struct CueSyncRelay: Sendable {
         result.adoptedCues = incomingCues.isEmpty ? 0 : await store.adopt(incomingCues)
         result.adoptedDismissals = incomingDismissals.isEmpty ? 0 : await store.adoptDismissals(incomingDismissals)
 
-        let incomingCuesById = Dictionary(uniqueKeysWithValues: incomingCues.map { ($0.cueId, $0) })
+        let incomingCuesById = Dictionary(incomingCues.map { ($0.cueId, $0) }, uniquingKeysWith: { _, latest in latest })
         let incomingDismissalIds = Set(incomingDismissals.map(\.id))
 
         let (pendingCues, pendingDismissals) = await store.pendingChanges(since: state.pushedThroughMillis, limit: exportLimit)
