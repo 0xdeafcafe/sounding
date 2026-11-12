@@ -15,14 +15,20 @@
   <title>Apple TV · Sounding</title>
   <link rel="icon" type="image/webp" href="../assets/app-icon.webp">
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
-  <script>(function(r){r.classList.add('js');var s;try{s=localStorage.getItem('sounding.side')}catch(e){}r.dataset.side=s||(matchMedia('(prefers-color-scheme: dark)').matches?'b':'a')})(document.documentElement)</script>
+  <script>(function(r){var c=r.classList;c.add('js');var s;try{s=localStorage.getItem('sounding.side')}catch(e){}r.dataset.side=s||(matchMedia('(prefers-color-scheme: dark)').matches?'b':'a');if(matchMedia('(prefers-reduced-motion: reduce)').matches||/[?&]still/.test(location.search))c.add('still');setTimeout(function(){if(!c.contains('live'))c.add('still')},6000)})(document.documentElement)</script>
+  <style>html.js:not(.still):not(.live){background:#0b0908}html.js:not(.still):not(.live) body{visibility:hidden}</style>
   <link rel="stylesheet" href="../assets/site.css">
   <link rel="stylesheet" href="../assets/side.css">
   <link rel="stylesheet" href="../assets/tv.css">
-  <script src="../assets/side.js" defer></script>
+  <link rel="modulepreload" href="../assets/stage.js">
+  <link rel="modulepreload" href="../assets/world.js">
+  <link rel="modulepreload" href="../assets/gl.js">
+  <link rel="modulepreload" href="../assets/shaders.js">
+  <script type="module" src="../assets/app.js"></script>
 </head>
 <body data-page="tv">
   <a class="skip" href="#main">Skip to content</a>
+  <canvas id="gl" aria-hidden="true"></canvas>
 
   <header class="top">
     <a class="brand ink" href="../"><img src="../assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
@@ -60,291 +66,239 @@
   </svg>
 
   <main id="main">
-    <section class="pg-hero" aria-labelledby="hero-h">
-      <div class="pg-lead">
-        <h1 id="hero-h">Sounding on the Apple&nbsp;TV.</h1>
-        <p class="lede">Sounding started out as an Apple&nbsp;TV app, and the TV’s still where it’s loudest. It signs in by ear, it mixes on its own, and your iPhone, iPad, Mac and Watch are all the remote.</p>
-        <p class="note">Invite only. I made this for me, and for a few people who now owe me a favour.</p>
-      </div>
-      <div class="pg-art k-hero-art" aria-hidden="true">
-        <i class="mass m1"></i><i class="mass m2"></i>
-        <div class="k-tvw">
-          <div class="k-tv"><div class="k-scr">
-            <div class="k-np">
-              <img class="k-bd" src="../assets/music/essy-backdrop.webp" alt="" width="80" height="80" decoding="async">
-              <svg class="k-rings" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice"><circle cx="128" cy="62" r="14"/><circle cx="128" cy="62" r="22"/><circle cx="128" cy="62" r="31"/><circle cx="128" cy="62" r="41"/><circle cx="128" cy="62" r="52"/><path d="M-4 20c30-8 50 6 80-2s50-10 90 2"/><path d="M-4 24c30-8 50 6 80-2s50-10 90 2"/></svg>
-              <div class="k-np-top">
-                <div class="np-head">
-                  <p class="k-np-from">From Likes</p>
-                  <p class="k-np-title">Essy - Wildeburg 2025</p>
-                  <p class="k-np-artist">Wildeburg</p>
-                  <div class="k-np-acts"><i class="k-gb"><svg><use href="#i-heart"/></svg></i><i class="k-gb"><svg><use href="#i-info"/></svg></i><i class="k-gb"><svg><use href="#i-mlist"/></svg></i><i class="k-gb"><svg><use href="#i-air"/></svg></i><i class="k-gb"><svg><use href="#i-list"/></svg></i><i class="k-gb"><svg><use href="#i-more"/></svg></i></div>
-                  <p class="k-np-entry"><svg><use href="#i-mlist"/></svg>Better Off Alone (Mixed) · Alice Deejay</p>
-                </div>
-                <div class="np-next">
-                  <p class="k-np-nh">Up Next</p>
-                  <p class="k-np-row"><img src="../assets/music/s/pegassi-style.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span><b>Style</b><small>Pegassi</small></span></p>
-                  <p class="k-np-row"><img src="../assets/music/s/kyle-starkey-tryton.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span><b>Kyle Starkey - Tryton [Agrio Tracks]</b><small>Kyle Starkey</small></span></p>
-                </div>
-              </div>
-              <div class="k-tape">
-                <div class="k-tl"><i class="k-pin"><b>Akanum · Hypho</b></i><i style="--x:42%"><b>Thistle · Skrillex, Randomer, Blawan &amp; MC Dricka</b></i></div>
-                <div class="k-tw"><svg class="k-past"><use href="#wf-tape"/></svg><svg class="k-next"><use href="#wf-tape"/></svg><i class="k-ph"></i></div>
-                <div class="k-tc"><i style="--x:12%"></i><i style="--x:27%"></i><i class="k-n" style="--x:44%"><b>3</b></i><i style="--x:63%"></i><i style="--x:81%"></i></div>
-                <div class="k-tt"><span>45:00</span><span>−43:20</span></div>
-              </div>
-              <div class="k-tp"><i class="k-gb"><svg><use href="#i-prev"/></svg></i><i class="k-gb k-big"><svg><use href="#i-pause"/></svg></i><i class="k-gb"><svg><use href="#i-next"/></svg></i></div>
-            </div>
-          </div></div>
-          <div class="k-tv-foot"></div>
+    <section class="scene chapter hero" id="top" data-scene="hero" data-shot="tv1" data-span="1.5" data-states='[{"tv":"play","ph":"out","phone":"tv"}]' aria-labelledby="hero-h">
+      <div class="pin">
+        <figure class="plate" aria-hidden="true"><img class="pa" src="../assets/still/output-a.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="../assets/still/output-b.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"></figure>
+        <div class="side a">
+          <h1 class="ink" id="hero-h">Sounding on the Apple&nbsp;TV.</h1>
+          <p class="lede ink">Sounding started out as an Apple&nbsp;TV app, and the TV’s still where it’s loudest. It signs in by ear, it mixes on its own, and your iPhone, iPad, Mac and Watch are all the remote.</p>
+          <p class="note ink">Invite only. I made this for me, and for a few people who now owe me a favour.</p>
         </div>
       </div>
     </section>
 
-    <section class="pg-feat" id="sign-in" aria-labelledby="sign-in-h">
-      <div class="pg-text">
-        <h2 id="sign-in-h">It signs in by ear.</h2>
-        <ul class="pg-steps">
-          <li><b>No typing a password with the Siri&nbsp;Remote.</b> Open Sounding on your iPhone near the TV and it offers to sign it in.</li>
-          <li><b>It finds the TV by its chime.</b> Press Play Sound on the TV and it plays three notes, with a code riding underneath that’s too high for you to hear. Your iPhone listens for it, only while that screen’s open, and asks: Sign in to Sounding on this Apple&nbsp;TV?</li>
-          <li><b>Loud room, or microphone off?</b> Scan the QR code on the TV with your iPhone camera instead. Or tap Use Without SoundCloud and just play your own music.</li>
-          <li><b>Phone in another room?</b> When the TV asks, your iPhone gets a notification: Living Room wants to sign in. Tap it and that’s that.</li>
-        </ul>
+    <section class="scene chapter" id="sign-in" data-scene="sign-in" data-shot="tv1,tv2,tv1,tv2" data-states='[{"tv":"sign","ph":"out","phone":"tv","out":"idle"},{"out":"toast"},{},{}]' aria-labelledby="sign-in-h">
+      <div class="pin">
+        <figure class="plate" aria-hidden="true"><img class="pa" src="../assets/still/output-a.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="../assets/still/output-b.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"></figure>
+        <div class="side a">
+          <h2 class="ink" id="sign-in-h">It signs in by ear.</h2>
+          <div class="caps">
+            <p class="cap ink"><b>No typing a password with the Siri&nbsp;Remote.</b> Open Sounding on your iPhone near the TV and it offers to sign it in.</p>
+            <p class="cap ink"><b>It finds the TV by its chime.</b> Press Play Sound on the TV and it plays three notes, with a code riding underneath that’s too high for you to hear. Your iPhone listens for it, only while that screen’s open, and asks: Sign in to Sounding on this Apple&nbsp;TV?</p>
+            <p class="cap ink"><b>Loud room, or microphone off?</b> Scan the QR code on the TV with your iPhone camera instead. Or tap Use Without SoundCloud and just play your own music.</p>
+            <p class="cap ink"><b>Phone in another room?</b> When the TV asks, your iPhone gets a notification: Living Room wants to sign in. Tap it and that’s that.</p>
+          </div>
+        </div>
       </div>
-      <div class="pg-art" aria-hidden="true">
-        <i class="mass m2"></i><i class="mass m3"></i>
-        <div class="k-duo">
+    </section>
+
+    <section class="scene chapter" id="play-on" data-scene="play-on" data-shot="tv2,tv2,tv3,tv2" data-states='[{"tv":"play","ph":"out","phone":"tv","out":"sheet","w":"home"},{"out":"tv","picked":true},{"w":"remote"},{}]' aria-labelledby="play-on-h">
+      <div class="pin">
+        <figure class="plate" aria-hidden="true"><img class="pa" src="../assets/still/output-a.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="../assets/still/output-b.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"></figure>
+        <div class="side a">
+          <h2 class="ink" id="play-on-h">Play On, and every remote you own.</h2>
+          <div class="caps">
+            <p class="cap ink"><b>Send it to the TV.</b> On your iPhone, iPad or Mac, tap Play On and pick the Apple&nbsp;TV. It carries on from the same second.</p>
+            <p class="cap ink"><b>Whatever’s in your hand is the remote.</b> Now Playing, Up Next and the volume all work the TV now, and your iPhone, iPad, Mac and Watch all see the same queue.</p>
+            <p class="cap ink"><b>Or your wrist.</b> On the Watch, the Digital Crown turns the TV up and down. The Siri&nbsp;Remote still has the TV’s own volume.</p>
+            <p class="cap ink"><b>Share a link to it.</b> Share a SoundCloud link from any app on your iPhone and send it to the TV: Play Now, Play Next or Add to End.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene chapter flip" id="now-playing" data-scene="now-playing" data-shot="crate" aria-labelledby="now-playing-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="now-playing-h">Now Playing, from the sofa.</h2>
+          <div class="caps">
+            <p class="cap ink"><b>The background is the artwork.</b> Blurred and drifting, so every track brings its own colours. The thin lines over it move with the music.</p>
+            <p class="cap ink"><b>Laid out like a tape deck.</b> What’s on at the top left, the next two tracks beside it, and the waveform right along the bottom, with the comments on it.</p>
+            <p class="cap ink"><b>Long sets scrub like tape.</b> Swipe on the remote’s touch surface, or press left and right to jump 15 seconds, then click to play from there. A mix shows its tracklist along the tape, and Identify fills the gaps.</p>
+            <p class="cap ink"><b>Leave it alone and it goes ambient.</b> Just the artwork, big, over the same background.</p>
+          </div>
+        </div>
+        <div class="visual" aria-hidden="true">
+          <i class="mass m1"></i><i class="mass m3"></i>
           <div class="k-tvw">
             <div class="k-tv"><div class="k-scr">
-              <div class="k-si">
-                <svg class="k-si-art" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice"><path d="M-5 70c25-4 40-30 62-30s30 22 52 20 36-26 56-28"/><path d="M-5 74c25-4 40-30 62-30s30 22 52 20 36-26 56-28"/><path d="M-5 78c25-4 40-30 62-30s30 22 52 20 36-26 56-28"/><circle cx="80" cy="44" r="30"/><circle cx="80" cy="44" r="38"/></svg>
-                <p class="k-si-h">Plug in. Turn it up.</p>
-                <p class="k-si-t">Your SoundCloud on Apple&nbsp;TV, iPhone and Mac.</p>
-                <div class="k-si-qr"><svg><use href="#qr"/></svg></div>
-                <p class="k-si-s">Alex’s iPhone is nearby: open Sounding on it to sign in.</p>
-                <p class="k-si-b"><i class="k-gp k-on"><svg><use href="#i-sound"/></svg>Play Sound</i><i class="k-gp"><svg><use href="#i-phone"/></svg>Sign in with iPhone</i></p>
-                <p class="k-si-u">Use Without SoundCloud</p>
+              <div class="k-np">
+                <img class="k-bd" src="../assets/music/essy-backdrop.webp" alt="" width="80" height="80" decoding="async">
+                <svg class="k-rings" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice"><circle cx="128" cy="62" r="14"/><circle cx="128" cy="62" r="22"/><circle cx="128" cy="62" r="31"/><circle cx="128" cy="62" r="41"/><circle cx="128" cy="62" r="52"/><path d="M-4 20c30-8 50 6 80-2s50-10 90 2"/><path d="M-4 24c30-8 50 6 80-2s50-10 90 2"/></svg>
+                <div class="k-np-top">
+                  <div class="np-head">
+                    <p class="k-np-from">From Likes</p>
+                    <p class="k-np-title">Essy - Wildeburg 2025</p>
+                    <p class="k-np-artist">Wildeburg</p>
+                    <div class="k-np-acts"><i class="k-gb"><svg><use href="#i-heart"/></svg></i><i class="k-gb"><svg><use href="#i-info"/></svg></i><i class="k-gb"><svg><use href="#i-mlist"/></svg></i><i class="k-gb"><svg><use href="#i-air"/></svg></i><i class="k-gb"><svg><use href="#i-list"/></svg></i><i class="k-gb"><svg><use href="#i-more"/></svg></i></div>
+                    <p class="k-np-entry"><svg><use href="#i-mlist"/></svg>Better Off Alone (Mixed) · Alice Deejay</p>
+                  </div>
+                  <div class="np-next">
+                    <p class="k-np-nh">Up Next</p>
+                    <p class="k-np-row"><img src="../assets/music/s/pegassi-style.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span><b>Style</b><small>Pegassi</small></span></p>
+                    <p class="k-np-row"><img src="../assets/music/s/kyle-starkey-tryton.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><span><b>Kyle Starkey - Tryton [Agrio Tracks]</b><small>Kyle Starkey</small></span></p>
+                  </div>
+                </div>
+                <div class="k-tape">
+                  <div class="k-tl"><i class="k-pin"><b>Akanum · Hypho</b></i><i style="--x:42%"><b>Thistle · Skrillex, Randomer, Blawan &amp; MC Dricka</b></i></div>
+                  <div class="k-tw"><svg class="k-past"><use href="#wf-tape"/></svg><svg class="k-next"><use href="#wf-tape"/></svg><i class="k-ph"></i></div>
+                  <div class="k-tc"><i style="--x:12%"></i><i style="--x:27%"></i><i class="k-n" style="--x:44%"><b>3</b></i><i style="--x:63%"></i><i style="--x:81%"></i></div>
+                  <div class="k-tt"><span>45:00</span><span>−43:20</span></div>
+                </div>
+                <div class="k-tp"><i class="k-gb"><svg><use href="#i-prev"/></svg></i><i class="k-gb k-big"><svg><use href="#i-pause"/></svg></i><i class="k-gb"><svg><use href="#i-next"/></svg></i></div>
+              </div>
+              <div class="k-np k-amb">
+                <img class="k-bd" src="../assets/music/essy-backdrop.webp" alt="" width="80" height="80" decoding="async">
+                <svg class="k-rings" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice"><circle cx="80" cy="44" r="34"/><circle cx="80" cy="44" r="42"/><circle cx="80" cy="44" r="51"/><circle cx="80" cy="44" r="61"/></svg>
+                <div class="k-amb-art"><img src="../assets/music/essy-wildeburg.webp" alt="" width="500" height="500" loading="lazy" decoding="async"></div>
               </div>
             </div></div>
             <div class="k-tv-foot"></div>
           </div>
-          <div class="k-phw">
-            <div class="k-phn"><div class="k-scr">
-              <p class="k-ph-bar"><b>21:47</b></p>
-              <div class="k-ph-dim"></div>
-              <div class="k-card">
-                <p class="k-card-g"><svg><use href="#i-tv"/></svg></p>
-                <p class="k-card-n">Living Room</p>
-                <p class="k-card-q">Sign in to Sounding on this Apple&nbsp;TV?</p>
-                <p class="k-card-b k-pri">Sign In</p>
-                <p class="k-card-b">Not Now</p>
-              </div>
-            </div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene chapter" id="auto-mix" data-scene="auto-mix" data-shot="rigA" aria-labelledby="auto-mix-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="auto-mix-h">Auto Mix, on the big screen.</h2>
+          <div class="caps">
+            <p class="cap ink"><b>The TV mixes your queue.</b> Turn on Auto Mix and it brings the next track in on the phrase. It only beat-matches when it’s measured where the bars are on both tracks, and cuts cleanly on the bar when it hasn’t.</p>
+            <p class="cap ink"><b>You can watch it happen.</b> While it mixes, the waveform turns into two decks: the move, the bar it’s on, both EQs and the crossfader. Mix Now and Extend are right there.</p>
+            <p class="cap ink"><b>There’s a Decks tab too.</b> A DJ show for the room: two big deck heads, both lanes and the mix, readable from across the room.</p>
+            <p class="cap ink"><b>Pick how it plays.</b> Wedding DJ, Auto Mix or Junkie, and an energy that follows the night unless you tell it otherwise.</p>
           </div>
         </div>
-      </div>
-    </section>
-
-    <section class="pg-feat flip" id="now-playing" aria-labelledby="now-playing-h">
-      <div class="pg-text">
-        <h2 id="now-playing-h">Now Playing, from the sofa.</h2>
-        <ul class="pg-steps">
-          <li><b>The background is the artwork.</b> Blurred and drifting, so every track brings its own colours. The thin lines over it move with the music.</li>
-          <li><b>Laid out like a tape deck.</b> What’s on at the top left, the next two tracks beside it, and the waveform right along the bottom, with the comments on it.</li>
-          <li><b>Long sets scrub like tape.</b> Swipe on the remote’s touch surface, or press left and right to jump 15 seconds, then click to play from there. A mix shows its tracklist along the tape, and Identify fills the gaps.</li>
-          <li><b>Leave it alone and it goes ambient.</b> Just the artwork, big, over the same background.</li>
-        </ul>
-      </div>
-      <div class="pg-art" aria-hidden="true">
-        <i class="mass m1"></i><i class="mass m3"></i>
-        <div class="k-tvw">
-          <div class="k-tv"><div class="k-scr">
-            <div class="k-np k-amb">
-              <img class="k-bd" src="../assets/music/essy-backdrop.webp" alt="" width="80" height="80" decoding="async">
-              <svg class="k-rings" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice"><circle cx="80" cy="44" r="34"/><circle cx="80" cy="44" r="42"/><circle cx="80" cy="44" r="51"/><circle cx="80" cy="44" r="61"/></svg>
-              <div class="k-amb-art"><img src="../assets/music/essy-wildeburg.webp" alt="" width="500" height="500" loading="lazy" decoding="async"></div>
-            </div>
-          </div></div>
-          <div class="k-tv-foot"></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="pg-feat" id="cues" aria-labelledby="cues-h">
-      <div class="pg-text">
-        <h2 id="cues-h">Your cue points are on it.</h2>
-        <ul class="pg-steps">
-          <li><b>Set a cue on the Mac, see it on the TV.</b> Hot cues and memory cues sit on the TV’s waveform in their colours. They sync through your own iCloud.</li>
-          <li><b>Jump to one.</b> More, then Cue Points, lists them with their times. Pick one and it plays from there.</li>
-          <li><b>Fix one from the sofa.</b> Track Map lets you add, move and rename cues with the remote.</li>
-          <li>Where cues come from is on the <a href="../dj/">DJ page</a>.</li>
-        </ul>
-      </div>
-      <div class="pg-art" aria-hidden="true">
-        <i class="mass m2"></i><i class="mass m1"></i>
-        <div class="k-tvw">
-          <div class="k-tv"><div class="k-scr">
-            <div class="k-np k-cue">
-              <img class="k-bd k-blur" src="../assets/music/s/paul-renard-transmissions.webp" alt="" width="160" height="160" loading="lazy" decoding="async">
-              <div class="k-cue-main">
-                <p class="k-np-from">From Likes</p>
-                <p class="k-np-title">Transmissions</p>
-                <p class="k-np-artist">Paul Renard</p>
-                <div class="k-cue-wave"><svg><use href="#wf-la"/></svg><i class="k-ph"></i><i class="k-f k-fa" style="--x:4%"><b>A</b></i><i class="k-f k-fb" style="--x:14%"><b>B</b></i><i class="k-f k-fc" style="--x:44%"><b>C</b>Drop</i><i class="k-mem" style="--x:76%"></i></div>
-              </div>
-              <div class="k-pane">
-                <p class="k-pane-e">Transmissions</p>
-                <p class="k-pane-h">Cue Points</p>
-                <p class="k-pane-r k-first"><svg><use href="#i-path"/></svg><span><b>Track Map</b><small>Add, move and rename cues</small></span></p>
-                <p class="k-pane-r"><i class="k-dot k-fa"></i><span><b>Hot Cue A</b></span><em>0:16</em></p>
-                <p class="k-pane-r"><i class="k-dot k-fb"></i><span><b>Hot Cue B</b></span><em>0:57</em></p>
-                <p class="k-pane-r k-on"><i class="k-dot k-fc"></i><span><b>Drop</b></span><em>2:59</em></p>
-                <p class="k-pane-r"><i class="k-tri"></i><span><b>Memory Cue</b></span><em>4:12</em></p>
-              </div>
-            </div>
-          </div></div>
-          <div class="k-tv-foot"></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="pg-feat flip" id="auto-mix" aria-labelledby="auto-mix-h">
-      <div class="pg-text">
-        <h2 id="auto-mix-h">Auto Mix, on the big screen.</h2>
-        <ul class="pg-steps">
-          <li><b>The TV mixes your queue.</b> Turn on Auto Mix and it brings the next track in on the phrase. It only beat-matches when it’s measured where the bars are on both tracks, and cuts cleanly on the bar when it hasn’t.</li>
-          <li><b>You can watch it happen.</b> While it mixes, the waveform turns into two decks: the move, the bar it’s on, both EQs and the crossfader. Mix Now and Extend are right there.</li>
-          <li><b>There’s a Decks tab too.</b> A DJ show for the room: two big deck heads, both lanes and the mix, readable from across the room.</li>
-          <li><b>Pick how it plays.</b> Wedding DJ, Auto Mix or Junkie, and an energy that follows the night unless you tell it otherwise.</li>
-        </ul>
-      </div>
-      <div class="pg-art" aria-hidden="true">
-        <i class="mass m3"></i><i class="mass m1"></i>
-        <div class="k-tvw">
-          <div class="k-tv"><div class="k-scr">
-            <div class="k-np k-mix">
-              <img class="k-bd k-blur" src="../assets/music/s/paul-renard-transmissions.webp" alt="" width="160" height="160" loading="lazy" decoding="async">
-              <div class="k-mix-in">
-                <p class="k-np-from">From Likes</p>
-                <p class="k-np-title">Transmissions</p>
-                <p class="k-np-artist">Paul Renard</p>
-                <p class="k-mx-move"><b>Bass swap</b><span>Bar 9 of 16</span></p>
-                <p class="k-mx-prog"><i></i></p>
-                <div class="k-mx-lane"><p><b>A</b>Transmissions</p><div class="k-lw"><svg class="k-past"><use href="#wf-la"/></svg><svg class="k-next"><use href="#wf-la"/></svg><i class="k-ph"></i></div><div class="k-eq"><i class="k-on"></i><i class="k-on"></i><i class="k-on"></i><i></i></div></div>
-                <div class="k-mx-xf"><span>A</span><i><b></b></i><span>B</span></div>
-                <div class="k-mx-lane b"><p><b>B</b>Invisible Sandwich</p><div class="k-lw"><svg class="k-past"><use href="#wf-lb"/></svg><svg class="k-next"><use href="#wf-lb"/></svg><i class="k-ph"></i></div><div class="k-eq"><i class="k-on"></i><i class="k-on"></i><i></i><i></i></div></div>
-                <p class="k-mx-pills"><i class="k-gp">Mix Now</i><i class="k-gp">Extend</i></p>
-              </div>
-            </div>
-          </div></div>
-          <div class="k-tv-foot"></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="pg-feat" id="play-on" aria-labelledby="play-on-h">
-      <div class="pg-text">
-        <h2 id="play-on-h">Play On, and every remote you own.</h2>
-        <ul class="pg-steps">
-          <li><b>Send it to the TV.</b> On your iPhone, iPad or Mac, tap Play On and pick the Apple&nbsp;TV. It carries on from the same second.</li>
-          <li><b>Whatever’s in your hand is the remote.</b> Now Playing, Up Next and the volume all work the TV now, and your iPhone, iPad, Mac and Watch all see the same queue.</li>
-          <li><b>Or your wrist.</b> On the Watch, the Digital Crown turns the TV up and down. The Siri&nbsp;Remote still has the TV’s own volume.</li>
-          <li><b>Share a link to it.</b> Share a SoundCloud link from any app on your iPhone and send it to the TV: Play Now, Play Next or Add to End.</li>
-        </ul>
-      </div>
-      <div class="pg-art" aria-hidden="true">
-        <i class="mass m1"></i><i class="mass m2"></i>
-        <div class="k-trio">
-          <div class="k-phw">
-            <div class="k-phn"><div class="k-scr">
-              <p class="k-ph-bar"><b>21:47</b></p>
-              <div class="k-ph-np"><img src="../assets/music/s/essy-wildeburg.webp" alt="" width="160" height="160" loading="lazy" decoding="async"></div>
-              <div class="k-sheet">
-                <p class="k-sh-grab"></p>
-                <p class="k-sh-h">Play On</p>
-                <div class="k-grp">
-                  <p class="k-row"><svg><use href="#i-phone"/></svg><span><b>This iPhone</b></span></p>
-                  <p class="k-row"><svg><use href="#i-tv"/></svg><span><b>Living Room</b><small>Apple&nbsp;TV</small></span><svg class="k-ck"><use href="#i-check"/></svg></p>
-                </div>
-                <div class="k-grp">
-                  <p class="k-row"><svg><use href="#i-air"/></svg><span><b>Bluetooth &amp; AirPlay</b></span></p>
+        <div class="visual" aria-hidden="true">
+          <i class="mass m3"></i><i class="mass m1"></i>
+          <div class="k-tvw">
+            <div class="k-tv"><div class="k-scr">
+              <div class="k-np k-mix">
+                <img class="k-bd k-blur" src="../assets/music/s/paul-renard-transmissions.webp" alt="" width="160" height="160" loading="lazy" decoding="async">
+                <div class="k-mix-in">
+                  <p class="k-np-from">From Likes</p>
+                  <p class="k-np-title">Transmissions</p>
+                  <p class="k-np-artist">Paul Renard</p>
+                  <p class="k-mx-move"><b>Bass swap</b><span>Bar 9 of 16</span></p>
+                  <p class="k-mx-prog"><i></i></p>
+                  <div class="k-mx-lane"><p><b>A</b>Transmissions</p><div class="k-lw"><svg class="k-past"><use href="#wf-la"/></svg><svg class="k-next"><use href="#wf-la"/></svg><i class="k-ph"></i></div><div class="k-eq"><i class="k-on"></i><i class="k-on"></i><i class="k-on"></i><i></i></div></div>
+                  <div class="k-mx-xf"><span>A</span><i><b></b></i><span>B</span></div>
+                  <div class="k-mx-lane b"><p><b>B</b>Invisible Sandwich</p><div class="k-lw"><svg class="k-past"><use href="#wf-lb"/></svg><svg class="k-next"><use href="#wf-lb"/></svg><i class="k-ph"></i></div><div class="k-eq"><i class="k-on"></i><i class="k-on"></i><i></i><i></i></div></div>
+                  <p class="k-mx-pills"><i class="k-gp">Mix Now</i><i class="k-gp">Extend</i></p>
                 </div>
               </div>
             </div></div>
+            <div class="k-tv-foot"></div>
           </div>
-          <div class="k-ww">
-            <div class="k-wt"><div class="k-scr">
-              <p class="k-wt-top"><span>Living Room</span><b>21:47</b></p>
-              <p class="k-wt-title">Essy - Wildeburg 2025</p>
-              <p class="k-wt-artist">Wildeburg</p>
-              <div class="k-wt-tp"><i><svg><use href="#i-prev"/></svg></i><i class="k-ring"><svg class="k-pr" viewBox="0 0 36 36"><circle cx="18" cy="18" r="16"/><circle class="k-on" cx="18" cy="18" r="16"/></svg><svg class="k-g"><use href="#i-pause"/></svg></i><i><svg><use href="#i-next"/></svg></i></div>
-              <p class="k-wt-vol"><i></i></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene chapter flip" id="cues" data-scene="cues" data-shot="rigC" aria-labelledby="cues-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="cues-h">Your cue points are on it.</h2>
+          <div class="caps">
+            <p class="cap ink"><b>Set a cue on the Mac, see it on the TV.</b> Hot cues and memory cues sit on the TV’s waveform in their colours. They sync through your own iCloud.</p>
+            <p class="cap ink"><b>Jump to one.</b> More, then Cue Points, lists them with their times. Pick one and it plays from there.</p>
+            <p class="cap ink"><b>Fix one from the sofa.</b> Track Map lets you add, move and rename cues with the remote.</p>
+            <p class="cap ink"><b>Where cues come from</b> is on the <a href="../dj/">DJ page</a>.</p>
+          </div>
+        </div>
+        <div class="visual" aria-hidden="true">
+          <i class="mass m2"></i><i class="mass m1"></i>
+          <div class="k-tvw">
+            <div class="k-tv"><div class="k-scr">
+              <div class="k-np k-cue">
+                <img class="k-bd k-blur" src="../assets/music/s/paul-renard-transmissions.webp" alt="" width="160" height="160" loading="lazy" decoding="async">
+                <div class="k-cue-main">
+                  <p class="k-np-from">From Likes</p>
+                  <p class="k-np-title">Transmissions</p>
+                  <p class="k-np-artist">Paul Renard</p>
+                  <div class="k-cue-wave"><svg><use href="#wf-la"/></svg><i class="k-ph"></i><i class="k-f k-fa" style="--x:4%"><b>A</b></i><i class="k-f k-fb" style="--x:14%"><b>B</b></i><i class="k-f k-fc" style="--x:44%"><b>C</b>Drop</i><i class="k-mem" style="--x:76%"></i></div>
+                </div>
+                <div class="k-pane">
+                  <p class="k-pane-e">Transmissions</p>
+                  <p class="k-pane-h">Cue Points</p>
+                  <p class="k-pane-r k-first"><svg><use href="#i-path"/></svg><span><b>Track Map</b><small>Add, move and rename cues</small></span></p>
+                  <p class="k-pane-r"><i class="k-dot k-fa"></i><span><b>Hot Cue A</b></span><em>0:16</em></p>
+                  <p class="k-pane-r"><i class="k-dot k-fb"></i><span><b>Hot Cue B</b></span><em>0:57</em></p>
+                  <p class="k-pane-r k-on"><i class="k-dot k-fc"></i><span><b>Drop</b></span><em>2:59</em></p>
+                  <p class="k-pane-r"><i class="k-tri"></i><span><b>Memory Cue</b></span><em>4:12</em></p>
+                </div>
+              </div>
             </div></div>
+            <div class="k-tv-foot"></div>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="pg-feat flip" id="top-shelf" aria-labelledby="top-shelf-h">
-      <div class="pg-text">
-        <h2 id="top-shelf-h">Top Shelf.</h2>
-        <ul class="pg-steps">
-          <li><b>Put Sounding in the top row</b> and the shelf fills with whatever you were in the middle of: Continue Listening, with the time left, then Recently Played, Your Likes and Mixes For You.</li>
-          <li><b>Select one and it plays.</b> No opening the app and finding it again.</li>
-          <li><b>The artwork lives on the TV,</b> so it’s sharp at 4K and still there when the internet isn’t.</li>
-        </ul>
-      </div>
-      <div class="pg-art" aria-hidden="true">
-        <i class="mass m3"></i><i class="mass m2"></i>
-        <div class="k-tvw">
-          <div class="k-tv"><div class="k-scr">
-            <div class="k-ts">
-              <img class="k-bd k-blur" src="../assets/music/s/obskur-luuk-van-dijk.webp" alt="" width="160" height="160" loading="lazy" decoding="async">
-              <p class="k-ts-h">Continue Listening</p>
-              <div class="k-ts-row">
-                <p class="k-ts-t k-on"><img src="../assets/music/obskur-luuk-van-dijk.webp" alt="" width="500" height="500" loading="lazy" decoding="async"><i style="--p:38%"></i><span>Obskür B2B Luuk van Dijk | Audio Obscura… · 1 hr, 6 min left</span></p>
-                <p class="k-ts-t"><img src="../assets/music/s/essy-wildeburg.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><i style="--p:51%"></i><span>Essy - Wildeburg 2025 · 1 hr, 27 min left</span></p>
-                <p class="k-ts-t"><img src="../assets/music/s/benwal-dgtl.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><i style="--p:12%"></i><span>BENWAL | FULL CLOSING SET… · 52 min left</span></p>
-                <p class="k-ts-t"><img src="../assets/music/s/pegassi-essential-mix.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><i style="--p:70%"></i><span>BBC Radio 1’s Essential Mix · 34 min left</span></p>
-                <p class="k-ts-t"><img src="../assets/music/s/kyle-starkey-milion.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><i style="--p:22%"></i><span>Kyle Starkey b2b Milion… · 1 hr, 20 min left</span></p>
+    <section class="scene chapter" id="top-shelf" data-scene="top-shelf" data-shot="crate" aria-labelledby="top-shelf-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="top-shelf-h">Top Shelf.</h2>
+          <div class="caps">
+            <p class="cap ink"><b>Put Sounding in the top row</b> and the shelf fills with whatever you were in the middle of: Continue Listening, with the time left, then Recently Played, Your Likes and Mixes For You.</p>
+            <p class="cap ink"><b>Select one and it plays.</b> No opening the app and finding it again.</p>
+            <p class="cap ink"><b>The artwork lives on the TV,</b> so it’s sharp at 4K and still there when the internet isn’t.</p>
+          </div>
+        </div>
+        <div class="visual" aria-hidden="true">
+          <i class="mass m3"></i><i class="mass m2"></i>
+          <div class="k-tvw">
+            <div class="k-tv"><div class="k-scr">
+              <div class="k-ts">
+                <img class="k-bd k-blur" src="../assets/music/s/obskur-luuk-van-dijk.webp" alt="" width="160" height="160" loading="lazy" decoding="async">
+                <p class="k-ts-h">Continue Listening</p>
+                <div class="k-ts-row">
+                  <p class="k-ts-t k-on"><img src="../assets/music/obskur-luuk-van-dijk.webp" alt="" width="500" height="500" loading="lazy" decoding="async"><i style="--p:38%"></i><span>Obskür B2B Luuk van Dijk | Audio Obscura… · 1 hr, 6 min left</span></p>
+                  <p class="k-ts-t"><img src="../assets/music/s/essy-wildeburg.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><i style="--p:51%"></i><span>Essy - Wildeburg 2025 · 1 hr, 27 min left</span></p>
+                  <p class="k-ts-t"><img src="../assets/music/s/benwal-dgtl.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><i style="--p:12%"></i><span>BENWAL | FULL CLOSING SET… · 52 min left</span></p>
+                  <p class="k-ts-t"><img src="../assets/music/s/pegassi-essential-mix.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><i style="--p:70%"></i><span>BBC Radio 1’s Essential Mix · 34 min left</span></p>
+                  <p class="k-ts-t"><img src="../assets/music/s/kyle-starkey-milion.webp" alt="" width="160" height="160" loading="lazy" decoding="async"><i style="--p:22%"></i><span>Kyle Starkey b2b Milion… · 1 hr, 20 min left</span></p>
+                </div>
+                <div class="k-ts-apps"><i class="k-app k-on"><img src="../assets/app-icon.webp" alt="" width="64" height="64"></i><i class="k-app"></i><i class="k-app"></i><i class="k-app"></i><i class="k-app"></i><i class="k-app"></i></div>
               </div>
-              <div class="k-ts-apps"><i class="k-app k-on"><img src="../assets/app-icon.webp" alt="" width="64" height="64"></i><i class="k-app"></i><i class="k-app"></i><i class="k-app"></i><i class="k-app"></i><i class="k-app"></i></div>
-            </div>
-          </div></div>
-          <div class="k-tv-foot"></div>
+            </div></div>
+            <div class="k-tv-foot"></div>
+          </div>
         </div>
       </div>
     </section>
 
-    <section class="pg-feat" id="lyrics" aria-labelledby="lyrics-h">
-      <div class="pg-text">
-        <h2 id="lyrics-h">Lyrics, if you want them.</h2>
-        <ul class="pg-steps">
-          <li><b>They come from LRCLIB,</b> a free lyrics database, and they’re off until you say yes. Nothing goes to it before then.</li>
-          <li><b>On the TV they go full screen</b> over the artwork, the line being sung in white and the rest fading away. Select a line to jump to it.</li>
-          <li><b>Mixes don’t get lyrics.</b> A two-hour set would be a lot of guessing.</li>
-        </ul>
-      </div>
-      <div class="pg-art" aria-hidden="true">
-        <i class="mass m2"></i><i class="mass m3"></i>
-        <div class="k-tvw">
-          <div class="k-tv"><div class="k-scr">
-            <div class="k-np k-ly">
-              <img class="k-bd k-blur" src="../assets/music/s/jungle-by-night-oog-om-oog.webp" alt="" width="160" height="160" loading="lazy" decoding="async">
-              <div class="k-cu">
-                <svg class="k-cu-g"><use href="#i-quote"/></svg>
-                <p class="k-cu-h">Show Lyrics from LRCLIB?</p>
-                <p class="k-cu-t">Sounding sends the track’s title, artist and length to lrclib.net, a free lyrics database, to find lyrics.</p>
-                <p class="k-cu-b"><i class="k-pri">Show Lyrics</i><i>Not Now</i></p>
+    <section class="scene chapter flip" id="lyrics" data-scene="lyrics" data-shot="hero" aria-labelledby="lyrics-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="lyrics-h">Lyrics, if you want them.</h2>
+          <div class="caps">
+            <p class="cap ink"><b>They come from LRCLIB,</b> a free lyrics database, and they’re off until you say yes. Nothing goes to it before then.</p>
+            <p class="cap ink"><b>On the TV they go full screen</b> over the artwork, the line being sung in white and the rest fading away. Select a line to jump to it.</p>
+            <p class="cap ink"><b>Mixes don’t get lyrics.</b> A two-hour set would be a lot of guessing.</p>
+          </div>
+        </div>
+        <div class="visual" aria-hidden="true">
+          <i class="mass m2"></i><i class="mass m3"></i>
+          <div class="k-tvw">
+            <div class="k-tv"><div class="k-scr">
+              <div class="k-np k-ly">
+                <img class="k-bd k-blur" src="../assets/music/s/jungle-by-night-oog-om-oog.webp" alt="" width="160" height="160" loading="lazy" decoding="async">
+                <div class="k-cu">
+                  <svg class="k-cu-g"><use href="#i-quote"/></svg>
+                  <p class="k-cu-h">Show Lyrics from LRCLIB?</p>
+                  <p class="k-cu-t">Sounding sends the track’s title, artist and length to lrclib.net, a free lyrics database, to find lyrics.</p>
+                  <p class="k-cu-b"><i class="k-pri">Show Lyrics</i><i>Not Now</i></p>
+                </div>
               </div>
-            </div>
-          </div></div>
-          <div class="k-tv-foot"></div>
+            </div></div>
+            <div class="k-tv-foot"></div>
+          </div>
         </div>
       </div>
     </section>
 
-    <section class="pg-read" id="more" aria-labelledby="more-h">
+    <section class="pg-read flowing" id="more" aria-labelledby="more-h">
       <h2 id="more-h">And the rest of it.</h2>
       <div class="cols">
         <p><b>SharePlay.</b> On a FaceTime call, More, then SharePlay, and everyone on the call listens along in sync on their own iPhone, iPad, Mac or Apple&nbsp;TV, each with their own SoundCloud sign-in. Auto Mix sits it out while it’s on.</p>
@@ -356,7 +310,7 @@
       </div>
     </section>
 
-    <section class="pg-warn" id="join" aria-labelledby="join-h">
+    <section class="pg-warn flowing tail" id="join" aria-labelledby="join-h">
       <h2 id="join-h">Fair warning.</h2>
       <p class="first">The TV app is getting a redesign as I write this, so some of it will look a bit different by the time you see it. It’ll still sign in by ear.</p>
       <p>A free SoundCloud account gets previews. Full tracks and downloads need Go or Go+.</p>
