@@ -361,6 +361,22 @@ final class SoundCloudAPI: ObservableObject {
         return try await request(url)
     }
 
+    func getCurrentUserResponse() async throws -> SoundCloudCurrentUserResponse {
+        guard accessToken != nil else { throw APIError.unauthorized }
+        guard let url = buildURL("me") else {
+            throw APIError.invalidURL
+        }
+        return try await request(url)
+    }
+
+    func getOfficialSubscriptionCapture() async throws -> SoundCloudSubscriptionCapture {
+        guard accessToken != nil else { throw APIError.unauthorized }
+        guard let url = URL(string: "https://api.soundcloud.com/me") else {
+            throw APIError.invalidURL
+        }
+        return try await request(url)
+    }
+
     func validateToken(_ token: String) async -> SoundCloudTokenValidation {
         guard let url = URL(string: "\(baseURL)/me") else {
             return .unavailable("SoundCloud's account endpoint could not be created.")

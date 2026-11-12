@@ -363,13 +363,8 @@ struct DJMediaExporter: Sendable {
 
 enum DJArtwork {
     static func jpeg(_ data: Data, side: Int) -> Data? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: side,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-        ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = ImageThumbnail.create(from: source, maxPixelSize: side) else { return nil }
         let out = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(out as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
