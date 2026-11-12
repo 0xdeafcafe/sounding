@@ -466,7 +466,7 @@ final class CompanionServer: ObservableObject {
 
     private func startContentBrowsing() {
         guard contentBrowser == nil else { return }
-        let browser = CompanionEndpoint.makeBrowser()
+        let browser = CompanionEndpoint.makeBrowser(serviceType: BuildFlavor.current.bonjourServiceType)
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in
                 guard let self else { return }
@@ -502,7 +502,7 @@ final class CompanionServer: ObservableObject {
             )
             newListener.service = NWListener.Service(
                 name: CompanionEndpoint.serviceName(sessionId: session.sessionId),
-                type: BonjourConstants.serviceType
+                type: BuildFlavor.current.bonjourServiceType
             )
 
             let sessionId = session.sessionId
@@ -2174,12 +2174,12 @@ final class CompanionServer: ObservableObject {
     }
 
     static var lastAccount: PeerAccount? {
-        PeerAccount.decode(UserDefaults.standard.data(forKey: lastAccountKey))
+        PeerAccount.decode(UserDefaults.sounding.data(forKey: lastAccountKey))
     }
 
     private static func rememberLastAccount(_ account: PeerAccount) {
         guard lastAccount != account, let data = account.encoded() else { return }
-        UserDefaults.standard.set(data, forKey: lastAccountKey)
+        UserDefaults.sounding.set(data, forKey: lastAccountKey)
     }
 
     private var localAccountState: (state: AccountStatusPayload.State, account: PeerAccount?, last: PeerAccount?)? {
@@ -2445,7 +2445,7 @@ private final class LinkRevocationBeacon {
             let listener = try NWListener(using: CompanionEndpoint.listenerParameters(sessionId: link.sessionId, secret: secret))
             listener.service = NWListener.Service(
                 name: CompanionEndpoint.serviceName(sessionId: link.sessionId),
-                type: BonjourConstants.serviceType
+                type: BuildFlavor.current.bonjourServiceType
             )
             listener.newConnectionHandler = { [weak self] connection in
                 Task { @MainActor in self?.accept(connection) }

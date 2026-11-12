@@ -134,7 +134,7 @@ final class ShareTVClient {
     }
 
     private func startDiscovery(sessionId: String, secret: Data) {
-        let newBrowser = CompanionEndpoint.makeBrowser()
+        let newBrowser = CompanionEndpoint.makeBrowser(serviceType: BuildFlavor.current.bonjourServiceType)
 
         newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in

@@ -30,7 +30,7 @@ final class SoundingArtCache: @unchecked Sendable {
         memory.countLimit = 400
         memory.totalCostLimit = 40 * 1024 * 1024
         #endif
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        let base = FileManager.default.soundingDirectory(.cachesDirectory)
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         directory = base.appendingPathComponent("Artwork", isDirectory: true)
     }

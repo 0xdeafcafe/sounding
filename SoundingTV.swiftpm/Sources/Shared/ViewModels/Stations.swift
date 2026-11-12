@@ -125,7 +125,7 @@ final class StationLibrary: ObservableObject {
     private var accountKey: String
     private var cancellables = Set<AnyCancellable>()
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .sounding) {
         self.defaults = defaults
         accountKey = Self.key(for: SoundCloudAPI.credentials?.currentUser?.id)
         recents = Self.read(defaults, key: accountKey)
@@ -584,7 +584,7 @@ final class StationsModel: ObservableObject {
     private static func relatedKey(_ account: String) -> String { "stations.related.\(account)" }
 
     private static func storedRelated(account: String?) -> [User] {
-        guard let account, let data = UserDefaults.standard.data(forKey: relatedKey(account)) else { return [] }
+        guard let account, let data = UserDefaults.sounding.data(forKey: relatedKey(account)) else { return [] }
         return (try? LikesSyncEngine.makeDecoder().decode([User].self, from: data)) ?? []
     }
 
@@ -594,7 +594,7 @@ final class StationsModel: ObservableObject {
     }
 
     private static func isDue(_ key: String, every interval: TimeInterval) -> Bool {
-        guard let checked = UserDefaults.standard.object(forKey: key) as? Date else { return true }
+        guard let checked = UserDefaults.sounding.object(forKey: key) as? Date else { return true }
         return Date().timeIntervalSince(checked) >= interval
     }
 
@@ -616,7 +616,7 @@ final class StationsModel: ObservableObject {
     private func refreshLiked(account: String) async -> Bool {
         let checkedKey = "stations.liked.checkedAt.\(account)"
         guard Self.isDue(checkedKey, every: Self.likedRefreshInterval) else { return false }
-        UserDefaults.standard.set(Date(), forKey: checkedKey)
+        UserDefaults.sounding.set(Date(), forKey: checkedKey)
         do {
             let stations = try await SoundCloudAPI.shared.getLikedStations(limit: 50)
             let encoder = LikesSyncEngine.makeEncoder()
@@ -639,12 +639,12 @@ final class StationsModel: ObservableObject {
     private func refreshRelated(account: String) async {
         let checkedKey = "stations.related.checkedAt.\(account)"
         guard let seedID = relatedSeedID, Self.isDue(checkedKey, every: Self.relatedRefreshInterval) else { return }
-        UserDefaults.standard.set(Date(), forKey: checkedKey)
+        UserDefaults.sounding.set(Date(), forKey: checkedKey)
         do {
             let users = try await SoundCloudAPI.shared.getRelatedArtists(userID: seedID, limit: 12)
             guard SoundCloudAPI.credentials?.currentUser?.id == account else { return }
             if let data = try? LikesSyncEngine.makeEncoder().encode(users) {
-                UserDefaults.standard.set(data, forKey: Self.relatedKey(account))
+                UserDefaults.sounding.set(data, forKey: Self.relatedKey(account))
             }
             scheduleRebuild()
         } catch {

@@ -812,7 +812,7 @@ struct LinkPeerIdentity: Codable, Equatable {
         )
     }
 
-    static func local(sessionId: String, secret: Data, defaults: UserDefaults = .standard) -> LinkPeerIdentity {
+    static func local(sessionId: String, secret: Data, defaults: UserDefaults) -> LinkPeerIdentity {
         create(
             name: localName,
             deviceClass: .current,
@@ -822,7 +822,7 @@ struct LinkPeerIdentity: Codable, Equatable {
         )
     }
 
-    static func localDeviceId(defaults: UserDefaults = .standard) -> String {
+    static func localDeviceId(defaults: UserDefaults) -> String {
         if let existing = defaults.string(forKey: deviceIdDefaultsKey), !existing.isEmpty { return existing }
         let generated = UUID().uuidString
         defaults.set(generated, forKey: deviceIdDefaultsKey)
@@ -3117,11 +3117,11 @@ enum CompanionEndpoint {
         name.hasPrefix(BonjourConstants.companionServiceName) && name.contains(sessionId.prefix(8))
     }
 
-    static func makeBrowser() -> NWBrowser {
+    static func makeBrowser(serviceType: String) -> NWBrowser {
         let parameters = NWParameters()
         parameters.includePeerToPeer = false
         return NWBrowser(
-            for: .bonjour(type: BonjourConstants.serviceType, domain: BonjourConstants.serviceDomain),
+            for: .bonjour(type: serviceType, domain: BonjourConstants.serviceDomain),
             using: parameters
         )
     }

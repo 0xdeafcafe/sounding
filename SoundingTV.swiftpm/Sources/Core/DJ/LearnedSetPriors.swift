@@ -47,7 +47,7 @@ nonisolated struct LearnedSetPriors: Codable, Equatable, Sendable {
         return try? JSONDecoder().decode(LearnedSetPriors.self, from: data)
     }
 
-    static func enabled(defaults: UserDefaults = .standard, bundle: Bundle = .main) -> LearnedSetPriors? {
+    static func enabled(defaults: UserDefaults = .sounding, bundle: Bundle = .main) -> LearnedSetPriors? {
         guard defaults.bool(forKey: defaultsKey) else { return nil }
         let url = defaults.string(forKey: pathKey).map { URL(fileURLWithPath: $0) }
             ?? bundle.url(forResource: "LearnedSetPriors", withExtension: "json")

@@ -559,13 +559,13 @@ final class CloudSyncEngineController: NSObject, CKSyncEngineDelegate, @unchecke
     }
 
     private static func loadStateSerialization(defaultsKey: String) -> CKSyncEngine.State.Serialization? {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey) else { return nil }
+        guard let data = UserDefaults.sounding.data(forKey: defaultsKey) else { return nil }
         return try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
     }
 
     private static func saveStateSerialization(_ serialization: CKSyncEngine.State.Serialization, defaultsKey: String) {
         guard let data = try? JSONEncoder().encode(serialization) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        UserDefaults.sounding.set(data, forKey: defaultsKey)
     }
 }
 
@@ -991,11 +991,11 @@ final class SynchronizationCoordinator: SetlistSynchronizationReceiving, Setting
     }
 
     private func performPrepRelay() async {
-        let pushed = (UserDefaults.standard.object(forKey: DefaultsKey.prepPushedThrough) as? NSNumber)?.int64Value ?? 0
+        let pushed = (UserDefaults.sounding.object(forKey: DefaultsKey.prepPushedThrough) as? NSNumber)?.int64Value ?? 0
         let relay = PrepSyncRelay(store: cueStore, transport: CloudKitPrepSyncTransport(controller: controller))
         do {
             let result = try await relay.runOnce(pushedThroughMillis: pushed)
-            UserDefaults.standard.set(NSNumber(value: result.pushedThroughMillis), forKey: DefaultsKey.prepPushedThrough)
+            UserDefaults.sounding.set(NSNumber(value: result.pushedThroughMillis), forKey: DefaultsKey.prepPushedThrough)
         } catch {
             Log.sync.error("prep relay round failed: \(String(describing: error), privacy: .public)")
         }
@@ -1035,7 +1035,7 @@ final class SynchronizationCoordinator: SetlistSynchronizationReceiving, Setting
             }
 
             let deviceId = DownloadManifestDeviceIdentity.deviceId()
-            let lastPush = (UserDefaults.standard.dictionary(
+            let lastPush = (UserDefaults.sounding.dictionary(
                 forKey: DefaultsKey.setlistLastPush
             ) as? [String: Double]) ?? [:]
             let snapshots = SetlistIntelligenceStore.shared.snapshotsForSync()
@@ -1050,7 +1050,7 @@ final class SynchronizationCoordinator: SetlistSynchronizationReceiving, Setting
             for snapshot in due {
                 updatedPush[snapshot.trackId] = snapshot.updatedAt.timeIntervalSince1970
             }
-            UserDefaults.standard.set(updatedPush, forKey: DefaultsKey.setlistLastPush)
+            UserDefaults.sounding.set(updatedPush, forKey: DefaultsKey.setlistLastPush)
         } catch {
             Log.sync.error("setlist relay round failed: \(String(describing: error), privacy: .public)")
         }
@@ -1081,10 +1081,10 @@ final class SynchronizationCoordinator: SetlistSynchronizationReceiving, Setting
             }
             if fullFetch {
                 settingsNeedFullFetch = false
-                UserDefaults.standard.removeObject(forKey: DefaultsKey.settingsLastPush)
+                UserDefaults.sounding.removeObject(forKey: DefaultsKey.settingsLastPush)
                 if let accountTag {
                     settingsRestoredAccountTags.insert(accountTag)
-                    UserDefaults.standard.removeObject(forKey: Self.settingsLastPushKey(accountTag: accountTag))
+                    UserDefaults.sounding.removeObject(forKey: Self.settingsLastPushKey(accountTag: accountTag))
                 }
             }
 
@@ -1105,7 +1105,7 @@ final class SynchronizationCoordinator: SetlistSynchronizationReceiving, Setting
             guard !outgoing.isEmpty else { return }
             try await transport.offer(outgoing.map { $0.record })
             for item in outgoing {
-                UserDefaults.standard.set(item.record.updatedAtMillis, forKey: item.lastPushKey)
+                UserDefaults.sounding.set(item.record.updatedAtMillis, forKey: item.lastPushKey)
             }
         } catch {
             Log.sync.error("settings relay round failed: \(String(describing: error), privacy: .public)")
@@ -1122,7 +1122,7 @@ final class SynchronizationCoordinator: SetlistSynchronizationReceiving, Setting
         writerId: String,
         lastPushKey: String
     ) -> [(record: SettingsSyncRecord, lastPushKey: String)] {
-        let lastPushMillis = (UserDefaults.standard.object(forKey: lastPushKey) as? NSNumber)?.int64Value ?? 0
+        let lastPushMillis = (UserDefaults.sounding.object(forKey: lastPushKey) as? NSNumber)?.int64Value ?? 0
         guard snapshot.newestUpdateMillis > lastPushMillis else { return [] }
         let record = SettingsSyncRecord(
             deviceId: deviceId,
@@ -1150,13 +1150,13 @@ final class SynchronizationCoordinator: SetlistSynchronizationReceiving, Setting
     }
 
     private static func loadCursor<C: Decodable>(_ type: C.Type, key: String) -> C? {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        guard let data = UserDefaults.sounding.data(forKey: key) else { return nil }
         return try? JSONDecoder().decode(C.self, from: data)
     }
 
     private static func saveCursor<C: Encodable>(_ cursor: C?, key: String) {
         guard let cursor, let data = try? JSONEncoder().encode(cursor) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        UserDefaults.sounding.set(data, forKey: key)
     }
 }
 
@@ -1198,16 +1198,16 @@ enum LibraryCloudAvailability {
     private static let retryKey = "red.forbes.sounding.library.cloudRetryAt"
 
     static func isPaused(now: Date = Date()) -> Bool {
-        let stored = UserDefaults.standard.double(forKey: retryKey)
+        let stored = UserDefaults.sounding.double(forKey: retryKey)
         return stored > now.timeIntervalSince1970
     }
 
     static func noteRejected(now: Date = Date()) {
-        UserDefaults.standard.set(now.addingTimeInterval(retryInterval).timeIntervalSince1970, forKey: retryKey)
+        UserDefaults.sounding.set(now.addingTimeInterval(retryInterval).timeIntervalSince1970, forKey: retryKey)
     }
 
     static func noteAccepted() {
-        UserDefaults.standard.removeObject(forKey: retryKey)
+        UserDefaults.sounding.removeObject(forKey: retryKey)
     }
 
     static func isSchemaRejection(_ error: CKError) -> Bool {

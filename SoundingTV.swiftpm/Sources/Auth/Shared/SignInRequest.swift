@@ -135,7 +135,7 @@ struct SignInRequestLedger: @unchecked Sendable {
     let defaults: UserDefaults
     let storageKey: String
 
-    init(defaults: UserDefaults = .standard, storageKey: String = SignInRequestLedger.key) {
+    init(defaults: UserDefaults = .sounding, storageKey: String = SignInRequestLedger.key) {
         self.defaults = defaults
         self.storageKey = storageKey
     }

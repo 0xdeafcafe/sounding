@@ -65,7 +65,7 @@ struct LibrarySongsView: View {
     @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @AppStorage("library.songs.query") private var query = TrackCollectionQuery.newestFirst
+    @AppStorage("library.songs.query", store: .sounding) private var query = TrackCollectionQuery.newestFirst
     @AppStorage(trackListColumns: "songs") private var showsColumns: Bool
     @State private var searchText = ""
     @State private var isAdding = false

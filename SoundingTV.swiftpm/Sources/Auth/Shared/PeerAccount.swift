@@ -117,18 +117,18 @@ struct KnownLinkLedger: Codable, Equatable, Sendable {
         entries = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
     }
 
-    static func load(defaults: UserDefaults = .standard) -> KnownLinkLedger {
+    static func load(defaults: UserDefaults = .sounding) -> KnownLinkLedger {
         guard let data = defaults.data(forKey: defaultsKey),
               let ledger = try? JSONDecoder().decode(KnownLinkLedger.self, from: data) else { return KnownLinkLedger() }
         return ledger
     }
 
-    func save(defaults: UserDefaults = .standard) {
+    func save(defaults: UserDefaults = .sounding) {
         guard let data = try? JSONEncoder().encode(self) else { return }
         defaults.set(data, forKey: Self.defaultsKey)
     }
 
-    static func update(defaults: UserDefaults = .standard, _ change: (inout KnownLinkLedger) -> Void) {
+    static func update(defaults: UserDefaults = .sounding, _ change: (inout KnownLinkLedger) -> Void) {
         var ledger = load(defaults: defaults)
         change(&ledger)
         ledger.save(defaults: defaults)

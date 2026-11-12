@@ -97,7 +97,7 @@ final class ContinueFrom: ObservableObject {
 
     var accountKey: String? { accountID.map(AccountDataVault.storageSuffix(for:)) }
 
-    init(settings: SettingsStore = .shared, api: SoundCloudAPI = .shared, defaults: UserDefaults = .standard) {
+    init(settings: SettingsStore = .shared, api: SoundCloudAPI = .shared, defaults: UserDefaults = .sounding) {
         self.settings = settings
         self.api = api
         self.defaults = defaults

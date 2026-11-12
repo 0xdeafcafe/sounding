@@ -514,7 +514,7 @@ struct MacCollectionTrackTable: View {
     @State private var selection: Track.ID?
     @State private var sortColumn: TrackTableColumn?
     @State private var sortAscending = true
-    @AppStorage(TrackColumnLayout.storageKey) private var layout = TrackColumnLayout.standard
+    @AppStorage(TrackColumnLayout.storageKey, store: .sounding) private var layout = TrackColumnLayout.standard
 
     private var visibleColumns: [TrackTableColumn] { layout.enabled }
 

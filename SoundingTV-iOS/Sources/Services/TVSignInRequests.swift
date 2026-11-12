@@ -124,13 +124,13 @@ final class TVSignInNotifications: NSObject, ObservableObject, @preconcurrency U
     var needsPriming: Bool { status == .notDetermined }
 
     private func primeAfterLink() {
-        guard !UserDefaults.standard.bool(forKey: Self.primedAfterLinkKey) else { return }
+        guard !UserDefaults.sounding.bool(forKey: Self.primedAfterLinkKey) else { return }
         Task {
             try? await Task.sleep(for: .seconds(5))
             let settings = await center.notificationSettings()
             status = settings.authorizationStatus
             guard status == .notDetermined, !isPriming else { return }
-            UserDefaults.standard.set(true, forKey: Self.primedAfterLinkKey)
+            UserDefaults.sounding.set(true, forKey: Self.primedAfterLinkKey)
             isPriming = true
         }
     }

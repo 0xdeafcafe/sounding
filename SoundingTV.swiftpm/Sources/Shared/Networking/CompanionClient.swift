@@ -123,13 +123,13 @@ final class CompanionClient: ObservableObject {
             guard generation > writtenGeneration,
                   let data = try? JSONEncoder().encode(snapshot) else { return }
             writtenGeneration = generation
-            UserDefaults.standard.set(data, forKey: key)
+            UserDefaults.sounding.set(data, forKey: key)
         }
 
         func remove(generation: UInt64, key: String) {
             guard generation > writtenGeneration else { return }
             writtenGeneration = generation
-            UserDefaults.standard.removeObject(forKey: key)
+            UserDefaults.sounding.removeObject(forKey: key)
         }
     }
 
@@ -678,7 +678,7 @@ final class CompanionClient: ObservableObject {
     private func startBrowsing() {
         if link != nil { state = .searching }
 
-        let newBrowser = CompanionEndpoint.makeBrowser()
+        let newBrowser = CompanionEndpoint.makeBrowser(serviceType: BuildFlavor.current.bonjourServiceType)
 
         newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in
@@ -1435,7 +1435,7 @@ final class CompanionClient: ObservableObject {
 
     private func restorePersistedSnapshot() {
         guard let link,
-              let data = UserDefaults.standard.data(forKey: Self.snapshotDefaultsKey),
+              let data = UserDefaults.sounding.data(forKey: Self.snapshotDefaultsKey),
               let snapshot = try? JSONDecoder().decode(PersistedSnapshot.self, from: data),
               snapshot.sessionId == link.sessionId else { return }
         tracks = snapshot.tracks
@@ -1521,7 +1521,7 @@ final class CompanionClient: ObservableObject {
     private func announceAndRequestQueue() {
         guard let link, let secret = link.secret, let signer else { return }
         var message = signer.queue(.queueRequest, revision: appliedRevision)
-        message.peer = LinkPeerIdentity.local(sessionId: link.sessionId, secret: secret)
+        message.peer = LinkPeerIdentity.local(sessionId: link.sessionId, secret: secret, defaults: .sounding)
         transmitCommand(message)
     }
 

@@ -182,7 +182,7 @@ struct OutputPreference {
 
     let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .sounding) {
         self.defaults = defaults
     }
 

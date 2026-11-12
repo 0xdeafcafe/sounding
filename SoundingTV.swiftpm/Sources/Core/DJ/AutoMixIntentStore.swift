@@ -29,7 +29,7 @@ final class AutoMixIntentStore: ObservableObject {
     private let defaults: UserDefaults
     private let language: AutoMixLanguage
 
-    init(defaults: UserDefaults = .standard, language: AutoMixLanguage = AutoMixLanguage()) {
+    init(defaults: UserDefaults = .sounding, language: AutoMixLanguage = AutoMixLanguage()) {
         self.defaults = defaults
         self.language = language
         if let data = defaults.data(forKey: Self.defaultsKey),

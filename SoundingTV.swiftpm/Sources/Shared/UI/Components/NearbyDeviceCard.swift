@@ -49,7 +49,7 @@ struct NearbyCardDismissals: Codable, Equatable {
     }
 
     static func load() -> NearbyCardDismissals {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+        guard let data = UserDefaults.sounding.data(forKey: defaultsKey),
               let decoded = try? JSONDecoder().decode(NearbyCardDismissals.self, from: data) else { return NearbyCardDismissals() }
         return decoded
     }
@@ -57,7 +57,7 @@ struct NearbyCardDismissals: Codable, Equatable {
     private mutating func save(at now: Date) {
         savedAt = now
         guard let data = try? JSONEncoder().encode(self) else { return }
-        UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+        UserDefaults.sounding.set(data, forKey: Self.defaultsKey)
     }
 }
 
@@ -236,9 +236,9 @@ final class NearbyDeviceCardModel: ObservableObject {
 
     func ignoreDevice() {
         guard let candidate else { return }
-        var ignored = UserDefaults.standard.dictionary(forKey: Self.ignoredKey) as? [String: Double] ?? [:]
+        var ignored = UserDefaults.sounding.dictionary(forKey: Self.ignoredKey) as? [String: Double] ?? [:]
         ignored[Self.ignoreKey(candidate)] = Date().addingTimeInterval(Self.ignoreDuration).timeIntervalSince1970
-        UserDefaults.standard.set(ignored, forKey: Self.ignoredKey)
+        UserDefaults.sounding.set(ignored, forKey: Self.ignoredKey)
         notNow()
     }
 
@@ -254,7 +254,7 @@ final class NearbyDeviceCardModel: ObservableObject {
     }
 
     private static func isIgnored(_ candidate: Candidate) -> Bool {
-        let ignored = UserDefaults.standard.dictionary(forKey: ignoredKey) as? [String: Double] ?? [:]
+        let ignored = UserDefaults.sounding.dictionary(forKey: ignoredKey) as? [String: Double] ?? [:]
         guard let until = ignored[ignoreKey(candidate)] else { return false }
         return until > Date().timeIntervalSince1970
     }
@@ -470,7 +470,7 @@ final class NearbyDeviceCardModel: ObservableObject {
         let suffix = String(format: "%08x", UInt32.random(in: .min ... .max))
         newListener.service = NWListener.Service(
             name: "\(BonjourConstants.nearbyServiceName)-\(suffix)",
-            type: BonjourConstants.serviceType,
+            type: BuildFlavor.current.bonjourServiceType,
             txtRecord: NWTXTRecord(NearbyPresenceTXT.entries(name: LinkPeerIdentity.localName, kind: .current))
         )
         newListener.newConnectionHandler = { $0.cancel() }

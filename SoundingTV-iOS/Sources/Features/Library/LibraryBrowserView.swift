@@ -352,7 +352,7 @@ struct LibraryBrowserView: View {
     @State private var showsSongs = false
     @State private var pushedSection: LibraryBrowserViewModel.Section?
     @State private var isEditingRows = false
-    @AppStorage(LibraryRowChoices.storageKey) private var libraryRowsRaw = ""
+    @AppStorage(LibraryRowChoices.storageKey, store: .sounding) private var libraryRowsRaw = ""
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(models: LibraryModels) {
@@ -891,8 +891,8 @@ private struct LibrarySectionDetailView: View {
     var showsAccount = false
 
     @State private var searchText = ""
-    @AppStorage("library.likes.query") private var likesQuery = TrackCollectionQuery.newestFirst
-    @AppStorage("library.sets.query") private var setsQuery = TrackCollectionQuery.newestFirst
+    @AppStorage("library.likes.query", store: .sounding) private var likesQuery = TrackCollectionQuery.newestFirst
+    @AppStorage("library.sets.query", store: .sounding) private var setsQuery = TrackCollectionQuery.newestFirst
     @AppStorage(trackListColumns: "likes") private var likesColumns: Bool
     @AppStorage(trackListColumns: "sets") private var setsColumns: Bool
     @State private var loadAllTask: Task<Void, Never>?

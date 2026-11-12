@@ -424,7 +424,7 @@ struct PlaylistFolderSidebarRow<PlaylistLabel: View>: View {
         self.folder = folder
         self.onOpenFolder = onOpenFolder
         self.playlistRow = playlistRow
-        _isExpanded = AppStorage(wrappedValue: false, "sidebar.playlistFolder.\(folder.id).expanded")
+        _isExpanded = AppStorage(wrappedValue: false, "sidebar.playlistFolder.\(folder.id).expanded", store: .sounding)
     }
 
     var body: some View {

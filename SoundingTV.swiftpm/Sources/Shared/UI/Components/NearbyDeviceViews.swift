@@ -292,7 +292,7 @@ private struct SlabSilhouette: Shape {
 extension LinkOfferBrowser.Offer {
     @MainActor
     var nearbyStatus: String {
-        if accountHint?.isLinked(toDeviceId: LinkPeerIdentity.localDeviceId()) == true { return "Linked" }
+        if accountHint?.isLinked(toDeviceId: LinkPeerIdentity.localDeviceId(defaults: .sounding)) == true { return "Linked" }
         if isOtherAccount { return TVAccountCopy.anotherAccountStatus }
         return isSignedIn ? "Signed in" : "Ready to sign in"
     }

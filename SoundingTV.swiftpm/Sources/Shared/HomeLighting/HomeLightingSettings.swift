@@ -23,7 +23,7 @@ final class HomeLightingSettings: ObservableObject {
 
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .sounding) {
         self.defaults = defaults
         let stored = defaults.data(forKey: Self.defaultsKey)
             .flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }

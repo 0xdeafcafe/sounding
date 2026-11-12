@@ -31,7 +31,7 @@ final class LyricsTranslator {
     }
 
     var isOn: Bool {
-        didSet { UserDefaults.standard.set(isOn, forKey: Self.enabledKey) }
+        didSet { UserDefaults.sounding.set(isOn, forKey: Self.enabledKey) }
     }
 
     private(set) var offers: [String: Offer] = [:]
@@ -42,7 +42,7 @@ final class LyricsTranslator {
     private var order: [String] = []
 
     private init() {
-        isOn = UserDefaults.standard.bool(forKey: Self.enabledKey)
+        isOn = UserDefaults.sounding.bool(forKey: Self.enabledKey)
     }
 
     func offer(for trackID: String?) -> Offer? {

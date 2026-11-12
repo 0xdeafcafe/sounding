@@ -2,7 +2,7 @@
 import SwiftUI
 
 struct TrackColumnsSection: View {
-    @AppStorage(TrackColumnLayout.storageKey) private var layout = TrackColumnLayout.standard
+    @AppStorage(TrackColumnLayout.storageKey, store: .sounding) private var layout = TrackColumnLayout.standard
 
     var body: some View {
         Section {

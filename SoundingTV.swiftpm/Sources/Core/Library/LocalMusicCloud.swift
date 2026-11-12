@@ -182,7 +182,7 @@ final class LocalMusicCloudUploader: ObservableObject {
     private var syncTask: Task<Void, Never>?
     private var changeSubscription: AnyCancellable?
 
-    init(host: LocalMusicShareHost = .shared, defaults: UserDefaults = .standard) {
+    init(host: LocalMusicShareHost = .shared, defaults: UserDefaults = .sounding) {
         self.host = host
         self.defaults = defaults
         isEnabled = defaults.bool(forKey: Self.enabledKey)

@@ -134,7 +134,7 @@ struct PhoneLibraryArtistsView: View {
     @State private var isAddingFolder = false
     @State private var searchText = ""
     @State private var selectedID: String?
-    @AppStorage("library.artists.sort") private var sort = LibraryArtistSort.name
+    @AppStorage("library.artists.sort", store: .sounding) private var sort = LibraryArtistSort.name
 
     private var artists: [LibraryArtist] {
         LibraryArtists.list(identity.index.artists, search: searchText, sort: sort)
@@ -271,7 +271,7 @@ struct LocalCollectionDetailView: View {
     @StateObject private var analysisStore = TrackAnalysisStore()
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @AppStorage("local.collection.query") private var query = TrackCollectionQuery.collectionOrder
+    @AppStorage("local.collection.query", store: .sounding) private var query = TrackCollectionQuery.collectionOrder
     @AppStorage(trackListColumns: "playlist") private var showsColumns: Bool
     @State private var searchText = ""
     @State private var heroProgress: Double = 0

@@ -50,7 +50,7 @@ final class MacDJSticks: ObservableObject {
         static let bookmarks = "djSticks.bookmarks"
     }
 
-    init(defaults: UserDefaults = .standard, io: DJStickIO = DJStickPOSIXIO(), cache: DJStickLibraryCache = .shared) {
+    init(defaults: UserDefaults = .sounding, io: DJStickIO = DJStickPOSIXIO(), cache: DJStickLibraryCache = .shared) {
         self.defaults = defaults
         self.io = io
         self.cache = cache

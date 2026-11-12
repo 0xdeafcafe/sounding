@@ -239,7 +239,7 @@ final class LinkServer: ObservableObject {
 
             listener?.service = NWListener.Service(
                 name: BonjourConstants.linkServiceName(sessionId: newCredentials.sessionId),
-                type: BonjourConstants.serviceType
+                type: BuildFlavor.current.bonjourServiceType
             )
 
             listener?.stateUpdateHandler = { [weak self] listenerState in
@@ -709,7 +709,7 @@ final class LinkServer: ObservableObject {
             let newListener = try NWListener(using: parameters)
             newListener.service = NWListener.Service(
                 name: BonjourConstants.linkOfferServiceName(sessionId: credentials.sessionId),
-                type: BonjourConstants.serviceType,
+                type: BuildFlavor.current.bonjourServiceType,
                 txtRecord: NWTXTRecord(LinkOfferTXT.dictionary(
                     name: UIDevice.current.name,
                     kind: .current,
@@ -1102,7 +1102,7 @@ final class LinkServer: ObservableObject {
         let transcript = ChimeLinkCrypto.Transcript(
             version: ChimeLinkCrypto.protocolVersion,
             sessionId: credentials.sessionId,
-            tvDeviceId: LinkPeerIdentity.localDeviceId(),
+            tvDeviceId: LinkPeerIdentity.localDeviceId(defaults: .sounding),
             tvName: Self.localTVName,
             tvKind: DeviceClass.current.rawValue,
             phoneNonce: phoneNonce,
@@ -1447,7 +1447,7 @@ final class SameAccountPhoneBrowser: ObservableObject {
         let parameters = NWParameters()
         parameters.includePeerToPeer = true
         let newBrowser = NWBrowser(
-            for: .bonjourWithTXTRecord(type: BonjourConstants.serviceType, domain: BonjourConstants.serviceDomain),
+            for: .bonjourWithTXTRecord(type: BuildFlavor.current.bonjourServiceType, domain: BonjourConstants.serviceDomain),
             using: parameters
         )
         newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
@@ -1522,7 +1522,7 @@ final class NearbyPhonePresence: ObservableObject {
         let parameters = NWParameters()
         parameters.includePeerToPeer = true
         let newBrowser = NWBrowser(
-            for: .bonjourWithTXTRecord(type: BonjourConstants.serviceType, domain: BonjourConstants.serviceDomain),
+            for: .bonjourWithTXTRecord(type: BuildFlavor.current.bonjourServiceType, domain: BonjourConstants.serviceDomain),
             using: parameters
         )
         newBrowser.browseResultsChangedHandler = { [weak self] results, _ in

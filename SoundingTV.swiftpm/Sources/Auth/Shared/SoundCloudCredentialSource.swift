@@ -143,7 +143,7 @@ final class SoundCloudCredentialSource: ObservableObject {
         await prepareStoreAtLaunch()
         guard let deletionDate = lockedDataDeletionDate, now >= deletionDate,
               let signOutMillis = SessionSyncBookkeeping.localSignOutMillis() else { return }
-        let defaults = UserDefaults.standard
+        let defaults = UserDefaults.sounding
         guard defaults.object(forKey: Self.lockedDataPurgedForSignOutKey) as? Int64 != signOutMillis else { return }
         let accountID = defaults.string(forKey: Self.lockedCacheAccountIDKey)
         await wipeLocalIndexes(accountID: accountID)
@@ -297,7 +297,7 @@ final class SoundCloudCredentialSource: ObservableObject {
             next.lastKnownUser = user
         }
         if let confirmedID = next.currentUser?.id, confirmedID != state.currentUser?.id {
-            UserDefaults.standard.set(confirmedID, forKey: Self.lockedCacheAccountIDKey)
+            UserDefaults.sounding.set(confirmedID, forKey: Self.lockedCacheAccountIDKey)
         }
         let previousHealth = state.sessionHealth
         state = next
@@ -354,7 +354,7 @@ final class SoundCloudCredentialSource: ObservableObject {
     private func markRejected(_ kind: RejectionKind, because reason: String) {
         resetRenewalRetry()
         if let accountID = currentUser?.id {
-            UserDefaults.standard.set(accountID, forKey: Self.lockedCacheAccountIDKey)
+            UserDefaults.sounding.set(accountID, forKey: Self.lockedCacheAccountIDKey)
         }
         lastRejection = kind
         rejectedSessionDigest = DeviceSessionStore.load().map(Self.digest(of:))
@@ -378,7 +378,7 @@ final class SoundCloudCredentialSource: ObservableObject {
         let fixtureValue = ProcessInfo.processInfo.environment["SOUNDING_TV_UI_FIXTURE"]?.lowercased()
         let usesVisualFixtures = fixtureValue == "1" || fixtureValue == "loaded" || fixtureValue == "true"
             || ProcessInfo.processInfo.arguments.contains("--ui-fixture")
-            || UserDefaults.standard.bool(forKey: "SOUNDING_TV_UI_FIXTURE")
+            || UserDefaults.sounding.bool(forKey: "SOUNDING_TV_UI_FIXTURE")
         if usesVisualFixtures { return }
         #endif
         Task { await shared.prepareStoreAtLaunch() }
@@ -576,7 +576,7 @@ final class SoundCloudCredentialSource: ObservableObject {
     }
 
     func signOut(revoking revocation: SessionRevocation = .none) async {
-        let defaults = UserDefaults.standard
+        let defaults = UserDefaults.sounding
         if revocation != .none, let token = DeviceSessionStore.load()?.oauthToken, !token.isEmpty {
             await SoundCloudSessionRevoker.revoke(revocation, token: token)
         }
@@ -626,7 +626,7 @@ final class SoundCloudCredentialSource: ObservableObject {
         launchSessionTask?.cancel()
         launchSessionTask = nil
         isEstablishingSessionAtLaunch = false
-        UserDefaults.standard.removeObject(forKey: Self.lockedDataPurgedForSignOutKey)
+        UserDefaults.sounding.removeObject(forKey: Self.lockedDataPurgedForSignOutKey)
         mutateState(because: "sign-in completed") {
             $0.currentUser = nil
             $0.lastKnownUser = nil
@@ -638,11 +638,11 @@ final class SoundCloudCredentialSource: ObservableObject {
         requestSessionSync()
         Task {
             let user = await waitForCurrentUser()
-            if let lockedAccountID = UserDefaults.standard.string(forKey: Self.lockedCacheAccountIDKey) {
+            if let lockedAccountID = UserDefaults.sounding.string(forKey: Self.lockedCacheAccountIDKey) {
                 if let user, user.id != lockedAccountID {
                     await wipeLocalIndexes(accountID: lockedAccountID)
                 }
-                UserDefaults.standard.removeObject(forKey: Self.lockedCacheAccountIDKey)
+                UserDefaults.sounding.removeObject(forKey: Self.lockedCacheAccountIDKey)
             }
         }
     }

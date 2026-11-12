@@ -93,7 +93,7 @@ final class TVAutoLinker: ObservableObject {
         let ledger = KnownLinkLedger.load()
         let linked = SameAccountLinkModel.linkedIdentities()
         let holdsKey = !LinkOwnerKeyStore.usableKeys().isEmpty
-        let deviceId = LinkPeerIdentity.localDeviceId()
+        let deviceId = LinkPeerIdentity.localDeviceId(defaults: .sounding)
         for offer in offers where offer.kind == .tv {
             let identity = KnownLinkLedger.identity(name: offer.claimedName, kind: offer.kind)
             let input = AutoLinkPolicy.Input(

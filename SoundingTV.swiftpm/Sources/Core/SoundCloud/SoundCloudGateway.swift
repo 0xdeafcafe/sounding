@@ -397,7 +397,7 @@ final class SoundCloudGateway: ObservableObject {
 
     init(
         transport: SoundCloudHTTPTransport? = nil,
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = .sounding,
         budget: SoundCloudRequestBudget.Configuration = .standard,
         random: @escaping @Sendable () -> Double = { Double.random(in: 0...1) },
         now: @escaping @Sendable () -> Date = Date.init,

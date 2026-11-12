@@ -320,7 +320,7 @@ final class MixEngine: ObservableObject {
         let core = MixRenderCore()
         self.core = core
         sourceNode = AVAudioSourceNode(format: MixEngine.canonicalFormat, renderBlock: makeSourceRenderBlock(core))
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        let base = FileManager.default.soundingDirectory(.cachesDirectory)
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         cacheDirectory = base.appendingPathComponent("MixEngine", isDirectory: true)
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)

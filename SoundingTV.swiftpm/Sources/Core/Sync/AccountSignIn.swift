@@ -181,7 +181,7 @@ final class AccountSignInAnnouncer {
     private var baselinesFirstUser = false
     private var inFlight: Set<String> = []
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .sounding) {
         self.defaults = defaults
     }
 

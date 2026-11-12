@@ -328,9 +328,9 @@ final class LibrarySyncEngine: ObservableObject, SoundCloudLibraryActionHook {
 
     private static let installID: String = {
         let key = "red.forbes.sounding.library.installID"
-        if let existing = UserDefaults.standard.string(forKey: key) { return existing }
+        if let existing = UserDefaults.sounding.string(forKey: key) { return existing }
         let fresh = UUID().uuidString
-        UserDefaults.standard.set(fresh, forKey: key)
+        UserDefaults.sounding.set(fresh, forKey: key)
         return fresh
     }()
 

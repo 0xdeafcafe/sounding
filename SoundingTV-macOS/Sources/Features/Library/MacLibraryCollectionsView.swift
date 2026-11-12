@@ -142,7 +142,7 @@ struct MacLibraryArtistsPane: View {
     @State private var isSearchPresented = false
     @State private var searchText = ""
     @State private var selectedID: String?
-    @AppStorage("library.artists.sort") private var sort = LibraryArtistSort.name
+    @AppStorage("library.artists.sort", store: .sounding) private var sort = LibraryArtistSort.name
 
     private var artists: [LibraryArtist] {
         LibraryArtists.list(identity.index.artists, search: searchText, sort: sort)

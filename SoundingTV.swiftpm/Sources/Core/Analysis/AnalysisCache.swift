@@ -313,7 +313,7 @@ actor AnalysisCache {
         insertRow(
             key: key, cacheKey: cacheKey, data: data, features: extractedFeatures,
             producedAtMillis: Int64(Date().timeIntervalSince1970 * 1000),
-            producerId: AnalysisSyncIdentity.producerId(defaults: .standard)
+            producerId: AnalysisSyncIdentity.producerId(defaults: .sounding)
         )
         runMaintenance()
         noteChanged([key.trackId])
@@ -390,7 +390,7 @@ actor AnalysisCache {
             data: data,
             features: AnalysisFeatures(bpm: bpm, key: key, genre: normalizedGenre),
             producedAtMillis: Int64((updatedAt.timeIntervalSince1970 * 1000).rounded()),
-            producerId: AnalysisSyncIdentity.producerId(defaults: .standard)
+            producerId: AnalysisSyncIdentity.producerId(defaults: .sounding)
         )
         runMaintenance()
         noteChanged([track.id])
@@ -933,7 +933,7 @@ extension AnalysisCache: AnalysisSyncStore {
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_int64(stmt, 1, Int64(max(0, limit)))
 
-        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .standard)
+        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .sounding)
         var out: [AnalysisSyncExportCandidate] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             guard let record = Self.decodeSyncRow(stmt, fallbackProducerId: localProducerId) else { continue }
@@ -959,7 +959,7 @@ extension AnalysisCache: AnalysisSyncStore {
         for (index, trackId) in trackIds.enumerated() {
             _ = trackId.withCString { sqlite3_bind_text(stmt, Int32(index + 1), $0, -1, Self.sqliteTransient) }
         }
-        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .standard)
+        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .sounding)
         var out: [AnalysisSyncRecord] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             if let record = Self.decodeSyncRow(stmt, fallbackProducerId: localProducerId) { out.append(record) }
@@ -979,7 +979,7 @@ extension AnalysisCache: AnalysisSyncStore {
             _ = key.withCString { sqlite3_bind_text(stmt, Int32(index + 1), $0, -1, Self.sqliteTransient) }
         }
 
-        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .standard)
+        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .sounding)
         var out: [String: AnalysisSyncLocalSummary] = [:]
         while sqlite3_step(stmt) == SQLITE_ROW {
             guard let keyPtr = sqlite3_column_text(stmt, 0) else { continue }
@@ -1176,7 +1176,7 @@ extension AnalysisCache {
     private func exportToDataFolderIfNeeded(_ mirror: AnalysisDataMirror) async {
         let root = mirror.root()
         let flag = "red.forbes.sounding.analysis.exported." + SoundingDataFiles.hashName(root.standardizedFileURL.path, length: 16)
-        guard !UserDefaults.standard.bool(forKey: flag) else { return }
+        guard !UserDefaults.sounding.bool(forKey: flag) else { return }
         var lastRowId: Int64 = 0
         var written = 0
         while true {
@@ -1186,7 +1186,7 @@ extension AnalysisCache {
             let records = batch.map(\.record)
             written += await Task.detached(priority: .utility) { mirror.writeNow(records) }.value
         }
-        UserDefaults.standard.set(true, forKey: flag)
+        UserDefaults.sounding.set(true, forKey: flag)
         Log.analysis.info("Wrote \(written, privacy: .public) analysis file(s) into Sounding Data")
     }
 
@@ -1203,7 +1203,7 @@ extension AnalysisCache {
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_int64(stmt, 1, rowId)
         sqlite3_bind_int64(stmt, 2, Int64(limit))
-        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .standard)
+        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .sounding)
         var out: [(rowId: Int64, record: AnalysisDataRecord)] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             let row = sqlite3_column_int64(stmt, 0)

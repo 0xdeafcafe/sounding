@@ -5,12 +5,12 @@ enum AppDataDirectory {
         #if os(tvOS)
         return caches
         #else
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? caches
+        return FileManager.default.soundingDirectory(.applicationSupportDirectory) ?? caches
         #endif
     }
 
     static var caches: URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? temporary
+        FileManager.default.soundingDirectory(.cachesDirectory) ?? temporary
     }
 
     private static var temporary: URL {

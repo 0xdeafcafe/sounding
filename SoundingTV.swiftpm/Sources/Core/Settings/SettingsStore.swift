@@ -46,7 +46,7 @@ enum AccountDataVault {
             kSecAttrAccount as String: accountID,
         ]
         SoundingKeychain.delete(query)
-        removeDefaults(for: accountID, in: .standard)
+        removeDefaults(for: accountID, in: .sounding)
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: didForgetAccountData, object: nil)
         }
@@ -941,7 +941,7 @@ struct SettingsVault: Sendable {
 
 @MainActor
 final class SettingsStore: ObservableObject {
-    static let shared = SettingsStore(defaults: .standard, vault: .keychain, observesPreferences: true)
+    static let shared = SettingsStore(defaults: .sounding, vault: .keychain, observesPreferences: true)
 
     static let djTransitionLengthRange: ClosedRange<Double> = 2...30
     static let ambientScreensaverTimeoutRange: ClosedRange<Double> = 15...900

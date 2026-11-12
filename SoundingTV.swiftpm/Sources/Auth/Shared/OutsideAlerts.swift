@@ -91,7 +91,7 @@ enum OutsideAlerts {
 
     static func ensureSubscriptions(now: Date = .now) async {
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
-        let check = UserDefaults.standard.dictionary(forKey: subscriptionCheckKey) ?? [:]
+        let check = UserDefaults.sounding.dictionary(forKey: subscriptionCheckKey) ?? [:]
         if check["build"] as? String == build,
            let checkedAt = check["checkedAt"] as? Double,
            now.timeIntervalSince1970 >= checkedAt,
@@ -120,7 +120,7 @@ enum OutsideAlerts {
                 _ = try await database.modifySubscriptions(saving: [], deleting: obsolete)
                 Log.link.info("[OutsideAlerts] removed \(obsolete.count, privacy: .public) old subscriptions")
             }
-            UserDefaults.standard.set(["build": build, "checkedAt": now.timeIntervalSince1970], forKey: subscriptionCheckKey)
+            UserDefaults.sounding.set(["build": build, "checkedAt": now.timeIntervalSince1970], forKey: subscriptionCheckKey)
         } catch {
             Log.link.info("[OutsideAlerts] subscriptions not checked: \(error.localizedDescription, privacy: .public)")
         }
@@ -285,7 +285,7 @@ enum OutsideAlerts {
         let credentials = SoundCloudCredentialSource.shared
         let linked = SameAccountLinkModel.linkedIdentities()
         return request.verdict(
-            localDeviceId: LinkPeerIdentity.localDeviceId(),
+            localDeviceId: LinkPeerIdentity.localDeviceId(defaults: .sounding),
             currentUserId: credentials.currentUser?.id,
             isSignedOut: credentials.isSignedOut,
             linkedIdentities: linked,

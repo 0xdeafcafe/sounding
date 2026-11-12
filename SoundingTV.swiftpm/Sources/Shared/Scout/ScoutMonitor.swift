@@ -199,7 +199,7 @@ final class ScoutMonitor: ObservableObject {
     private func save() {
         publish()
         guard let accountID, let data = try? JSONEncoder().encode(stored) else { return }
-        UserDefaults.standard.set(data, forKey: Self.storageKey(accountID: accountID))
+        UserDefaults.sounding.set(data, forKey: Self.storageKey(accountID: accountID))
     }
 
     private func publish() {
@@ -209,7 +209,7 @@ final class ScoutMonitor: ObservableObject {
     }
 
     private static func load(accountID: String) -> Stored? {
-        guard let data = UserDefaults.standard.data(forKey: storageKey(accountID: accountID)) else { return nil }
+        guard let data = UserDefaults.sounding.data(forKey: storageKey(accountID: accountID)) else { return nil }
         return try? JSONDecoder().decode(Stored.self, from: data)
     }
 

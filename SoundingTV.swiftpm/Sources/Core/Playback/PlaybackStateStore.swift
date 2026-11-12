@@ -34,16 +34,16 @@ enum PlaybackStateStore {
     static func save(_ snapshot: Snapshot, accountID: String) {
         guard let data = try? JSONEncoder().encode(snapshot),
               let sealed = AccountDataVault.seal(data, accountID: accountID, purpose: purpose) else { return }
-        UserDefaults.standard.set(sealed, forKey: encryptedKey(accountID))
+        UserDefaults.sounding.set(sealed, forKey: encryptedKey(accountID))
         if accountID != PlaybackPersistenceAccountPolicy.guestAccountID {
-            UserDefaults.standard.set(accountID, forKey: rememberedAccountKey)
+            UserDefaults.sounding.set(accountID, forKey: rememberedAccountKey)
         }
     }
 
     static func load(accountID: String) -> Snapshot? {
         let key = encryptedKey(accountID)
         let snapshot: Snapshot?
-        if let sealed = UserDefaults.standard.data(forKey: key),
+        if let sealed = UserDefaults.sounding.data(forKey: key),
            let data = AccountDataVault.open(sealed, accountID: accountID, purpose: purpose) {
             snapshot = try? JSONDecoder().decode(Snapshot.self, from: data)
         } else {
@@ -57,11 +57,11 @@ enum PlaybackStateStore {
     }
 
     static var rememberedAccountID: String? {
-        UserDefaults.standard.string(forKey: rememberedAccountKey)
+        UserDefaults.sounding.string(forKey: rememberedAccountKey)
     }
 
     static func forgetRememberedAccount() {
-        UserDefaults.standard.removeObject(forKey: rememberedAccountKey)
+        UserDefaults.sounding.removeObject(forKey: rememberedAccountKey)
     }
 
     static func encodeTrack(_ track: Track) -> Data? {
@@ -78,7 +78,7 @@ enum PlaybackStateStore {
     }
 
     static func clear(accountID: String) {
-        UserDefaults.standard.removeObject(forKey: encryptedKey(accountID))
+        UserDefaults.sounding.removeObject(forKey: encryptedKey(accountID))
     }
 
     private static func encryptedKey(_ accountID: String) -> String {
@@ -87,10 +87,10 @@ enum PlaybackStateStore {
 
     // LEGACY MIGRATION: remove after the account-vault rollout window.
     private static func migrateLegacyState(accountID: String) -> Snapshot? {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+        guard let data = UserDefaults.sounding.data(forKey: defaultsKey),
               let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else { return nil }
         save(snapshot, accountID: accountID)
-        UserDefaults.standard.removeObject(forKey: defaultsKey)
+        UserDefaults.sounding.removeObject(forKey: defaultsKey)
         return snapshot
     }
 }

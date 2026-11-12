@@ -235,7 +235,7 @@ final class PlayOnNearbyLinking: ObservableObject {
     private func makeRows() -> [Row] {
         guard let browser, let router, !SoundCloudCredentialSource.shared.isSignedOut else { return activeRow.map { [$0] } ?? [] }
         let linked = Set(router.linkedDevices.map { Self.identity($0.name, $0.deviceClass) })
-        let deviceId = LinkPeerIdentity.localDeviceId()
+        let deviceId = LinkPeerIdentity.localDeviceId(defaults: .sounding)
         var next: [Row] = browser.distinctOffers.compactMap { offer in
             guard offer.kind == .tv else { return nil }
             let id = Self.identity(offer.claimedName, offer.kind)

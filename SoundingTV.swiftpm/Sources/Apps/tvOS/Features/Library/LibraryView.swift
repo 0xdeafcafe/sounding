@@ -6,7 +6,7 @@ struct LibraryView: View {
     @EnvironmentObject var authService: AuthenticationService
     @EnvironmentObject var navigationState: NavigationState
     @ObservedObject private var router = LibraryRouter.shared
-    @AppStorage("library.tv.page") private var page: LibraryFilter = .recentlyAdded
+    @AppStorage("library.tv.page", store: .sounding) private var page: LibraryFilter = .recentlyAdded
     @State private var path: [LibraryFilter] = []
     @State private var socialPage: SocialSection?
     @State private var appliedLaunchRoute = false
@@ -385,7 +385,7 @@ class LibraryViewModel: ObservableObject {
 
     static func launchRoute() -> LibraryFilter? {
         #if DEBUG
-        if let raw = UserDefaults.standard.string(forKey: "SOUNDING_TV_LIBRARY_SECTION")
+        if let raw = UserDefaults.sounding.string(forKey: "SOUNDING_TV_LIBRARY_SECTION")
             ?? ProcessInfo.processInfo.environment["SOUNDING_TV_LIBRARY_SECTION"] {
             if let filter = LibraryFilter(rawValue: raw) { return filter }
             switch raw {

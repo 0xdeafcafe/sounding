@@ -417,7 +417,7 @@ final class MacAnalysisCorrectionStore: ObservableObject {
     @Published private(set) var corrections: [String: MacAnalysisCorrection] = [:]
 
     private init() {
-        guard let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
+        guard let data = UserDefaults.sounding.data(forKey: Self.defaultsKey),
               let decoded = try? JSONDecoder().decode([String: MacAnalysisCorrection].self, from: data)
         else { return }
         corrections = decoded
@@ -443,7 +443,7 @@ final class MacAnalysisCorrectionStore: ObservableObject {
 
     private func persist() {
         guard let data = try? JSONEncoder().encode(corrections) else { return }
-        UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+        UserDefaults.sounding.set(data, forKey: Self.defaultsKey)
     }
 }
 
@@ -483,7 +483,7 @@ final class MacAnalysisIndex: ObservableObject {
             let max = await AnalysisCache.shared.maxBytes
             guard !Task.isCancelled else { return }
 
-            let localProducerId = AnalysisSyncIdentity.producerId(defaults: .standard)
+            let localProducerId = AnalysisSyncIdentity.producerId(defaults: .sounding)
             let (grouped, summaries) = await Task.detached(priority: .utility) {
                 var grouped: [String: [MacAnalysisRecord]] = [:]
                 for row in rows {
@@ -626,7 +626,7 @@ final class MacLibraryModel: ObservableObject {
     @Published var collectionFilter = TrackCollectionQuery.collectionOrder {
         didSet {
             guard collectionFilter != oldValue else { return }
-            UserDefaults.standard.set(collectionFilter.rawValue, forKey: Self.filterStorageKey(mode))
+            UserDefaults.sounding.set(collectionFilter.rawValue, forKey: Self.filterStorageKey(mode))
             rebuildDerivedRows()
             if collectionFilter.isFiltering { Task { await loadLocalRemainder() } }
         }
@@ -637,7 +637,7 @@ final class MacLibraryModel: ObservableObject {
     }
 
     private func restoreFilter() {
-        let stored = UserDefaults.standard.string(forKey: Self.filterStorageKey(mode)).flatMap(TrackCollectionQuery.init(rawValue:))
+        let stored = UserDefaults.sounding.string(forKey: Self.filterStorageKey(mode)).flatMap(TrackCollectionQuery.init(rawValue:))
         collectionFilter = stored ?? .collectionOrder
     }
 
@@ -1193,7 +1193,7 @@ struct MacLibraryTable: View {
     @State private var sortOrder = [LibraryRowComparator(key: .dateAdded, order: .reverse)]
     @State private var columns = TableColumnCustomization<MacLibraryRow>()
     @State private var didRestore = false
-    @AppStorage(TrackColumnLayout.storageKey) private var layout = TrackColumnLayout.standard
+    @AppStorage(TrackColumnLayout.storageKey, store: .sounding) private var layout = TrackColumnLayout.standard
     @State private var selection = Set<String>()
     @State private var editingTrackId: String?
     @ObservedObject private var analysisWork = AutomaticAnalysisStatus.shared
@@ -1284,7 +1284,7 @@ struct MacLibraryTable: View {
             var stored = TrackCollectionQuery.collectionOrder
             stored.adoptTableSort(newValue)
             if stored.sortKey != nil {
-                UserDefaults.standard.set(stored.rawValue, forKey: "mac.table.sort.\(storageKey)")
+                UserDefaults.sounding.set(stored.rawValue, forKey: "mac.table.sort.\(storageKey)")
                 if TrackCollection.needsFullCollection(stored, naturalOrder: .newestFirst) { onSortNeedsEverything() }
             }
         }
@@ -1342,7 +1342,7 @@ struct MacLibraryTable: View {
     private func restoreTableState() {
         defer { didRestore = true }
         guard !didRestore, let storageKey else { return }
-        if let raw = UserDefaults.standard.string(forKey: "mac.table.sort.\(storageKey)"),
+        if let raw = UserDefaults.sounding.string(forKey: "mac.table.sort.\(storageKey)"),
            let stored = TrackCollectionQuery(rawValue: raw),
            stored.sortKey != nil {
             sortOrder = stored.tableSortOrder()
@@ -1624,8 +1624,8 @@ struct MacLibraryPaneView: View {
     @ObservedObject private var findFocus = MacFindFocus.shared
     @State private var isSearchPresented = false
     @State private var isShowingLikesPolicy = false
-    @AppStorage("mac.library.showsArtwork") private var showsArtwork = true
-    @AppStorage("mac.library.compactRows") private var usesCompactRows = true
+    @AppStorage("mac.library.showsArtwork", store: .sounding) private var showsArtwork = true
+    @AppStorage("mac.library.compactRows", store: .sounding) private var usesCompactRows = true
 
     private let pinnedMode: MacLibraryModel.Mode?
 
@@ -2022,8 +2022,8 @@ struct MacLibraryBrowserView: View {
     @EnvironmentObject private var credentials: SoundCloudCredentialSource
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = MacLibraryModel()
-    @AppStorage("mac.library.showsArtwork") private var showsArtwork = true
-    @AppStorage("mac.library.compactRows") private var usesCompactRows = true
+    @AppStorage("mac.library.showsArtwork", store: .sounding) private var showsArtwork = true
+    @AppStorage("mac.library.compactRows", store: .sounding) private var usesCompactRows = true
 
     var body: some View {
         NavigationStack {

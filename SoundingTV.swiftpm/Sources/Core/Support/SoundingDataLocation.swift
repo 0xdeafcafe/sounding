@@ -22,7 +22,7 @@ struct SoundingDataManifest: Codable, Equatable, Sendable {
 enum SoundingDataDevice {
     static let defaultsKey = "red.forbes.sounding.data.deviceId"
 
-    static func id(defaults: UserDefaults = .standard) -> String {
+    static func id(defaults: UserDefaults = .sounding) -> String {
         if let existing = defaults.string(forKey: defaultsKey), !existing.isEmpty { return existing }
         let generated = UUID().uuidString
         defaults.set(generated, forKey: defaultsKey)
@@ -69,7 +69,7 @@ final class SoundingDataLocation: @unchecked Sendable {
     private var currentPresenter: SoundingDataPresenter?
     private var monitoring = false
 
-    init(defaults: UserDefaults = .standard, standardRoot: URL? = nil) {
+    init(defaults: UserDefaults = .sounding, standardRoot: URL? = nil) {
         self.defaults = defaults
         let base = standardRoot?.deletingLastPathComponent() ?? AppDataDirectory.root
         self.standardRoot = standardRoot ?? base.appendingPathComponent(Self.folderName, isDirectory: true)

@@ -31,7 +31,7 @@ final class SoundCloudRequestLedger: @unchecked Sendable {
             || environment["SOUNDING_TV_SC_MOCK"] == "1"
         echoes = environment["SOUNDING_TV_TRAFFIC_ECHO"] != "0"
         guard isEnabled else { return }
-        if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
+        if let caches = FileManager.default.soundingDirectory(.cachesDirectory) {
             let file = caches.appendingPathComponent("sounding-traffic.jsonl")
             try? FileManager.default.removeItem(at: file)
             FileManager.default.createFile(atPath: file.path, contents: nil)

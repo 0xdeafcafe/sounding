@@ -118,14 +118,14 @@ final class CollectionQualityOverrideStore: ObservableObject {
     }
 
     private func load() {
-        if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
+        if let data = UserDefaults.sounding.data(forKey: Self.defaultsKey),
            let decoded = try? JSONDecoder().decode([String: CollectionPolicy].self, from: data) {
             policies = decoded
             rebuildOverrides()
             return
         }
 
-        guard let data = UserDefaults.standard.data(forKey: Self.legacyDefaultsKey),
+        guard let data = UserDefaults.sounding.data(forKey: Self.legacyDefaultsKey),
               let decoded = try? JSONDecoder().decode([String: QualityCeiling].self, from: data) else { return }
         policies = decoded.mapValues { ceiling in
             var policy = CollectionPolicy.standard
@@ -143,7 +143,7 @@ final class CollectionQualityOverrideStore: ObservableObject {
 
     private func saveLocalCopy() {
         guard let data = try? JSONEncoder().encode(policies) else { return }
-        UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+        UserDefaults.sounding.set(data, forKey: Self.defaultsKey)
     }
 
     private func rebuildOverrides() {
@@ -311,7 +311,7 @@ struct CacheUsage: Equatable, Sendable {
     var totalBytes: Int64 { artworkBytes + analysisBytes + djSourceBytes + urlCacheBytes }
 
     static func cachesDirectory() -> URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        FileManager.default.soundingDirectory(.cachesDirectory)
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
     }
 

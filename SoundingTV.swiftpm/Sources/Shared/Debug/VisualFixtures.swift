@@ -12,7 +12,7 @@ enum VisualFixtures {
         #else
         return raw == "1" || raw == "loaded" || raw == "true"
             || ProcessInfo.processInfo.arguments.contains("--ui-fixture")
-            || UserDefaults.standard.bool(forKey: environmentKey)
+            || UserDefaults.sounding.bool(forKey: environmentKey)
         #endif
     }()
 
@@ -26,7 +26,7 @@ enum VisualFixtures {
             .replacingOccurrences(of: "--ui-destination=", with: "") {
             return argument
         }
-        return UserDefaults.standard.string(forKey: "SOUNDING_TV_UI_DESTINATION")
+        return UserDefaults.sounding.string(forKey: "SOUNDING_TV_UI_DESTINATION")
     }
 
     private static let decoder: JSONDecoder = {

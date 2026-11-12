@@ -124,24 +124,24 @@ final class SubscriptionService: ObservableObject {
     }
 
     private var lastVerifiedTier: Tier? {
-        get { (UserDefaults.standard.string(forKey: DefaultsKey.lastVerifiedTier)).flatMap(Tier.init(rawValue:)) }
-        set { UserDefaults.standard.set(newValue?.rawValue, forKey: DefaultsKey.lastVerifiedTier) }
+        get { (UserDefaults.sounding.string(forKey: DefaultsKey.lastVerifiedTier)).flatMap(Tier.init(rawValue:)) }
+        set { UserDefaults.sounding.set(newValue?.rawValue, forKey: DefaultsKey.lastVerifiedTier) }
     }
 
     private var lastVerifiedAt: Date? {
         get {
-            let value = UserDefaults.standard.double(forKey: DefaultsKey.lastVerifiedAt)
+            let value = UserDefaults.sounding.double(forKey: DefaultsKey.lastVerifiedAt)
             return value > 0 ? Date(timeIntervalSince1970: value) : nil
         }
-        set { UserDefaults.standard.set(newValue?.timeIntervalSince1970, forKey: DefaultsKey.lastVerifiedAt) }
+        set { UserDefaults.sounding.set(newValue?.timeIntervalSince1970, forKey: DefaultsKey.lastVerifiedAt) }
     }
 
     private var persistedNotSubscribedSince: Date? {
         get {
-            let value = UserDefaults.standard.double(forKey: DefaultsKey.notSubscribedSince)
+            let value = UserDefaults.sounding.double(forKey: DefaultsKey.notSubscribedSince)
             return value > 0 ? Date(timeIntervalSince1970: value) : nil
         }
-        set { UserDefaults.standard.set(newValue?.timeIntervalSince1970, forKey: DefaultsKey.notSubscribedSince) }
+        set { UserDefaults.sounding.set(newValue?.timeIntervalSince1970, forKey: DefaultsKey.notSubscribedSince) }
     }
 
     private var cancellables = Set<AnyCancellable>()

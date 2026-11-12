@@ -10,10 +10,10 @@ final class PhoneDecksModel: ObservableObject {
 
     @Published var fixture: MacDJPerformState?
     @Published var eqBand: MixControl.Kind = PhoneDecksModel.storedBand {
-        didSet { UserDefaults.standard.set(eqBand.rawValue, forKey: Self.bandKey) }
+        didSet { UserDefaults.sounding.set(eqBand.rawValue, forKey: Self.bandKey) }
     }
     @Published var zoomBars: Double = PhoneDecksModel.storedZoom {
-        didSet { UserDefaults.standard.set(zoomBars, forKey: Self.zoomKey) }
+        didSet { UserDefaults.sounding.set(zoomBars, forKey: Self.zoomKey) }
     }
     @Published private(set) var tracks: [MixEngine.Deck: Track] = [:]
     @Published private(set) var loading: Set<MixEngine.Deck> = []
@@ -59,12 +59,12 @@ final class PhoneDecksModel: ObservableObject {
     }
 
     private static var storedZoom: Double {
-        let value = UserDefaults.standard.double(forKey: zoomKey)
+        let value = UserDefaults.sounding.double(forKey: zoomKey)
         return zoomSteps.contains(value) ? value : 16
     }
 
     private static var storedBand: MixControl.Kind {
-        let stored = UserDefaults.standard.string(forKey: bandKey).flatMap(MixControl.Kind.init(rawValue:))
+        let stored = UserDefaults.sounding.string(forKey: bandKey).flatMap(MixControl.Kind.init(rawValue:))
         return [.high, .mid, .low].contains(stored) ? stored ?? .low : .low
     }
 

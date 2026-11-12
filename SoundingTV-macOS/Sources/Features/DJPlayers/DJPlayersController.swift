@@ -132,7 +132,7 @@ final class DJPlayersController: ObservableObject {
     private var wasConnectedBeforeSleep = false
     private var isFixture = false
 
-    private init(defaults: UserDefaults = .standard) {
+    private init(defaults: UserDefaults = .sounding) {
         self.defaults = defaults
         selectedInterfaceName = defaults.string(forKey: Key.interface)
         usesVirtualDeck = defaults.bool(forKey: Key.virtualDeck)

@@ -34,7 +34,7 @@ final class NearbyLinkRequestPublisher {
     private var quietUntil: Date?
     private var expiry: Task<Void, Never>?
     private let ledger = SignInRequestLedger(storageKey: NearbyLinkRequestPublisher.ledgerKey)
-    private let defaults = UserDefaults.standard
+    private let defaults = UserDefaults.sounding
 
     static func sweepLeftovers() {
         SignInRequestPublisher.sweepLeftovers(ledger: SignInRequestLedger(storageKey: ledgerKey))
@@ -94,7 +94,7 @@ final class NearbyLinkRequestPublisher {
             return
         }
         let database = container.privateCloudDatabase
-        let tvTag = NearbyLinkRequest.tvTag(deviceId: LinkPeerIdentity.localDeviceId())
+        let tvTag = NearbyLinkRequest.tvTag(deviceId: LinkPeerIdentity.localDeviceId(defaults: .sounding))
         let snooze: NearbyLinkSnooze?
         do {
             snooze = NearbyLinkSnooze(record: try await database.record(for: NearbyLinkSnooze.recordID(tvTag: tvTag)))
@@ -116,7 +116,7 @@ final class NearbyLinkRequestPublisher {
         }
         guard let request = NearbyLinkRequest.make(
             tvName: UIDevice.current.name,
-            tvDeviceId: LinkPeerIdentity.localDeviceId(),
+            tvDeviceId: LinkPeerIdentity.localDeviceId(defaults: .sounding),
             accountId: accountId,
             linkedDeviceIds: context.linkedDeviceIds
         ) else { return }

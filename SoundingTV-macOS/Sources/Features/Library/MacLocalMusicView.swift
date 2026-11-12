@@ -10,7 +10,7 @@ struct MacSongsView: View {
     @State private var isAdding = false
     @State private var isSigningIn = false
     @State private var folderFilter: String?
-    @AppStorage("mac.songs.source") private var sourceFilter = SourceFilter.all
+    @AppStorage("mac.songs.source", store: .sounding) private var sourceFilter = SourceFilter.all
 
     enum SourceFilter: String, CaseIterable, Identifiable {
         case all, local, soundCloud

@@ -153,7 +153,7 @@ struct LibraryRowChoices: Equatable, Sendable {
 
 #if os(iOS)
 struct LibraryRowsEditor: View {
-    @AppStorage(LibraryRowChoices.storageKey) private var raw = ""
+    @AppStorage(LibraryRowChoices.storageKey, store: .sounding) private var raw = ""
     @Environment(\.dismiss) private var dismiss
 
     private let surface = LibraryRowChoices.Surface.phoneList

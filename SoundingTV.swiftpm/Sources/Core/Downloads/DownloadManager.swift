@@ -43,7 +43,7 @@ enum DownloadStoragePolicy {
     }
 
     static func legacyPlaintextCacheRoot() -> URL {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        let caches = FileManager.default.soundingDirectory(.cachesDirectory)
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return caches.appendingPathComponent(legacyPlaintextCacheDirectoryName, isDirectory: true)
     }
@@ -397,7 +397,7 @@ final class TemporaryPlaintextLeases: @unchecked Sendable {
 final class DownloadManager: NSObject, ObservableObject {
     static let shared = DownloadManager()
 
-    nonisolated static let backgroundSessionIdentifier = "red.forbes.sounding.downloads"
+    nonisolated static let backgroundSessionIdentifier = BuildFlavor.current.identifier("red.forbes.sounding.downloads")
 
     @Published private(set) var states: [String: DownloadState] = [:]
     private var progressObjects: [String: DownloadProgress] = [:]
@@ -485,7 +485,7 @@ final class DownloadManager: NSObject, ObservableObject {
     private var pausedByPolicy: Set<String> = []
     private var qualityMigrationQueue: [String] = []
     private var qualityMigrationTrackID: String?
-    private var heavyPacer = HeavyWorkPacer.decode(UserDefaults.standard.data(forKey: DownloadManager.pacingDefaultsKey)) ?? HeavyWorkPacer()
+    private var heavyPacer = HeavyWorkPacer.decode(UserDefaults.sounding.data(forKey: DownloadManager.pacingDefaultsKey)) ?? HeavyWorkPacer()
     private var backgroundInFlight: Set<String> = []
 
     private var systemCompletion: BackgroundSessionCompletion?
@@ -1747,7 +1747,7 @@ final class DownloadManager: NSObject, ObservableObject {
             policy: .downloads,
             random: Double.random(in: 0...1)
         )
-        UserDefaults.standard.set(heavyPacer.encoded(), forKey: Self.pacingDefaultsKey)
+        UserDefaults.sounding.set(heavyPacer.encoded(), forKey: Self.pacingDefaultsKey)
         pendingSourceFingerprints[trackId] = nil
         guard entries[trackId] != nil else { return }
         setState(.queued, for: trackId)

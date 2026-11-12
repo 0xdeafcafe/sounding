@@ -481,13 +481,13 @@ struct CrossAccountChoice: Codable, Equatable, Sendable {
         return !choice.isRemembered(link: link, tv: tv, mine: mine)
     }
 
-    static func load(defaults: UserDefaults = .standard) -> CrossAccountChoice {
+    static func load(defaults: UserDefaults = .sounding) -> CrossAccountChoice {
         guard let data = defaults.data(forKey: defaultsKey),
               let choice = try? JSONDecoder().decode(CrossAccountChoice.self, from: data) else { return CrossAccountChoice() }
         return choice
     }
 
-    func save(defaults: UserDefaults = .standard) {
+    func save(defaults: UserDefaults = .sounding) {
         guard let data = try? JSONEncoder().encode(self) else { return }
         defaults.set(data, forKey: Self.defaultsKey)
     }
@@ -761,13 +761,13 @@ struct TVAccountRecord: Codable, Equatable, Sendable {
 
     func supports(_ capability: String) -> Bool { capabilities.contains(capability) }
 
-    static func loadAll(defaults: UserDefaults = .standard) -> [String: TVAccountRecord] {
+    static func loadAll(defaults: UserDefaults = .sounding) -> [String: TVAccountRecord] {
         guard let data = defaults.data(forKey: defaultsKey),
               let records = try? JSONDecoder().decode([String: TVAccountRecord].self, from: data) else { return [:] }
         return records
     }
 
-    static func saveAll(_ records: [String: TVAccountRecord], defaults: UserDefaults = .standard) {
+    static func saveAll(_ records: [String: TVAccountRecord], defaults: UserDefaults = .sounding) {
         guard let data = try? JSONEncoder().encode(records) else { return }
         defaults.set(data, forKey: defaultsKey)
     }

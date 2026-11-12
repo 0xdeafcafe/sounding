@@ -71,7 +71,7 @@ actor CueStore {
             isDurable = false
         }
 
-        self.writerId = writerId ?? CueWriterIdentity.writerId(defaults: .standard)
+        self.writerId = writerId ?? CueWriterIdentity.writerId(defaults: .sounding)
 
         Self.createSchema(db)
         Self.migrateSchemaIfNeeded(db)

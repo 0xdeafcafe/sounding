@@ -18,9 +18,9 @@ struct PhoneRootView: View {
     @State private var isNowPlayingExpanded = false
     @State private var presentedArtist: User?
     @State private var isShowingSharePlaySignIn = false
-    @AppStorage("red.forbes.sounding.phone.didLeaveWelcome") private var didLeaveWelcome = false
-    @AppStorage(MusicStep.answeredKey) private var didAnswerMusicStep = false
-    @AppStorage(MusicStep.pendingKey) private var isMusicStepPending = false
+    @AppStorage("red.forbes.sounding.phone.didLeaveWelcome", store: .sounding) private var didLeaveWelcome = false
+    @AppStorage(MusicStep.answeredKey, store: .sounding) private var didAnswerMusicStep = false
+    @AppStorage(MusicStep.pendingKey, store: .sounding) private var isMusicStepPending = false
     @State private var forcesMusicStep = MusicStep.isForced
     @Namespace private var nowPlayingNamespace
     @State private var nowPlayingZoomSourceID: String?
@@ -444,7 +444,7 @@ enum PadSidebarCustomization {
     static let libraryPrefix = "pad.library."
     static let pinPrefix = "pad.pin."
 
-    static func dropRetiredItems(_ defaults: UserDefaults = .standard) {
+    static func dropRetiredItems(_ defaults: UserDefaults = .sounding) {
         let stored = defaults.string(forKey: storageKey)
             ?? defaults.data(forKey: storageKey).flatMap { String(data: $0, encoding: .utf8) }
         guard let stored, retiredIDs.contains(where: { stored.contains($0) }) else { return }
@@ -469,13 +469,13 @@ enum PadSidebarCustomization {
         return PlaylistFolderChild(key: String(id.dropFirst(pinPrefix.count)))
     }
 
-    static func load(_ defaults: UserDefaults = .standard) -> TabViewCustomization? {
+    static func load(_ defaults: UserDefaults = .sounding) -> TabViewCustomization? {
         let data = defaults.data(forKey: storageKey) ?? defaults.string(forKey: storageKey).map { Data($0.utf8) }
         guard let data else { return nil }
         return try? JSONDecoder().decode(TabViewCustomization.self, from: data)
     }
 
-    static func save(_ value: TabViewCustomization, _ defaults: UserDefaults = .standard) {
+    static func save(_ value: TabViewCustomization, _ defaults: UserDefaults = .sounding) {
         guard let data = try? JSONEncoder().encode(value) else { return }
         defaults.set(data, forKey: storageKey)
     }
@@ -583,7 +583,7 @@ private struct PadRootTabs: View {
     let library: LibraryModels
 
     @State private var customization = PadSidebarCustomizationStore()
-    @AppStorage(LibraryRowChoices.storageKey) private var libraryRowsRaw = ""
+    @AppStorage(LibraryRowChoices.storageKey, store: .sounding) private var libraryRowsRaw = ""
     @State private var libraryPlaylists: PadSidebarPlaylists?
     @State private var navigator = SidebarNavigator()
     @State private var folders: [PadSidebarFolder] = []
