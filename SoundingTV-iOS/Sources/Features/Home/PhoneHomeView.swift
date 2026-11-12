@@ -45,22 +45,6 @@ struct PhoneHomeView: View {
         credentials.accountStatus == .needsReconnect
     }
 
-    private var reconnectPrompt: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Space.snug))
-            : AnyLayout(HStackLayout(spacing: Space.snug))
-        return layout {
-            Label("Sign in again to refresh your picks.", systemImage: "exclamationmark.triangle")
-                .font(.subheadline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("Reconnect") { isSigningIn = true }
-                .buttonStyle(.glass)
-                .accessibilityHint("Signs in to SoundCloud again")
-        }
-        .padding(.horizontal, Space.roomy)
-    }
-
     private var usesVisualFixtures: Bool {
         #if DEBUG
         VisualFixtures.isEnabled
@@ -229,12 +213,9 @@ struct PhoneHomeView: View {
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heroHeight = $0 }
                         .padding(.bottom, showsContinueHero ? -PhoneLayout.shelfGap : 0)
                 }
-                TVSignInPrompt()
                 if pageState == .shelves {
                     if isGuest {
                         signedOutBanner
-                    } else if needsReconnect {
-                        reconnectPrompt
                     }
                     ForEach(source.shelves) { shelf in
                         HomeShelfView(
@@ -277,35 +258,6 @@ struct PhoneHomeView: View {
         .toolbarColorScheme(isBarOverHero ? .dark : nil, for: .navigationBar)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shelfWidth = $0 }
         .refreshable { await source.load(seed: seed) }
-    }
-}
-
-private struct TVSignInPrompt: View {
-    @EnvironmentObject private var client: CompanionClient
-    @EnvironmentObject private var pairing: DevicePairingFlow
-    @EnvironmentObject private var nearby: LinkOfferBrowser
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    var body: some View {
-        if let prompt = PeerSignInPrompt.resolveOnPhone(client: client, offers: nearby.offers) {
-            let other = prompt.copy(client: client).flatMap { $0.action.hasPrefix("Sign In as") ? $0 : nil }
-            let layout = dynamicTypeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(alignment: .leading, spacing: Space.snug))
-                : AnyLayout(HStackLayout(spacing: Space.snug))
-            layout {
-                Label(other?.title ?? "\(prompt.name) is waiting to sign in", systemImage: DeviceClass.tv.symbolName)
-                    .font(.subheadline)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Button(other?.action ?? "Sign In") { prompt.start(client: client, pairing: pairing) }
-                    .buttonStyle(.glass)
-                    .disabled(client.isRequestingPeerSignIn)
-                    .accessibilityHint("Signs in \(prompt.name) with your SoundCloud account")
-            }
-            .padding(.horizontal, Space.roomy)
-            .transition(.opacity)
-        }
     }
 }
 

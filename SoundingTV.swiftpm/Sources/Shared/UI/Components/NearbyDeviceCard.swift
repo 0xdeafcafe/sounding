@@ -679,141 +679,35 @@ struct NearbyDeviceCard: View {
     }
 
     private func plain(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.body)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
+        BottomCardPlainButton(title: title, action: action)
     }
 
     private func prominent(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.capsule)
-        .controlSize(.extraLarge)
-        .keyboardShortcut(.defaultAction)
+        BottomCardProminentButton(title: title, action: action)
     }
     #endif
 }
 
-#if os(iOS)
-private struct NearbyDeviceCardOverlay: ViewModifier {
+private struct NearbyDeviceCardHost: ViewModifier {
     @ObservedObject var model: NearbyDeviceCardModel
     let isEnabled: Bool
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @GestureState private var drag: CGFloat = 0
-    @Environment(\.horizontalSizeClass) private var sizeClass
-
-    private var centred: Bool { sizeClass == .regular }
-
-    private var visible: NearbyDeviceCardModel.Candidate? { isEnabled ? model.candidate : nil }
-
     func body(content: Content) -> some View {
-        content.overlay {
-            ZStack(alignment: centred ? .center : .bottom) {
-                if let candidate = visible, centred {
-                    Color.black.opacity(0.22)
-                        .ignoresSafeArea()
-                        .onTapGesture { if !model.phase.isWorking { model.notNow() } }
-                        .transition(.opacity)
-                        .accessibilityHidden(true)
-
-                    NearbyDeviceCard(model: model, candidate: candidate)
-                        .frame(width: 400)
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 36, style: .continuous))
-                        .overlay(alignment: .topTrailing) {
-                            Button { model.notNow() } label: {
-                                Image(systemName: "xmark")
-                                    .font(.footnote.weight(.bold))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 30, height: 30)
-                                    .background(.quaternary, in: Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(model.phase.isWorking)
-                            .accessibilityLabel("Not Now")
-                            .padding(14)
-                        }
-                        .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.scale(scale: 0.88).combined(with: .opacity))
-                        .onAppear { model.didShow(candidate) }
-                } else if let candidate = visible {
-                    Color.black.opacity(0.22)
-                        .ignoresSafeArea()
-                        .onTapGesture { if !model.phase.isWorking { model.notNow() } }
-                        .transition(.opacity)
-                        .accessibilityHidden(true)
-
-                    NearbyDeviceCard(model: model, candidate: candidate)
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 44, style: .continuous))
-                        .overlay(alignment: .top) {
-                            Capsule()
-                                .fill(.tertiary)
-                                .frame(width: 36, height: 5)
-                                .padding(.top, 8)
-                                .accessibilityHidden(true)
-                        }
-                        .offset(y: max(0, drag))
-                        .gesture(
-                            DragGesture()
-                                .updating($drag) { value, state, _ in state = value.translation.height }
-                                .onEnded { value in
-                                    if value.translation.height > 90 || value.predictedEndTranslation.height > 240 {
-                                        model.notNow()
-                                    }
-                                }
-                        )
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 8)
-                        .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.move(edge: .bottom).combined(with: .opacity))
-                        .onAppear { model.didShow(candidate) }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: centred ? .center : .bottom)
-            .ignoresSafeArea(.container, edges: centred ? [] : .bottom)
-            .animation(
-                reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.45, dampingFraction: 0.86),
-                value: visible?.id
-            )
-            .animation(.easeInOut(duration: 0.2), value: model.phase)
+        content.bottomCard(
+            item: isEnabled ? model.candidate : nil,
+            isDismissible: !model.phase.isWorking,
+            phase: model.phase,
+            onDismiss: { model.notNow() },
+            onAppear: { model.didShow($0) }
+        ) { candidate in
+            NearbyDeviceCard(model: model, candidate: candidate)
         }
     }
 }
 
 extension View {
     func nearbyDeviceCard(_ model: NearbyDeviceCardModel, isEnabled: Bool) -> some View {
-        modifier(NearbyDeviceCardOverlay(model: model, isEnabled: isEnabled))
-    }
-}
-#endif
-
-#if os(macOS)
-private struct NearbyDeviceCardSheet: ViewModifier {
-    @ObservedObject var model: NearbyDeviceCardModel
-    let isEnabled: Bool
-
-    func body(content: Content) -> some View {
-        content.sheet(item: Binding(
-            get: { isEnabled ? model.candidate : nil },
-            set: { if $0 == nil { model.notNow() } }
-        )) { candidate in
-            NearbyDeviceCard(model: model, candidate: candidate)
-                .frame(width: 400)
-                .onAppear { model.didShow(candidate) }
-                .animation(.easeInOut(duration: 0.2), value: model.phase)
-        }
+        modifier(NearbyDeviceCardHost(model: model, isEnabled: isEnabled))
     }
 }
 
-extension View {
-    func nearbyDeviceCardSheet(_ model: NearbyDeviceCardModel, isEnabled: Bool) -> some View {
-        modifier(NearbyDeviceCardSheet(model: model, isEnabled: isEnabled))
-    }
-}
-#endif
