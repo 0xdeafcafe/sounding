@@ -35,6 +35,8 @@ enum TrackMapCopy {
     static let timelineHint = "Adjust to pick a moment"
     static let remoteHint = "Swipe to move, click to play from here"
     static let done = "Done"
+    static let undo = "Undo"
+    static let redo = "Redo"
     static let cueKind = "Cue Point"
     static let loopKind = "Loop"
     static let colourNames = ["Green", "Orange", "Yellow", "Blue", "Cyan", "Pink", "Purple", "White"]
@@ -163,21 +165,82 @@ final class TrackMapModel: ObservableObject {
     @Published var selectedCueId: String?
     @Published var editingCueId: String?
     @Published private(set) var jumpCount = 0
+    @Published private(set) var canUndo = false
+    @Published private(set) var canRedo = false
 
     var livePosition: @MainActor () -> TimeInterval = { 0 }
     var onSeek: @MainActor (TimeInterval) -> Void = { _ in }
     var onEdit: (@MainActor () async -> Void)?
+    var onStoreChange: (@MainActor () async -> Void)?
     var isEditable = true
-    weak var undoManager: UndoManager?
+    weak var undoManager: UndoManager? {
+        didSet { observeUndo() }
+    }
 
     let board: CueBoard
     private var store: CueStore { board.store }
     private var boardChanges: AnyCancellable?
+    private var undoChanges: AnyCancellable?
     private var prepTask: Task<Void, Never>?
+    private var pendingWrites = 0
+    private var ownUndoManager: UndoManager?
+
+    private var undo: UndoManager {
+        if let undoManager { return undoManager }
+        if let ownUndoManager { return ownUndoManager }
+        let made = UndoManager()
+        ownUndoManager = made
+        observeUndo()
+        return made
+    }
 
     init(board: CueBoard = CueBoard()) {
         self.board = board
         boardChanges = board.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        board.onStoreChange = { [weak self] sheetChanged in await self?.storeChanged(sheetChanged: sheetChanged) }
+    }
+
+    private func observeUndo() {
+        let manager = undo
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [.NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange, .NSUndoManagerCheckpoint]
+        undoChanges = Publishers.MergeMany(names.map { center.publisher(for: $0, object: manager) })
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.refreshUndoState() } }
+        refreshUndoState()
+    }
+
+    private func refreshUndoState() {
+        let manager = undo
+        if canUndo != manager.canUndo { canUndo = manager.canUndo }
+        if canRedo != manager.canRedo { canRedo = manager.canRedo }
+    }
+
+    func undoLast() {
+        guard undo.canUndo else { return }
+        undo.undo()
+        refreshUndoState()
+    }
+
+    func redoLast() {
+        guard undo.canRedo else { return }
+        undo.redo()
+        refreshUndoState()
+    }
+
+    var undoTitle: String {
+        let name = undo.undoActionName
+        return name.isEmpty ? TrackMapCopy.undo : "\(TrackMapCopy.undo) \(name)"
+    }
+
+    private func storeChanged(sheetChanged: Bool) async {
+        guard let trackId else { return }
+        let loaded = await store.prep(forTrack: trackId)
+        guard self.trackId == trackId else { return }
+        let prepChanged = loaded != prep
+        if prepChanged { prep = loaded }
+        if pendingWrites == 0, editingCueId != nil, editingCue == nil { editingCueId = nil }
+        if prepChanged || sheetChanged { await onStoreChange?() }
     }
 
     func load(trackId: String?, title: String, duration: TimeInterval, envelope: [Float], beatGrid: BeatGrid? = nil) {
@@ -642,46 +705,53 @@ final class TrackMapModel: ObservableObject {
     func dismiss(_ suggestion: CueSuggestion) {
         guard isEditable else { return }
         let store = store
+        pendingWrites += 1
         Task {
             await store.dismiss(suggestion)
             await self.afterEdit()
         }
-        undoManager?.registerUndo(withTarget: self) { model in
+        undo.registerUndo(withTarget: self) { model in
             MainActor.assumeIsolated { model.undismiss(suggestion) }
         }
-        undoManager?.setActionName(TrackMapCopy.dismiss)
+        undo.setActionName(TrackMapCopy.dismiss)
+        refreshUndoState()
     }
 
     private func undismiss(_ suggestion: CueSuggestion) {
         let store = store
+        pendingWrites += 1
         Task {
             await store.undismiss(suggestionId: suggestion.id)
             await self.afterEdit()
         }
-        undoManager?.registerUndo(withTarget: self) { model in
+        undo.registerUndo(withTarget: self) { model in
             MainActor.assumeIsolated { model.dismiss(suggestion) }
         }
-        undoManager?.setActionName(TrackMapCopy.dismiss)
+        undo.setActionName(TrackMapCopy.dismiss)
+        refreshUndoState()
     }
 
     private func replace(_ changes: [(String, CuePoint?)], action: String) {
         guard isEditable, !changes.isEmpty else { return }
         let previous: [(String, CuePoint?)] = changes.reversed().map { id, _ in (id, cue(id)) }
         let store = store
+        pendingWrites += 1
         Task {
             for (id, cue) in changes {
                 if let cue { await store.upsert(cue) } else { await store.delete(cueId: id) }
             }
             await self.afterEdit()
         }
-        undoManager?.registerUndo(withTarget: self) { model in
+        undo.registerUndo(withTarget: self) { model in
             MainActor.assumeIsolated { model.replace(previous, action: action) }
         }
-        undoManager?.setActionName(action)
+        undo.setActionName(action)
+        refreshUndoState()
     }
 
     private func afterEdit() async {
         await board.refresh()
+        pendingWrites = max(0, pendingWrites - 1)
         await onEdit?()
     }
 }

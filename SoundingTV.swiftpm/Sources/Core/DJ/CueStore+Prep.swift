@@ -94,6 +94,7 @@ extension CueStore {
             [.text(prep.trackId), .blob(payload), .int(prep.updatedAtMillis)]
         )
         logChange(recordName: "prep:\(prep.trackId)", kind: .prep, trackId: prep.trackId)
+        noteChange(trackId: prep.trackId)
         notifyLocalChange()
     }
 
@@ -222,6 +223,7 @@ extension CueStore {
             [.text(tally.recordName), .text(tally.trackId), .blob(payload), .int(tally.updatedAtMillis)]
         )
         logChange(recordName: tally.recordName, kind: .tally, trackId: tally.trackId)
+        noteChange(trackId: tally.trackId)
     }
 
     func dismissals(forTrack trackId: String) -> [CueDismissal] {
@@ -292,6 +294,10 @@ extension CueStore {
 
     @discardableResult
     func adoptPrepRecords(_ records: [PrepSyncRecord]) -> Int {
+        batchingChanges { adoptPrepRecordsNow(records) }
+    }
+
+    private func adoptPrepRecordsNow(_ records: [PrepSyncRecord]) -> Int {
         var adopted = 0
         for record in records {
             switch record.kind {
@@ -323,6 +329,7 @@ extension CueStore {
                         + "ON CONFLICT(record_name) DO UPDATE SET payload = excluded.payload, updated_at_millis = excluded.updated_at_millis;",
                     [.text(incoming.recordName), .text(incoming.trackId), .blob(payload), .int(incoming.updatedAtMillis)]
                 )
+                noteChange(trackId: incoming.trackId)
                 adopted += 1
             }
         }
@@ -336,6 +343,7 @@ extension CueStore {
                 + "ON CONFLICT(track_id) DO UPDATE SET payload = excluded.payload, updated_at_millis = excluded.updated_at_millis;",
             [.text(prep.trackId), .blob(payload), .int(prep.updatedAtMillis)]
         )
+        noteChange(trackId: prep.trackId)
     }
 
 

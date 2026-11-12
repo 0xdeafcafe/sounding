@@ -183,6 +183,9 @@ struct TrackMapView: View {
                 model.saveCue()
             }
             TVCuePill(icon: "repeat", title: TrackMapCopy.addLoop) { model.addLoop() }
+            if model.canUndo, model.isEditable {
+                TVCuePill(icon: "arrow.uturn.backward", title: TrackMapCopy.undo, accessibilityLabel: model.undoTitle) { model.undoLast() }
+            }
         }
         .disabled(model.trackId == nil)
         .focusSection()
@@ -307,6 +310,13 @@ private struct TVTrackMapPads: View {
         HStack(spacing: Space.snug) {
             ForEach(model.pads) { pad in
                 TVTrackMapPad(pad: pad, markText: model.markText)
+                    .contextMenu {
+                        if let cue = model.cue(pad.cueId) {
+                            Button(TrackMapCopy.edit, systemImage: "pencil") { model.editingCueId = cue.id }
+                            Button(TrackMapCopy.moveTo(model.markText), systemImage: "arrow.right.to.line") { model.move(cue) }
+                            Button(TrackMapCopy.delete, systemImage: "trash", role: .destructive) { model.delete(cue) }
+                        }
+                    }
             }
         }
         .padding(.vertical, Space.tight)

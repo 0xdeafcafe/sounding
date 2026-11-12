@@ -1,14 +1,38 @@
 import Foundation
 import SwiftUI
 
+final class CueBoardObservation: @unchecked Sendable {
+    var task: Task<Void, Never>?
+
+    deinit { task?.cancel() }
+}
+
 @MainActor
 final class CueBoard: ObservableObject {
     @Published private(set) var sheet: CueSheet = .empty(trackId: "")
 
     let store: CueStore
+    var onStoreChange: (@MainActor (_ sheetChanged: Bool) async -> Void)?
+    private(set) var storeReloadCount = 0
 
-    init(store: CueStore = .shared) {
+    private let debounce: Duration
+    private let observation = CueBoardObservation()
+    private var pendingStoreReload: Task<Void, Never>?
+
+    init(store: CueStore = .shared, debounce: Duration = .milliseconds(150)) {
         self.store = store
+        self.debounce = debounce
+    }
+
+    private func observeStore() {
+        guard observation.task == nil else { return }
+        let changes = store.changes.subscribe()
+        observation.task = Task { [weak self] in
+            for await trackIds in changes {
+                guard !Task.isCancelled else { return }
+                self?.storeDidChange(trackIds)
+            }
+        }
     }
 
     private struct LoadKey: Equatable {
@@ -20,6 +44,8 @@ final class CueBoard: ObservableObject {
     private var loadedKey: LoadKey?
     private var lastInput: CueSuggester.Input?
     private var loadTask: Task<Void, Never>?
+
+    var loadedTrackId: String? { loadedKey?.trackId }
 
     func ensureLoaded(
         trackId: String?,
@@ -41,6 +67,7 @@ final class CueBoard: ObservableObject {
         )
         let key = LoadKey(trackId: trackId, sampleCount: input.envelope.count, durationBucket: Int(duration.rounded()))
         guard key != loadedKey else { return }
+        observeStore()
         loadedKey = key
         lastInput = input
         runLoad(input, key: key)
@@ -52,23 +79,54 @@ final class CueBoard: ObservableObject {
         loadTask = Task { [weak self] in
             let sheet = await store.sheet(for: input)
             guard let self, !Task.isCancelled, self.loadedKey == key else { return }
-            self.sheet = sheet
+            self.publish(sheet)
         }
     }
 
     private func reload() async {
-        guard let lastInput else { return }
+        guard let lastInput, let key = loadedKey else { return }
         loadTask?.cancel()
         loadTask = nil
-        sheet = await store.sheet(for: lastInput)
+        let fresh = await store.sheet(for: lastInput)
+        guard loadedKey == key else { return }
+        publish(fresh)
+    }
+
+    @discardableResult
+    private func publish(_ fresh: CueSheet) -> Bool {
+        guard fresh != sheet else { return false }
+        sheet = fresh
+        return true
     }
 
     private func reset() {
         loadTask?.cancel()
         loadTask = nil
+        pendingStoreReload?.cancel()
+        pendingStoreReload = nil
         loadedKey = nil
         lastInput = nil
-        sheet = .empty(trackId: "")
+        publish(.empty(trackId: ""))
+    }
+
+    private func storeDidChange(_ trackIds: Set<String>) {
+        guard let trackId = loadedKey?.trackId, trackIds.contains(trackId) else { return }
+        pendingStoreReload?.cancel()
+        let debounce = debounce
+        pendingStoreReload = Task { [weak self] in
+            try? await Task.sleep(for: debounce)
+            guard !Task.isCancelled else { return }
+            await self?.reloadFromStore(trackId: trackId)
+        }
+    }
+
+    private func reloadFromStore(trackId: String) async {
+        guard let input = lastInput, let key = loadedKey, key.trackId == trackId else { return }
+        storeReloadCount += 1
+        let fresh = await store.sheet(for: input)
+        guard !Task.isCancelled, loadedKey == key else { return }
+        let changed = publish(fresh)
+        await onStoreChange?(changed)
     }
 
     @discardableResult

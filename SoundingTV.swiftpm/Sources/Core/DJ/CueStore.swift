@@ -5,6 +5,29 @@ protocol CueSynchronizationReceiving: AnyObject, Sendable {
     func noteCueMutation()
 }
 import SQLite3
+import Synchronization
+
+final class CueChangeFeed: Sendable {
+    private let subscribers = Mutex<[UUID: AsyncStream<Set<String>>.Continuation]>([:])
+
+    func subscribe() -> AsyncStream<Set<String>> {
+        let (stream, continuation) = AsyncStream<Set<String>>.makeStream(bufferingPolicy: .unbounded)
+        let id = UUID()
+        subscribers.withLock { $0[id] = continuation }
+        continuation.onTermination = { [weak self] _ in
+            self?.subscribers.withLock { _ = $0.removeValue(forKey: id) }
+        }
+        return stream
+    }
+
+    func send(_ trackIds: Set<String>) {
+        guard !trackIds.isEmpty else { return }
+        let targets = subscribers.withLock { Array($0.values) }
+        for target in targets { target.yield(trackIds) }
+    }
+
+    var subscriberCount: Int { subscribers.withLock { $0.count } }
+}
 
 enum CueWriterIdentity {
     static let defaultsKey = "red.forbes.sounding.cues.writerId"
@@ -27,6 +50,8 @@ actor CueStore {
 
     nonisolated(unsafe) let db: OpaquePointer?
     let writerId: String
+    let changes = CueChangeFeed()
+    private var batchedChanges: Set<String>?
     private weak var synchronizationSink: (any CueSynchronizationReceiving)?
 
     static func defaultDirectory() -> URL {
@@ -59,6 +84,26 @@ actor CueStore {
 
     func connectSynchronization(to sink: any CueSynchronizationReceiving) {
         synchronizationSink = sink
+    }
+
+    func noteChange(trackId: String) {
+        if batchedChanges != nil {
+            batchedChanges?.insert(trackId)
+        } else {
+            changes.send([trackId])
+        }
+    }
+
+    func batchingChanges<T>(_ body: () -> T) -> T {
+        let outer = batchedChanges == nil
+        if outer { batchedChanges = [] }
+        let result = body()
+        if outer {
+            let pending = batchedChanges ?? []
+            batchedChanges = nil
+            changes.send(pending)
+        }
+        return result
     }
 
     func cues(forTrack trackId: String) -> [CuePoint] {
@@ -242,17 +287,30 @@ actor CueStore {
             .int(dismissal.positionMillis), .int(dismissal.dismissedAtMillis), .text(dismissal.writerId),
         ])
         sqlite3_step(stmt)
+        noteChange(trackId: dismissal.trackId)
         notifyLocalChange()
     }
 
     func undismiss(suggestionId: String) {
         guard let db else { return }
+        let trackId = dismissalTrackId(suggestionId)
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "DELETE FROM cue_dismissal WHERE dismissal_id = ?;", -1, &stmt, nil) == SQLITE_OK else { return }
         defer { sqlite3_finalize(stmt) }
         _ = suggestionId.withCString { sqlite3_bind_text(stmt, 1, $0, -1, Self.sqliteTransient) }
         sqlite3_step(stmt)
+        if let trackId { noteChange(trackId: trackId) }
         notifyLocalChange()
+    }
+
+    private func dismissalTrackId(_ dismissalId: String) -> String? {
+        guard let db else { return nil }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT track_id FROM cue_dismissal WHERE dismissal_id = ?;", -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        _ = dismissalId.withCString { sqlite3_bind_text(stmt, 1, $0, -1, Self.sqliteTransient) }
+        guard sqlite3_step(stmt) == SQLITE_ROW, let ptr = sqlite3_column_text(stmt, 0) else { return nil }
+        return String(cString: ptr)
     }
 
     func delete(cueId: String, now: Int64 = CueTime.nowMillis()) {
@@ -317,20 +375,21 @@ actor CueStore {
 
     @discardableResult
     func adopt(_ records: [CueSyncRecord]) -> Int {
-        var adopted = 0
-        for record in records {
-            let local = existing(id: record.cueId)
-            guard CueSyncPolicy.remoteWins(local: local, remote: record) else { continue }
-            write(record.cuePoint)
-            adopted += 1
+        batchingChanges {
+            var adopted = 0
+            for record in records {
+                let local = existing(id: record.cueId)
+                guard CueSyncPolicy.remoteWins(local: local, remote: record) else { continue }
+                write(record.cuePoint)
+                adopted += 1
+            }
+            return adopted
         }
-        return adopted
     }
 
     @discardableResult
     func adoptDismissals(_ dismissals: [CueDismissal]) -> Int {
         guard let db else { return 0 }
-        var adopted = 0
         let sql = """
         INSERT INTO cue_dismissal (
             dismissal_id, track_id, suggester_name, suggester_version, kind,
@@ -338,18 +397,24 @@ actor CueStore {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(dismissal_id) DO NOTHING;
         """
-        for dismissal in dismissals {
-            var stmt: OpaquePointer?
-            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { continue }
-            bind(stmt, [
-                .text(dismissal.id), .text(dismissal.trackId), .text(dismissal.suggesterName),
-                .int(Int64(dismissal.suggesterVersion)), .text(dismissal.kind.rawValue),
-                .int(dismissal.positionMillis), .int(dismissal.dismissedAtMillis), .text(dismissal.writerId),
-            ])
-            if sqlite3_step(stmt) == SQLITE_DONE, sqlite3_changes(db) > 0 { adopted += 1 }
-            sqlite3_finalize(stmt)
+        return batchingChanges {
+            var adopted = 0
+            for dismissal in dismissals {
+                var stmt: OpaquePointer?
+                guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { continue }
+                bind(stmt, [
+                    .text(dismissal.id), .text(dismissal.trackId), .text(dismissal.suggesterName),
+                    .int(Int64(dismissal.suggesterVersion)), .text(dismissal.kind.rawValue),
+                    .int(dismissal.positionMillis), .int(dismissal.dismissedAtMillis), .text(dismissal.writerId),
+                ])
+                if sqlite3_step(stmt) == SQLITE_DONE, sqlite3_changes(db) > 0 {
+                    adopted += 1
+                    noteChange(trackId: dismissal.trackId)
+                }
+                sqlite3_finalize(stmt)
+            }
+            return adopted
         }
-        return adopted
     }
 
     private func singleton(trackId: String, kind: CueKind, positionMillis: Int64, label: String, now: Int64) -> CuePoint {
@@ -562,6 +627,7 @@ actor CueStore {
         _ = cue.origin.rawValue.withCString { sqlite3_bind_text(stmt, 15, $0, -1, Self.sqliteTransient) }
 
         sqlite3_step(stmt)
+        noteChange(trackId: cue.trackId)
     }
 }
 

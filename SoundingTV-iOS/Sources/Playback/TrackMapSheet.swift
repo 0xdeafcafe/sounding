@@ -42,6 +42,11 @@ struct TrackMapSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(role: .close) { dismiss() }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button(model.undoTitle, systemImage: "arrow.uturn.backward") { model.undoLast() }
+                        .labelStyle(.iconOnly)
+                        .disabled(!model.canUndo || !model.isEditable)
+                }
             }
             .navigationDestination(item: editingBinding) { id in
                 editor(id)

@@ -453,7 +453,9 @@ struct TrackMapCueEditor: View {
         }
         .onAppear { name = cue.label }
         .onChange(of: cue.id) { _, _ in name = cue.label }
-        .onChange(of: cue.label) { _, label in name = label }
+        .onChange(of: cue.label) { old, label in
+            if name == old { name = label }
+        }
         .onDisappear { model.rename(cue, to: name) }
 
         Section {

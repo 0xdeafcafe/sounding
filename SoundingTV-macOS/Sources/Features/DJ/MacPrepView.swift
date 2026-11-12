@@ -48,6 +48,9 @@ struct MacPrepCommands: Commands {
                 Divider()
                 Button(TrackMapCopy.saveCuePoint) { model?.trackMap.saveCue() }
                 Button(TrackMapCopy.addLoop) { model?.trackMap.addLoop() }
+                ForEach(TrackMapModel.MixRole.allCases, id: \.self) { role in
+                    Button("Set \(role.title)") { model?.trackMap.setMix(role) }
+                }
                 Button(TrackMapCopy.delete) { model?.trackMap.deleteSelected() }
                 Divider()
                 Button("Export to USB…") { model?.showsUSBExport = true }

@@ -181,6 +181,7 @@ final class MacPrepModel: ObservableObject {
         trackMap.livePosition = { [weak self] in self?.cursorSeconds ?? 0 }
         trackMap.onSeek = { [weak self] seconds in self?.cursorSeconds = seconds }
         trackMap.onEdit = { [weak self] in await self?.refreshAfterEdit() }
+        trackMap.onStoreChange = { [weak self] in await self?.refreshAfterEdit() }
     }
 
     private func enterStick(volume: String, playlist: UInt32?) {
