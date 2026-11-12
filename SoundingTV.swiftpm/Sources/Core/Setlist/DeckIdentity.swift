@@ -190,7 +190,7 @@ enum DeckIdentityResolver {
     }
 
     private static let likelyMixRegex = try? NSRegularExpression(
-        pattern: #"\b(dj\s*set|mixtape|mix\s*session|guest\s*mix|radio\s*show|tracklist)\b"#,
+        pattern: #"\b(dj\s*set|mixtape|mix\s*session|guest\s*mix|radio\s*show)\b"#,
         options: [.caseInsensitive]
     )
 
@@ -200,10 +200,13 @@ enum DeckIdentityResolver {
 
     static func isLikelyMix(title: String, description: String?, duration: TimeInterval) -> Bool {
         if CollectionKind.classify(trackDurationSeconds: duration) == .set { return true }
-        let text = "\(title) \(description ?? "")"
         guard let regex = likelyMixRegex else { return false }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        return regex.firstMatch(in: text, range: range) != nil
+        func matches(_ text: String) -> Bool {
+            regex.firstMatch(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text)) != nil
+        }
+        if matches(title) { return true }
+        guard duration >= 10 * 60, let description else { return false }
+        return matches(description)
     }
 
     private static func tracklistEntries(in description: String) -> [TracklistEntry] {
