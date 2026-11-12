@@ -287,3 +287,22 @@ struct NPLegibilityScrim: View {
         return min(0.78, max(increased ? 0.32 : 0.16, scrim))
     }
 }
+
+struct NPCoverBackdrop: View {
+    let artworkURL: URL?
+    let palette: ArtworkColors.Palette
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        ZStack {
+            NPBackdrop(artworkURL: artworkURL, palette: palette, isAnimating: !reduceMotion && scenePhase == .active)
+            NPLegibilityScrim(palette: palette)
+            Color.black.opacity(0.22)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}

@@ -1044,8 +1044,9 @@ private struct NPCuesPane: View {
             ScrollView {
                 VStack(spacing: 0) {
                     NPMenuRow(
-                        symbol: "waveform.path", title: TrackMapCopy.editTitle, subtitle: TrackMapCopy.count(model.cueCount),
-                        id: "cue.map", focus: focus, action: onTrackMap
+                        symbol: "waveform.path", title: TrackMapCopy.allCuePoints,
+                        subtitle: model.cueCount == 0 ? TrackMapCopy.panelHint : TrackMapCopy.count(model.cueCount),
+                        id: "cue.map", focus: focus, identifier: "nowplaying.cues.all", action: onTrackMap
                     )
                     ForEach(rows) { row in
                         Button { model.jump(row) } label: {
@@ -1059,17 +1060,17 @@ private struct NPCuesPane: View {
                                         .lineLimit(1)
                                     if let caption = row.caption {
                                         Text(caption)
-                                            .font(.caption2)
+                                            .font(.caption)
                                             .npInk(.secondary)
-                                            .lineLimit(1)
+                                            .lineLimit(2)
                                     }
                                 }
                                 Spacer(minLength: 12)
                                 if let time = row.time {
                                     Text(time)
-                                        .font(.caption)
+                                        .font(.body.weight(.semibold))
                                         .monospacedDigit()
-                                        .npInk(.secondary)
+                                        .npInk(row.isMuted ? .secondary : .primary)
                                 }
                             }
                             .padding(.horizontal, 22)

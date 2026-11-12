@@ -3,6 +3,7 @@ import SwiftUI
 struct TrackMapView: View {
     @ObservedObject var model: TrackMapModel
     let palette: ArtworkColors.Palette
+    var artworkURL: URL?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -16,33 +17,40 @@ struct TrackMapView: View {
     @State private var suppressMoves = false
     @State private var moveCooldownTask: Task<Void, Never>?
 
-    private static let laneHeight: CGFloat = 120
+    private static let laneHeight: CGFloat = 150
+    private static let contentTop: CGFloat = 96
     private static let scrubStep: TimeInterval = 2
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
-            VStack(alignment: .leading, spacing: Space.base) {
+            VStack(alignment: .leading, spacing: Space.roomy) {
                 header
                 timeline
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: Spacing.sm) {
+                    LazyVStack(alignment: .leading, spacing: Space.snug) {
                         TrackMapSections(model: model) { row in
-                            TVTrackMapRow(model: model, row: row, focusedRowId: $focusedRowId, reduceMotion: reduceMotion)
+                            TVTrackMapRow(model: model, row: row, focusedRowId: $focusedRowId)
                         } pads: {
                             TVTrackMapPads(model: model)
                         }
                     }
-                    .padding(.vertical, Space.hair)
+                    .padding(.top, Space.hair)
+                    .padding(.bottom, Space.section)
                 }
+                .scrollClipDisabled()
+                .scrollIndicators(.hidden)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .focusSection()
                 footer
             }
         }
+        .padding(.top, Self.contentTop)
         .padding(.horizontal, Space.page)
-        .padding(.vertical, Space.roomy)
+        .padding(.bottom, Space.section)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.scBackground.ignoresSafeArea())
+        .ignoresSafeArea()
+        .background { NPCoverBackdrop(artworkURL: artworkURL, palette: palette) }
+        .environment(\.colorScheme, .dark)
         .task {
             try? await Task.sleep(for: .milliseconds(80))
             guard focusedRowId == nil else { return }
@@ -81,24 +89,34 @@ struct TrackMapView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: Space.tight) {
-                Eyebrow(text: TrackMapCopy.title)
+        HStack(alignment: .firstTextBaseline, spacing: Space.base) {
+            VStack(alignment: .leading, spacing: Space.hair) {
                 Text(model.trackTitle.isEmpty ? TrackMapCopy.nothingPlaying : model.trackTitle)
-                    .font(.tvTitle)
+                    .font(.callout)
+                    .foregroundStyle(Color.white.opacity(0.66))
+                    .lineLimit(1)
+                Text(TrackMapCopy.title)
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
             }
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("trackMap.header")
             Spacer(minLength: Space.base)
-            PanelCloseButton { dismiss() }
+            if model.cueCount > 0 {
+                Text(TrackMapCopy.count(model.cueCount))
+                    .font(.callout)
+                    .foregroundStyle(Color.white.opacity(0.66))
+                    .lineLimit(1)
+            }
         }
     }
 
     private var timeline: some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
+        VStack(alignment: .leading, spacing: Space.snug) {
             TrackMapLane(model: model, height: Self.laneHeight, style: laneStyle, highlightedId: highlightedId)
+                .padding(.top, Space.tight)
                 .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
                 .focusable()
                 .focused($timelineFocused)
@@ -140,7 +158,7 @@ struct TrackMapView: View {
                 hint: isPanning ? RemoteScrub.delta(model.markTime - model.livePosition()) : (timelineFocused || model.scrubPreview != nil ? TrackMapCopy.remoteHint : nil),
                 showsPlayButton: false
             )
-            .font(.tvCalloutEmph)
+            .font(.callout)
         }
     }
 
@@ -152,15 +170,16 @@ struct TrackMapView: View {
 
     private var footer: some View {
         HStack(spacing: Space.snug) {
-            TrackMapPrimaryButton(
-                icon: "plus.circle.fill",
+            TVCuePill(
+                icon: "plus",
                 title: TrackMapCopy.saveCuePoint,
                 detail: model.markText,
-                accent: palette.accent
+                isProminent: true,
+                accessibilityLabel: TrackMapCopy.save(at: model.markText)
             ) {
                 model.saveCue()
             }
-            UtilityActionButton(icon: "repeat", label: TrackMapCopy.addLoop) { model.addLoop() }
+            TVCuePill(icon: "repeat", title: TrackMapCopy.addLoop) { model.addLoop() }
         }
         .disabled(model.trackId == nil)
         .focusSection()
@@ -229,52 +248,37 @@ private struct TVTrackMapRow: View {
     @ObservedObject var model: TrackMapModel
     let row: TrackMapModel.Row
     @FocusState.Binding var focusedRowId: String?
-    let reduceMotion: Bool
-
-    private var isFocused: Bool { focusedRowId == row.id }
-
-    private var primaryColor: Color {
-        if isFocused { return Color.scChromeFocusOn }
-        return row.isMuted ? Color.scTextSecondary : .white
-    }
 
     var body: some View {
-        HStack(spacing: Space.snug) {
+        HStack(alignment: .center, spacing: Space.snug) {
             Button { model.jump(row) } label: {
-                HStack(spacing: Space.snug) {
+                HStack(alignment: .center, spacing: Space.base) {
                     TrackMapGlyphView(glyph: row.glyph)
-
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Space.hair) {
                         Text(row.title)
-                            .font(.tvBodyEmph)
-                            .foregroundStyle(primaryColor)
+                            .font(.headline)
+                            .npInk(row.isMuted ? .secondary : .primary)
                             .lineLimit(1)
-                        if let caption = row.caption {
+                        if let caption = row.caption, !caption.isEmpty {
                             Text(caption)
-                                .font(.tvCaption)
-                                .foregroundStyle(isFocused ? Color.scChromeFocusOn.opacity(0.65) : Color.scTextTertiary)
-                                .lineLimit(1)
+                                .font(.body)
+                                .npInk(.secondary)
+                                .lineLimit(2)
                         }
                     }
-
-                    Spacer(minLength: Space.snug)
-
+                    Spacer(minLength: Space.base)
                     if let time = row.time {
                         Text(time)
-                            .font(.tvBodyEmph)
+                            .font(.headline)
                             .monospacedDigit()
-                            .foregroundStyle(primaryColor)
+                            .npInk(row.isMuted ? .secondary : .primary)
                     }
                 }
-                .padding(.horizontal, Space.snug)
-                .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
-                        .fill(isFocused ? Color.scChromeFocus : .clear)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
+                .padding(.horizontal, 22)
+                .padding(.vertical, Space.snug)
+                .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
             }
-            .buttonStyle(SCCardButtonStyle(cornerRadius: Corner.control, sizeClass: .hero))
+            .buttonStyle(NPRowStyle(corner: Corner.card, scale: 1.02))
             .disabled(row.seekSeconds == nil)
             .focused($focusedRowId, equals: row.id)
             .accessibilityLabel(row.accessibilityLabel)
@@ -282,12 +286,13 @@ private struct TVTrackMapRow: View {
 
             ForEach(row.actions) { action in
                 if action.isDestructive {
-                    DestructiveActionButton(icon: action.systemImage, accessibilityLabel: action.title, action: action.perform)
+                    TVConfirmingPill(icon: action.systemImage, title: action.title, action: action.perform)
                 } else {
-                    UtilityActionButton(icon: action.systemImage, accessibilityLabel: action.title, action: action.perform)
+                    TVCuePill(icon: action.systemImage, title: action.title, action: action.perform)
                 }
             }
         }
+        .padding(.leading, -22)
         .accessibilityElement(children: .contain)
     }
 }
@@ -296,62 +301,145 @@ private struct TVTrackMapPads: View {
     @ObservedObject var model: TrackMapModel
 
     var body: some View {
-        HStack(spacing: Spacing.sm) {
+        HStack(spacing: Space.snug) {
             ForEach(model.pads) { pad in
-                TVTrackMapPad(pad: pad)
+                TVTrackMapPad(pad: pad, markText: model.markText)
             }
         }
+        .padding(.vertical, Space.tight)
         .focusSection()
     }
 }
 
 private struct TVTrackMapPad: View {
     let pad: TrackMapModel.Pad
+    let markText: String
 
     @FocusState private var focused: Bool
 
+    private var tint: Color { pad.color?.color ?? .white }
+
     var body: some View {
         Button(action: pad.perform) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(pad.letter).fontWeight(.bold)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(pad.letter)
+                        .font(.callout.weight(.bold))
+                        .foregroundStyle(letterColor)
                     Spacer(minLength: 0)
-                    if let time = pad.time { Text(time).monospacedDigit() }
+                    if pad.isSet {
+                        Circle()
+                            .fill(tint)
+                            .frame(width: 18, height: 18)
+                            .offset(y: 2)
+                    }
                 }
-                .font(.tvCaption)
-                .foregroundStyle(focused ? Color.scChromeFocusOn : (pad.color?.color ?? Color.scTextTertiary))
-                Text(pad.title ?? (pad.isSet ? TrackMapCopy.cueKind : "+"))
-                    .font(.tvBodyEmph)
-                    .foregroundStyle(focused ? Color.scChromeFocusOn : (pad.isSet ? .white : Color.scTextSecondary))
-                    .lineLimit(1)
+                Spacer(minLength: Space.tight)
+                if pad.isSet {
+                    if let title = pad.title {
+                        Text(title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(focused ? Color.scChromeFocusOn : .white)
+                            .lineLimit(1)
+                    }
+                    Text(pad.time ?? "")
+                        .font(pad.title == nil ? .headline : .callout)
+                        .monospacedDigit()
+                        .foregroundStyle(focused ? Color.scChromeFocusOn.opacity(0.7) : Color.white.opacity(pad.title == nil ? 1 : 0.66))
+                        .lineLimit(1)
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: Space.tight) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 30, weight: .semibold))
+                        Text(focused ? markText : "")
+                            .font(.callout)
+                            .monospacedDigit()
+                    }
+                    .foregroundStyle(focused ? Color.scChromeFocusOn : Color.white.opacity(0.5))
+                }
             }
-            .padding(.horizontal, Space.snug)
-            .padding(.vertical, Space.tight)
-            .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Corner.control, style: .continuous)
-                    .fill(focused ? Color.scChromeFocus : (pad.color?.color ?? .white).opacity(0.12))
-            )
-            .contentShape(RoundedRectangle(cornerRadius: Corner.control, style: .continuous))
+            .padding(Space.base)
+            .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
+            .background {
+                RoundedRectangle(cornerRadius: Corner.card, style: .continuous)
+                    .fill(fill)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: Corner.card, style: .continuous)
+                    .strokeBorder(focused ? Color.clear : tint.opacity(pad.isSet ? 0.4 : 0.1), lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: Corner.card, style: .continuous))
         }
-        .buttonStyle(SCCardButtonStyle(cornerRadius: Corner.control, sizeClass: .card))
+        .buttonStyle(SCCardButtonStyle(cornerRadius: Corner.card, sizeClass: .card))
         .focused($focused)
         .accessibilityLabel(pad.accessibilityLabel)
     }
+
+    private var fill: Color {
+        if focused { return Color.scChromeFocus }
+        return pad.isSet ? tint.opacity(0.22) : Color.white.opacity(0.14)
+    }
+
+    private var letterColor: Color {
+        if pad.isSet { return focused ? Color.scChromeFocusOn : tint }
+        return focused ? Color.scChromeFocusOn.opacity(0.7) : Color.white.opacity(0.5)
+    }
 }
 
-private struct DestructiveActionButton: View {
+private struct TVCuePill: View {
     let icon: String
-    let accessibilityLabel: String
+    let title: String
+    var detail: String? = nil
+    var isProminent = false
+    var accessibilityLabel: String? = nil
+    let action: () -> Void
+
+    @FocusState private var focused: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Space.snug) {
+                Image(systemName: icon)
+                    .font(.system(size: 26, weight: .semibold))
+                Text(title)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
+                if let detail {
+                    Spacer(minLength: Space.base)
+                    Text(detail)
+                        .font(.body.weight(.semibold))
+                        .monospacedDigit()
+                        .opacity(0.7)
+                }
+            }
+            .foregroundStyle(focused ? Color.scChromeFocusOn : .white)
+            .padding(.horizontal, Space.base)
+            .frame(maxWidth: isProminent ? .infinity : nil, minHeight: 72)
+            .background(Capsule().fill(focused ? Color.scChromeFocus : Color.white.opacity(0.14)))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(focused ? 0 : 0.1), lineWidth: 1))
+            .opacity(isEnabled ? 1 : 0.4)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(SCShapeButtonStyle(shape: Capsule(), sizeClass: isProminent ? .hero : .card))
+        .focused($focused)
+        .accessibilityLabel(accessibilityLabel ?? title)
+    }
+}
+
+private struct TVConfirmingPill: View {
+    let icon: String
+    let title: String
     let action: () -> Void
 
     @State private var confirming = false
     @State private var resetTask: Task<Void, Never>?
 
     var body: some View {
-        UtilityActionButton(
+        TVCuePill(
             icon: confirming ? "exclamationmark.triangle.fill" : icon,
-            accessibilityLabel: confirming ? "Click again to confirm" : accessibilityLabel
+            title: confirming ? TrackMapCopy.clickAgain : title,
+            accessibilityLabel: confirming ? "\(TrackMapCopy.clickAgain), \(title)" : title
         ) {
             if confirming {
                 resetTask?.cancel()
@@ -367,43 +455,6 @@ private struct DestructiveActionButton: View {
                 }
             }
         }
-    }
-}
-
-private struct TrackMapPrimaryButton: View {
-    let icon: String
-    let title: String
-    let detail: String
-    let accent: Color
-    let action: () -> Void
-
-    @FocusState private var focused: Bool
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: Space.snug) {
-                Image(systemName: icon)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(focused ? Color.scChromeFocusOn : .white)
-                Text(title)
-                    .font(.tvBodyEmph)
-                    .foregroundStyle(focused ? Color.scChromeFocusOn : .white)
-                Spacer(minLength: Space.snug)
-                Text(detail)
-                    .font(.tvBodyEmph)
-                    .monospacedDigit()
-                    .foregroundStyle(focused ? Color.scChromeFocusOn.opacity(0.7) : Color.scTextSecondary)
-            }
-            .padding(.horizontal, Space.base)
-            .frame(maxWidth: .infinity, minHeight: Control.circle + Space.tight)
-            .background(Capsule().fill(focused ? Color.scChromeFocus : Color.white.opacity(0.08)))
-            .opacity(isEnabled ? 1 : 0.4)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(SCShapeButtonStyle(shape: Capsule(), sizeClass: .hero))
-        .focused($focused)
-        .accessibilityLabel(TrackMapCopy.save(at: detail))
     }
 }
 

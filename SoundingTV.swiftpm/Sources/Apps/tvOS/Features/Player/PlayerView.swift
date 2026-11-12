@@ -231,7 +231,7 @@ struct PlayerView: View {
             }
         }
         .fullScreenCover(isPresented: $showingTrackMap) {
-            TrackMapView(model: trackMap, palette: artworkColors.current)
+            TrackMapView(model: trackMap, palette: artworkColors.current, artworkURL: playerService.currentTrack?.artworkURL)
                 .npCover()
         }
         .fullScreenCover(isPresented: $showingSetlist) {
