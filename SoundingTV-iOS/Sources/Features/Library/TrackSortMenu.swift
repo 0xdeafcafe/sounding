@@ -59,7 +59,7 @@ struct TrackSortMenu: View {
             }
 
             Picker("Sort by", selection: $sortKey) {
-                ForEach(TrackSortKey.allCases) { key in
+                ForEach(TrackSortKey.menuCases) { key in
                     Label(key.rawValue, systemImage: key.icon).tag(key)
                 }
             }
@@ -90,7 +90,7 @@ struct PlaylistSortMenu: View {
         Menu {
             Picker("Sort by", selection: $sortKey) {
                 Label("Playlist Order", systemImage: "list.number").tag(TrackSortKey?.none)
-                ForEach(TrackSortKey.allCases) { key in
+                ForEach(TrackSortKey.menuCases) { key in
                     Label(key.rawValue, systemImage: key.icon).tag(TrackSortKey?.some(key))
                 }
             }
@@ -119,7 +119,7 @@ struct PlaylistSortMenu: View {
 struct TrackCollectionMenu: View {
     @Binding var query: TrackCollectionQuery
     var showsColumns: Binding<Bool>? = nil
-    var sortKeys: [TrackSortKey] = TrackSortKey.allCases
+    var sortKeys: [TrackSortKey] = TrackSortKey.menuCases
     var dateLabel = "Date Added"
     var naturalOrderLabel: String? = nil
     var filters: [TrackFilter] = TrackFilter.allCases
@@ -221,9 +221,9 @@ enum TrackColumnsMetrics {
         case .time: return time
         case .bpm: return bpm
         case .key: return key
-        case .energy, .plays, .likes: return count
+        case .energy, .plays, .likes, .cues: return count
         case .added, .released: return date
-        case .source: return source
+        case .source, .grid: return source
         }
     }
 }
@@ -335,7 +335,7 @@ struct TrackColumnsRowLabel: View {
 
 struct TrackColumnsHeader: View {
     @Binding var query: TrackCollectionQuery
-    var sortKeys: [TrackSortKey] = TrackSortKey.allCases
+    var sortKeys: [TrackSortKey] = TrackSortKey.menuCases
     var numbered = false
     var dateLabel = "Added"
 

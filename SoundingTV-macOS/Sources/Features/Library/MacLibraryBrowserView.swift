@@ -531,6 +531,83 @@ final class MacAnalysisIndex: ObservableObject {
 }
 
 @MainActor
+final class MacPrepIndex: ObservableObject {
+    static let shared = MacPrepIndex()
+
+    @Published private(set) var cueCounts: [String: Int] = [:]
+    @Published private(set) var gridLabels: [String: String] = [:]
+
+    private let store: CueStore
+    private var known = Set<String>()
+    private var pending = Set<String>()
+    private var flushTask: Task<Void, Never>?
+    private var feedTask: Task<Void, Never>?
+    private static let batchSize = 400
+
+    init(store: CueStore = .shared) {
+        self.store = store
+        let feed = store.changes.subscribe()
+        feedTask = Task { [weak self] in
+            for await ids in feed {
+                self?.refresh(ids)
+            }
+        }
+    }
+
+    func cueCount(_ trackId: String) -> Int? { cueCounts[trackId] }
+
+    func gridLabel(_ trackId: String) -> String? { gridLabels[trackId] }
+
+    func request(_ trackIds: some Sequence<String>) {
+        var added = false
+        for id in trackIds where known.insert(id).inserted {
+            pending.insert(id)
+            added = true
+        }
+        if added { scheduleFlush() }
+    }
+
+    private func refresh(_ trackIds: Set<String>) {
+        let tracked = trackIds.intersection(known)
+        guard !tracked.isEmpty else { return }
+        pending.formUnion(tracked)
+        scheduleFlush()
+    }
+
+    private func scheduleFlush() {
+        guard flushTask == nil else { return }
+        flushTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            await self?.flush()
+        }
+    }
+
+    private func flush() async {
+        let ids = Array(pending)
+        pending.removeAll()
+        flushTask = nil
+        guard !ids.isEmpty else { return }
+        var counts: [String: Int] = [:]
+        var grids: [String: String?] = [:]
+        var start = 0
+        while start < ids.count {
+            let batch = Array(ids[start..<min(start + Self.batchSize, ids.count)])
+            start += Self.batchSize
+            let cues = await store.cues(forTracks: batch)
+            let preps = await store.preps(forTracks: batch)
+            for id in batch {
+                counts[id] = cues[id]?.filter { $0.hotCueIndex != nil }.count ?? 0
+                grids[id] = TrackValueFormat.grid(preps[id])
+            }
+        }
+        cueCounts.merge(counts) { _, new in new }
+        var labels = gridLabels
+        for (id, label) in grids { labels[id] = label }
+        gridLabels = labels
+    }
+}
+
+@MainActor
 enum MacAnalysisRunner {
     @discardableResult
     static func analyse(_ track: Track, force: Bool) async -> AnalysisWorkState {
@@ -545,6 +622,8 @@ struct MacLibraryRow: Identifiable {
     let analysis: MacAnalysisResult?
     let dateAdded: Date
     let isLoadable: Bool
+    var cueCount: Int?
+    var gridLabel: String?
 
     init(track: Track, analysis: MacAnalysisResult?, dateAdded: Date? = nil) {
         self.isLoadable = track.mixSource != nil
@@ -554,6 +633,14 @@ struct MacLibraryRow: Identifiable {
     }
 
     var id: String { track.id }
+
+    @MainActor
+    func withPrep(_ index: MacPrepIndex) -> MacLibraryRow {
+        var row = self
+        row.cueCount = index.cueCount(track.id)
+        row.gridLabel = index.gridLabel(track.id)
+        return row
+    }
 
     var titleKey: String { track.title }
     var artistKey: String { track.user.displayName }
@@ -582,6 +669,14 @@ struct LibraryRowComparator: TrackKeyedSortComparator {
     func compare(_ lhs: MacLibraryRow, _ rhs: MacLibraryRow) -> ComparisonResult {
         if key == .dateAdded {
             return TrackSort.rank(lhs.dateAdded, rhs.dateAdded, order: order, by: <)
+        }
+        if key == .cues {
+            return TrackSort.rank(lhs.cueCount.flatMap { $0 > 0 ? $0 : nil }, rhs.cueCount.flatMap { $0 > 0 ? $0 : nil }, order: order, by: <)
+        }
+        if key == .grid {
+            return TrackSort.rank(lhs.gridLabel, rhs.gridLabel, order: order) {
+                $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+            }
         }
         return TrackSort.compare(
             lhs.track,
@@ -1189,6 +1284,7 @@ struct MacLibraryTable: View {
     var pager: Paginator<Track>? = nil
     var storageKey: String? = nil
     var showsSource = false
+    var exportScope: MacUSBExportSource? = nil
 
     @State private var sortOrder = [LibraryRowComparator(key: .dateAdded, order: .reverse)]
     @State private var columns = TableColumnCustomization<MacLibraryRow>()
@@ -1197,11 +1293,17 @@ struct MacLibraryTable: View {
     @State private var selection = Set<String>()
     @State private var editingTrackId: String?
     @ObservedObject private var analysisWork = AutomaticAnalysisStatus.shared
+    @ObservedObject private var prepIndex = MacPrepIndex.shared
 
     private static let artworkWarmupCount = 18
 
+    private var showsPrepColumns: Bool {
+        layout.isVisible(.cues) || layout.isVisible(.grid)
+    }
+
     var body: some View {
-        let presentedRows = rows.sorted(using: sortOrder)
+        let showsPrep = showsPrepColumns
+        let presentedRows = (showsPrep ? rows.map { $0.withPrep(prepIndex) } : rows).sorted(using: sortOrder)
 
         VStack(spacing: 0) {
             table(presentedRows)
@@ -1215,6 +1317,22 @@ struct MacLibraryTable: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
         }
+        .task(id: showsPrep ? "\(rows.count)-\(rows.first?.id ?? "")-\(rows.last?.id ?? "")" : "") {
+            guard showsPrep else { return }
+            prepIndex.request(rows.map(\.id))
+        }
+        .focusedValue(\.macUSBExportSource, selectionExportSource(presentedRows) ?? exportScope)
+    }
+
+    private func selectionExportSource(_ presentedRows: [MacLibraryRow]) -> MacUSBExportSource? {
+        guard !selection.isEmpty else { return nil }
+        let tracks = presentedRows.filter { selection.contains($0.id) }.map(\.track)
+        guard !tracks.isEmpty else { return nil }
+        return MacUSBExportSource(
+            id: "tracks:selection",
+            name: tracks.count == 1 ? tracks[0].title : "\(tracks.count) Selected Tracks",
+            items: tracks.map(MacUSBExportSource.Item.init)
+        )
     }
 
     private var summary: String {
@@ -1298,7 +1416,11 @@ struct MacLibraryTable: View {
         .environment(\.defaultMinListRowHeight, usesCompactRows && !showsArtwork ? 24 : 36)
         .contextMenu(forSelectionType: String.self) { selectedIDs in
             if let row = presentedRows.first(where: { selectedIDs.contains($0.id) }) {
-                MacTrackContextMenu(track: row.track, presentsTempoKey: { onEditAnalysis($0.id) })
+                MacTrackContextMenu(
+                    track: row.track,
+                    presentsTempoKey: { onEditAnalysis($0.id) },
+                    analysisTracks: selectedIDs.count > 1 ? presentedRows.filter { selectedIDs.contains($0.id) }.map(\.track) : nil
+                )
             }
         } primaryAction: { selectedIDs in
             guard let row = presentedRows.first(where: { selectedIDs.contains($0.id) }) else { return }
@@ -1411,6 +1533,16 @@ struct MacLibraryTable: View {
                 .lineLimit(1)
         case .added:
             Text(TrackValueFormat.added(row.dateAdded))
+                .foregroundStyle(MacSecondaryStyle())
+                .lineLimit(1)
+        case .cues:
+            Text(TrackValueFormat.cues(row.cueCount))
+                .foregroundStyle(MacSecondaryStyle())
+                .monospacedDigit()
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        case .grid:
+            Text(row.gridLabel ?? TrackValueFormat.missing)
                 .foregroundStyle(MacSecondaryStyle())
                 .lineLimit(1)
         default:

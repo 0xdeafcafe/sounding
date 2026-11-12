@@ -58,6 +58,8 @@ enum TrackTableColumn: String, CaseIterable, Identifiable, Sendable {
     case likes
     case album
     case released
+    case cues
+    case grid
 
     var id: String { rawValue }
     var customizationID: String { rawValue }
@@ -77,6 +79,8 @@ enum TrackTableColumn: String, CaseIterable, Identifiable, Sendable {
         case .likes: return "Likes"
         case .album: return "Album"
         case .released: return "Released"
+        case .cues: return "Cues"
+        case .grid: return "Grid"
         }
     }
 
@@ -85,6 +89,8 @@ enum TrackTableColumn: String, CaseIterable, Identifiable, Sendable {
         case .added: return "Date Added"
         case .time: return "Duration"
         case .album: return "Album or Release"
+        case .cues: return "Hot Cues"
+        case .grid: return "Beat Grid"
         default: return title()
         }
     }
@@ -104,6 +110,8 @@ enum TrackTableColumn: String, CaseIterable, Identifiable, Sendable {
         case .likes: return .likes
         case .album: return .album
         case .released: return .released
+        case .cues: return .cues
+        case .grid: return .grid
         }
     }
 
@@ -122,12 +130,14 @@ enum TrackTableColumn: String, CaseIterable, Identifiable, Sendable {
         case .likes: return TrackTableColumnWidth(min: 50, ideal: 60, max: 80)
         case .album: return TrackTableColumnWidth(min: 100, ideal: 160, max: 280)
         case .released: return TrackTableColumnWidth(min: 98, ideal: 104, max: 130)
+        case .cues: return TrackTableColumnWidth(min: 58, ideal: 68, max: 82)
+        case .grid: return TrackTableColumnWidth(min: 68, ideal: 82, max: 110)
         }
     }
 
     var isNumeric: Bool {
         switch self {
-        case .bpm, .energy, .time, .plays, .likes: return true
+        case .bpm, .energy, .time, .plays, .likes, .cues: return true
         default: return false
         }
     }
@@ -136,7 +146,7 @@ enum TrackTableColumn: String, CaseIterable, Identifiable, Sendable {
 
     var showsInDenseRow: Bool {
         switch self {
-        case .title, .artist, .time, .source, .added: return false
+        case .title, .artist, .time, .source, .added, .cues, .grid: return false
         default: return true
         }
     }
@@ -146,7 +156,7 @@ struct TrackColumnLayout: Equatable, Sendable, RawRepresentable {
     static let storageKey = "trackList.columns.v1"
 
     static let standardOrder: [TrackTableColumn] = [
-        .title, .artist, .bpm, .key, .genre, .time, .added, .album, .plays, .likes, .energy, .released, .source,
+        .title, .artist, .bpm, .key, .genre, .time, .added, .album, .plays, .likes, .energy, .released, .source, .cues, .grid,
     ]
     static let standardVisible: Set<TrackTableColumn> = [.title, .artist, .bpm, .key, .genre, .time, .added, .source]
     static let standard = TrackColumnLayout(order: standardOrder, visible: standardVisible)
@@ -264,6 +274,21 @@ enum TrackValueFormat {
         track.albumName
     }
 
+    static func cues(_ count: Int?) -> String {
+        guard let count, count > 0 else { return missing }
+        return "\(min(count, CuePoint.hotCueSlotCount))/\(CuePoint.hotCueSlotCount)"
+    }
+
+    static func grid(_ prep: TrackPrep?) -> String? {
+        guard let grid = prep?.grid else { return nil }
+        if grid.value.locked { return "Locked" }
+        switch grid.source {
+        case .user: return "Set by you"
+        case .rekordbox: return "rekordbox"
+        case .sounding: return "Analysed"
+        }
+    }
+
     static func value(
         _ column: TrackTableColumn,
         track: Track,
@@ -284,6 +309,7 @@ enum TrackValueFormat {
         case .likes: return likes(track)
         case .album: return album(track) ?? missing
         case .released: return added(track.createdAt)
+        case .cues, .grid: return missing
         }
     }
 }
