@@ -155,6 +155,16 @@ struct PlayerView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: showingLyrics)
         .onExitCommand(perform: exitAction)
         .defaultFocus($focus, .play)
+        .tvEntersFocus($focus, .play, when: navigationState.tabBeforeNowPlaying != nil)
+        .onChange(of: isCoverPresented) { was, now in
+            guard was, !now else { return }
+            let restore = lastMainFocus
+            for delay in [0.0, 0.8] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    if focus == nil, !isCoverPresented { focus = restore }
+                }
+            }
+        }
         .onAppear {
             isVisible = true
             route(.nowPlayingAppeared)
