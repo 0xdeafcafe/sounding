@@ -360,6 +360,15 @@ actor AutomaticAnalysisScheduler {
         }
     }
 
+    nonisolated func enqueueDeckWork(key: String, operation: @escaping @Sendable () async -> Void) {
+        Task(priority: .utility) {
+            await self.enqueue(
+                key: key, priority: .interactive, pausesDuringPlayback: false,
+                analysisTrackId: nil, operation: operation
+            )
+        }
+    }
+
     nonisolated func resumeBacklog(trackIds: [String], resolver: @escaping BacklogResolver) {
         Task(priority: .utility) { await self.installBacklog(trackIds, resolver: resolver) }
     }
@@ -611,7 +620,6 @@ actor AutomaticAnalysisScheduler {
     }
 
     private func nextRunnableIndex(_ conditions: AnalysisLaneConditions) -> Int? {
-        let capacity = AnalysisLanePolicy.capacity(conditions)
         let backgroundLimit = isWaitingForSync ? 0 : AnalysisLanePolicy.backgroundLanes(conditions)
         let interactiveRunning = running.values.contains(.interactive)
         let ordered = lane.indices.sorted {
@@ -622,7 +630,11 @@ actor AutomaticAnalysisScheduler {
         return ordered.first { index in
             let item = lane[index]
             guard running[item.key] == nil else { return false }
-            if item.priority == .interactive { return running.count < capacity || !interactiveRunning }
+            if item.priority == .interactive {
+                return AnalysisLanePolicy.mayStartInteractive(
+                    running: running.count, interactiveRunning: interactiveRunning, conditions
+                )
+            }
             guard running.count < backgroundLimit else { return false }
             return !(item.pausesDuringPlayback && conditions.isPlaying)
         }

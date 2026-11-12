@@ -2,21 +2,12 @@ import Foundation
 import Combine
 import Observation
 
-/// Analysis-only remains of the original transition service: it measures BPM,
-/// key, and energy for upcoming queue tracks and caches the results. The
-/// parallel bars/techniques planner it used to run is gone — the single plan
-/// currency is PhantomDJEngine.Plan, produced by DJSessionDirector.
-///
-/// `transition(from:to:)` survives only as a compatibility projection for the
-/// tvOS readouts that still speak the old vocabulary; PlayerService installs
-/// a provider that derives the answer from the adaptive plan.
 @MainActor
 final class DJTransitionService: ObservableObject {
     static let shared = DJTransitionService(sourceResolver: .shared)
 
     weak var delegate: DJTransitionServiceDelegate?
 
-    /// Projects the single plan model into the legacy readout vocabulary.
     var planProvider: ((Track, Track) -> TransitionPlan?)?
 
     @Published var isEnabled: Bool = false {
@@ -37,18 +28,40 @@ final class DJTransitionService: ObservableObject {
         isSyncingFromCanonicalState = false
     }
 
+    nonisolated static var fetchesRemoteAudio: Bool {
+        #if os(tvOS)
+        return false
+        #else
+        return true
+        #endif
+    }
+
     private let cacheURL: URL
     private let sourceResolver: PlaybackSourceResolver
     private var pendingAnalysisTasks: [String: Task<Void, Never>] = [:]
+    private var refreshTasks: [String: Task<Void, Never>] = [:]
+    private var tracks: [String: Track] = [:]
+    private var measurements: [String: TrackAnalysis] = [:]
+    private var analysisObserver: NSObjectProtocol?
     private var saveTask: Task<Void, Never>?
     private var savedData: Data?
     private static let saveDelay: Duration = .seconds(2)
 
     private init(sourceResolver: PlaybackSourceResolver) {
         self.sourceResolver = sourceResolver
-        cacheURL = AppDataDirectory.file("dj-cache-v2.json")
-        try? FileManager.default.removeItem(at: AppDataDirectory.file("dj-cache.json"))
+        cacheURL = AppDataDirectory.file("dj-cache-v3.json")
+        for legacy in ["dj-cache.json", "dj-cache-v2.json"] {
+            try? FileManager.default.removeItem(at: AppDataDirectory.file(legacy))
+        }
         loadCache()
+        analysisObserver = NotificationCenter.default.addObserver(
+            forName: .analysisDataDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            let trackIds = note.userInfo?[AnalysisDataChange.trackIdsKey] as? [String]
+            MainActor.assumeIsolated { self?.analysisDataDidChange(trackIds) }
+        }
     }
 
     func toggle() { isEnabled.toggle() }
@@ -73,78 +86,142 @@ final class DJTransitionService: ObservableObject {
         }
     }
 
+    func analyzeDeck(_ track: Track, localFileURL: URL) {
+        tracks[track.id] = track
+        guard measurements[track.id]?.energy == nil else {
+            refresh(track.id)
+            return
+        }
+        pendingAnalysisTasks[track.id]?.cancel()
+        start(track, localFileURL: localFileURL)
+    }
+
     private func primeFromCurrentPlayer() {
         guard let delegate else { return }
         analyzeUpcoming(in: delegate.queue, from: delegate.currentIndex)
     }
 
     private func scheduleAnalysis(of track: Track) {
-        if case .analyzed = states[track.id] { return }
-        if pendingAnalysisTasks[track.id] != nil { return }
+        let isNew = tracks.updateValue(track, forKey: track.id) == nil
+        guard pendingAnalysisTasks[track.id] == nil else { return }
+        switch states[track.id] {
+        case .analyzed, .failed:
+            if isNew { refresh(track.id) }
+            return
+        case .pending, .analyzing, nil: break
+        }
+        start(track, localFileURL: nil)
+    }
 
-        states[track.id] = .analyzing
-        let task = Task { [weak self] in
+    private func start(_ track: Track, localFileURL: URL?) {
+        if !Self.isMeasured(states[track.id]) { states[track.id] = .analyzing }
+        pendingAnalysisTasks[track.id] = Task { [weak self] in
             guard let self else { return }
-            let analysis = await self.runAnalysis(for: track)
+            let measured = await self.measure(track, localFileURL: localFileURL)
             guard !Task.isCancelled else { return }
-            self.states[track.id] = .analyzed(analysis)
             self.pendingAnalysisTasks[track.id] = nil
-            self.saveCache()
+            if let measured {
+                self.measurements[track.id] = measured
+                Log.analysis.notice("Deck analysis for \(track.id, privacy: .public): bpm=\(measured.bpm.map { String(format: "%.1f", $0) } ?? "–", privacy: .public) key=\(measured.key ?? "–", privacy: .public) energy=\(measured.energy.map { String(format: "%.2f", $0) } ?? "–", privacy: .public)")
+            }
+            await self.publish(track)
         }
-        pendingAnalysisTasks[track.id] = task
     }
 
-    private func runAnalysis(for track: Track) async -> TrackAnalysis {
-        // The shared analysis database is synced through CloudKit, so a result
-        // measured earlier by this TV, an iPhone, or a Mac should win over
-        // fetching and decoding the first minute again.
-        if let cached = await AnalysisSummaryStore.summaries(for: [track])[track.id],
-           cached.bpm != nil || cached.key != nil {
-            return TrackAnalysis(
-                trackId: track.id,
-                bpm: cached.bpm,
-                key: cached.key?.label,
-                energy: 0.5,
-                intro: 0,
-                outro: max(0, track.duration - 16),
-                isEstimated: false
-            )
+    private func measure(_ track: Track, localFileURL: URL?) async -> TrackAnalysis? {
+        if let fileURL = localFileURL ?? AutomaticAnalysisEligibility.deckFileURL(for: track) {
+            guard AutomaticAnalysisEligibility.isEnabled else { return nil }
+            return await Self.measureInLane(track, fileURL: fileURL)
         }
+        guard Self.fetchesRemoteAudio else { return nil }
+        let summary = await AnalysisSummaryStore.summaries(for: [track])[track.id]
+        if summary?.bpmIsMeasured == true, summary?.keyIsMeasured == true { return nil }
         do {
-            let url = try await sourceResolver.decodedAudioURL(
-                for: track,
-                collectionID: nil
-            )
+            let url = try await sourceResolver.decodedAudioURL(for: track, collectionID: nil)
             defer { TemporaryPlaintextFile(url: url).release() }
-            return try await AudioAnalyzer.analyze(
-                streamURL: url,
-                duration: track.duration,
-                trackId: track.id
-            )
+            return try await AudioAnalyzer.analyze(streamURL: url, duration: track.duration, trackId: track.id)
         } catch {
-            return Self.synthesizeAnalysis(for: track)
+            return nil
         }
     }
 
-    private static func synthesizeAnalysis(for track: Track) -> TrackAnalysis {
-        // Failure means unknown. Plausible-looking values derived from an ID
-        // teach both the planner and the person at the controls to trust data
-        // that was never heard in the audio.
-        return TrackAnalysis(
+    nonisolated private static func measureInLane(_ track: Track, fileURL: URL) async -> TrackAnalysis? {
+        await withCheckedContinuation { continuation in
+            AutomaticAnalysisScheduler.shared.enqueueDeckWork(key: "deckMeasure.\(track.id).\(UUID().uuidString)") {
+                await AnalysisPlaybackGuard.waitWhilePlaybackCritical()
+                do {
+                    let result = try await AudioAnalyzer.analyze(
+                        streamURL: fileURL,
+                        duration: track.duration,
+                        trackId: track.id
+                    )
+                    continuation.resume(returning: result)
+                } catch {
+                    Log.analysis.error("Deck analysis for \(track.id, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    private func publish(_ track: Track) async {
+        let summary = await AnalysisSummaryStore.summaries(for: [track])[track.id]
+        guard pendingAnalysisTasks[track.id] == nil else { return }
+        let next: AnalysisState = Self.merge(
             trackId: track.id,
-            bpm: nil,
-            key: nil,
-            energy: 0.5,
-            intro: 0,
-            outro: track.duration,
-            isEstimated: true
+            duration: track.duration,
+            summary: summary,
+            measured: measurements[track.id]
+        ).map { .analyzed($0) } ?? .failed
+        if states[track.id] != next { states[track.id] = next }
+        saveCache()
+    }
+
+    private func analysisDataDidChange(_ trackIds: [String]?) {
+        let ids = trackIds ?? Array(tracks.keys)
+        for id in ids { refresh(id) }
+    }
+
+    private func refresh(_ trackId: String) {
+        guard let track = tracks[trackId], pendingAnalysisTasks[trackId] == nil, refreshTasks[trackId] == nil else { return }
+        refreshTasks[trackId] = Task { [weak self] in
+            await self?.publish(track)
+            self?.refreshTasks[trackId] = nil
+        }
+    }
+
+    nonisolated static func isMeasured(_ state: AnalysisState?) -> Bool {
+        guard case .analyzed(let analysis) = state else { return false }
+        return !analysis.isEstimated
+    }
+
+    nonisolated static func merge(
+        trackId: String,
+        duration: TimeInterval,
+        summary: AnalysisFeatureSummary?,
+        measured: TrackAnalysis?
+    ) -> TrackAnalysis? {
+        let bpm = (summary?.bpmIsMeasured == true ? summary?.bpm : nil) ?? measured?.bpm
+        let key = (summary?.keyIsMeasured == true ? summary?.key?.label : nil) ?? measured?.key
+        let energy = measured?.energy
+        guard bpm != nil || key != nil || energy != nil else { return nil }
+        return TrackAnalysis(
+            trackId: trackId,
+            bpm: bpm,
+            key: key,
+            energy: energy,
+            intro: measured?.intro ?? 0,
+            outro: measured?.outro ?? max(0, duration - 16),
+            isEstimated: false
         )
     }
 
     private func loadCache() {
         guard let data = try? Data(contentsOf: cacheURL),
               let decoded = try? JSONDecoder().decode(CachePayload.self, from: data) else { return }
-        for analysis in decoded.analyses {
+        savedData = data
+        for analysis in decoded.analyses where !analysis.isEstimated {
+            measurements[analysis.trackId] = analysis
             states[analysis.trackId] = .analyzed(analysis)
         }
     }
@@ -160,9 +237,7 @@ final class DJTransitionService: ObservableObject {
     }
 
     private func writeCache() {
-        let analyses: [TrackAnalysis] = states.values.compactMap {
-            if case .analyzed(let a) = $0 { return a } else { return nil }
-        }.sorted { $0.trackId < $1.trackId }
+        let analyses = measurements.values.filter { !$0.isEstimated }.sorted { $0.trackId < $1.trackId }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(CachePayload(analyses: analyses)), data != savedData else { return }

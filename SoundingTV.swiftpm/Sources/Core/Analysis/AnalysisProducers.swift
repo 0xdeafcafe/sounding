@@ -162,6 +162,7 @@ struct AnalysisFeatureSummary: Sendable, Equatable {
     var genreAuthority: AnalysisAuthority?
 
     var bpmIsMeasured: Bool { bpmAuthority.map { $0 <= .measured } ?? false }
+    var keyIsMeasured: Bool { keyAuthority.map { $0 <= .measured } ?? false }
     var genreIsMeasured: Bool { genreAuthority.map { $0 <= .measured } ?? false }
 
     var isEmpty: Bool { bpm == nil && key == nil && genre == nil }

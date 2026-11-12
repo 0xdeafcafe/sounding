@@ -15,9 +15,9 @@ struct DeckReadout: Equatable {
         case .analyzed(let analysis):
             bpm = analysis.bpm
             key = analysis.key
-            energy = analysis.energy
-            isEstimated = analysis.isEstimated
-            hasAnalysis = true
+            energy = analysis.isEstimated ? nil : analysis.energy
+            isEstimated = analysis.isEstimated && analysis.bpm != nil
+            hasAnalysis = bpm != nil || key != nil || energy != nil
         case .failed:
             break
         }

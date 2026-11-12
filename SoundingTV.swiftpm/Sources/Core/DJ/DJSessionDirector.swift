@@ -960,6 +960,7 @@ final class DJSessionDirector: ObservableObject {
     }
 
     private func scheduleMixAnalysis(track: Track, transcoding: Transcoding?, localFileURL: URL) {
+        host.transitionService.analyzeDeck(track, localFileURL: localFileURL)
         AutomaticAnalysisScheduler.shared.schedule(
             track,
             trigger: .deckLoaded,
@@ -1110,7 +1111,8 @@ final class DJSessionDirector: ObservableObject {
     /// commit so the loaded deck and UI cannot churn at the last moment.
     private func reconsiderCurrentPlanIfUseful() {
         guard host.isAutoMixEnabled, let track = host.currentTrack,
-              host.mixWindow == nil, !isCrossfading, !pinnedPlanTrackIds.contains(track.id) else { return }
+              host.mixWindow == nil, !isCrossfading, jumpDeckTrackId == nil,
+              !pinnedPlanTrackIds.contains(track.id) else { return }
         if let plan = adaptiveMixPlan,
            host.currentTime >= max(0, plan.mixPointSeconds - 45) {
             return
@@ -1380,6 +1382,9 @@ final class DJSessionDirector: ObservableObject {
                     cacheKey: self.host.mixCacheKey(for: track, collectionId: self.host.activeCollectionId)
                 )
                 guard self.jumpDeckTrackId == track.id else { return }
+                if let localURL = engine.localFileURL(for: deck) {
+                    self.scheduleMixAnalysis(track: track, transcoding: track.mixSource, localFileURL: localURL)
+                }
                 engine.resetProcessing(on: deck, killLows: true)
                 self.host.applyLoudnessNormalization(for: track, deck: deck)
                 engine.setBeatGrid(plan.incomingBeatGrid, for: deck)
@@ -1835,8 +1840,8 @@ final class DJSessionDirector: ObservableObject {
                 keyRegions = [KeyRegion(key: camelot, start: 0, end: track.duration)]
                 provenance.insert(.measuredKey)
             }
-            if energyLevel == nil {
-                energyLevel = min(10, max(1, Int((analysis.energy * 10).rounded())))
+            if energyLevel == nil, let energy = analysis.energy {
+                energyLevel = min(10, max(1, Int((energy * 10).rounded())))
             }
             if sections.isEmpty, analysis.intro > 1, analysis.intro < track.duration * 0.5 {
                 sections = [TrackSection(kind: .intro, start: 0, end: analysis.intro)]

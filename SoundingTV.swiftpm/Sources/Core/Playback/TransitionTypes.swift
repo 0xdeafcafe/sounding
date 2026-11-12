@@ -11,7 +11,7 @@ struct TrackAnalysis: Codable, Equatable, Sendable {
     let trackId: String
     let bpm: Double?
     let key: String?
-    let energy: Double
+    let energy: Double?
     let intro: TimeInterval
     let outro: TimeInterval
     let isEstimated: Bool
@@ -20,7 +20,7 @@ struct TrackAnalysis: Codable, Equatable, Sendable {
         trackId: String,
         bpm: Double?,
         key: String?,
-        energy: Double,
+        energy: Double?,
         intro: TimeInterval,
         outro: TimeInterval,
         isEstimated: Bool = false
@@ -43,7 +43,7 @@ struct TrackAnalysis: Codable, Equatable, Sendable {
         trackId = try c.decode(String.self, forKey: .trackId)
         bpm = try c.decodeIfPresent(Double.self, forKey: .bpm)
         key = try c.decodeIfPresent(String.self, forKey: .key)
-        energy = try c.decode(Double.self, forKey: .energy)
+        energy = try c.decodeIfPresent(Double.self, forKey: .energy)
         intro = try c.decode(TimeInterval.self, forKey: .intro)
         outro = try c.decode(TimeInterval.self, forKey: .outro)
         isEstimated = try c.decodeIfPresent(Bool.self, forKey: .isEstimated) ?? true
