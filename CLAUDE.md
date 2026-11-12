@@ -19,6 +19,6 @@ Hard rules (details in the bible):
 - **Building:** a merge builds every platform. The iOS scheme also compiles the watch, widget and Share targets, so it's the one that catches wire-protocol breaks. TestFlight builds come from `tools/testflight/release.sh all`. History was squashed on 2026-11-09, so pass a `BUILD_NUMBER` above the latest App Store Connect build.
 - **Testing:**
   - use real auth and the real account for all testing (no fixtures or fake logins); keep traffic low and stop at the first 429;
-  - shared simulators only;
+  - shared simulators only; the owner's real iPad, iPhone and Apple TV run TestFlight builds only, never Xcode installs (Xcode builds use the Development CloudKit database and strand the SoundCloud session, owner 2026-11-12);
   - kill the Mac app by PID, never `pkill -x Sounding`.
 - **Website:** `docs/` is the public GitHub Pages site. Never modify `docs/auth/` or `docs/CNAME`. Publish with a docs-only commit to `main`.

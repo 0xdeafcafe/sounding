@@ -633,7 +633,7 @@ Settings, forms, lists of real content, and most empty states (keep them stock).
   - look at them, compare against the prototypes, and measure CPU/hitches when you touch motion;
   - a reviewer approving from two screenshots isn't verification.
 - **Simulators:** use the shared pool only (iPhones 3E6A3345…, 342BE016…; TV 84BB9394…). Don't create new ones.
-- **Real devices:** the Apple TV and iPad are approved. The iPhone only for Action button, StandBy and alarm tests. Ask the user to sign in on a device; never work around sign-in.
+- **Real devices run TestFlight builds only** (owner, 2026-11-12). Xcode-signed builds use the Development CloudKit database, so they strand the shared SoundCloud session. Install Xcode builds on simulators; read device logs with `devicectl device process launch --console`. The Apple TV and iPad are approved for testing. The iPhone only for Action button, StandBy and alarm tests. Ask the user to sign in on a device; never work around sign-in.
 - **Mac app:** kill only by PID, never `pkill -x Sounding`.
 - **Screenshot drives open pages by link** (Release-safe, iPhone, iPad and Mac): `soundingtv://open-page?url=<SoundCloud https URL>` resolves the link and navigates without playing: an artist or playlist opens on Home (iPad: a playlist with its own sidebar item opens there), a track opens Behind the Track (`SoundingPageLinkRouter` in `WidgetLinkRouter.swift`). Only soundcloud.com hosts are accepted.
 - **User messages:** a new message during work means "also", not "cancel".
