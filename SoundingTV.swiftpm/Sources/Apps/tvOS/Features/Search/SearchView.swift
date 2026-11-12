@@ -10,6 +10,7 @@ struct SearchView: View {
     @EnvironmentObject var authService: AuthenticationService
     @FocusState private var focus: Focus?
     @State private var destination: SearchHit?
+    @State private var browseQuery: String?
 
     private enum Focus: Hashable { case firstBrowseTile }
 
@@ -24,6 +25,7 @@ struct SearchView: View {
                     }
                 }
         }
+        .onExitCommand(perform: browseExit)
     }
 
     private var content: some View {
@@ -62,6 +64,20 @@ struct SearchView: View {
             #endif
         }
         .onChange(of: navigationState.pendingSearchQuery) { _, _ in applyPendingQuery() }
+    }
+
+    private func browse(_ query: String) {
+        browseQuery = query
+        model.search(query)
+    }
+
+    private var browseExit: (() -> Void)? {
+        guard destination == nil, let browseQuery, model.isSearching, model.query == browseQuery else { return nil }
+        return {
+            self.browseQuery = nil
+            model.search("")
+            DispatchQueue.main.async { focus = .firstBrowseTile }
+        }
     }
 
     private func applyPendingQuery() {
@@ -126,7 +142,7 @@ struct SearchView: View {
             section("Browse") {
                 LazyVGrid(columns: browseColumns, spacing: Space.gutter) {
                     ForEach(Array(SearchVibe.all.enumerated()), id: \.offset) { index, vibe in
-                        let tile = VibeTileButton(vibe: vibe) { model.search(vibe.query) }
+                        let tile = VibeTileButton(vibe: vibe) { browse(vibe.query) }
                         if index == 0 {
                             tile.focused($focus, equals: .firstBrowseTile)
                         } else {

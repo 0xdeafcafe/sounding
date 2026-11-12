@@ -173,7 +173,7 @@ struct QRCodeLoginView: View {
             )
                 .ignoresSafeArea()
         )
-        .onExitCommand { onClose?() }
+        .onExitCommand(perform: onClose)
         .alert(
             approvalTitle,
             isPresented: Binding(get: { bonjourServer.linkApproval != nil }, set: { _ in }),
