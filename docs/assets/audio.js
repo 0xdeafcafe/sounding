@@ -188,7 +188,7 @@ export function createAudio(base) {
     });
   }
 
-  A.set = next => { Object.assign(want, next); apply(); };
+  A.set = next => { Object.assign(want, next); if (A.on) apply(); };
 
   A.prime = () => {
     if (primed || booting || !window.Audio) return;
@@ -211,6 +211,7 @@ export function createAudio(base) {
     await booting;
     if (ctx.state !== 'running') await ctx.resume();
     A.on = true;
+    apply(0.001);
     master.gain.cancelScheduledValues(ctx.currentTime);
     master.gain.setTargetAtTime(0.85, ctx.currentTime, 0.05);
   };

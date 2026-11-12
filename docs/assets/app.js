@@ -22,21 +22,30 @@ const xfButtons = $$('[data-xf]');
 const soundButtons = $$('[data-sound]');
 const plugButtons = $$('[data-plug]');
 const theme = $('meta[name="theme-color"]');
+const PAGE = document.body.dataset.page;
+const HOME = PAGE === 'home', DJ = PAGE === 'dj';
+const SIDE_KEY = 'sounding.side';
+const remember = b => { if (HOME || DJ) return; try { localStorage.setItem(SIDE_KEY, b ? 'b' : 'a'); } catch (e) {} };
+const PAGES = {
+  dj: { spots: [] },
+  tv: { spots: [['phone', 'phone'], ['tv', 'tv'], ['watch', 'watch']] },
+  features: { spots: [['phone', 'phone'], ['tv', 'tv'], ['watch', 'watch'], ['pad', 'ipad'], ['mac', 'mac']] },
+};
 
 // MARK: Still
 function still() {
   root.classList.add('still');
-  const dj = document.body.dataset.page === 'dj';
   const setSide = b => {
-    if (dj && !b) { location.href = '../'; return; }
+    if (DJ && !b) { location.href = '../'; return; }
     root.dataset.side = b ? 'b' : 'a';
     xfButtons.forEach(x => x.setAttribute('aria-pressed', String((x.dataset.xf === '1') === b)));
     range.value = b ? 1000 : 0;
     if (theme) theme.setAttribute('content', b ? '#110e0c' : '#f6f1e8');
+    remember(b);
   };
   range.addEventListener('change', () => setSide(+range.value > 500));
   xfButtons.forEach(x => x.addEventListener('click', () => setSide(x.dataset.xf === '1')));
-  setSide(dj || qs.get('side') === 'b');
+  setSide(DJ || (qs.has('side') ? qs.get('side') === 'b' : !HOME && root.dataset.side === 'b'));
 }
 
 // MARK: Shots
@@ -44,16 +53,21 @@ const SHOT = {
   open0: { l: [0.035, 0.158, -0.14, 13, 27, 0.4, 0.2, -0.08], p: [0.026, 0.155, -0.14, 10, 30, 0.215, 0, -0.4] },
   open1: { l: [0.014, 0.14, -0.14, 11, 29, 0.31, 0.2, 0.02], p: [0.006, 0.138, -0.14, 6, 31, 0.15, 0, -0.42] },
   hero: { l: [0, 0.03, 0, 0, 42, 1.63, 0, -0.58], p: [0, 0.05, 0, 0, 58, 0.66, 0, -0.42], yawX: 10, px: 0.44 },
-  crate: { l: [-0.33, 0, 1.23, 0, 62, 2.4, 0, 0], p: [-0.4, 0, 1.23, 0, 66, 1.6, 0, 0.34], sx: 0.33 },
-  phone: { l: [0.42, 0.008, 1.0, 0, 74, 0.3, 0, 0.03], p: [0.42, 0.008, 1.0, 0, 82, 0.115, 0, 0.3], sx: 0.24 },
-  tv1: { l: [2.15, 0.26, 1.4, 0, 16, 1.6, 0, 0], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36], sx: 0.3 },
+  crate: { l: [-0.33, 0, 1.23, 0, 62, 2.4, 0, 0], p: [-0.4, 0, 1.23, 0, 66, 1.6, 0, 0.34], sx: 0.33, pw: 0.5 },
+  phone: { l: [0.42, 0.008, 1.0, 0, 74, 0.3, 0, 0.03], p: [0.42, 0.008, 1.0, 0, 82, 0.115, 0, 0.3], sx: 0.24, pw: 0.35, ww: 1.05 },
+  tv1: { l: [2.15, 0.26, 1.4, 0, 16, 1.6, 0, 0], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36], sx: 0.3, pw: 0.36 },
   tv2: { l: [1.9, 0.007, 1.785, -5, 57, 0.4, 0, 0.02], p: [1.9, 0.02, 1.765, -8, 57, 0.165, 0, 0.3], sx: 0.2 },
   tv3: { l: [2.17, 0.012, 1.8, 0, 82, 0.12, 0, 0], p: [2.17, 0.012, 1.8, 0, 82, 0.09, 0, 0.36], sx: 0.32 },
   tv4: { l: [2.15, 0.26, 1.4, 0, 16, 1.6, 0, 0], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36], sx: 0.3 },
   rigA: { l: [0, 0.06, 0, -20, 34, 1.36, 0, 0.44], p: [-0.14, 0.06, 0, -24, 62, 0.62, 0, 0.36], sx: 0.08, yawX: 24 },
   rigC: { l: [0, 0.05, 0, 0, 39, 1.5, 0, 0.3], p: [0, 0.05, 0, 40, 40, 0.62, 0, 0.3], yawX: 14 },
   out: { l: [0.035, 0.158, -0.14, 13, 27, 0.4, 0.2, -0.08], p: [0.026, 0.155, -0.14, 10, 30, 0.215, 0, 0.36] },
-  dj: { l: [0, 0.03, 0, 6, 40, 1.5, 0, -0.5], p: [0.31, 0.05, 0, 0, 58, 0.55, 0, -0.6] },
+  dj: { l: [0, 0.03, 0, 6, 40, 1.78, -0.14, -0.62], p: [0.31, 0.05, 0, 0, 58, 0.55, 0, -0.6] },
+  pad: { l: [1.27, 0.01, 0.2, -12, 64, 0.7, 0.2, 0.05], p: [1.27, 0.01, 0.2, -12, 70, 0.3, 0, 0.3], pw: 0.5, ww: 1 },
+  mac: { l: [1.56, 0.1, 0.75, -12, 30, 0.68, 0.2, 0.05], p: [1.56, 0.1, 0.75, -12, 34, 0.36, 0, 0.3], pw: 0.5 },
+  amp: { l: [0.035, 0.158, -0.14, 13, 27, 0.6, 0.5, -0.04], p: [0.026, 0.155, -0.14, 10, 30, 0.215, 0, 0.36], pw: 0.55 },
+  watch: { l: [2.17, 0.012, 1.8, 0, 62, 0.34, 0.3, 0.02], pw: 0.3, p: [2.17, 0.012, 1.8, 0, 66, 0.17, 0, 0.3] },
+  room: { l: [1.2, 0.05, 0.6, 24, 46, 2.3, 0.3, -0.1], p: [1.2, 0.05, 0.6, 24, 50, 1.2, 0, 0.3] },
 };
 const OPEN = 1.2;
 const SEAT = 0.9;
@@ -69,23 +83,39 @@ const ANCHOR = { top: -OPEN, listen: 2.0, output: 7.2, decks: 14.6 };
 // MARK: Live
 function live(stage) {
   root.classList.add('live');
+  if (!HOME) root.classList.add('page');
+  if (matchMedia('(pointer: coarse)').matches) root.classList.add('coarse');
   const canvas = stage.R.gl.canvas;
   const world = stage.world, S = world.S, L = stage.L;
   const audio = createAudio(base);
-  const home = document.body.dataset.page === 'home';
+  const home = HOME;
+  const PG = PAGES[PAGE] || { spots: [] };
   const lead = home ? OPEN : 0;
   const np = { sec: 0, tapped: false, set(sec) { np.sec = clamp(sec, 0, MIX.duration - 1); }, jump(i) { np.set(MIX.tracks[clamp(i, 0, MIX.tracks.length - 1)][0] + 1); } };
   const main = $('main'), topBar = $('.top');
   const mobileQuery = matchMedia('(max-width: 860px), (max-aspect-ratio: 1/1)');
-  const scenes = Object.fromEntries($$('.scene').map(el => [el.dataset.scene, { el, a: $('.side.a', el), b: $('.side.b', el), capsA: $$('.side.a .cap', el), capsB: $$('.side.b .cap', el) }]));
+  const scenes = Object.fromEntries($$('.scene').map(el => [el.dataset.scene, { el, a: $('.side.a', el), b: $('.side.b', el), vis: $('.visual', el), capsA: $$('.side.a .cap', el), capsB: $$('.side.b .cap', el) }]));
+  const chapters = home ? [] : $$('.scene.chapter').map((el, i) => {
+    const n = $$('.cap', el).length;
+    const span = +el.dataset.span || 1.6 + 0.8 * n;
+    el.style.setProperty('--span', span);
+    const tag = (el.classList.contains('flip') || el.classList.contains('right') ? '!' : '') + (el.classList.contains('wide') ? '>' : el.classList.contains('hero') ? '+' : '') + ($('.visual', el) ? '~' : '');
+    return { id: el.dataset.scene, el, first: i === 0, n, span, shots: (el.dataset.shot || 'dj').split(',').map(s => s + tag), states: JSON.parse(el.dataset.states || '[]'), flow: el.classList.contains('flow'), s: 0, len: 1, alpha: 0, cap: 0, near: 1e9 };
+  });
   const inks = $$('.ink').filter(el => !home || !topBar.contains(el)).map(el => ({ el, side: el.closest('.side'), d0: null, ex: null, ey: null }));
-  const panes = home ? createScreens({ base, opaque: true }) : null;
-  if (panes && matchMedia('(max-width: 860px), (max-aspect-ratio: 1/1)').matches) { panes.resize('tv', 1280); panes.resize('pad', 1024); panes.resize('mac', 1280); }
-  const spots = (home ? [['phone', 'phone'], ['tv', 'tv'], ['watch', 'watch'], ['friend', 'phone'], ['pad', 'ipad'], ['mac', 'mac']] : []).map(([name, body]) => ({ name, pw: SCREENS[name].w, ph: SCREENS[name].h, ww: L[body].sw, vis: null, m: null, cx: 0, cy: 0, rev: 0 }));
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  const panes = home || PG.spots.length ? createScreens({ base, opaque: true, budget: coarse ? 1 : 0 }) : null;
+  if (panes && coarse) { panes.resize('phone', 420); panes.resize('friend', 420); panes.resize('tv', 960); panes.resize('watch', 320); panes.resize('pad', 820); panes.resize('mac', 960); }
+  else if (panes && matchMedia('(max-width: 860px), (max-aspect-ratio: 1/1)').matches) { panes.resize('tv', 1280); panes.resize('pad', 1024); panes.resize('mac', 1280); }
+  const spots = (home ? [['phone', 'phone'], ['tv', 'tv'], ['watch', 'watch'], ['friend', 'phone'], ['pad', 'ipad'], ['mac', 'mac']] : PG.spots).map(([name, body]) => ({ name, pw: SCREENS[name].w, ph: SCREENS[name].h, ww: L[body].sw, vis: null, m: null, cx: 0, cy: 0, rev: 0 }));
+  const spot = name => spots.find(s => s.name === name);
   const manual = qs.has('manual');
   const plate = qs.has('plate');
+  let pageKeys = [], pageSeen = true, deepNow = false, phoneU = 0, phoneGoal = 0;
 
-  let vw = 1, vh = 1, aspect = 1.6, mobile = false, dpr = 1;
+  let vw = 1, vh = 1, svh = 1, aspect = 1.6, mobile = false, dpr = 1;
+  const rulers = coarse && CSS.supports('height', '100lvh') ? ['100lvh', '100svh'].map(h => { const i = document.createElement('i'); i.style.cssText = `position:fixed;top:0;left:0;width:0;height:${h};visibility:hidden;pointer-events:none`; document.body.append(i); return i; }) : null;
+  const viewport = () => { if (!rulers) return [innerWidth, innerHeight, innerHeight]; const l = rulers[0].offsetHeight, s = rulers[1].offsetHeight; return [innerWidth, l ? Math.max(l, innerHeight) : innerHeight, s ? Math.min(s, innerHeight) : innerHeight]; };
   let p = 0, pe = 0, pv = 0, lastY = scrollY, bend = 0;
   let beats = 0, clock = 0, last = performance.now(), step = 0.016;
   const X = { pos: 0, vel: 0, target: null, held: false };
@@ -121,23 +151,26 @@ function live(stage) {
   let tapId = -1, tapRows = [], drift = 0, camWas = null;
 
   function measure() {
-    vw = innerWidth; vh = innerHeight; aspect = vw / vh; mobile = mobileQuery.matches;
-    dpr = Math.min(devicePixelRatio || 1, mobile ? 2 : 1.5, Math.sqrt(3.4e6 / (vw * vh))) * quality * burst;
+    [vw, vh, svh] = viewport(); aspect = vw / vh; mobile = mobileQuery.matches;
+    dpr = Math.min(devicePixelRatio || 1, coarse ? 1.5 : mobile ? 2 : 1.5, Math.sqrt((coarse ? 1.5e6 : 3.4e6) / (vw * vh))) * quality * burst;
     stage.resize(vw, vh, dpr);
-    if (home) { main.style.paddingTop = `${(OPEN + END) * vh}px`; root.style.setProperty('--ih', vh + 'px'); root.style.setProperty('--head', Math.round(topBar.getBoundingClientRect().bottom) + 'px'); root.style.setProperty('--foot', $('.foot').offsetHeight + 'px'); }
+    if (home) main.style.paddingTop = `${(OPEN + END) * vh}px`;
+    root.style.setProperty('--ih', vh + 'px'); root.style.setProperty('--svh', svh + 'px'); root.style.setProperty('--head', Math.round(topBar.getBoundingClientRect().bottom) + 'px'); root.style.setProperty('--foot', $('.foot').offsetHeight + 'px');
     inks.forEach(k => { k.d0 = null; k.ex = null; });
     heads.forEach(q => { q.box = null; });
   }
 
   function shot(name) {
-    const s = SHOT[name];
+    const key = name.replace(/[!>+~]+$/, ''), tag = name.slice(key.length);
+    const flip = tag.includes('!'), s = SHOT[key], push = tag.includes('>') ? (s.pw ?? 0.5) : tag.includes('+') ? 0.2 : tag.includes('~') ? 0.5 : 0, wide = tag.includes('~') ? 1.3 : tag.includes('>') ? (s.ww ?? 1.3) : 1;
     const c = (mobile ? s.p : s.l).slice();
     if (mobile) {
       c[5] *= clamp(aspect / 0.462, 1, 3.2);
       if (s.px && home) c[0] += (fade - 0.5) * s.px;
     } else {
-      c[5] *= Math.max(1, aspect / 1.6);
-      if (s.sx && !plate) c[6] += (0.5 - fade) * 2 * s.sx;
+      c[5] *= Math.max(1, aspect / 1.6) * wide;
+      if (s.sx && !plate) c[6] += home ? (0.5 - fade) * 2 * s.sx : (flip ? -1 : 1) * s.sx;
+      if (!home) c[6] += (flip ? -1 : 1) * (0.14 + push);
       if (plate) c[7] *= 0.4;
     }
     if (s.yawX && home) c[3] += (fade - 0.5) * s.yawX * (mobile ? 0.4 : 1);
@@ -148,16 +181,60 @@ function live(stage) {
   const aim = c => Object.assign(stage.cam, { t: [c[0], c[1], c[2]], yaw: c[3], pitch: c[4], w: c[5], ox: c[6], oy: c[7] });
 
   function camera(at) {
-    if (!home) { const c = shot('dj'); c[3] += Math.sin(clock * 0.16) * 3; c[7] += pe * 2; aim(c); return; }
-    const on = Math.max(0, at);
+    if (!home && pageKeys.length < 2) { const c = shot(chapters[0] ? chapters[0].shots[0] : 'dj'); if (!coarse) c[3] += Math.sin(clock * 0.16) * 3; c[7] += pe * 2; aim(c); return; }
+    const keys = home ? KEYS : pageKeys;
+    const on = home ? Math.max(0, at) : at;
     let i = 0;
-    while (i < KEYS.length - 2 && KEYS[i + 1][0] <= on) i++;
-    const [p0, n0] = KEYS[i], [p1, n1] = KEYS[i + 1];
+    while (i < keys.length - 2 && keys[i + 1][0] <= on) i++;
+    const [p0, n0] = keys[i], [p1, n1] = keys[i + 1];
     const a = shot(n0), b = shot(n1);
-    const e = smoother((on - p0) / (p1 - p0));
+    const e = smoother(p1 > p0 ? (on - p0) / (p1 - p0) : 1);
     let c = blend(a, b, e);
-    if (revT < 1) c = blend(at > 8 ? shot('out') : blend(shot('open0'), shot('open1'), smooth(pe / SEAT)), c, smoother(revT));
+    if (home && revT < 1) c = blend(at > 8 ? shot('out') : blend(shot('open0'), shot('open1'), smooth(pe / SEAT)), c, smoother(revT));
+    if (!home && !coarse) c[3] += Math.sin(clock * 0.16) * (mobile ? 1 : 2);
     aim(c);
+  }
+
+  // MARK: Chapters
+  function chapterScript(dt) {
+    const fz = 0.3 * vh, z = 0.2;
+    pageKeys = [];
+    pageSeen = false;
+    let best = null;
+    for (const c of chapters) {
+      const r = c.el.getBoundingClientRect();
+      const s = -r.top, len = Math.max(1, r.height - vh);
+      c.s = s; c.len = len;
+      c.near = s < 0 ? -s : s > len ? s - len : 0;
+      if (s > -vh * 1.05 && s < len + vh * 1.05) pageSeen = true;
+      if (!best || c.near < best.near) best = c;
+      const flowing = c.flow && mobile;
+      c.alpha = flowing ? (r.bottom > 0 && r.top < vh ? 1 : 0) : (c.first ? 1 : ss(-fz, 0, s)) * (1 - ss(len, len + fz, s));
+      const hold = Math.max(1, len - 2 * fz);
+      c.cap = c.n ? clamp(Math.floor((s - fz) / (hold / c.n)), 0, c.n - 1) : 0;
+      const a = (scrollY + r.top) / vh, b = a + len / vh;
+      const open = c.first ? -9 : a + 0.35, close = b - 0.2;
+      if (c.shots.length < 2 || !c.n) pageKeys.push([open, c.shots[0]], [close, c.shots[0]]);
+      else {
+        const step = hold / vh / c.n;
+        for (let i = 0; i < c.n; i++) {
+          const sh = c.shots[Math.min(i, c.shots.length - 1)], prev = c.shots[Math.max(0, Math.min(i - 1, c.shots.length - 1))];
+          const s0 = a + fz / vh + i * step, s1 = s0 + step;
+          if (i === 0) pageKeys.push([open, sh]);
+          else if (sh !== prev) pageKeys.push([s0 - z, prev], [s0 + z, sh]);
+          if (i === c.n - 1) pageKeys.push([close, sh]);
+        }
+      }
+      want['cap-' + c.id] = flowing ? c.n - 1 : c.cap;
+    }
+    const state = { ph: 'play', out: 'idle', tv: 'off', tvb: 'np', w: 'clock', pad: 'home', mac: 'home', pick: false, picked: false, phone: 'home' };
+    if (best) for (let i = 0; i <= Math.min(best.cap, best.states.length - 1); i++) Object.assign(state, best.states[i]);
+    Object.assign(want, state);
+    want.pad = state.pad; want.mac = state.mac;
+    phoneGoal = state.phone === 'tv' ? 1 : 0;
+    phoneU = toward(phoneU, phoneGoal, 1.1, 1.1, dt);
+    S.phone = carry(L.phoneHome, L.phoneTV, phoneU, 0.06, 0.14);
+    S.friend = carry(L.friendOff, L.friendPos, state.out === 'share' ? 1 : 0, 0.04, -0.06);
   }
 
   const wipeEdge = () => lerp(1.4, -0.4, fade);
@@ -185,18 +262,22 @@ function live(stage) {
   }
 
   function commit() {
-    if (shown.ph !== want.ph || shown.pick !== want.pick || shown.out !== want.out || shown.picked !== want.picked) { shown.ph = want.ph; shown.pick = want.pick; shown.out = want.out; shown.picked = want.picked; panes.set('phone', { ph: want.ph, pick: want.pick, out: want.out, picked: want.picked }); }
-    if (shown.tv !== want.tv || shown.tvb !== want.tvb) { shown.tv = want.tv; shown.tvb = want.tvb; panes.set('tv', { tv: want.tv, tvb: want.tvb }); }
-    if (shown.w !== want.w) { shown.w = want.w; panes.set('watch', { w: want.w }); }
-    if (shown.pad !== want.pad) { shown.pad = want.pad; panes.set('pad', { pad: want.pad }); panes.set('mac', { mac: want.pad }); }
+    if (panes) {
+      if (shown.ph !== want.ph || shown.pick !== want.pick || shown.out !== want.out || shown.picked !== want.picked) { shown.ph = want.ph; shown.pick = want.pick; shown.out = want.out; shown.picked = want.picked; panes.set('phone', { ph: want.ph, pick: want.pick, out: want.out, picked: want.picked }); }
+      if (shown.tv !== want.tv || shown.tvb !== want.tvb) { shown.tv = want.tv; shown.tvb = want.tvb; panes.set('tv', { tv: want.tv, tvb: want.tvb }); }
+      if (shown.w !== want.w) { shown.w = want.w; panes.set('watch', { w: want.w }); }
+      if (shown.pad !== want.pad) { shown.pad = want.pad; panes.set('pad', { pad: want.pad }); }
+      if (shown.mac !== want.mac) { shown.mac = want.mac; panes.set('mac', { mac: want.mac }); }
+    }
     if (want.demo && !shown.demo && !np.tapped) demoAt = clock + 1.4;
     shown.demo = want.demo;
-    for (const id in CAPS) {
+    for (const id in scenes) {
       const k = 'cap-' + id;
-      if (shown[k] === want[k]) continue;
+      if (!(k in want) || shown[k] === want[k]) continue;
       shown[k] = want[k];
       const sc = scenes[id];
       [sc.capsA, sc.capsB].forEach(list => list.forEach((c, i) => c.classList.toggle('on', i === Math.min(want[k], list.length - 1))));
+      sc.el.dataset.cap = want[k];
       inks.forEach(q => { q.d0 = null; });
     }
   }
@@ -285,11 +366,13 @@ function live(stage) {
       const sc = scenes[id];
       const w = WINDOWS[id];
       const hole = mobile && id === 'output' ? null : HOLES[id];
-      const alpha = (w ? ss(w[0], w[1], at) * (1 - ss(w[2], w[3], at)) : 1) * (hole ? 1 - ss(hole[0], hole[1], at) * (1 - ss(hole[2], hole[3], at)) : 1);
-      [sc.a, sc.b].forEach((el, bSide) => {
+      const ch = home ? null : chapters.find(c => c.id === id);
+      const alpha = ch ? ch.alpha : (w ? ss(w[0], w[1], at) * (1 - ss(w[2], w[3], at)) : 1) * (hole ? 1 - ss(hole[0], hole[1], at) * (1 - ss(hole[2], hole[3], at)) : 1);
+      [sc.a, sc.b, sc.vis].forEach((el, k) => {
         if (!el) return;
+        const bSide = k === 1;
         let o = alpha;
-        if (o > 0.001) {
+        if (o > 0.001 && home) {
           let s;
           if (mobile || id === 'join') { const t = id === 'join' || !!bSide === fade > 0.5 ? 1 : 0; el._x = lerp(el._x ?? t, t, follow); s = el._x < 0.004 ? 0 : el._x > 0.996 ? 1 : el._x; }
           else { const r = el.getBoundingClientRect(); const m = wipeAt(r.left + r.width / 2, r.top + r.height / 2); s = bSide ? ss(0.6, 0.95, m) : 1 - ss(0.5, 0.9, m); }
@@ -315,10 +398,13 @@ function live(stage) {
       root.style.setProperty('--lrx', Math.max(1, g.rx).toFixed(1) + 'px');
       root.style.setProperty('--lry', Math.max(1, g.ry).toFixed(1) + 'px');
     }
-    for (const k of inks) {
-      if (k.side && !(k.side._o > 0.004)) continue;
-      const r = k.el.getBoundingClientRect();
-      if (r.bottom < -40 || r.top > vh + 40 || !r.width) continue;
+    if (home) for (const k of inks) {
+      if (k.side && !(k.side._o > 0.004)) { k.r = null; continue; }
+      k.r = k.el.getBoundingClientRect();
+    }
+    if (home) for (const k of inks) {
+      const r = k.r;
+      if (!r || r.bottom < -40 || r.top > vh + 40 || !r.width) continue;
       if (dim) {
         const ex = Math.round(r.left * 2) / 2, ey = Math.round(r.top * 2) / 2;
         if (ex !== k.ex || ey !== k.ey) { k.ex = ex; k.ey = ey; k.el.style.setProperty('--ex', ex + 'px'); k.el.style.setProperty('--ey', ey + 'px'); }
@@ -352,18 +438,16 @@ function live(stage) {
       s.cx = (m[0] * s.pw / 2 + m[4] * s.ph / 2 + m[12]) / w;
       s.cy = (m[1] * s.pw / 2 + m[5] * s.ph / 2 + m[13]) / w;
     }
-    const ph = spots[0], tv = spots[1];
-    const pb = ph.vis ? (shown.ph === 'play' || shown.ph === 'list') && wipeAt(ph.cx, ph.cy) > 0.5 : !!shown.pb;
-    const tb = tv.vis ? shown.tv !== 'off' && wipeAt(tv.cx, tv.cy) > 0.5 : !!shown.tb;
-    if (pb !== shown.pb) { shown.pb = pb; panes.set('phone', { b: pb }); }
-    if (tb !== shown.tb) { shown.tb = tb; panes.set('tv', { b: tb }); }
-    for (const s of [spots[4], spots[5]]) { const k = 'b' + s.name, v = s.vis ? wipeAt(s.cx, s.cy) > 0.5 : !!shown[k]; if (v !== shown[k]) { shown[k] = v; panes.set(s.name, { b: v }); } }
+    const ph = spot('phone'), tv = spot('tv');
+    if (ph) { const pb = home && (ph.vis ? (shown.ph === 'play' || shown.ph === 'list') && wipeAt(ph.cx, ph.cy) > 0.5 : !!shown.pb); if (pb !== shown.pb) { shown.pb = pb; panes.set('phone', { b: pb }); } }
+    if (tv) { const tb = home && (tv.vis ? shown.tv !== 'off' && wipeAt(tv.cx, tv.cy) > 0.5 : !!shown.tb); if (tb !== shown.tb) { shown.tb = tb; panes.set('tv', { b: tb }); } }
+    for (const s of [spot('pad'), spot('mac')]) { if (!s) continue; const k = 'b' + s.name, v = home && (s.vis ? wipeAt(s.cx, s.cy) > 0.5 : !!shown[k]); if (v !== shown[k]) { shown[k] = v; panes.set(s.name, { b: v }); } }
     panes.time(np.sec);
-    for (const name of panes.step(dt)) { const s = spots.find(q => q.name === name); world.setScreen(name, panes.canvas(name), ++s.rev); }
+    for (const name of panes.step(dt)) { const s = spot(name); if (s) world.setScreen(name, panes.canvas(name), ++s.rev); }
   }
 
   function track(x, y) {
-    const s = spots[0];
+    const s = spot('phone');
     if (!s || !s.vis || !s.m || shown.ph !== 'list') return null;
     const [a, d, , g, b, e, , h, , , , , c, f, , i] = s.m;
     const W = (d * h - e * g) * x + (b * g - a * h) * y + (a * e - b * d);
@@ -511,7 +595,6 @@ function live(stage) {
   canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', up);
   canvas.addEventListener('pointercancel', up);
-  canvas.addEventListener('touchstart', e => { const t = e.changedTouches[0]; if (pick(t.clientX, t.clientY)) e.preventDefault(); }, { passive: false });
   canvas.addEventListener('click', e => { const i = track(e.clientX, e.clientY); if (i != null) { np.tapped = true; np.jump(i); } });
   canvas.addEventListener('dblclick', e => { const h = pick(e.clientX, e.clientY); if (h && h.type === 'knob') S.knob[h.i] = 0.5; if (h && h.type === 'pitch') deck[h.i].user = 0; });
 
@@ -564,9 +647,9 @@ function live(stage) {
     if (Math.abs(fade - X.pos) < 0.0005) fade = X.pos;
     S.fade = fade;
     const side = fade > 0.5 ? 'b' : 'a';
-    if (root.dataset.side !== side) { root.dataset.side = side; xfButtons.forEach(b => b.setAttribute('aria-pressed', String((b.dataset.xf === '1') === (side === 'b')))); }
+    if (root.dataset.side !== side) { root.dataset.side = side; xfButtons.forEach(b => b.setAttribute('aria-pressed', String((b.dataset.xf === '1') === (side === 'b')))); remember(side === 'b'); }
     if (!drags.size || !X.held) { const v = Math.round(X.pos * 1000); if (document.activeElement !== range && +range.value !== v) range.value = v; }
-    if (!home && !X.held && X.pos < 0.03 && !leaving) { leaving = true; location.href = '../'; }
+    if (DJ && !X.held && X.pos < 0.03 && !leaving) { leaving = true; location.href = '../'; }
 
     const master = 1 + bend;
     const powered = lightT > 0.3;
@@ -683,6 +766,12 @@ function live(stage) {
       if (shown.ph !== 'lib') np.set(np.sec + dt * (1 + bend));
       if (shown.w === 'remote' && at > 10.4 && at < 11.3 && pv) { crown += pv * dt * 16; np.set(clamp(np.sec + pv * dt * 1500, 0, MIX.duration - 1)); }
       S.crown = crown;
+    } else {
+      chapterScript(dt);
+      commit();
+      np.set(np.sec + dt);
+      const deep = y > 24;
+      if (deep !== deepNow) { deepNow = deep; root.classList.toggle('deep', deep); }
     }
     camera(at);
     if (home && p > OPEN + END) stage.cam.oy += (p - OPEN - END) * 2;
@@ -692,7 +781,7 @@ function live(stage) {
       drift += (moved - drift) * (1 - Math.exp(-dt / 0.08));
       camWas = [c.t[0], c.t[1], c.t[2], c.w, c.yaw, c.pitch, c.ox, c.oy];
     }
-    if (home || pe < 1.7) stage.render(clock);
+    if (home || pageSeen) stage.render(clock);
     screens(dt);
     copy(at);
   }
@@ -701,16 +790,17 @@ function live(stage) {
   ['pointerdown', 'keydown', 'touchend'].forEach(t => addEventListener(t, act, { passive: true, capture: true }));
   ['wheel', 'touchstart'].forEach(t => addEventListener(t, () => { glide = null; }, { passive: true, capture: true }));
   addEventListener('keydown', e => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) glide = null; }, { capture: true });
-  addEventListener('resize', measure);
+  addEventListener('resize', () => { const [w, h] = viewport(); if (w !== vw || h !== vh) measure(); });
   mobileQuery.addEventListener('change', measure);
   document.addEventListener('focusin', e => {
+    if (!home) return;
     const sc = e.target.closest && e.target.closest('.scene');
     if (!sc || sc.dataset.scene === 'join' || sc.dataset.scene === 'hero') return;
     const w = WINDOWS[sc.dataset.scene];
     const at = pe - lead;
     if (w && (at < w[1] || at > w[2])) scrollTo({ top: ((ANCHOR[sc.id] ?? w[1] + 0.3) + lead) * vh });
   });
-  const hash = () => { const id = location.hash.slice(1); if (id in ANCHOR) scrollTo({ top: (ANCHOR[id] + lead) * vh }); };
+  const hash = () => { if (!home) return; const id = location.hash.slice(1); if (id in ANCHOR) scrollTo({ top: (ANCHOR[id] + lead) * vh }); };
   addEventListener('hashchange', hash);
 
   measure();
@@ -720,7 +810,7 @@ function live(stage) {
     const [at, f] = qs.get('plate').split(',').map(Number);
     X.pos = fade = f || 0;
     plateAt = at;
-  } else if (!home || qs.get('side') === 'b') X.pos = fade = 1;
+  } else if (DJ || qs.get('side') === 'b' || (!home && root.dataset.side === 'b')) X.pos = fade = 1;
   hash();
   pe = p = plate ? plateAt + lead : scrollY / vh;
   if (home) {
@@ -739,8 +829,15 @@ function live(stage) {
     script(at); commit();
     [scenes.listen, scenes.output, scenes.decks].forEach(sc => [sc.capsA, sc.capsB].forEach(list => list[0].classList.add('on')));
   } else if (plate) arm[0] = arm[1] = 1;
+  if (!home) {
+    if (qs.has('scroll')) scrollTo(0, +qs.get('scroll') * vh);
+    pe = p = scrollY / vh;
+    chapterScript(0); phoneU = phoneGoal; commit();
+  }
   label();
   setTimeout(() => world.loadSleeves(), 400);
+  if (panes) setTimeout(() => panes.warm(), 1400);
+  if (home && !manual) ('requestIdleCallback' in window ? requestIdleCallback : setTimeout)(() => { if (soundWanted && !audio.on) audio.warm(); }, 'requestIdleCallback' in window ? { timeout: 5000 } : 2600);
   window.sounding = {
     seek: at => { glide = null; scrollTo(0, (at + lead) * vh); },
     fade: f => { X.target = null; X.vel = 0; X.pos = f; },
@@ -756,5 +853,5 @@ function live(stage) {
 }
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const stage = reduce || qs.has('still') ? null : createStage($('#gl'), base);
+const stage = reduce || qs.has('still') ? null : createStage($('#gl'), base, { shadowSize: matchMedia('(pointer: coarse)').matches ? 1024 : 2048 });
 if (stage) live(stage); else still();

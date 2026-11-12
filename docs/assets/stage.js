@@ -74,7 +74,7 @@ export function createStage(canvas, base, opts = {}) {
     let half = 0.3;
     const need = Math.max(cam.w * 0.72, 0.3) + (cam.pitch < 40 ? (cam.w < 0.5 ? 0.16 : 0.5) : 0);
     while (half < need) half *= 1.3;
-    const texel = (2 * half) / 2048;
+    const texel = (2 * half) / (opts.shadowSize || 2048);
     const c = M.pt(lightView, cam.t[0], 0, cam.t[2]);
     const cx = Math.round(c[0] / texel) * texel, cy2 = Math.round(c[1] / texel) * texel;
     const shadowVP = M.mul(M.ortho(cx - half, cx + half, cy2 - half, cy2 + half, 0.5, 14), lightView);

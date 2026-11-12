@@ -202,3 +202,23 @@ html[data-side="b"] :is(.k-tv, .k-phn, .k-wt) { box-shadow: 0 0 0 1px rgb(255 25
 html[data-side="b"] .k-tv-foot { background: #2a2622; }
 
 .k-ly .k-bd { filter: blur(2.6cqw) saturate(1.1) brightness(.42); }
+
+.k-tvw { width: 100%; }
+.k-np.k-amb { position: absolute; inset: 0; }
+.still .k-np.k-amb { display: none; }
+.live .k-np.k-amb { opacity: 0; transition: opacity .6s var(--ease); }
+.live #now-playing[data-cap="3"] .k-np.k-amb { opacity: 1; }
+.live #auto-mix .k-gp { transition: transform .5s var(--ease), background-color .3s var(--ease), color .3s var(--ease); }
+.live #auto-mix[data-cap="1"] .k-mx-pills .k-gp:first-child { background: #f4f4f4; color: #000; transform: scale(1.06); }
+.live #cues .k-cue-main, .live #cues .k-pane, .live #cues .k-pane-r { transition: opacity .45s var(--ease), transform .6s var(--ease), background-color .3s var(--ease), color .3s var(--ease); }
+.live #cues[data-cap="0"] .k-cue-main { opacity: 1; transform: none; width: 90cqw; }
+.live #cues[data-cap="0"] .k-pane { opacity: 0; transform: translateX(3cqw); }
+.live #cues[data-cap="2"] .k-pane-r.k-first { background: #f4f4f4; color: #000; transform: scale(1.04); }
+.live #cues[data-cap="2"] .k-pane-r.k-first small { color: rgb(0 0 0 / .55); }
+.live #cues[data-cap="2"] .k-pane-r.k-on { background: rgb(255 255 255 / .1); color: #fff; transform: none; box-shadow: none; }
+.live #cues[data-cap="2"] .k-pane-r.k-on em { color: rgb(255 255 255 / .6); }
+.live #top-shelf .k-ts-t { transition: width .5s var(--ease); }
+.live #top-shelf[data-cap="0"] .k-ts-t.k-on { width: 15cqw; }
+.live #top-shelf[data-cap="0"] .k-ts-t.k-on span { display: none; }
+.live #top-shelf .k-app.k-on { transition: transform .5s var(--ease); }
+.live #top-shelf[data-cap="1"] .k-app.k-on { transform: translateY(-.6cqw) scale(1.06); }
