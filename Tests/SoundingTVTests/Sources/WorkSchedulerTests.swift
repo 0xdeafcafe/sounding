@@ -541,3 +541,77 @@ final class EngineHandoverPolicyTests: XCTestCase {
         sqrt(values.reduce(0) { $0 + $1 * $1 } / Double(max(1, values.count)))
     }
 }
+
+final class DeckAnalysisTests: XCTestCase {
+    func testDeckLoadedAnalysesOnEveryDevice() {
+        XCTAssertEqual(AnalysisTrigger.deckLoaded.priority, .interactive)
+        XCTAssertFalse(AnalysisTrigger.deckLoaded.enforcesDeviceEligibility)
+        XCTAssertTrue(AutomaticAnalysisScheduler.supportsAudioTier(for: .deckLoaded))
+        XCTAssertTrue(AutomaticAnalysisScheduler.supportsAudioTier(for: .requested))
+    }
+
+    func testAppleTVRunsOneAnalysisAtATime() {
+        let tv = AnalysisLaneConditions(device: .tv, isOnPower: true, isPlaying: true)
+        XCTAssertTrue(AnalysisLanePolicy.mayStartInteractive(running: 0, interactiveRunning: false, tv))
+        XCTAssertFalse(AnalysisLanePolicy.mayStartInteractive(running: 1, interactiveRunning: false, tv))
+        XCTAssertFalse(AnalysisLanePolicy.mayStartInteractive(running: 1, interactiveRunning: true, tv))
+        let mac = AnalysisLaneConditions(device: .mac, isOnPower: true, isPlaying: true)
+        XCTAssertTrue(AnalysisLanePolicy.mayStartInteractive(running: 1, interactiveRunning: false, mac))
+        XCTAssertFalse(AnalysisLanePolicy.mayStartInteractive(running: 1, interactiveRunning: true, mac))
+    }
+
+    func testEstimateNeverShowsEnergy() {
+        let estimate = TrackAnalysis(trackId: "t", bpm: nil, key: nil, energy: 0.5, intro: 0, outro: 200, isEstimated: true)
+        let readout = DeckReadout(.analyzed(estimate))
+        XCTAssertNil(readout.energy)
+        XCTAssertNil(readout.energyText)
+        XCTAssertFalse(readout.hasAnalysis)
+        XCTAssertFalse(readout.isEstimated)
+
+        let tempoEstimate = TrackAnalysis(trackId: "t", bpm: 124, key: nil, energy: 0.5, intro: 0, outro: 200, isEstimated: true)
+        let estimated = DeckReadout(.analyzed(tempoEstimate))
+        XCTAssertEqual(estimated.bpm, 124)
+        XCTAssertNil(estimated.energyText)
+        XCTAssertTrue(estimated.isEstimated)
+    }
+
+    func testAnalysingReadoutSaysSo() {
+        XCTAssertTrue(DeckReadout(.analyzing).isAnalyzing)
+        XCTAssertTrue(DeckReadout(.pending).isAnalyzing)
+        XCTAssertEqual(DeckReadout(.analyzing).spokenSummary, "analysing")
+        XCTAssertFalse(DeckReadout(.failed).isAnalyzing)
+    }
+
+    func testMeasuredReadoutShowsEverything() {
+        let measured = TrackAnalysis(trackId: "t", bpm: 126, key: "8A", energy: 0.72, intro: 16, outro: 300)
+        let readout = DeckReadout(.analyzed(measured))
+        XCTAssertEqual(readout.bpmText, "126")
+        XCTAssertEqual(readout.key, "8A")
+        XCTAssertEqual(readout.energyText, "72%")
+        XCTAssertTrue(readout.hasAnalysis)
+        XCTAssertFalse(readout.isEstimated)
+    }
+
+    func testSummaryValuesWinOnlyWhenMeasured() {
+        let key = CamelotKey(wheelPosition: 8, mode: .minor)
+        let measured = TrackAnalysis(trackId: "t", bpm: 125.6, key: "5A", energy: 0.6, intro: 8, outro: 280)
+        let synced = AnalysisFeatureSummary(bpm: 126, key: key, bpmAuthority: .measured, keyAuthority: .measured)
+        let merged = DJTransitionService.merge(trackId: "t", duration: 300, summary: synced, measured: measured)
+        XCTAssertEqual(merged?.bpm, 126)
+        XCTAssertEqual(merged?.key, key.label)
+        XCTAssertEqual(merged?.energy, 0.6)
+        XCTAssertEqual(merged?.isEstimated, false)
+
+        let hinted = AnalysisFeatureSummary(bpm: 128, bpmAuthority: .estimated)
+        XCTAssertEqual(DJTransitionService.merge(trackId: "t", duration: 300, summary: hinted, measured: measured)?.bpm, 125.6)
+        XCTAssertNil(DJTransitionService.merge(trackId: "t", duration: 300, summary: hinted, measured: nil))
+    }
+
+    func testSyncedAnalysisNeedsNoAudio() {
+        let synced = AnalysisFeatureSummary(bpm: 122, bpmAuthority: .corrected)
+        let merged = DJTransitionService.merge(trackId: "t", duration: 300, summary: synced, measured: nil)
+        XCTAssertEqual(merged?.bpm, 122)
+        XCTAssertNil(merged?.energy)
+        XCTAssertEqual(merged?.outro, 284)
+    }
+}

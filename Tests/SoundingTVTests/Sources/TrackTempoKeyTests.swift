@@ -186,7 +186,8 @@ final class AnalysisPendingCopyTests: XCTestCase {
     func testGateMessages() {
         XCTAssertNil(AnalysisStatusCopy.gate(.ready, device: .phone))
         XCTAssertEqual(AnalysisStatusCopy.gate(.off, device: .mac), "Music Analysis is off on this Mac.")
-        XCTAssertEqual(AnalysisStatusCopy.gate(.unsupported, device: .tv), "BPM and key come from your iPhone, iPad or Mac.")
+        XCTAssertEqual(AnalysisStatusCopy.gate(.unsupported, device: .tv), "BPM and key are found when a track is on the decks, or come from your iPhone, iPad or Mac.")
+        XCTAssertEqual(AnalysisStatusCopy.gate(.unsupported, device: .watch), "BPM and key come from your iPhone, iPad or Mac.")
         XCTAssertEqual(AnalysisStatusCopy.gate(.lowPowerMode, device: .phone), "Paused: Low Power Mode is on.")
         XCTAssertEqual(AnalysisStatusCopy.gate(.tooWarm, device: .pad), "Paused: your iPad is too warm.")
         XCTAssertEqual(AnalysisStatusCopy.gate(.lowBattery, device: .phone), "Paused until your iPhone is charging.")
@@ -224,7 +225,7 @@ final class AnalysisPendingCopyTests: XCTestCase {
         XCTAssertEqual(status(work: .complete), "No BPM or key found.")
         XCTAssertEqual(status(analysable: false), "BPM and key are found when this track is downloaded.")
         XCTAssertEqual(status(long: true), "Long mixes are analysed when you choose Analyse Now.")
-        XCTAssertEqual(status(.unsupported, device: .tv), "BPM and key come from your iPhone, iPad or Mac.")
+        XCTAssertEqual(status(.unsupported, device: .tv), "BPM and key are found when a track is on the decks, or come from your iPhone, iPad or Mac.")
         XCTAssertEqual(status(.playing, device: .mac), "BPM and key are found when your Mac isn’t playing music.")
         XCTAssertEqual(status(), "Waiting to analyse.")
     }

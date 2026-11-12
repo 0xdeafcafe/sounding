@@ -60,6 +60,11 @@ enum AnalysisLanePolicy {
         max(1, backgroundLanes(conditions))
     }
 
+    static func mayStartInteractive(running: Int, interactiveRunning: Bool, _ conditions: AnalysisLaneConditions) -> Bool {
+        if conditions.device == .tv { return running == 0 }
+        return running < capacity(conditions) || !interactiveRunning
+    }
+
     static func isUnthrottled(_ conditions: AnalysisLaneConditions) -> Bool {
         conditions.isOnPower && !conditions.isPlaying && conditions.systemPause == nil
     }

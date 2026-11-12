@@ -169,7 +169,10 @@ enum AnalysisStatusCopy {
         switch gate {
         case .ready: return nil
         case .off: return "Music Analysis is off on this \(name)."
-        case .unsupported: return "BPM and key come from your iPhone, iPad or Mac."
+        case .unsupported:
+            return device == .tv
+                ? "BPM and key are found when a track is on the decks, or come from your iPhone, iPad or Mac."
+                : "BPM and key come from your iPhone, iPad or Mac."
         case .lowPowerMode: return "Paused: Low Power Mode is on."
         case .tooWarm: return "Paused: your \(name) is too warm."
         case .lowBattery: return "Paused until your \(name) is charging."
