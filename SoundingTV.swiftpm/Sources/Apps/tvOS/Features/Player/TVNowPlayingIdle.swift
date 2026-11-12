@@ -88,6 +88,11 @@ final class NPIdleMonitor: ObservableObject {
 }
 
 struct NPAmbientOverlay: View {
+    private static let clockCapInset: CGFloat = {
+        let font = UIFont.preferredFont(forTextStyle: .title3)
+        return max(0, font.ascender - font.capHeight)
+    }()
+
     let title: String
     let artist: String
     var artistTint: Color = Color.white.opacity(0.66)
@@ -104,7 +109,7 @@ struct NPAmbientOverlay: View {
                     .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.trailing, Space.page)
-                    .padding(.top, artworkTop)
+                    .padding(.top, artworkTop - Self.clockCapInset)
             }
             VStack(spacing: Space.tight) {
                 Text(title)

@@ -118,7 +118,8 @@ struct NPCircleStyle: ButtonStyle {
                         .opacity(isFocused ? 1 : 0)
                 }
                 .overlay { if isFocused { NPFocusSheen(shape: Circle()) } }
-                .liquidGlass(in: Circle(), tint: isOn ? Color.white.opacity(0.3) : nil)
+                .background(Circle().fill(Color.white.opacity(isOn ? 0.3 : 0.14)))
+                .overlay(Circle().strokeBorder(Color.white.opacity(isFocused ? 0 : 0.1), lineWidth: 1))
                 .contentShape(Circle())
                 .overlay(alignment: .top) {
                     if !label.isEmpty {

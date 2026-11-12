@@ -105,6 +105,7 @@ struct PlayerView: View {
             }
             if panel != nil {
                 panelScrim
+                    .ignoresSafeArea()
                     .transition(.opacity)
             }
             if let panel {
@@ -313,7 +314,6 @@ struct PlayerView: View {
                 .animation(.easeInOut(duration: reduceMotion ? 0.6 : 1), value: isAmbient)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .offset(x: isDimmed ? -80 : 0)
         .scaleEffect(isDimmed ? 0.97 : 1)
         .opacity(isDimmed ? 0.32 : 1)
         .animation(reduceMotion ? .easeInOut(duration: 0.3) : Motion.settle, value: isDimmed)
@@ -349,6 +349,7 @@ struct PlayerView: View {
                 if !upNext.isEmpty {
                     upNextColumn(upNext)
                         .frame(width: 560, alignment: .topLeading)
+                        .opacity(panel == nil ? 1 : 0)
                 }
                 Spacer(minLength: 0)
             }
@@ -481,6 +482,7 @@ struct PlayerView: View {
             }
         }
         .frame(height: 112, alignment: .center)
+        .padding(.bottom, 44)
         .focusSection()
     }
 
@@ -553,7 +555,7 @@ struct PlayerView: View {
             title: track.title,
             artist: track.user.displayName,
             artistTint: artistTint,
-            artworkTop: contentTop + Self.ambientArtworkGrowth,
+            artworkTop: contentTop,
             titleTop: contentTop + Self.ambientArtworkGrowth * 2 + Self.ambientArtworkSide + Space.section
         )
             .contentShape(Rectangle())
