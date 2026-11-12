@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Network
 
@@ -8,6 +9,7 @@ enum DownloadHLSAssembler {
         playlistURL: URL,
         scratchDirectory: URL,
         trackId: String,
+        sealingWith key: SymmetricKey? = nil,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
         let data = try await fetchData(playlistURL)
@@ -19,39 +21,56 @@ enum DownloadHLSAssembler {
             playlistURL: playlistURL,
             directory: scratchDirectory,
             trackId: trackId,
+            key: key,
             depth: 0,
             progress: progress
         )
     }
 
     private final class FileWriter: @unchecked Sendable {
-        private let handle: FileHandle
+        private let handle: FileHandle?
+        private let sealer: DownloadVault.SealingWriter?
         private let lock = NSLock()
 
-        init(url: URL) throws {
+        init(url: URL, sealingWith key: SymmetricKey?) throws {
+            if let key {
+                sealer = try DownloadVault.SealingWriter(url: url, key: key)
+                handle = nil
+                return
+            }
             try? FileManager.default.removeItem(at: url)
             guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
                 throw DownloadError.unsupportedContainer
             }
-            self.handle = try FileHandle(forWritingTo: url)
+            sealer = nil
+            handle = try FileHandle(forWritingTo: url)
         }
 
         func write(_ data: Data) throws {
             lock.lock()
             defer { lock.unlock() }
-            try handle.write(contentsOf: data)
+            if let sealer {
+                try sealer.append(data)
+            } else {
+                try handle?.write(contentsOf: data)
+            }
         }
 
         func synchronize() throws {
             lock.lock()
             defer { lock.unlock() }
-            try handle.synchronize()
+            if let sealer {
+                try sealer.finish()
+            } else {
+                try handle?.synchronize()
+            }
         }
 
         func close() {
             lock.lock()
             defer { lock.unlock() }
-            try? handle.close()
+            sealer?.close()
+            try? handle?.close()
         }
     }
 
@@ -60,6 +79,7 @@ enum DownloadHLSAssembler {
         playlistURL: URL,
         directory: URL,
         trackId: String,
+        key: SymmetricKey?,
         depth: Int,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
@@ -81,6 +101,7 @@ enum DownloadHLSAssembler {
                 playlistURL: variant,
                 directory: directory,
                 trackId: trackId,
+                key: key,
                 depth: depth + 1,
                 progress: progress
             )
@@ -113,7 +134,7 @@ enum DownloadHLSAssembler {
         guard let ext = containerExtension(for: sniffTarget) else { throw DownloadError.unsupportedContainer }
 
         let assembled = directory.appendingPathComponent("\(trackId)-assembled-\(UUID().uuidString).\(ext)")
-        let writer = try FileWriter(url: assembled)
+        let writer = try FileWriter(url: assembled, sealingWith: key)
         var completedSuccessfully = false
         defer {
             writer.close()

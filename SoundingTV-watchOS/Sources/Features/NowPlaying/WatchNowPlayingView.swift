@@ -477,6 +477,7 @@ struct WatchNowPlayingView: View {
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
         .tint(theme.palette.glass)
+        .handGestureShortcut(.primaryAction)
         .accessibilityLabel(np.isPlaying ? "Pause" : "Play")
     }
 

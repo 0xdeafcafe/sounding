@@ -185,10 +185,10 @@ struct User: Identifiable, Codable, Hashable, Sendable {
         followingsCount = try container.decodeIfPresent(Int.self, forKey: .followingsCount) ?? 0
         publicFavoritesCount = try container.decodeIfPresent(Int.self, forKey: .publicFavoritesCount)
         verified = try? container.decodeIfPresent(Bool.self, forKey: .verified)
-        consumerSubscriptions = try container.decodeIfPresent([ConsumerSubscription].self, forKey: .consumerSubscriptions)
-        consumerSubscription = try container.decodeIfPresent(ConsumerSubscription.self, forKey: .consumerSubscription)
-        creatorSubscriptions = try container.decodeIfPresent([CreatorSubscription].self, forKey: .creatorSubscriptions)
-        creatorSubscription = try container.decodeIfPresent(CreatorSubscription.self, forKey: .creatorSubscription)
+        consumerSubscriptions = (try? container.decodeIfPresent([ConsumerSubscription].self, forKey: .consumerSubscriptions)) ?? nil
+        consumerSubscription = (try? container.decodeIfPresent(ConsumerSubscription.self, forKey: .consumerSubscription)) ?? nil
+        creatorSubscriptions = (try? container.decodeIfPresent([CreatorSubscription].self, forKey: .creatorSubscriptions)) ?? nil
+        creatorSubscription = (try? container.decodeIfPresent(CreatorSubscription.self, forKey: .creatorSubscription)) ?? nil
 
         var raw: [String: JSONValue] = [:]
         for key in User.subscriptionCodingKeys where container.contains(key) {
@@ -319,6 +319,56 @@ typealias CreatorSubscription = ConsumerSubscription
 
 struct SubscriptionProductRef: Codable, Hashable, Sendable {
     let id: String?
+}
+
+struct SoundCloudSubscriptionCapture: Decodable, Equatable, Sendable {
+    let payload: [String: JSONValue]
+    let keys: [String]
+
+    private struct AnyKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    init(payload: [String: JSONValue], keys: [String]? = nil) {
+        self.payload = payload
+        self.keys = keys ?? payload.keys.sorted()
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: AnyKey.self)
+        var payload: [String: JSONValue] = [:]
+        for key in container.allKeys where Self.isSubscriptionKey(key.stringValue) {
+            if let value = try? container.decode(JSONValue.self, forKey: key) {
+                payload[key.stringValue] = value
+            }
+        }
+        self.payload = payload
+        keys = container.allKeys.map(\.stringValue).sorted()
+    }
+
+    static func isSubscriptionKey(_ key: String) -> Bool {
+        let lowered = key.lowercased()
+        return lowered.contains("subscription") || lowered == "plan" || lowered.hasSuffix("_plan")
+    }
+}
+
+struct SoundCloudCurrentUserResponse: Decodable, Sendable {
+    let user: User
+    let subscription: SoundCloudSubscriptionCapture
+
+    init(user: User, subscription: SoundCloudSubscriptionCapture) {
+        self.user = user
+        self.subscription = subscription
+    }
+
+    init(from decoder: Decoder) throws {
+        user = try User(from: decoder)
+        subscription = (try? SoundCloudSubscriptionCapture(from: decoder))
+            ?? SoundCloudSubscriptionCapture(payload: user.rawSubscriptionPayload ?? [:])
+    }
 }
 
 enum JSONValue: Codable, Hashable, Sendable {

@@ -24,6 +24,7 @@ final class PhoneVolumeButtons {
     @ObservationIgnored private var tracker: HardwareVolumeTracker?
     @ObservationIgnored private var window: PhoneVolumeWindow?
     @ObservationIgnored private var activatedAmbientSession = false
+    @ObservationIgnored private var isEngaging = false
     @ObservationIgnored private var evaluateTask: Task<Void, Never>?
     @ObservationIgnored private var hideTask: Task<Void, Never>?
 
@@ -76,26 +77,56 @@ final class PhoneVolumeButtons {
         }
     }
 
+    private enum SessionEngagement: Sendable {
+        case declined
+        case engaged(activatedAmbient: Bool, volume: Float)
+    }
+
     private func engage() {
-        guard tracker == nil, let scene = Self.foregroundScene else { return }
-        let session = AVAudioSession.sharedInstance()
-        switch session.category {
-        case .playback:
-            if coordinator?.volumeRoute == .linked, session.isOtherAudioPlaying { return }
-        case .ambient, .soloAmbient:
-            guard !session.isOtherAudioPlaying else { return }
-            do {
-                try session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
-                activatedAmbientSession = true
-            } catch {
-                return
-            }
-        default:
-            return
+        guard tracker == nil, !isEngaging, Self.foregroundScene != nil else { return }
+        isEngaging = true
+        let work = Self.sessionEngagementWork(linkedRoute: coordinator?.volumeRoute == .linked)
+        Task { @MainActor [weak self] in
+            let engagement = await AudioSessionQueue.run(work)
+            self?.finishEngaging(engagement)
         }
-        do {
-            try session.setActive(true)
-        } catch {
+    }
+
+    private nonisolated static func sessionEngagementWork(linkedRoute: Bool) -> @Sendable () -> SessionEngagement {
+        {
+            let session = AVAudioSession.sharedInstance()
+            var activatedAmbient = false
+            switch session.category {
+            case .playback:
+                if linkedRoute, session.isOtherAudioPlaying { return .declined }
+            case .ambient, .soloAmbient:
+                guard !session.isOtherAudioPlaying else { return .declined }
+                do {
+                    try session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+                    activatedAmbient = true
+                } catch {
+                    return .declined
+                }
+            default:
+                return .declined
+            }
+            do {
+                try session.setActive(true)
+            } catch {
+                if activatedAmbient, session.category == .ambient {
+                    try? session.setActive(false, options: .notifyOthersOnDeactivation)
+                }
+                return .declined
+            }
+            return .engaged(activatedAmbient: activatedAmbient, volume: session.outputVolume)
+        }
+    }
+
+    private func finishEngaging(_ engagement: SessionEngagement) {
+        isEngaging = false
+        guard case .engaged(let activatedAmbient, let volume) = engagement else { return }
+        if activatedAmbient { activatedAmbientSession = true }
+        guard wantsButtons, tracker == nil, let scene = Self.foregroundScene else {
             releaseAmbientSession()
             return
         }
@@ -104,7 +135,7 @@ final class PhoneVolumeButtons {
         window.isHidden = false
         self.window = window
 
-        let tracker = HardwareVolumeTracker(original: session.outputVolume)
+        let tracker = HardwareVolumeTracker(original: volume)
         self.tracker = tracker
         observation = Self.observeOutputVolume { value in
             PhoneVolumeButtons.shared.receive(value)
@@ -128,9 +159,15 @@ final class PhoneVolumeButtons {
     private func releaseAmbientSession() {
         guard activatedAmbientSession else { return }
         activatedAmbientSession = false
-        let session = AVAudioSession.sharedInstance()
-        guard session.category == .ambient else { return }
-        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        AudioSessionQueue.async(Self.ambientReleaseWork())
+    }
+
+    private nonisolated static func ambientReleaseWork() -> @Sendable () -> Void {
+        {
+            let session = AVAudioSession.sharedInstance()
+            guard session.category == .ambient else { return }
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     nonisolated private static func observeOutputVolume(_ handler: @escaping @MainActor @Sendable (Float) -> Void) -> NSKeyValueObservation {

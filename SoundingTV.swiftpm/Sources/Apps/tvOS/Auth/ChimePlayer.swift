@@ -188,13 +188,20 @@ final class ChimePlayer {
     }
 
     private func configureSession() {
-        let session = AVAudioSession.sharedInstance()
-        guard session.category != .playback else { return }
-        do {
-            try session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
-            try session.setActive(true)
-        } catch {
-            Log.link.error("[ChimePlayer] audio session: \(error.localizedDescription, privacy: .public)")
+        guard AVAudioSession.sharedInstance().category != .playback else { return }
+        AudioSessionQueue.async(Self.ambientSessionWork())
+    }
+
+    private nonisolated static func ambientSessionWork() -> @Sendable () -> Void {
+        {
+            let session = AVAudioSession.sharedInstance()
+            guard session.category != .playback else { return }
+            do {
+                try session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+                try session.setActive(true)
+            } catch {
+                Log.link.error("[ChimePlayer] audio session: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 

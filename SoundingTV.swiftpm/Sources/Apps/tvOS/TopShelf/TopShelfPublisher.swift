@@ -79,14 +79,25 @@ enum TopShelfPublisher {
             .sink { _ in Task { @MainActor in await refreshLikes() } }
             .store(in: &cancellables)
 
+        setSampling(player.isPlaying)
+
+        Task { await refreshLikes() }
+    }
+
+    private static func setSampling(_ playing: Bool) {
+        guard playing else {
+            sampler?.cancel()
+            sampler = nil
+            return
+        }
+        guard sampler == nil else { return }
         sampler = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(for: sampleInterval)
+                guard !Task.isCancelled else { return }
                 samplePlayback(requirePlaying: true)
             }
         }
-
-        Task { await refreshLikes() }
     }
 
     static func refreshSystemContent() {
@@ -140,6 +151,7 @@ enum TopShelfPublisher {
     }
 
     private static func playbackDidToggle(playing: Bool) {
+        setSampling(playing)
         samplePlayback(requirePlaying: false)
         guard !playing, let sample = lastSample else { return }
         noteProgress(sample.progress, trackID: sample.id)

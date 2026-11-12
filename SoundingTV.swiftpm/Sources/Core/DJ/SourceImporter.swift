@@ -13,17 +13,20 @@ enum SourceImporter {
     private static let protectedKeysLock = NSLock()
     nonisolated(unsafe) private static var protectedKeys: Set<String> = []
 
+    static let cacheExtensions = ["caf", "mp3", "m4a", "mp4", "aac", "wav", "flac", "aif", "aiff"]
+    private static let scratchPrefixes = ["dl-", "hls-", "import-"]
+
     static func protect(cacheKey: String, in directory: URL) {
-        let name = cachedURL(for: cacheKey, in: directory).lastPathComponent
+        let stem = cacheStem(for: cacheKey)
         protectedKeysLock.lock()
-        protectedKeys.insert(name)
+        protectedKeys.insert(stem)
         protectedKeysLock.unlock()
     }
 
     static func unprotect(cacheKey: String, in directory: URL) {
-        let name = cachedURL(for: cacheKey, in: directory).lastPathComponent
+        let stem = cacheStem(for: cacheKey)
         protectedKeysLock.lock()
-        protectedKeys.remove(name)
+        protectedKeys.remove(stem)
         protectedKeysLock.unlock()
     }
     /// Canonical float PCM is useful for small tracks, but grows at roughly
@@ -50,12 +53,10 @@ enum SourceImporter {
     ) async throws -> URL {
         let destination = cachedURL(for: cacheKey, in: directory)
 
-        if FileManager.default.fileExists(atPath: destination.path),
-           let size = try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? Int64,
-           size > 0 {
-            try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: destination.path)
+        if let existing = existingCachedURL(for: cacheKey, in: directory) {
+            try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: existing.path)
             progress(1)
-            return destination
+            return existing
         }
 
         progress(0.02)
@@ -97,10 +98,12 @@ enum SourceImporter {
         progress(0.65)
 
         if try await shouldPreserveCompressed(media) {
-            try installCompressed(media, at: destination)
+            let compressed = compressedDestination(for: cacheKey, media: media, in: directory)
+            let owned = media == intermediate || media == downloaded
+            try installCompressed(media, at: compressed, moving: owned)
             pruneCache(in: directory)
             progress(1)
-            return destination
+            return compressed
         }
 
         let scratch = directory.appendingPathComponent("import-\(UUID().uuidString).caf")
@@ -142,17 +145,38 @@ enum SourceImporter {
             * DJEngineConstants.canonicalSampleRate
             * Double(DJEngineConstants.canonicalChannels)
             * Double(MemoryLayout<Float>.size)
-        return canonicalBytes > maxCanonicalPCMBytes
+        return canonicalBytes > maxCanonicalPCMBytes || decodesInPlace(localURL, duration: duration)
     }
 
-    private static func installCompressed(_ source: URL, at destination: URL) throws {
+    static func decodesInPlace(_ localURL: URL, duration: TimeInterval) -> Bool {
+        guard cacheExtensions.contains(localURL.pathExtension.lowercased()),
+              let file = try? AVAudioFile(forReading: localURL),
+              file.length > 0 else { return false }
+        let format = file.fileFormat
+        guard abs(format.sampleRate - DJEngineConstants.canonicalSampleRate) < 1,
+              (1...2).contains(format.channelCount) else { return false }
+        let fileSeconds = Double(file.length) / format.sampleRate
+        return abs(fileSeconds - duration) <= max(1, duration * 0.01)
+    }
+
+    private static func compressedDestination(for cacheKey: String, media: URL, in directory: URL) -> URL {
+        let ext = media.pathExtension.lowercased()
+        let kept = cacheExtensions.contains(ext) ? ext : "caf"
+        return directory.appendingPathComponent("\(cacheStem(for: cacheKey)).\(kept)")
+    }
+
+    private static func installCompressed(_ source: URL, at destination: URL, moving: Bool) throws {
         do {
             let file = try AVAudioFile(forReading: source)
             guard file.length > 0 else {
                 throw MixEngineError.decodeFailed("the compressed source contains no audio")
             }
             try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.copyItem(at: source, to: destination)
+            if moving {
+                try FileManager.default.moveItem(at: source, to: destination)
+            } else {
+                try FileManager.default.copyItem(at: source, to: destination)
+            }
         } catch let error as MixEngineError {
             throw error
         } catch {
@@ -165,6 +189,7 @@ enum SourceImporter {
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.urlCache = nil
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 300
         config.httpMaximumConnectionsPerHost = 4
@@ -682,15 +707,32 @@ enum SourceImporter {
     }
 
     static func hasCachedSource(cacheKey: String, in directory: URL) -> Bool {
-        let path = cachedURL(for: cacheKey, in: directory).path
-        guard let size = try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64 else { return false }
-        return size > 0
+        existingCachedURL(for: cacheKey, in: directory) != nil
+    }
+
+    static func cacheStem(for key: String) -> String {
+        SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     static func cachedURL(for key: String, in directory: URL) -> URL {
-        let digest = SHA256.hash(data: Data(key.utf8))
-        let name = digest.map { String(format: "%02x", $0) }.joined()
-        return directory.appendingPathComponent("\(name).caf")
+        directory.appendingPathComponent("\(cacheStem(for: key)).caf")
+    }
+
+    static func existingCachedURL(for key: String, in directory: URL) -> URL? {
+        let stem = cacheStem(for: key)
+        for ext in cacheExtensions {
+            let url = directory.appendingPathComponent("\(stem).\(ext)")
+            if let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64, size > 0 {
+                return url
+            }
+        }
+        return nil
+    }
+
+    private static func isCacheEntry(_ url: URL) -> Bool {
+        guard cacheExtensions.contains(url.pathExtension.lowercased()) else { return false }
+        let stem = url.deletingPathExtension().lastPathComponent
+        return stem.count == 64 && stem.allSatisfy(\.isHexDigit)
     }
 
     static func clearCache(in directory: URL) {
@@ -710,7 +752,9 @@ enum SourceImporter {
         var total = entries.reduce(Int64(0)) { $0 + $1.size }
 
         while entries.count > maxCacheFiles || total > maxCacheBytes {
-            guard let index = entries.lastIndex(where: { !protected.contains($0.url.lastPathComponent) }) else { break }
+            guard let index = entries.lastIndex(where: {
+                !protected.contains($0.url.deletingPathExtension().lastPathComponent)
+            }) else { break }
             let oldest = entries.remove(at: index)
             try? FileManager.default.removeItem(at: oldest.url)
             total -= oldest.size
@@ -725,9 +769,9 @@ enum SourceImporter {
             options: [.skipsHiddenFiles]
         )) ?? []
 
-        for url in contents where url.pathExtension != "caf" {
+        for url in contents where !isCacheEntry(url) {
             let name = url.lastPathComponent
-            guard name.hasPrefix("dl-") || name.hasPrefix("hls-") else { continue }
+            guard scratchPrefixes.contains(where: { name.hasPrefix($0) }) else { continue }
             let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
                 .contentModificationDate ?? .distantPast
             guard modified < cutoff else { continue }
@@ -744,7 +788,7 @@ enum SourceImporter {
         )) ?? []
 
         return contents.compactMap { url in
-            guard url.pathExtension == "caf" else { return nil }
+            guard isCacheEntry(url) else { return nil }
             let values = try? url.resourceValues(forKeys: Set(keys))
             return (
                 url,

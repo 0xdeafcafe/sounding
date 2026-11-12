@@ -5,6 +5,9 @@ import WidgetKit
 struct SoundingWatchWidgetBundle: WidgetBundle {
     var body: some Widget {
         WatchNowPlayingWidget()
+        WatchListeningWidget()
         PlayPauseControl()
+        SkipControl()
+        IdentifySongControl()
     }
 }

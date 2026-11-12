@@ -194,20 +194,40 @@ final class SubscriptionService: ObservableObject {
     func verifyNow() async {
         guard SoundCloudAPI.credentials?.accessToken != nil else { return }
         do {
-            let user = try await SoundCloudAPI.shared.getCurrentUser()
-            authenticatedAccountID = user.id
-            let resolution = Self.resolve(from: user)
-            let raw = Self.rawSubscriptionDescription(for: user)
+            let response = try await SoundCloudAPI.shared.getCurrentUserResponse()
+            let accountID = response.user.id
+            authenticatedAccountID = accountID
+            var signals = Self.signals(from: response)
+            var resolution = Self.resolve(signals)
+            var raw = Self.rawSubscriptionDescription(for: response.subscription, source: "api-v2 /me")
+            if resolution.unknownReason == .payloadUnreadable, officialProbeExhaustedFor != accountID,
+               let official = try? await SoundCloudAPI.shared.getOfficialSubscriptionCapture() {
+                signals.merge(Self.signals(fromPayload: official.payload))
+                resolution = Self.resolve(signals)
+                raw += "\n" + Self.rawSubscriptionDescription(for: official, source: "api.soundcloud.com /me")
+                if resolution.unknownReason == .payloadUnreadable { officialProbeExhaustedFor = accountID }
+            }
             lastRawSubscriptionDescription = raw
-            Self.log(resolution: resolution, raw: raw)
+            logOnce(resolution: resolution, raw: raw)
             applyClassification(
                 latestAttempt: .succeeded(resolution.tier),
                 reason: resolution.unknownReason
             )
         } catch {
-            Self.logger.notice("Subscription check failed; tier left unconfirmed.")
+            if loggedOutcomes.insert("checkFailed").inserted {
+                Self.logger.notice("Subscription check failed; tier left unconfirmed.")
+            }
             applyClassification(latestAttempt: .failed, reason: .checkFailed)
         }
+    }
+
+    private var officialProbeExhaustedFor: String?
+    private var loggedOutcomes = Set<String>()
+
+    private func logOnce(resolution: Resolution, raw: String) {
+        let signature = "\(resolution.tier.rawValue)|\(String(describing: resolution.unknownReason))|\(raw)"
+        guard loggedOutcomes.insert(signature).inserted else { return }
+        Self.log(resolution: resolution, raw: raw)
     }
 
     #if DEBUG
@@ -264,9 +284,9 @@ final class SubscriptionService: ObservableObject {
                 """
             )
         case .payloadUnreadable:
-            logger.error(
+            logger.notice(
                 """
-                /me carried no readable subscription info — wire shape may have changed. raw:
+                No readable SoundCloud plan; tier stays at the last confirmed one. raw:
                 \(payload, privacy: .public)
                 """
             )
@@ -355,53 +375,189 @@ final class SubscriptionService: ObservableObject {
         }
     }
 
-    nonisolated static func resolve(
-        consumerRows: [ConsumerSubscription]?,
-        consumerSingle: ConsumerSubscription? = nil,
-        creatorRows: [CreatorSubscription]? = nil,
-        creatorSingle: CreatorSubscription? = nil
-    ) -> Resolution {
-        let consumerIDs = Set(
-            ((consumerRows ?? []) + [consumerSingle].compactMap { $0 })
-                .compactMap { $0.product?.id }
-        )
-        let creatorIDs = Set(
-            ((creatorRows ?? []) + [creatorSingle].compactMap { $0 })
-                .compactMap { $0.product?.id }
-        )
+    struct Signals: Equatable, Sendable {
+        var consumerIDs: Set<String> = []
+        var creatorIDs: Set<String> = []
+        var otherIDs: Set<String> = []
+        var hasEmptyConsumerList = false
+        var hasOtherEntries = false
 
-        if consumerIDs.contains(where: isDJProductID) { return Resolution(.dj) }
-        if !consumerIDs.isDisjoint(with: goPlusProductIDs) { return Resolution(.goPlus) }
-        if !consumerIDs.isDisjoint(with: goProductIDs) { return Resolution(.go) }
+        nonisolated mutating func merge(_ other: Signals) {
+            consumerIDs.formUnion(other.consumerIDs)
+            creatorIDs.formUnion(other.creatorIDs)
+            otherIDs.formUnion(other.otherIDs)
+            hasEmptyConsumerList = hasEmptyConsumerList || other.hasEmptyConsumerList
+            hasOtherEntries = hasOtherEntries || other.hasOtherEntries
+        }
+    }
 
-        let allIDs = consumerIDs.union(creatorIDs)
-        if allIDs.contains(where: { $0.hasPrefix(creatorProductIDPrefix) }) {
+    nonisolated static func resolve(_ signals: Signals) -> Resolution {
+        let consumerIDs = signals.consumerIDs
+        let paidCandidates = consumerIDs.union(signals.otherIDs)
+
+        if paidCandidates.contains(where: isDJProductID) { return Resolution(.dj) }
+        if !paidCandidates.isDisjoint(with: goPlusProductIDs) { return Resolution(.goPlus) }
+        if !paidCandidates.isDisjoint(with: goProductIDs) { return Resolution(.go) }
+
+        let namedIDs = consumerIDs.union(signals.creatorIDs)
+        if namedIDs.contains(where: { $0.hasPrefix(creatorProductIDPrefix) }) {
             return Resolution(.creatorPro)
         }
 
         if !consumerIDs.isDisjoint(with: freeProductIDs) { return Resolution(.free) }
 
-        if !allIDs.isEmpty {
-            return Resolution(.unknown, .unrecognisedProductIDs(allIDs.sorted()))
+        if !namedIDs.isEmpty {
+            return Resolution(.unknown, .unrecognisedProductIDs(namedIDs.sorted()))
         }
 
-        let consumerArrayIsExplicitlyEmpty = consumerRows?.isEmpty == true
-        let nothingElsePresent = consumerSingle == nil && creatorSingle == nil
-            && (creatorRows?.isEmpty ?? true)
-        if consumerArrayIsExplicitlyEmpty && nothingElsePresent {
+        let unfamiliarOtherIDs = signals.otherIDs.filter {
+            !freeProductIDs.contains($0) && !$0.hasPrefix(creatorProductIDPrefix)
+        }
+        if !unfamiliarOtherIDs.isEmpty {
+            return Resolution(.unknown, .unrecognisedProductIDs(unfamiliarOtherIDs.sorted()))
+        }
+
+        if signals.hasEmptyConsumerList && !signals.hasOtherEntries {
             return Resolution(.free)
         }
 
         return Resolution(.unknown, .payloadUnreadable)
     }
 
-    nonisolated static func resolve(from user: User?) -> Resolution {
-        resolve(
+    nonisolated static func signals(
+        consumerRows: [ConsumerSubscription]?,
+        consumerSingle: ConsumerSubscription? = nil,
+        creatorRows: [CreatorSubscription]? = nil,
+        creatorSingle: CreatorSubscription? = nil
+    ) -> Signals {
+        var signals = Signals()
+        if let consumerRows {
+            if consumerRows.isEmpty { signals.hasEmptyConsumerList = true } else { signals.hasOtherEntries = true }
+            signals.consumerIDs.formUnion(consumerRows.compactMap { $0.product?.id })
+        }
+        if let consumerSingle {
+            signals.hasOtherEntries = true
+            if let id = consumerSingle.product?.id { signals.consumerIDs.insert(id) }
+        }
+        let creators = (creatorRows ?? []) + [creatorSingle].compactMap { $0 }
+        if !creators.isEmpty { signals.hasOtherEntries = true }
+        signals.creatorIDs.formUnion(creators.compactMap { $0.product?.id })
+        return signals
+    }
+
+    private enum PayloadBucket {
+        case consumer
+        case creator
+        case other
+    }
+
+    nonisolated static func signals(fromPayload payload: [String: JSONValue]) -> Signals {
+        var signals = Signals()
+        for (key, value) in payload {
+            let lowered = key.lowercased()
+            guard lowered != "plan", !lowered.hasSuffix("_plan") else { continue }
+            let bucket: PayloadBucket = lowered.contains("consumer") ? .consumer
+                : (lowered.contains("creator") ? .creator : .other)
+
+            let entries: [JSONValue]
+            var isList = false
+            switch value {
+            case .null, .bool, .number:
+                continue
+            case .array(let items):
+                entries = items
+                isList = true
+            case .object(let object):
+                if case .array(let items)? = object["collection"] {
+                    entries = items
+                    isList = true
+                } else {
+                    entries = [value]
+                }
+            case .string:
+                entries = [value]
+            }
+
+            let present = entries.filter { $0 != .null }
+            if present.isEmpty {
+                if isList, bucket == .consumer { signals.hasEmptyConsumerList = true }
+                continue
+            }
+            signals.hasOtherEntries = true
+            let ids = present.compactMap(productID(in:))
+            switch bucket {
+            case .consumer: signals.consumerIDs.formUnion(ids)
+            case .creator: signals.creatorIDs.formUnion(ids)
+            case .other: signals.otherIDs.formUnion(ids)
+            }
+        }
+        return signals
+    }
+
+    nonisolated static func productID(in entry: JSONValue) -> String? {
+        switch entry {
+        case .string(let id):
+            return nonEmpty(id)
+        case .object(let object):
+            switch object["product"] {
+            case .object(let product)?:
+                if case .string(let id)? = product["id"] { return nonEmpty(id) }
+            case .string(let id)?:
+                return nonEmpty(id)
+            default:
+                break
+            }
+            if case .string(let id)? = object["product_id"] { return nonEmpty(id) }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private nonisolated static func nonEmpty(_ id: String) -> String? {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    nonisolated static func resolve(
+        consumerRows: [ConsumerSubscription]?,
+        consumerSingle: ConsumerSubscription? = nil,
+        creatorRows: [CreatorSubscription]? = nil,
+        creatorSingle: CreatorSubscription? = nil
+    ) -> Resolution {
+        resolve(signals(
+            consumerRows: consumerRows,
+            consumerSingle: consumerSingle,
+            creatorRows: creatorRows,
+            creatorSingle: creatorSingle
+        ))
+    }
+
+    nonisolated static func signals(from user: User?) -> Signals {
+        var combined = signals(
             consumerRows: user?.consumerSubscriptions,
             consumerSingle: user?.consumerSubscription,
             creatorRows: user?.creatorSubscriptions,
             creatorSingle: user?.creatorSubscription
         )
+        if let raw = user?.rawSubscriptionPayload {
+            combined.merge(signals(fromPayload: raw))
+        }
+        return combined
+    }
+
+    nonisolated static func signals(from response: SoundCloudCurrentUserResponse) -> Signals {
+        var combined = signals(from: response.user)
+        combined.merge(signals(fromPayload: response.subscription.payload))
+        return combined
+    }
+
+    nonisolated static func resolve(from user: User?) -> Resolution {
+        resolve(signals(from: user))
+    }
+
+    nonisolated static func resolve(from response: SoundCloudCurrentUserResponse) -> Resolution {
+        resolve(signals(from: response))
     }
 
     nonisolated static func resolveTier(from subscriptions: [ConsumerSubscription]?) -> Tier {
@@ -416,8 +572,23 @@ final class SubscriptionService: ObservableObject {
         guard let raw = user?.rawSubscriptionPayload, !raw.isEmpty else {
             return "no subscription keys present on /me"
         }
-        return raw.keys.sorted()
-            .map { "\($0) = \(raw[$0]?.diagnosticDescription ?? "null")" }
+        return describe(raw)
+    }
+
+    nonisolated static func rawSubscriptionDescription(
+        for capture: SoundCloudSubscriptionCapture,
+        source: String
+    ) -> String {
+        guard !capture.payload.isEmpty else {
+            let keys = capture.keys.isEmpty ? "none" : capture.keys.joined(separator: ", ")
+            return "no subscription keys present on \(source); keys: \(keys)"
+        }
+        return "\(source):\n" + describe(capture.payload)
+    }
+
+    private nonisolated static func describe(_ payload: [String: JSONValue]) -> String {
+        payload.keys.sorted()
+            .map { "\($0) = \(payload[$0]?.diagnosticDescription ?? "null")" }
             .joined(separator: "\n")
     }
 }
