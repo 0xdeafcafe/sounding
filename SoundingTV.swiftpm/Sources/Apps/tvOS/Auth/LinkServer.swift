@@ -172,6 +172,8 @@ final class LinkServer: ObservableObject {
 
     var playsChime = true
 
+    var sessionLifetime: TimeInterval = BonjourConstants.sessionTimeout
+
     var onChimeRequested: (() -> Void)?
 
     func requestChime() {
@@ -608,8 +610,9 @@ final class LinkServer: ObservableObject {
 
     private func startTimeoutTimer() {
         timeoutTask?.cancel()
+        let lifetime = sessionLifetime
         timeoutTask = Task {
-            try? await Task.sleep(for: .seconds(BonjourConstants.sessionTimeout))
+            try? await Task.sleep(for: .seconds(lifetime))
 
             guard !Task.isCancelled else { return }
 
@@ -1204,11 +1207,17 @@ final class SameAccountLinkAdvertiser: ObservableObject {
     private var approvalSubscription: AnyCancellable?
     private var approvedName: String?
     private var devicesSubscription: AnyCancellable?
+    private var advertisedLinkedIds: Set<String>?
+    private var linkedPeersRefresh: Task<Void, Never>?
+
+    nonisolated static let advertLifetime: TimeInterval = 30 * 60
+    nonisolated static let linkedPeersSettle: Duration = .seconds(2)
 
     init() {
         server.playsChime = false
+        server.sessionLifetime = Self.advertLifetime
         devicesSubscription = CompanionServer.shared.$devices
-            .map { $0.compactMap(\.deviceId) }
+            .map { Set($0.compactMap(\.deviceId)) }
             .removeDuplicates()
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -1246,8 +1255,16 @@ final class SameAccountLinkAdvertiser: ObservableObject {
     }
 
     func refreshLinkedPeers() {
-        guard isAdvertising, server.state == .advertising, server.linkApproval == nil else { return }
-        begin()
+        linkedPeersRefresh?.cancel()
+        linkedPeersRefresh = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.linkedPeersSettle)
+            guard !Task.isCancelled, let self else { return }
+            self.linkedPeersRefresh = nil
+            let linked = Set(CompanionServer.shared.devices.compactMap(\.deviceId))
+            guard self.isAdvertising, self.server.state == .advertising, self.server.linkApproval == nil,
+                  linked != self.advertisedLinkedIds else { return }
+            self.begin()
+        }
     }
 
     private var wantsAdvert: Bool { isActive && holds == 0 && accountId?.isEmpty == false }
@@ -1258,8 +1275,11 @@ final class SameAccountLinkAdvertiser: ObservableObject {
         } else if isAdvertising {
             Log.link.info("[SameAccountLink] stop advertising")
             restart?.cancel()
+            linkedPeersRefresh?.cancel()
+            linkedPeersRefresh = nil
             server.stop()
             isAdvertising = false
+            advertisedLinkedIds = nil
         }
     }
 
@@ -1275,6 +1295,7 @@ final class SameAccountLinkAdvertiser: ObservableObject {
         Log.link.info("[SameAccountLink] advertising for \(linked.count, privacy: .public) linked devices")
         server.start()
         isAdvertising = true
+        advertisedLinkedIds = Set(linked)
     }
 
     private func serverChanged(_ state: LinkServer.State) {
