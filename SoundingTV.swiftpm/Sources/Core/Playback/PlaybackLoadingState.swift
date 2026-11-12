@@ -23,7 +23,7 @@ struct PlaybackResolvedSource: Equatable {
     var asset: AVURLAsset? = nil
 
     func makeAsset() -> AVURLAsset {
-        asset ?? AVURLAsset(url: url)
+        asset ?? FairPlayStreaming.makeAsset(url: url)
     }
 }
 
@@ -117,13 +117,21 @@ enum PlaybackPrewarmingPolicy {
 
 enum PlaybackSourceResolutionError: Error, LocalizedError {
     case unsupportedFormat
+    case protectedAudio
+    case protectedOnSonos
 
     var errorDescription: String? {
         switch self {
         case .unsupportedFormat:
             return "SoundCloud only offers a format this audio pipeline cannot decode."
+        case .protectedAudio:
+            return Self.protectedAudioStatus
+        case .protectedOnSonos:
+            return "Protected Go+ track. It can\u{2019}t play on Sonos."
         }
     }
+
+    static let protectedAudioStatus = "Protected Go+ track. It plays, but can\u{2019}t be mixed or analysed."
 }
 
 /// The single source-selection and short-lived resolution-cache owner used by
@@ -197,6 +205,7 @@ final class PlaybackSourceResolver {
         if track.isLocal { return try await LocalMusicLibrary.shared.playableURL(for: track) }
         _ = try await SubscriptionService.shared.requirePlaybackGrant(for: track, allowsPreview: false)
         if let lease = await downloads.temporaryPlaintextFile(for: track) { return lease.url }
+        if track.needsFairPlay { throw PlaybackSourceResolutionError.protectedAudio }
         return try await networkURL(
             for: track,
             collectionID: collectionID,
@@ -220,9 +229,18 @@ final class PlaybackSourceResolver {
             ? track.bestPreview
             : transcoding(for: track, collectionID: collectionID, purpose: purpose)
         if purpose == .decodedAudio, source == nil {
-            throw PlaybackSourceResolutionError.unsupportedFormat
+            throw track.needsFairPlay ? PlaybackSourceResolutionError.protectedAudio : .unsupportedFormat
         }
         let key = resolutionCacheKey(track: track, transcoding: source, purpose: purpose)
+        if let source, source.isFairPlay {
+            if useResolutionCache, let cached = StreamResolutionDiskCache.url(for: key),
+               FairPlayLicenceRegistry.licence(for: cached) != nil {
+                return cached
+            }
+            let resolved = try await fairPlayURL(for: track, transcoding: source)
+            StreamResolutionDiskCache.store(resolved, for: key)
+            return resolved
+        }
         if useResolutionCache, let cached = StreamResolutionDiskCache.url(for: key) { return cached }
         if useResolutionCache, purpose == .decodedAudio, grant == .full,
            source == transcoding(for: track, collectionID: collectionID, purpose: .streaming),
@@ -240,6 +258,19 @@ final class PlaybackSourceResolver {
         return resolved
     }
 
+    private func fairPlayURL(for track: Track, transcoding: Transcoding) async throws -> URL {
+        let resolution = try await SoundCloudRequestEnvironment.playback {
+            try await api.getStreamResolution(for: track, transcoding: transcoding)
+        }
+        guard let token = resolution.licenseAuthToken else {
+            FairPlayDebugLog.note("resolve track=\(track.id) returned no licence token")
+            throw FairPlayLicenceError.missingLicenceToken
+        }
+        FairPlayDebugLog.note("resolve track=\(track.id) preset=\(transcoding.preset ?? "?") licence token \(token.utf8.count) bytes")
+        FairPlayLicenceRegistry.register(token: token, trackID: track.id, for: resolution.url)
+        return resolution.url
+    }
+
     func transcoding(
         for track: Track,
         collectionID: String?,
@@ -248,7 +279,7 @@ final class PlaybackSourceResolver {
         let candidates: [Transcoding]
         switch purpose {
         case .streaming: candidates = track.transcodings
-        case .decodedAudio: candidates = track.transcodings.filter { $0.codec != .opus }
+        case .decodedAudio: candidates = track.decodableTranscodings.filter { $0.codec != .opus }
         }
         let ceiling = qualityOverrides.effectiveCeiling(
             for: collectionID ?? track.id,

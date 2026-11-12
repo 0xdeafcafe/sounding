@@ -37,6 +37,11 @@ enum SoundCloudSessionHealth: Equatable, Sendable {
     }
 }
 
+struct SoundCloudStreamResolution: Sendable {
+    let url: URL
+    let licenseAuthToken: String?
+}
+
 enum SoundCloudTokenValidation: Equatable, Sendable {
     case valid
     case rejected
@@ -525,19 +530,26 @@ final class SoundCloudAPI: ObservableObject {
     }
 
     func getStreamURL(for track: Track, transcoding: Transcoding? = nil) async throws -> URL {
+        try await getStreamResolution(for: track, transcoding: transcoding).url
+    }
+
+    func getStreamResolution(for track: Track, transcoding: Transcoding? = nil) async throws -> SoundCloudStreamResolution {
         guard let streamURL = transcoding?.url ?? track.streamURL else {
             throw APIError.noStreamURL
         }
-
-        return try await getStreamURL(forTranscodingURL: streamURL)
+        return try await getStreamResolution(forTranscodingURL: streamURL)
     }
 
     func getStreamURL(forTranscodingURL streamURL: URL) async throws -> URL {
+        try await getStreamResolution(forTranscodingURL: streamURL).url
+    }
 
+    func getStreamResolution(forTranscodingURL streamURL: URL) async throws -> SoundCloudStreamResolution {
         let url = Self.sanitized(streamURL, isAuthenticated: accessToken != nil)
 
         struct StreamResponse: Codable {
             let url: String
+            let licenseAuthToken: String?
         }
 
         let response: StreamResponse = try await request(url, lane: .streamResolution)
@@ -548,7 +560,8 @@ final class SoundCloudAPI: ObservableObject {
 
         try SoundCloudGateway.shared.admitMediaURL(finalURL)
 
-        return finalURL
+        let token = response.licenseAuthToken.flatMap { $0.isEmpty ? nil : $0 }
+        return SoundCloudStreamResolution(url: finalURL, licenseAuthToken: token)
     }
 
     static func rateLimitResetDate(from data: Data) -> Date? {

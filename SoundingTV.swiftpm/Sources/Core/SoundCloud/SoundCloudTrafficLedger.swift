@@ -157,7 +157,7 @@ final class SoundCloudRequestLedger: @unchecked Sendable {
             "SoundCloudRequestLedger", "SoundCloudRequestEnvironment", "messagingRequest",
             "performSocialRequest", "performLikeRequest", "performFollowingRequest", "fetchTracks",
             "SoundCloudAPI.getTracks", "SoundCloudAPI.getPlaylistTracks", "SoundCloudAPI.getSystemPlaylistTracks",
-            "SoundCloudAPI.getStreamURL", "SoundCloudAPI.getNextPage", "SoundCloudAPI.getLikesPage",
+            "SoundCloudAPI.getStreamURL", "SoundCloudAPI.getStreamResolution", "SoundCloudAPI.getNextPage", "SoundCloudAPI.getLikesPage",
             "SoundCloudTokenRefresh", "WaveformService", "SoundCloudCredentialRefreshBarrier",
         ]
         var fallback: String?
