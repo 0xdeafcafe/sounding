@@ -1,123 +1,125 @@
 export const BPM = 124;
-const BEATS = 16;
-const SPB = 60 / BPM;
 
-const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+const CHORDS = {
+  main: [[57, 60, 64, 67, 71], [53, 57, 60, 64, 67], [55, 59, 60, 64, 67], [55, 59, 62, 64, 69]],
+  alt: [[50, 53, 57, 60, 64], [52, 55, 59, 62, 64], [53, 57, 60, 64, 67], [55, 59, 62, 67, 69]],
+};
+const ROOTS = { main: [33, 29, 36, 31], alt: [38, 40, 29, 31] };
 
-function noiseBuffer(ctx, seconds) {
-  const b = ctx.createBuffer(1, Math.floor(ctx.sampleRate * seconds), ctx.sampleRate);
-  const d = b.getChannelData(0);
-  let s = 22222;
-  for (let i = 0; i < d.length; i++) { s = (s * 16807) % 2147483647; d[i] = (s / 2147483647) * 2 - 1; }
-  return b;
-}
+const DRUMS = {
+  kick: { four: 'x...x...x...x...', push: 'x...x...x...x.x.', off: 'x...x.....x...x.' },
+  hat: { off8: '..x...x...x...x.', six: 'o-x-o-x-o-x-o-x-', sixb: '-ox--ox--ox--ox-', sparse: '..x.......x.....' },
+  ohat: { oh: '..x...x...x...x.', oh2: '......x.......x.' },
+  ride: { rd: 'x.o.x.o.x.o.x.o.', rd2: '..x...x...x...x.' },
+  clap: { two4: '....x.......x...', two4b: '....x......-x...', late: '....x.......x..-' },
+  rim: { r1: '...x..x....x..x.', r2: '.x...x...x.x...x', r3: '......x.......x.' },
+  shaker: { sh: 'o-x-o-x-o-x-o-x-', sh2: '-xo--xo--xo--xo-', sh3: 'x-o-x-o-x-o-x-o-' },
+  perc: { c1: '..x..x.x...x..x.', c2: '.x..x..x.x..x..x', c3: '...x...x..x...x.' },
+};
 
-function kit(ctx, out, noise) {
-  const env = (g, t, a, peak, d) => { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + d); };
-  const burst = (t, type, freq, q, peak, d, a = 0.002, off = 0) => {
-    const s = ctx.createBufferSource(); s.buffer = noise;
-    const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
-    const g = ctx.createGain(); env(g, t, a, peak, d);
-    s.connect(f).connect(g).connect(out); s.start(t, off, a + d + 0.05);
-  };
-  return {
-    kick(t, level = 1, deep = 48) {
-      const o = ctx.createOscillator(); const g = ctx.createGain();
-      o.frequency.setValueAtTime(165, t); o.frequency.exponentialRampToValueAtTime(deep, t + 0.085);
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(level, t + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
-      o.connect(g).connect(out); o.start(t); o.stop(t + 0.4);
-      burst(t, 'highpass', 2400, 0.7, 0.16 * level, 0.012, 0.001);
+const SONG_A = {
+  seed: 101, bpm: BPM, swing: 0.11, bassOct: 12,
+  chords: CHORDS, roots: ROOTS,
+  fills: ['hatroll', 'kickpush', 'bassrun', 'claproll', 'percburst', 'none', 'none'],
+  pat: {
+    ...DRUMS,
+    bass: {
+      r8: [[0, 0, 2, 1], [2, 0, 2], [4, 0, 2], [6, 0, 2], [8, 0, 2, 1], [10, 0, 2], [12, 0, 2], [14, 0, 2]],
+      off: [[2, 0, 2], [6, 0, 2], [10, 0, 2, 1], [14, 0, 2]],
+      long: [[0, 0, 6, 1], [8, 0, 4], [12, 12, 2]],
+      walk: [[0, 0, 2, 1], [2, 0, 2], [4, 0, 2], [6, 7, 2], [8, 0, 2, 1], [10, 0, 2], [12, 12, 2], [14, 10, 2]],
+      bump: [[2, 0, 2], [6, 0, 1], [7, 0, 1], [10, 0, 2, 1], [13, 7, 1], [14, 0, 1]],
     },
-    hat(t, level = 0.2, d = 0.035) { burst(t, 'highpass', 7800, 0.8, level, d, 0.001, (t * 7.3) % 1); },
-    clap(t, level = 0.5) { for (let k = 0; k < 3; k++) burst(t + k * 0.011, 'bandpass', 1500, 1.1, level * 0.7, 0.02, 0.001, k * 0.21); burst(t + 0.03, 'bandpass', 1300, 0.9, level, 0.14, 0.001, 0.5); },
-    rim(t, level = 0.3) {
-      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = 1720;
-      const g = ctx.createGain(); env(g, t, 0.001, level, 0.03);
-      o.connect(g).connect(out); o.start(t); o.stop(t + 0.06);
+    stab: { sd: ['..X.............', '..........X.....'] },
+    keys: { k1: ['x.....x.....x...', 'x.....x...x.....'], k2: ['..x.....x.......', '..x.....x.....x.'], k3: ['x.......x.......', 'x.......x...x...'] },
+    arp: { a16: 'x-x-x-x-x-x-x-x-', a16b: '-x-x-x-x-x-x-x-x', a8: 'x.x.x.x.x.x.x.x.', a8b: 'x..x..x.x..x..x.' },
+    lead: {
+      m1: [[0, 76, 3], [4, 74, 2], [6, 72, 2], [8, 69, 4], [16, 72, 3], [20, 74, 2], [22, 76, 2], [24, 79, 6]],
+      m2: [[0, 81, 2], [2, 79, 2], [4, 76, 4], [10, 74, 2], [12, 72, 4], [16, 74, 2], [18, 76, 2], [20, 79, 4], [26, 76, 2], [28, 74, 4]],
+      m3: [[0, 72, 2], [2, 76, 2], [4, 79, 4], [8, 76, 2], [10, 74, 2], [12, 72, 4], [16, 69, 6], [24, 72, 2], [26, 74, 2], [28, 76, 4]],
     },
-    shaker(t, level = 0.06) { burst(t, 'bandpass', 5200, 1.4, level, 0.05, 0.012, (t * 3.1) % 1); },
-    bass(t, note, d, level = 0.5, bright = 700) {
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = midi(note);
-      const s = ctx.createOscillator(); s.frequency.value = midi(note);
-      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 5;
-      f.frequency.setValueAtTime(bright, t); f.frequency.exponentialRampToValueAtTime(110, t + d);
-      const g = ctx.createGain(); env(g, t, 0.004, level, d);
-      const sg = ctx.createGain(); env(sg, t, 0.004, level * 0.9, d * 1.1);
-      o.connect(f).connect(g).connect(out); s.connect(sg).connect(out);
-      o.start(t); o.stop(t + d + 0.05); s.start(t); s.stop(t + d * 1.1 + 0.05);
-    },
-    keys(t, notes, d = 0.5, level = 0.12) {
-      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(2600, t); f.frequency.exponentialRampToValueAtTime(700, t + d); f.Q.value = 0.6;
-      f.connect(out);
-      notes.forEach((n, i) => {
-        const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = midi(n);
-        const h = ctx.createOscillator(); h.frequency.value = midi(n) * 4; const hg = ctx.createGain(); env(hg, t, 0.002, level * 0.25, 0.09);
-        const g = ctx.createGain(); env(g, t + i * 0.004, 0.006, level, d);
-        o.connect(g).connect(f); h.connect(hg).connect(f);
-        o.start(t); o.stop(t + d + 0.1); h.start(t); h.stop(t + 0.15);
-      });
-    },
-    pad(t, notes, d, level = 0.035) {
-      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1100; f.Q.value = 0.4;
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(level, t + d * 0.35); g.gain.linearRampToValueAtTime(level * 0.8, t + d * 0.8); g.gain.linearRampToValueAtTime(0.0001, t + d);
-      f.connect(g).connect(out);
-      notes.forEach(n => [-6, 7].forEach(c => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = midi(n); o.detune.value = c; o.connect(f); o.start(t); o.stop(t + d + 0.02); }));
-    },
-  };
-}
+  },
+  kit: {
+    kick: { pitch: 150, deep: 48, glide: 14, decay: 290, click: 0.04, sat: 1.1, level: 0.58 },
+    rumble: { decay: 300, lp: 120, freq: 42, level: 0.2 },
+    hat: { decay: 28, tail: 0.25, hp: 5500, lp: 15000, metal: 0, level: 0.2 },
+    ohat: { decay: 140, tail: 0.5, hp: 6000, lp: 14000, metal: 0, level: 0.16 },
+    ride: { decay: 160, tail: 0.6, hp: 5000, lp: 13000, metal: 1, level: 0.12 },
+    shaker: { decay: 35, tail: 0.2, hp: 4500, lp: 12000, metal: 0, level: 0.12 },
+    clap: { freq: 1300, decay: 110, level: 0.3 },
+    rim: { freq: 1700, decay: 20, ndecay: 12, tone: 0.6, level: 0.16 },
+    perc: { freq: 210, decay: 70, ndecay: 8, tone: 0.9, level: 0.22 },
+    bell: { decay: 900, level: 0.05 },
+    bass: { cut: 700, cutEnd: 220, cdecay: 160, rel: 14, sub: 0.35, drive: 1.6, res: 1.1, level: 0.3, square: 0, accentAmt: 0 },
+    stab: { det: 8, cut: 2200, cutEnd: 500, cdecay: 160, attack: 0.004, rel: 90, res: 0.9, wave: 'saw', drive: 1.2, level: 0.24, send: 0.5 },
+    keys: { det: 4, cut: 3800, cutEnd: 1000, cdecay: 350, attack: 0.003, rel: 250, res: 0.7, wave: 'tri', drive: 1, level: 0.32, send: 0.4 },
+    arp: { det: 5, cut: 2200, cutEnd: 600, cdecay: 120, attack: 0.002, rel: 40, res: 0.9, wave: 'saw', drive: 1, level: 0.17 },
+    lead: { det: 6, cut: 2600, cutEnd: 1200, cdecay: 300, attack: 0.01, rel: 140, res: 0.8, wave: 'tri', drive: 1, level: 0.25 },
+    pad: { det: 9, cut: 900, cutEnd: 900, cdecay: 1000, attack: 0.9, rel: 900, res: 0.6, lfo: 0.06, lfoAmt: 0.35, wave: 'saw', drive: 1, level: 0.13, drop: 0 },
+    riser: { from: 300, to: 7000, level: 0.09 },
+    impact: { decay: 900, lp: 5000, boom: 500, level: 0.3 },
+  },
+  fx: { decay: 0.62, damp: 0.45, delaySteps: 3, feedback: 0.42, delayLevel: 0.5, revLevel: 0.5, duck: 0.35, thr: 0.5, ratio: 2.5, makeup: 1.12, stabSend: 0.5, percSend: 0.25, arpSend: 0.45, leadSend: 0.6, percRev: 0.3, stabRev: 0.3, padRev: 0.25, hatRev: 0.04, kickRev: 0, arpRev: 0.3, leadRev: 0.5 },
+  sections: [
+    { name: 'intro', bars: 8, kick: 'four', shaker: 'sh', pad: 0.7, arp: 'a8', lp: [500, 4000], pings: 0.25 },
+    { name: 'rise', bars: 8, kick: 'four', hat: 'off8', shaker: 'sh', bass: 'off', arp: 'a16', keys: 'k3', pad: 0.8, lp: [4000, 14000], pings: 0.2 },
+    { name: 'groove', bars: 16, kick: 'four', hat: ['off8', 'six'], shaker: ['sh', 'sh2'], clap: 'two4', rim: ['r3', 0], bass: ['r8', 'off', 'walk'], arp: ['a16', 'a8'], keys: ['k1', 'k2'], pad: 0.7, pings: 0.15 },
+    { name: 'break', bars: 8, shaker: 'sh2', bass: 'long', pad: 1, prog: 'alt', keys: 'k2', lead: 'm1', riser: 4, hp: [20, 180], pings: 0.4, fills: ['snareroll', 'claproll'] },
+    { name: 'drop', bars: 16, impact: true, kick: 'four', hat: 'six', ohat: 'oh2', clap: 'two4', shaker: 'sh', perc: ['c1', 0], bass: ['r8', 'walk'], arp: 'a16', keys: 'k1', lead: ['m1', 'm2'], pad: 0.6, pings: 0.1 },
+    { name: 'groove2', bars: 16, kick: 'four', hat: 'off8', shaker: 'sh', clap: ['two4', 0], rim: 'r1', bass: ['off', 'r8', 'bump'], arp: ['a8', 'a8b', 0], keys: 'k2', pad: 0.7, pings: 0.2 },
+    { name: 'break2', bars: 8, kick: 'four', shaker: 'sh', bass: 'long', pad: 1, prog: 'alt', lead: 'm2', arp: 'a16', riser: 4, lp: [12000, 450], pings: 0.4, fills: ['snareroll'] },
+    { name: 'drop2', bars: 16, impact: true, kick: 'four', hat: ['six', 'sixb'], ohat: 'oh', clap: 'two4b', shaker: 'sh', perc: ['c1', 'c3'], ride: [0, 'rd2'], bass: ['walk', 'r8'], arp: 'a16', keys: 'k1', lead: ['m2', 'm3', 'm1'], pad: 0.6, pings: 0.1 },
+    { name: 'outro', bars: 4, kick: 'four', shaker: 'sh', pad: 0.7, arp: 'a8', lp: [14000, 600] },
+  ],
+};
 
-const CHORDS = [[57, 60, 64, 67, 71], [53, 57, 60, 64, 67], [60, 64, 67, 71, 62], [52, 55, 59, 62, 66]];
-const ROOTS = [33, 29, 36, 28];
+const SONG_B = {
+  seed: 202, bpm: BPM, swing: 0.07, bassOct: 12,
+  chords: CHORDS, roots: ROOTS,
+  acidNotes: [0, 0, 0, 0, 12, 12, 3, 7, 10, -2, -5],
+  fills: ['hatroll', 'snareroll', 'kickpush', 'claproll', 'none', 'percburst'],
+  pat: {
+    ...DRUMS,
+    bass: {},
+    stab: { t1: ['..x..x.....x....', '..x..x.....x..x.'], t2: ['.x.....x..x.....', '.x.....x..x...x.'], sd: ['..X.............', '..........X.....'] },
+    keys: {}, arp: {}, lead: {},
+  },
+  kit: {
+    kick: { pitch: 190, deep: 52, glide: 10, decay: 230, click: 0.12, sat: 1.5, level: 0.64 },
+    rumble: { decay: 320, lp: 130, freq: 44, level: 0.16 },
+    hat: { decay: 22, tail: 0.2, hp: 6500, lp: 16000, metal: 1, level: 0.21 },
+    ohat: { decay: 200, tail: 0.7, hp: 6000, lp: 15000, metal: 1, level: 0.18 },
+    ride: { decay: 180, tail: 0.6, hp: 5000, lp: 13000, metal: 1, level: 0.14 },
+    shaker: { decay: 30, tail: 0.2, hp: 4500, lp: 12000, metal: 0, level: 0.1 },
+    clap: { freq: 1500, decay: 130, level: 0.34 },
+    rim: { freq: 1800, decay: 15, ndecay: 10, tone: 0.5, level: 0.18 },
+    perc: { freq: 160, decay: 120, ndecay: 6, tone: 1, level: 0.24 },
+    bell: { decay: 700, level: 0.04 },
+    bass: { cut: 600, cutEnd: 170, cdecay: 180, rel: 8, sub: 0.1, drive: 2.2, res: 4.5, level: 0.34, square: 0, accentAmt: 1.2 },
+    stab: { det: 12, cut: 1400, cutEnd: 400, cdecay: 80, attack: 0.003, rel: 60, res: 1.2, wave: 'sq', drive: 1.5, level: 0.26, send: 0.55 },
+    keys: { det: 4, cut: 3000, cutEnd: 900, cdecay: 300, attack: 0.003, rel: 200, res: 0.7, wave: 'tri', drive: 1, level: 0.2, send: 0.4 },
+    arp: { det: 5, cut: 1800, cutEnd: 500, cdecay: 120, attack: 0.002, rel: 40, res: 0.9, wave: 'saw', drive: 1, level: 0.1 },
+    lead: { det: 6, cut: 2400, cutEnd: 1100, cdecay: 300, attack: 0.01, rel: 140, res: 0.8, wave: 'tri', drive: 1, level: 0.15 },
+    pad: { det: 10, cut: 600, cutEnd: 600, cdecay: 1000, attack: 1.2, rel: 1500, res: 0.6, lfo: 0.05, lfoAmt: 0.5, wave: 'saw', drive: 1, level: 0.12, drop: 1 },
+    riser: { from: 250, to: 8000, level: 0.1 },
+    impact: { decay: 700, lp: 6000, boom: 450, level: 0.32 },
+  },
+  fx: { decay: 0.5, damp: 0.5, delaySteps: 3, feedback: 0.35, delayLevel: 0.4, revLevel: 0.35, duck: 0.45, thr: 0.5, ratio: 2.5, makeup: 1.18, stabSend: 0.55, percSend: 0.3, arpSend: 0, leadSend: 0, percRev: 0.3, stabRev: 0.3, padRev: 0.3, hatRev: 0.03, kickRev: 0, arpRev: 0, leadRev: 0 },
+  sections: [
+    { name: 'intro', bars: 4, kick: 'four', rumble: 0.6, shaker: 'sh', pad: 0.5, lp: [1000, 3000] },
+    { name: 'intro2', bars: 4, kick: 'four', rumble: 0.6, hat: 'off8', shaker: 'sh', pad: 0.5, acid: [0.2, 0.35, 'up'], lp: [3000, 12000] },
+    { name: 'groove', bars: 16, kick: 'four', rumble: 0.5, hat: ['off8', 'sparse'], ohat: 'oh2', clap: ['two4', 'late'], shaker: ['sh', 'sh3'], rim: ['r3', 'r1'], acid: [0.35, 0.9, 'up'] },
+    { name: 'groove2', bars: 8, kick: 'four', rumble: 0.5, hat: 'off8', ohat: 'oh', clap: 'two4', shaker: 'sh', perc: [0, 'c3'], stab: 't1', acid: [0.9, 1.8, 'up'] },
+    { name: 'build', bars: 8, kick: 'four', rumble: 0.4, hat: 'six', ohat: 'oh', clap: 'two4', shaker: 'sh', stab: 't1', pad: 0.5, riser: 4, acid: [1.8, 3.5, 'up'], fills: ['snareroll', 'hatroll'] },
+    { name: 'drop', bars: 16, impact: true, kick: 'four', rumble: 0.5, hat: ['six', 'off8'], ohat: 'oh', clap: 'two4b', ride: [0, 'rd'], perc: 'c1', shaker: 'sh', stab: 't2', pad: 0.4, acid: [3, 2, 'tri'], pings: 0.1 },
+    { name: 'break', bars: 8, shaker: 'sh2', stab: 'sd', pad: 0.9, prog: 'alt', riser: 4, acid: [1.2, 3.8, 'up'], hp: [20, 160], fills: ['snareroll'] },
+    { name: 'drop2', bars: 16, impact: true, kick: 'four', rumble: 0.5, hat: 'six', ohat: 'oh', clap: 'two4', ride: 'rd', perc: ['c1', 'c2'], shaker: 'sh', stab: ['t1', 't2'], pad: 0.4, acid: [3.5, 1.5, 'up'], pings: 0.1 },
+    { name: 'roll', bars: 8, kick: 'four', rumble: 0.5, shaker: 'sh', acid: [1.5, 0.6, 'up'], lp: [16000, 1500] },
+    { name: 'outro', bars: 8, kick: 'four', rumble: 0.6, hat: 'off8', shaker: 'sh', acid: [0.6, 0.35, 'up'], lp: [1500, 1000] },
+  ],
+};
 
-async function renderLoop(sr, side) {
-  const n = Math.round(BEATS * SPB * sr);
-  const ctx = new OfflineAudioContext(1, n * 2, sr);
-  const noise = noiseBuffer(ctx, 2);
-  const bus = ctx.createGain(); bus.gain.value = side ? 0.82 : 0.9;
-  bus.connect(ctx.destination);
-  const k = kit(ctx, bus, noise);
-  for (let rep = 0; rep < 2; rep++) {
-    const T0 = rep * n / sr;
-    for (let b = 0; b < BEATS; b++) {
-      if (!(b & 3)) await new Promise(r => setTimeout(r));
-      const t = T0 + b * SPB, bar = b >> 2, q = b & 3;
-      if (!side) {
-        k.kick(t, 0.5, 44);
-        k.hat(t + SPB / 2, 0.07, 0.05);
-        for (let s = 0; s < 4; s++) k.shaker(t + s * SPB / 4 + (s & 1 ? 0.012 : 0), s === 2 ? 0.07 : 0.035);
-        if (q === 1 || q === 3) k.rim(t, 0.1);
-        if (q === 0) { k.pad(t, CHORDS[bar].slice(0, 4).map(x => x + 12), SPB * 4.2); k.keys(t, CHORDS[bar], 0.9, 0.1); k.bass(t, ROOTS[bar] + 12, 0.5, 0.3, 320); }
-        if (q === 1) k.keys(t + SPB / 2, CHORDS[bar], 0.45, 0.085);
-        if (q === 2) { k.keys(t + SPB * 0.75, CHORDS[bar].map(x => x + (x > 62 ? 0 : 12)), 0.6, 0.075); k.bass(t + SPB / 2, ROOTS[bar] + 12, 0.36, 0.24, 300); }
-        if (q === 3 && bar === 3) [76, 74, 71, 69].forEach((m, i) => k.keys(t + i * SPB / 4, [m], 0.3, 0.07));
-      } else {
-        k.kick(t, 0.95, 46);
-        k.hat(t + SPB / 2, 0.2, 0.16);
-        for (let s = 0; s < 4; s++) k.hat(t + s * SPB / 4, s === 0 ? 0.04 : 0.075, 0.022);
-        if (q === 1 || q === 3) k.clap(t, 0.42);
-        const pat = [0, 12, 0, 7][q];
-        k.bass(t + SPB / 4, ROOTS[0] + 12, 0.11, 0.42, 900);
-        k.bass(t + SPB / 2, ROOTS[0] + 12 + pat, 0.13, 0.46, 1500);
-        k.bass(t + SPB * 0.75, ROOTS[0] + 12 + (q === 3 ? 10 : 0), 0.1, 0.38, 1100);
-        if (q === 2 && (bar & 1)) k.rim(t + SPB * 0.75, 0.22);
-        if (q === 0 && bar === 2) k.rim(t + SPB / 4, 0.16);
-        if (bar === 3 && q === 3) for (let s = 0; s < 4; s++) k.hat(t + s * SPB / 4 + SPB / 8, 0.1, 0.03);
-      }
-    }
-  }
-  const buf = await ctx.startRendering();
-  return buf.getChannelData(0).slice(n, n * 2);
-}
-
-async function renderScratch(sr) {
-  const ctx = new OfflineAudioContext(1, sr * 2, sr);
-  const mix = ctx.createGain(); mix.gain.value = 0.5; mix.connect(ctx.destination);
-  const src = ctx.createGain();
-  [[220, 0.5], [330, 0.2], [110, 0.3]].forEach(([f, g]) => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const og = ctx.createGain(); og.gain.value = g; o.connect(og).connect(src); o.start(0); });
-  [[760, 9, 1], [1180, 10, 0.6], [2700, 12, 0.35]].forEach(([f, q, g]) => { const b = ctx.createBiquadFilter(); b.type = 'bandpass'; b.frequency.value = f; b.Q.value = q; const bg = ctx.createGain(); bg.gain.value = g * 3; src.connect(b).connect(bg).connect(mix); });
-  const buf = await ctx.startRendering();
-  return buf.getChannelData(0).slice(sr, sr * 2);
-}
+export const SONGS = [SONG_A, SONG_B];
 
 export function createAudio(base) {
   const A = { on: false, ready: false, ctx: null, loopLen: 0, beat: null, level: [0, 0] };
@@ -131,15 +133,15 @@ export function createAudio(base) {
     ctx = new AC({ latencyHint: 'interactive' });
     A.ctx = ctx;
     const sr = ctx.sampleRate;
-    const [la, lb, sc] = await Promise.all([renderLoop(sr, 0), renderLoop(sr, 1), renderScratch(sr), ctx.audioWorklet.addModule(base + 'deck-worklet.js')]);
-    A.loopLen = la.length;
+    await ctx.audioWorklet.addModule(base + 'deck-worklet.js');
+    A.loopLen = Math.round(16 * 60 / BPM * sr);
     master = ctx.createGain(); master.gain.value = 0;
     const lim = ctx.createDynamicsCompressor();
-    lim.threshold.value = -9; lim.knee.value = 4; lim.ratio.value = 14; lim.attack.value = 0.003; lim.release.value = 0.12;
+    lim.threshold.value = -3; lim.knee.value = 6; lim.ratio.value = 6; lim.attack.value = 0.003; lim.release.value = 0.15;
     master.connect(lim).connect(ctx.destination);
-    [la, lb].forEach((loop, i) => {
+    SONGS.forEach((song, i) => {
       const node = new AudioWorkletNode(ctx, 'deck', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
-      node.port.postMessage({ loop, scr: sc.slice() });
+      node.port.postMessage({ song });
       const lo = ctx.createBiquadFilter(); lo.type = 'lowshelf'; lo.frequency.value = 190;
       const mid = ctx.createBiquadFilter(); mid.type = 'peaking'; mid.frequency.value = 1000; mid.Q.value = 0.8;
       const hi = ctx.createBiquadFilter(); hi.type = 'highshelf'; hi.frequency.value = 4200;
@@ -151,7 +153,7 @@ export function createAudio(base) {
       node.connect(lo).connect(mid).connect(hi).connect(lp).connect(hp).connect(ch).connect(xg).connect(master);
       ch.connect(an);
       if (i === 0) node.port.onmessage = e => { A.beat = { ref: e.data.ref, at: e.data.at }; };
-      decks.push({ node, lo, mid, hi, lp, hp, ch, an, xg });
+      decks.push({ node, lo, mid, hi, lp, hp, ch, an, xg, muted: false });
     });
     A.ready = true;
     apply(0.001);
@@ -179,7 +181,10 @@ export function createAudio(base) {
       d.lp.Q.setTargetAtTime(q, t, tc); d.hp.Q.setTargetAtTime(q, t, tc);
       d.ch.gain.setTargetAtTime(want.chan[i] * want.chan[i], t, tc);
       const x = i ? want.xf : 1 - want.xf;
-      d.xg.gain.setTargetAtTime(Math.min(1, Math.sin(x * Math.PI / 2) * 1.22), t, tc);
+      const xg = Math.min(1, Math.sin(x * Math.PI / 2) * 1.22);
+      d.xg.gain.setTargetAtTime(xg, t, tc);
+      const mute = want.chan[i] * want.chan[i] * xg < 0.002;
+      if (mute !== d.muted) { d.muted = mute; d.node.port.postMessage({ mute }); }
     });
   }
 
