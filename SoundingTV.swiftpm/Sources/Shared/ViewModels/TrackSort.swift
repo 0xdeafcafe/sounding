@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 enum TrackSortKey: String, CaseIterable, Identifiable, Codable, Sendable {
@@ -484,10 +485,45 @@ final class TrackAnalysisStore: ObservableObject {
     }
     private(set) var revision = 0
 
+    private var known: [String: Track] = [:]
+    private var changed: Set<String> = []
+    private var changedEverything = false
+    private var cancellable: AnyCancellable?
+
+    init() {
+        cancellable = NotificationCenter.default.publisher(for: .analysisDataDidChange)
+            .receive(on: RunLoop.main)
+            .handleEvents(receiveOutput: { [weak self] note in
+                let trackIds = note.userInfo?[AnalysisDataChange.trackIdsKey] as? [String]
+                MainActor.assumeIsolated { self?.noteChange(trackIds) }
+            })
+            .debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.reloadChanged() }
+            }
+    }
+
     func load(for tracks: [Track]) async {
         guard !tracks.isEmpty else { return }
+        for track in tracks { known[track.id] = track }
         let fresh = await AnalysisLookup.summaries(for: tracks)
         guard !fresh.isEmpty else { return }
         summaries.merge(fresh) { _, new in new }
+    }
+
+    private func noteChange(_ trackIds: [String]?) {
+        guard let trackIds else {
+            changedEverything = true
+            return
+        }
+        changed.formUnion(trackIds.filter { known[$0] != nil })
+    }
+
+    private func reloadChanged() {
+        let tracks = changedEverything ? Array(known.values) : changed.compactMap { known[$0] }
+        changed.removeAll()
+        changedEverything = false
+        guard !tracks.isEmpty else { return }
+        Task { await load(for: tracks) }
     }
 }

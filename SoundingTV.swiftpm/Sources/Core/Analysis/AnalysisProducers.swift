@@ -319,6 +319,10 @@ final class AnalysisSummaries: ObservableObject {
         byTrackId[trackId]
     }
 
+    func isResolved(_ trackId: String) -> Bool {
+        resolvedTrackIds.contains(trackId)
+    }
+
     func summary(for track: Track) -> AnalysisFeatureSummary? {
         if !resolvedTrackIds.contains(track.id), pending[track.id] == nil { request([track]) }
         return byTrackId[track.id]

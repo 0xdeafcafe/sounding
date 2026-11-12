@@ -395,16 +395,7 @@ final class AnalysisLibraryProgress: ObservableObject {
                 return
             }
             let chunk = Array(queue[index..<min(queue.count, index + width)])
-            for track in chunk where AutomaticAnalysisStatus.shared.state(for: track.id) == nil {
-                AutomaticAnalysisStatus.shared.set(.queued(position: 1), for: track.id)
-            }
-            await withTaskGroup(of: Void.self) { group in
-                for track in chunk {
-                    group.addTask {
-                        _ = await AutomaticAnalysisScheduler.shared.analyseNow(track, refresh: false)
-                    }
-                }
-            }
+            _ = await Self.analyse(chunk)
             if Task.isCancelled { return }
             index += chunk.count
             finished += chunk.count
@@ -434,13 +425,31 @@ final class AnalysisLibraryProgress: ObservableObject {
         }
     }
 
-    private static var isTooWarm: Bool {
+    static var isTooWarm: Bool {
         let state = ProcessInfo.processInfo.thermalState
         return state == .serious || state == .critical
     }
 
-    private static var batchWidth: Int {
+    static var batchWidth: Int {
         DeviceClass.current == .mac ? max(1, min(4, AnalysisLanePolicy.performanceCoreCount / 2)) : 1
+    }
+
+    static func analyse(_ chunk: [Track]) async -> [String: AnalysisWorkState] {
+        for track in chunk where AutomaticAnalysisStatus.shared.state(for: track.id) == nil {
+            AutomaticAnalysisStatus.shared.set(.queued(position: 1), for: track.id)
+        }
+        let results = await withTaskGroup(of: (String, AnalysisWorkState).self) { group in
+            for track in chunk {
+                group.addTask {
+                    (track.id, await AutomaticAnalysisScheduler.shared.analyseNow(track, refresh: false))
+                }
+            }
+            var states: [String: AnalysisWorkState] = [:]
+            for await (trackId, state) in group { states[trackId] = state }
+            return states
+        }
+        await AnalysisSummaries.shared.refresh(chunk)
+        return results
     }
 
     static func candidates() -> [Track] {
