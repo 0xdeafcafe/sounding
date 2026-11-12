@@ -801,6 +801,7 @@ struct TransportBarView: View {
 
     private func subtitle(for snapshot: NowPlayingSnapshot) -> String {
         guard let name = remoteOutputName(for: snapshot) else { return snapshot.displayArtist }
+        if !coordinator.currentOutput.isLocal, let caption = coordinator.output.client.refusalCaption { return caption }
         return snapshot.isAvailable ? "Playing on \(name)" : "Connecting to \(name)…"
     }
 

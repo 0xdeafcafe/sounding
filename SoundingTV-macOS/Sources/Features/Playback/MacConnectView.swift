@@ -120,6 +120,7 @@ struct MacConnectView: View {
         }
         .formStyle(.grouped)
         .frame(width: 360, height: 540)
+        .modifier(PlayOnOtherAccountConfirmation(linking: linking))
         .onAppear {
             sonos.startDiscovery()
             linking.attach(browser: MacTVLinking.shared.nearby, router: router)
@@ -155,7 +156,7 @@ struct MacConnectView: View {
         } label: {
             MacConnectRow(
                 title: device.isLocal ? "This Mac" : device.name,
-                subtitle: device.isLocal ? nil : (availability.label ?? device.deviceClass.displayName),
+                subtitle: device.isLocal ? nil : (availability.label ?? router.accountSubtitle(for: device) ?? device.deviceClass.displayName),
                 systemImage: device.symbolName,
                 isPending: pending == device.id
             )

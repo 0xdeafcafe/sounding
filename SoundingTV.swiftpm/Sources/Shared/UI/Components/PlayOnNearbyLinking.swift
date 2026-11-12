@@ -19,6 +19,7 @@ final class PlayOnNearbyLinking: ObservableObject {
 
     @Published private(set) var rows: [Row] = []
     @Published private(set) var comparison: LinkConfirmationHandshake?
+    @Published private(set) var otherAccount: (row: Row, alert: TVAccountCopy.Alert)?
 
     private struct Active {
         let id: String
@@ -76,6 +77,17 @@ final class PlayOnNearbyLinking: ObservableObject {
             }
         }
         guard !isBusy, let offer = offer(for: row.id) else { return }
+        if offer.isOtherAccount {
+            otherAccount = (row, TVAccountCopy.linkOtherAccount(tv: offer.claimedName))
+            return
+        }
+        begin(offer)
+    }
+
+    func answerOtherAccount(link: Bool) {
+        guard let pending = otherAccount else { return }
+        otherAccount = nil
+        guard link, !isBusy, let offer = offer(for: pending.row.id) else { return }
         begin(offer)
     }
 
@@ -350,5 +362,24 @@ struct PlayOnLinkCodeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct PlayOnOtherAccountConfirmation: ViewModifier {
+    @ObservedObject var linking: PlayOnNearbyLinking
+
+    func body(content: Content) -> some View {
+        content.alert(
+            linking.otherAccount?.alert.title ?? "",
+            isPresented: Binding(
+                get: { linking.otherAccount != nil },
+                set: { if !$0 { linking.answerOtherAccount(link: false) } }
+            )
+        ) {
+            Button("Link") { linking.answerOtherAccount(link: true) }
+            Button("Cancel", role: .cancel) { linking.answerOtherAccount(link: false) }
+        } message: {
+            Text(linking.otherAccount?.alert.message ?? "")
+        }
     }
 }

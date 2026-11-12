@@ -135,6 +135,7 @@ final class NearbyDeviceCardModel: ObservableObject {
     private var dismissals = NearbyCardDismissals.load()
     private var requestedChime = false
     private var isForeground = false
+    let autoLinker = TVAutoLinker()
     private var subscriptions: Set<AnyCancellable> = []
     private var flow: Set<AnyCancellable> = []
     private var presence: NWListener?
@@ -162,6 +163,11 @@ final class NearbyDeviceCardModel: ObservableObject {
         NearbyLinkInbox.shared.dismissed
             .receive(on: DispatchQueue.main)
             .sink { [weak self] request in self?.dismissedOutside(request) }
+            .store(in: &subscriptions)
+        autoLinker.$linkedName
+            .combineLatest(autoLinker.$isAttempting)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refresh() }
             .store(in: &subscriptions)
     }
 
@@ -294,6 +300,12 @@ final class NearbyDeviceCardModel: ObservableObject {
         for offer in browser.offers where offer.kind == .tv {
             dismissals.seen(Self.deviceKey(offer.kind, offer.claimedName), at: now)
         }
+        if isForeground, !SoundCloudCredentialSource.shared.isSignedOut {
+            autoLinker.consider(browser.offers, isForeground: isForeground, showingOtherSheet: phase != .offering) { offer in
+                let key = Self.deviceKey(offer.kind, offer.claimedName)
+                return self.dismissals.suppresses(key, at: now)
+            }
+        }
         guard phase == .offering else { return }
         let next = nextCandidate(now: now)
         if let current = candidate, current.id != next?.id, shown.contains(current.id) {
@@ -311,7 +323,7 @@ final class NearbyDeviceCardModel: ObservableObject {
     }
 
     private func nextCandidate(now: Date) -> Candidate? {
-        if let suggestion = sameAccount.offer.suggestion {
+        if let suggestion = sameAccount.offer.suggestion, !autoLinker.isAttempting {
             let linkCandidate = Candidate(
                 sessionIdPrefix: suggestion.sessionIdPrefix,
                 name: suggestion.name,
@@ -544,7 +556,7 @@ struct NearbyDeviceCard: View {
         case .offering:
             switch candidate.purpose {
             case .signIn:
-                return "Sign it in to Sounding with your SoundCloud account."
+                return TVAccountCopy.cardSignInMessage(mine: credentials.isSignedOut ? nil : credentials.accountUser.map(PeerAccount.init(user:)))
             case .link:
                 return "Link it to control playback from this \(DeviceClass.current.displayName)."
             }

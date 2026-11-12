@@ -974,7 +974,9 @@
 		5A1E0C27C0FFEE0000000003 /* SoundCloudSignInGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1E0C27C0FFEE0000000001 /* SoundCloudSignInGate.swift */; };
 		5A1E0C27C0FFEE0000000004 /* SoundCloudSignInGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1E0C27C0FFEE0000000001 /* SoundCloudSignInGate.swift */; };
 		4EA2BC27C0FFEE0000000002 /* NearbyDeviceCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA2BC27C0FFEE0000000001 /* NearbyDeviceCard.swift */; };
+		3BF27C2A4FB889BDD916D5D9 /* TVAccountViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2986F3CCACB7C34E723FA55E /* TVAccountViews.swift */; };
 		4EA2BC27C0FFEE0000000004 /* NearbyDeviceCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA2BC27C0FFEE0000000001 /* NearbyDeviceCard.swift */; };
+		AF64387C6C46266962D6A07A /* TVAccountViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2986F3CCACB7C34E723FA55E /* TVAccountViews.swift */; };
 		5D1CE111D00DCAFE00000002 /* NearbyDeviceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1CE111D00DCAFE00000001 /* NearbyDeviceViews.swift */; };
 		5D1CE111D00DCAFE00000003 /* NearbyDeviceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1CE111D00DCAFE00000001 /* NearbyDeviceViews.swift */; };
 		5D1CE111D00DCAFE0000B002 /* PlayOnNearbyLinking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1CE111D00DCAFE0000B001 /* PlayOnNearbyLinking.swift */; };
@@ -2446,6 +2448,7 @@ F1C39D966E10112291734F31 /* TVNowPlayingAutoMix.swift */ = {isa = PBXFileReferen
 		5A1E0B27C0FFEE0000000001 /* SoundingWelcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundingWelcome.swift; sourceTree = "<group>"; };
 		5A1E0C27C0FFEE0000000001 /* SoundCloudSignInGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundCloudSignInGate.swift; sourceTree = "<group>"; };
 		4EA2BC27C0FFEE0000000001 /* NearbyDeviceCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyDeviceCard.swift; sourceTree = "<group>"; };
+		2986F3CCACB7C34E723FA55E /* TVAccountViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAccountViews.swift; sourceTree = "<group>"; };
 		5D1CE111D00DCAFE00000001 /* NearbyDeviceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyDeviceViews.swift; sourceTree = "<group>"; };
 		5D1CE111D00DCAFE0000B001 /* PlayOnNearbyLinking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayOnNearbyLinking.swift; sourceTree = "<group>"; };
 		7EAC7A27C0FFEE0000000001 /* SoundingReactiveLineArt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundingReactiveLineArt.swift; sourceTree = "<group>"; };
@@ -4668,6 +4671,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				5A1E0C27C0FFEE0000000001 /* SoundCloudSignInGate.swift */,
 				7A7A00200000000000000020 /* CollectionHeroPage.swift */,
 				4EA2BC27C0FFEE0000000001 /* NearbyDeviceCard.swift */,
+				2986F3CCACB7C34E723FA55E /* TVAccountViews.swift */,
 				1DE7F1AB0000000000000002 /* IdentifySongViews.swift */,
 				5D1CE111D00DCAFE00000001 /* NearbyDeviceViews.swift */,
 				5D1CE111D00DCAFE0000B001 /* PlayOnNearbyLinking.swift */,
@@ -5718,6 +5722,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				5A1E0B27C0FFEE0000000004 /* SoundingWelcome.swift in Sources */,
 				5A1E0C27C0FFEE0000000004 /* SoundCloudSignInGate.swift in Sources */,
 				4EA2BC27C0FFEE0000000004 /* NearbyDeviceCard.swift in Sources */,
+				AF64387C6C46266962D6A07A /* TVAccountViews.swift in Sources */,
 				5D1CE111D00DCAFE00000003 /* NearbyDeviceViews.swift in Sources */,
 				5D1CE111D00DCAFE0000B003 /* PlayOnNearbyLinking.swift in Sources */,
 				CDD290716FBDCEEABC9F22D0 /* ContinueFromViews.swift in Sources */,
@@ -6881,6 +6886,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				5A1E0B27C0FFEE0000000002 /* SoundingWelcome.swift in Sources */,
 				5A1E0C27C0FFEE0000000002 /* SoundCloudSignInGate.swift in Sources */,
 				4EA2BC27C0FFEE0000000002 /* NearbyDeviceCard.swift in Sources */,
+				3BF27C2A4FB889BDD916D5D9 /* TVAccountViews.swift in Sources */,
 				5D1CE111D00DCAFE00000002 /* NearbyDeviceViews.swift in Sources */,
 				5D1CE111D00DCAFE0000B002 /* PlayOnNearbyLinking.swift in Sources */,
 				B3C364E03E4C533093BE4054 /* ContinueFromViews.swift in Sources */,
