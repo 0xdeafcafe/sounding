@@ -120,10 +120,11 @@ struct DJModeView: View {
                 .opacity(show.isShowing ? 0 : 1)
                 .disabled(show.isShowing)
         }
-        .padding(.horizontal, 88)
-        .padding(.top, 48)
-        .padding(.bottom, 52)
+        .padding(.horizontal, Space.page)
+        .padding(.top, SCBrowseMetrics.contentTopInset)
+        .padding(.bottom, Space.section)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
     }
 
     private var empty: some View {

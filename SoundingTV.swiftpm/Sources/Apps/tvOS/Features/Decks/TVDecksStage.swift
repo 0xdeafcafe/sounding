@@ -158,30 +158,39 @@ struct TVDeckStats: View {
     let isTrailing: Bool
 
     var body: some View {
+        let tempo = deck.tempo.map { String(format: "%.0f", $0) }
+        let estimated = deck.readout.isEstimated && deck.beats == nil
+        let hasValues = tempo != nil || deck.readout.key != nil || deck.readout.energyText != nil || deck.beats != nil
         HStack(alignment: .firstTextBaseline, spacing: 44) {
-            if deck.readout.hasAnalysis || deck.beats != nil {
-                stat(deck.tempo.map { String(format: "%.0f", $0) }, caption: deck.readout.isEstimated && deck.beats == nil ? "BPM (est.)" : "BPM")
-                stat(deck.readout.key ?? "–", caption: "Key")
+            if hasValues {
+                if let tempo {
+                    stat(estimated ? "~\(tempo)" : tempo, caption: "BPM")
+                }
+                if let key = deck.readout.key {
+                    stat(key, caption: "Key")
+                }
                 if slot == .onAir, let beats = deck.beats {
                     TVDeckBeatCounter(anchor: deck.anchor, beats: beats)
-                } else {
-                    stat(deck.readout.energyText, caption: "Energy")
+                } else if let energy = deck.readout.energyText {
+                    stat(energy, caption: "Energy")
                 }
             } else {
                 HStack(spacing: Space.snug) {
                     if deck.readout.isAnalyzing { ProgressView() }
-                    Text(deck.readout.isAnalyzing ? "Analysing…" : "Not analysed")
+                    Text(deck.readout.isAnalyzing ? "Analysing…" : (AnalysisStatusCopy.gate(.unsupported, device: .tv) ?? ""))
                         .font(.tvCallout)
                         .foregroundStyle(Color.scTextSecondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(isTrailing ? .trailing : .leading)
                 }
                 .frame(height: 92)
             }
         }
     }
 
-    private func stat(_ value: String?, caption: String) -> some View {
+    private func stat(_ value: String, caption: String) -> some View {
         VStack(alignment: isTrailing ? .trailing : .leading, spacing: 0) {
-            Text(value ?? "…")
+            Text(value)
                 .font(.system(size: 60, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(Color.scTextPrimary)
