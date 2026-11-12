@@ -331,7 +331,8 @@ struct LocalCollectionDetailView: View {
                         query: $query,
                         showsColumns: $showsColumns,
                         sortKeys: sortKeys,
-                        naturalOrderLabel: isAlbum ? "Album Order" : "Folder Order"
+                        naturalOrderLabel: isAlbum ? "Album Order" : "Folder Order",
+                        analyseTracks: visibleTracks
                     )
                 }
                 if isAlbum {

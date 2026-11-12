@@ -156,7 +156,8 @@ struct LibrarySongsView: View {
                         query: $query,
                         showsColumns: $showsColumns,
                         sortKeys: TrackCollection.availableSortKeys(for: derived.all, analysis: analysisStore.summaries),
-                        filters: filters
+                        filters: filters,
+                        analyseTracks: derived.rows
                     )
                 }
             }
@@ -200,6 +201,8 @@ struct LibrarySongsView: View {
         } else {
             List {
                 Section {
+                    MissingAnalysisProgressLine()
+                        .listRowSeparator(.hidden)
                     if showsColumnHeader {
                         TrackColumnsHeader(
                             query: $query,

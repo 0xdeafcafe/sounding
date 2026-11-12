@@ -146,6 +146,7 @@ Dates are the last review of that row. "2026-11-09 code audit" means the cells w
 | rekordbox import/export, USB export | — | — | 🟡 | — | — | 2026-11-09 | No `master.db` access by decision. |
 | Music Analysis | 🟡 | 🟡 | 🟡 | 🟡 | — | 2026-11-09 | Throughput 13 to 114 tracks/min; own models stopped. |
 | BPM and key: pending state, Analyse Now, Analyse All Now, Tempo & Key | 🟡 | 🟡 | 🟡 | 🟡 | — | 2026-11-09 code audit | Built, not yet built or seen on device. Pending marks in the iPad table, Dense rows, Mac table, Mac Now Playing and Decks library; Tempo & Key sheet (BPM 40–250, Tap Tempo, 24 keys, Reset to Analysed) from track menus on iPhone, iPad and Mac; status and Analyse All Now in Music Analysis settings (TV shows status only). Mac collection tables use the shared `TrackAnalysisValueCell`. |
+| Analyse Missing | 🟡 | 🟡 | ⬜ | 🟡 | — | 2026-11-12 | Written without a build. Shared `MissingAnalysisRun` (Core/Analysis/MissingAnalysis.swift) and `AnalyseMissingMenuItems` / `MissingAnalysisProgressLine`. iPhone and iPad: playlist and track menus, Sort & Filter on playlists, Likes, Sets, Tracks and local collections, progress line in the lists. TV: track menu, the gate copy as a toast. Mac: in progress by another agent. |
 | Match My Workout (heart rate to Auto Mix energy) | 🟡 | — | — | — | 🟡 | 2026-11-09 code audit | Watch workout drives iPhone Auto Mix energy; iPad, Mac and TV have no equivalent. |
 
 ## Controllers

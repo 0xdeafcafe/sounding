@@ -13,7 +13,9 @@ private struct TVTrackActionsHost: ViewModifier {
     @State private var playlistTrack: PlaylistTrackRef?
     @State private var trimTrack: Track?
     @State private var confirmation: String?
+    @State private var confirmationIcon = "checkmark.circle.fill"
     @State private var clearTask: Task<Void, Never>?
+    @ObservedObject private var analysisRun = MissingAnalysisRun.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
@@ -30,7 +32,7 @@ private struct TVTrackActionsHost: ViewModifier {
             }
             .overlay(alignment: .top) {
                 if let confirmation {
-                    Label(confirmation, systemImage: "checkmark.circle.fill")
+                    Label(confirmation, systemImage: confirmationIcon)
                         .font(.tvBodyEmph)
                         .foregroundStyle(Color.scTextPrimary)
                         .padding(.horizontal, Space.base)
@@ -43,14 +45,20 @@ private struct TVTrackActionsHost: ViewModifier {
                 }
             }
             .animation(reduceMotion ? nil : .smooth, value: confirmation)
+            .onChange(of: analysisRun.message) { _, message in
+                guard let message else { return }
+                confirm(message, icon: "info.circle")
+                analysisRun.dismissMessage()
+            }
     }
 
-    private func confirm(_ message: String) {
+    private func confirm(_ message: String, icon: String = "checkmark.circle.fill") {
         confirmation = message
+        confirmationIcon = icon
         UIAccessibility.post(notification: .announcement, argument: message)
         clearTask?.cancel()
         clearTask = Task {
-            try? await Task.sleep(for: .seconds(2.4))
+            try? await Task.sleep(for: .seconds(message.count > 60 ? 4.5 : 2.4))
             guard !Task.isCancelled else { return }
             confirmation = nil
         }
@@ -78,6 +86,7 @@ struct TVTrackMenuItems: View {
                 Label("Edit Start & End…", systemImage: "timeline.selection")
             }
         }
+        AnalyseMissingMenuItems(tracks: [track])
     }
 }
 

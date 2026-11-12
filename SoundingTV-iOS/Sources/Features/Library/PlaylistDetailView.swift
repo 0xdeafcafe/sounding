@@ -54,7 +54,8 @@ struct PlaylistDetailView: View {
                         query: $query,
                         showsColumns: $showsColumns,
                         sortKeys: TrackCollection.availableSortKeys(for: viewModel.tracks, analysis: analysisStore.summaries),
-                        naturalOrderLabel: "Playlist Order"
+                        naturalOrderLabel: "Playlist Order",
+                        analyseTracks: visibleTracks
                     )
                 }
             }
@@ -320,6 +321,10 @@ struct PlaylistDetailView: View {
                 hero
                     .collectionHeroProgress($heroProgress)
                     .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                MissingAnalysisProgressLine()
+                    .listRowInsets(rowInsets)
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                 if showsColumnHeader {
