@@ -27,7 +27,7 @@ const HOME = PAGE === 'home', DJ = PAGE === 'dj';
 const SIDE_KEY = 'sounding.side';
 const remember = b => { if (HOME || DJ) return; try { localStorage.setItem(SIDE_KEY, b ? 'b' : 'a'); } catch (e) {} };
 const PAGES = {
-  dj: { spots: [] },
+  dj: { spots: [['tv', 'tv'], ['mac', 'mac']] },
   tv: { spots: [['phone', 'phone'], ['tv', 'tv'], ['watch', 'watch']] },
   features: { spots: [['phone', 'phone'], ['tv', 'tv'], ['watch', 'watch'], ['pad', 'ipad'], ['mac', 'mac']] },
 };
@@ -59,12 +59,14 @@ const SHOT = {
   tv2: { l: [1.9, 0.007, 1.785, -5, 57, 0.4, 0, 0.02], p: [1.9, 0.02, 1.765, -8, 57, 0.165, 0, 0.3], sx: 0.2 },
   tv3: { l: [2.17, 0.012, 1.8, 0, 82, 0.12, 0, 0], p: [2.17, 0.012, 1.8, 0, 82, 0.09, 0, 0.36], sx: 0.32 },
   tv4: { l: [2.15, 0.26, 1.4, 0, 16, 1.6, 0, 0], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36], sx: 0.3 },
+  tvc: { l: [2.15, 0.27, 1.4, 0, 12, 1.25, 0, -0.02], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36], pw: 0.2 },
   rigA: { l: [0, 0.06, 0, -20, 34, 1.36, 0, 0.44], p: [-0.14, 0.06, 0, -24, 62, 0.62, 0, 0.36], sx: 0.08, yawX: 24 },
   rigC: { l: [0, 0.05, 0, 0, 39, 1.5, 0, 0.3], p: [0, 0.05, 0, 40, 40, 0.62, 0, 0.3], yawX: 14 },
   out: { l: [0.035, 0.158, -0.14, 13, 27, 0.4, 0.2, -0.08], p: [0.026, 0.155, -0.14, 10, 30, 0.215, 0, 0.36] },
   dj: { l: [0, 0.03, 0, 6, 40, 1.78, -0.14, -0.62], p: [0.31, 0.05, 0, 0, 58, 0.55, 0, -0.6] },
   pad: { l: [1.27, 0.01, 0.2, -12, 64, 0.7, 0.2, 0.05], p: [1.27, 0.01, 0.2, -12, 70, 0.3, 0, 0.3], pw: 0.5, ww: 1 },
   mac: { l: [1.56, 0.1, 0.75, -12, 30, 0.68, 0.2, 0.05], p: [1.56, 0.1, 0.75, -12, 34, 0.36, 0, 0.3], pw: 0.5 },
+  macc: { l: [1.56, 0.105, 0.75, -7, 14, 0.44, 0, -0.02], p: [1.56, 0.105, 0.75, -7, 20, 0.3, 0, 0.3], pw: 0.27 },
   amp: { l: [0.035, 0.158, -0.14, 13, 27, 0.6, 0.5, -0.04], p: [0.026, 0.155, -0.14, 10, 30, 0.215, 0, 0.36], pw: 0.55 },
   watch: { l: [2.17, 0.012, 1.8, 0, 62, 0.34, 0.3, 0.02], pw: 0.3, p: [2.17, 0.012, 1.8, 0, 66, 0.17, 0, 0.3] },
   room: { l: [1.2, 0.05, 0.6, 24, 46, 2.3, 0.3, -0.1], p: [1.2, 0.05, 0.6, 24, 50, 1.2, 0, 0.3] },
@@ -99,7 +101,7 @@ function live(stage) {
     const n = $$('.cap', el).length;
     const span = +el.dataset.span || 1.6 + 0.8 * n;
     el.style.setProperty('--span', span);
-    const tag = (el.classList.contains('flip') || el.classList.contains('right') ? '!' : '') + (el.classList.contains('wide') ? '>' : el.classList.contains('hero') ? '+' : '') + ($('.visual', el) ? '~' : '');
+    const tag = (el.classList.contains('flip') || el.classList.contains('right') ? '!' : '') + (el.classList.contains('wide') ? '>' : el.classList.contains('hero') ? '+' : '') + ($('.visual', el) || el.classList.contains('screen') ? '~' : '');
     return { id: el.dataset.scene, el, first: i === 0, n, span, shots: (el.dataset.shot || 'dj').split(',').map(s => s + tag), states: JSON.parse(el.dataset.states || '[]'), flow: el.classList.contains('flow'), s: 0, len: 1, alpha: 0, cap: 0, near: 1e9 };
   });
   const inks = $$('.ink').filter(el => !home || !topBar.contains(el)).map(el => ({ el, side: el.closest('.side'), d0: null, ex: null, ey: null }));
@@ -107,6 +109,7 @@ function live(stage) {
   const panes = home || PG.spots.length ? createScreens({ base, opaque: true, budget: coarse ? 1 : 0 }) : null;
   if (panes && coarse) { panes.resize('phone', 420); panes.resize('friend', 420); panes.resize('tv', 960); panes.resize('watch', 320); panes.resize('pad', 820); panes.resize('mac', 960); }
   else if (panes && matchMedia('(max-width: 860px), (max-aspect-ratio: 1/1)').matches) { panes.resize('tv', 1280); panes.resize('pad', 1024); panes.resize('mac', 1280); }
+  if (panes && !home) panes.preload([...new Set(chapters.flatMap(c => c.states.flatMap(st => ['macShot', 'tvShot', 'phoneShot', 'padShot'].map(k => st[k]).filter(Boolean))))]);
   const spots = (home ? [['phone', 'phone'], ['tv', 'tv'], ['watch', 'watch'], ['friend', 'phone'], ['pad', 'ipad'], ['mac', 'mac']] : PG.spots).map(([name, body]) => ({ name, pw: SCREENS[name].w, ph: SCREENS[name].h, ww: L[body].sw, vis: null, m: null, cx: 0, cy: 0, rev: 0 }));
   const spot = name => spots.find(s => s.name === name);
   const manual = qs.has('manual');
@@ -162,7 +165,7 @@ function live(stage) {
 
   function shot(name) {
     const key = name.replace(/[!>+~]+$/, ''), tag = name.slice(key.length);
-    const flip = tag.includes('!'), s = SHOT[key], push = tag.includes('>') ? (s.pw ?? 0.5) : tag.includes('+') ? 0.2 : tag.includes('~') ? 0.5 : 0, wide = tag.includes('~') ? 1.3 : tag.includes('>') ? (s.ww ?? 1.3) : 1;
+    const flip = tag.includes('!'), s = SHOT[key], push = tag.includes('>') ? (s.pw ?? 0.5) : tag.includes('+') ? 0.2 : tag.includes('~') ? (s.pw ?? 0.5) : 0, wide = tag.includes('~') ? 1.3 : tag.includes('>') ? (s.ww ?? 1.3) : 1;
     const c = (mobile ? s.p : s.l).slice();
     if (mobile) {
       c[5] *= clamp(aspect / 0.462, 1, 3.2);
@@ -197,7 +200,7 @@ function live(stage) {
 
   // MARK: Chapters
   function chapterScript(dt) {
-    const fz = 0.3 * vh, z = 0.2;
+    const fz = 0.12 * vh, z = 0.2;
     pageKeys = [];
     pageSeen = false;
     let best = null;
@@ -209,11 +212,11 @@ function live(stage) {
       if (s > -vh * 1.05 && s < len + vh * 1.05) pageSeen = true;
       if (!best || c.near < best.near) best = c;
       const flowing = c.flow && mobile;
-      c.alpha = flowing ? (r.bottom > 0 && r.top < vh ? 1 : 0) : (c.first ? 1 : ss(-fz, 0, s)) * (1 - ss(len, len + fz, s));
+      c.alpha = flowing ? (r.bottom > 0 && r.top < vh ? 1 : 0) : (c.first ? 1 : ss(-fz, 0, s)) * (mobile ? 1 - ss(len, len + fz, s) : 1);
       const hold = Math.max(1, len - 2 * fz);
       c.cap = c.n ? clamp(Math.floor((s - fz) / (hold / c.n)), 0, c.n - 1) : 0;
       const a = (scrollY + r.top) / vh, b = a + len / vh;
-      const open = c.first ? -9 : a + 0.35, close = b - 0.2;
+      const open = c.first ? -9 : a + 0.2, close = b + 0.05;
       if (c.shots.length < 2 || !c.n) pageKeys.push([open, c.shots[0]], [close, c.shots[0]]);
       else {
         const step = hold / vh / c.n;
@@ -227,7 +230,7 @@ function live(stage) {
       }
       want['cap-' + c.id] = flowing ? c.n - 1 : c.cap;
     }
-    const state = { ph: 'play', out: 'idle', tv: 'off', tvb: 'np', w: 'clock', pad: 'home', mac: 'home', pick: false, picked: false, phone: 'home' };
+    const state = { ph: 'play', out: 'idle', tv: 'off', tvb: 'np', w: 'clock', pad: 'home', mac: 'home', pick: false, picked: false, phone: 'home', macShot: null, tvShot: null, phoneShot: null, padShot: null };
     if (best) for (let i = 0; i <= Math.min(best.cap, best.states.length - 1); i++) Object.assign(state, best.states[i]);
     Object.assign(want, state);
     want.pad = state.pad; want.mac = state.mac;
@@ -263,11 +266,11 @@ function live(stage) {
 
   function commit() {
     if (panes) {
-      if (shown.ph !== want.ph || shown.pick !== want.pick || shown.out !== want.out || shown.picked !== want.picked) { shown.ph = want.ph; shown.pick = want.pick; shown.out = want.out; shown.picked = want.picked; panes.set('phone', { ph: want.ph, pick: want.pick, out: want.out, picked: want.picked }); }
-      if (shown.tv !== want.tv || shown.tvb !== want.tvb) { shown.tv = want.tv; shown.tvb = want.tvb; panes.set('tv', { tv: want.tv, tvb: want.tvb }); }
+      if (shown.ph !== want.ph || shown.pick !== want.pick || shown.out !== want.out || shown.picked !== want.picked || shown.phoneShot !== want.phoneShot) { shown.ph = want.ph; shown.pick = want.pick; shown.out = want.out; shown.picked = want.picked; shown.phoneShot = want.phoneShot; panes.set('phone', { ph: want.ph, pick: want.pick, out: want.out, picked: want.picked, shot: want.phoneShot || null }); }
+      if (shown.tv !== want.tv || shown.tvb !== want.tvb || shown.tvShot !== want.tvShot) { shown.tv = want.tv; shown.tvb = want.tvb; shown.tvShot = want.tvShot; panes.set('tv', { tv: want.tv, tvb: want.tvb, shot: want.tvShot || null }); }
       if (shown.w !== want.w) { shown.w = want.w; panes.set('watch', { w: want.w }); }
-      if (shown.pad !== want.pad) { shown.pad = want.pad; panes.set('pad', { pad: want.pad }); }
-      if (shown.mac !== want.mac) { shown.mac = want.mac; panes.set('mac', { mac: want.mac }); }
+      if (shown.pad !== want.pad || shown.padShot !== want.padShot) { shown.pad = want.pad; shown.padShot = want.padShot; panes.set('pad', { pad: want.pad, shot: want.padShot || null }); }
+      if (shown.mac !== want.mac || shown.macShot !== want.macShot) { shown.mac = want.mac; shown.macShot = want.macShot; panes.set('mac', { mac: want.mac, shot: want.macShot || null }); }
     }
     if (want.demo && !shown.demo && !np.tapped) demoAt = clock + 1.4;
     shown.demo = want.demo;

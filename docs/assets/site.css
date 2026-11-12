@@ -63,6 +63,7 @@ b { font-weight: 650; }
 main { display: block; padding-top: 64px; }
 .scene { position: relative; padding-bottom: clamp(40px, 8vh, 88px); }
 .plate img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; }
+.plate img.r169 { aspect-ratio: 16 / 9; }
 .plate .pb, html[data-side="b"] .plate .pa { display: none; }
 html[data-side="b"] .plate .pb { display: block; }
 .side { max-width: 43rem; margin: 0 auto; padding: 28px var(--pad) 0; display: grid; gap: 1rem; }
@@ -142,12 +143,6 @@ html[data-plug="0"] .try .played, html[data-plug="1"] .try .hint { opacity: 0; v
 .chapter .visual { position: relative; }
 .chapter .visual > :not(.mass) { position: relative; z-index: 1; }
 .chapter .visual > * { --ar: 1.6; }
-.chapter .visual .k-duo { --ar: 1.7; }
-.chapter .visual .k-trio { --ar: 1.45; }
-.chapter .visual .decks-box { --ar: 1.08; }
-.chapter .visual .prep-box { --ar: 1.62; }
-.chapter .visual .sync-box { --ar: 1.02; }
-.chapter .visual .cdjs { --ar: 1.7; }
 .still .chapter { padding: 0; }
 .still .chapter .pin { max-width: 1560px; margin: 0 auto; padding: var(--sec, 96px) var(--pad); display: grid; grid-template-columns: minmax(0, 26rem) minmax(0, 1fr); column-gap: var(--gap, 64px); align-items: center; }
 .still .chapter.hero .pin { grid-template-columns: minmax(0, 30rem) minmax(0, 1fr); padding-top: clamp(112px, 16vh, 168px); }

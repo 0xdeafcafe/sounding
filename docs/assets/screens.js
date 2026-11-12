@@ -864,7 +864,7 @@ function chime(sc, dt) {
   sc.dirty = true;
 }
 function tvNp(ctx, sc) {
-  const S = sc.S;
+  const S = sc.S, next = sc.v('next'), amb = sc.v('amb');
   sc.layer(ctx, 'np', x => { tvBg(x, sc, 'np'); tvHead(x, sc, PARIAH, MIX.title, 'Wildeburg', 2); tvCtl(x, sc, 34.6); });
   ctx.save();
   ctx.translate(43.5, 28.4);
@@ -876,7 +876,31 @@ function tvNp(ctx, sc) {
   ctx.fillStyle = '#fff';
   ctx.fill(G.ticks);
   ctx.restore();
+  for (const [x, big] of [[0.11, 0], [0.23, 0], [0.37, 1], [0.58, 0], [0.74, 0], [0.9, 0]]) dot(ctx, 43.5 + 48.7 * x, 27.6, big ? 0.55 : 0.4, big ? TINT_T : 'rgba(255,255,255,.75)');
   times(ctx, sc, 43.5, 92.2, 31, 2.2, 'rgba(255,255,255,.6)');
+  if (next > 0) {
+    ctx.globalAlpha = next;
+    const y = 41.2 + (1 - next) * 2;
+    text(ctx, S.now, 43.5, 25.2, 1.9, { w: 600, c: 'rgba(255,255,255,.85)', max: 48.7 });
+    text(ctx, 'Up Next', 43.5, y, 2.1, { w: 650, c: 'rgba(255,255,255,.66)' });
+    [LIKES[(S.idx + 1) % LIKES.length], LIKES[(S.idx + 2) % LIKES.length]].forEach((l, i) => {
+      const ry = y + 3.2 + i * 5;
+      art(ctx, sc, small(l[0]), 43.5, ry, 4.2, 4.2, 0.5);
+      text(ctx, l[1], 48.9, ry + 0.1, 2.1, { w: 600, max: 43 });
+      text(ctx, l[2], 48.9, ry + 2.3, 1.8, { c: 'rgba(255,255,255,.6)', max: 43 });
+    });
+    ctx.globalAlpha = 1;
+  }
+  if (amb > 0) {
+    ctx.globalAlpha = amb;
+    sc.layer(ctx, 'amb', x => {
+      tvBg(x, sc, 'np');
+      const s = 27, ax = 50 - s / 2, ay = sc.H / 2 - s / 2 - 1;
+      shadow(x, sc, ax, ay, s, s, 1.2, 2.2, 6, 'rgba(0,0,0,.5)');
+      art(x, sc, PARIAH, ax, ay, s, s, 1.2);
+    });
+    ctx.globalAlpha = 1;
+  }
 }
 function tvDj(ctx, sc) {
   const am = sc.v('am');
@@ -1258,6 +1282,11 @@ const PAINT = { phone: (c, s) => phone(c, s, false), friend: (c, s) => phone(c, 
 const START = { phone: { ph: 'lib', out: 'idle', pick: false, picked: false, b: false }, friend: {}, tv: { tv: 'off', tvb: 'np', b: false }, watch: { w: 'clock' }, pad: { pad: 'home', b: false }, mac: { mac: 'home', b: false } };
 function targets(sc) {
   const s = sc.st, go = (k, on, d) => sc.go(k, on ? 1 : 0, d);
+  if (s.shot && s.shot !== sc.shot) {
+    if (sc.shot && sc.v('shot') > 0) { sc.prev = sc.shot; sc.snap('swap', 0); sc.go('swap', 1, 0.4); }
+    sc.shot = s.shot;
+  }
+  go('shot', !!s.shot, 0.5);
   if (sc.name === 'phone') {
     go('lib', s.ph === 'lib', 0.45); go('play', s.ph === 'play' || s.ph === 'list', 0.45); go('L', s.ph === 'list', 0.6); go('out', s.ph === 'out', 0.4);
     go('b', s.b, 0.45); go('pick', s.pick, 0.25); go('picked', s.picked, 0.25); go('toast', s.out === 'toast', 0.6); go('sheet', s.out === 'sheet', 0.6);
@@ -1266,6 +1295,7 @@ function targets(sc) {
   } else if (sc.name === 'tv') {
     const am = s.tvb === 'am';
     go('on', s.tv !== 'off', 0.6); go('sign', s.tv === 'sign', 0.4); go('np', s.tv === 'play', 0.4); go('dj', s.tv === 'play' && (am || s.b), 0.45); go('am', am, 0.5);
+    go('next', s.tvb === 'next', 0.5); go('amb', s.tvb === 'amb', 0.7);
   } else if (sc.name === 'watch') {
     go('home', s.w === 'home', 0.35); go('remote', s.w === 'remote', 0.35);
   } else if (sc.name === 'pad') {
@@ -1276,11 +1306,11 @@ function targets(sc) {
 }
 function live(sc) {
   switch (sc.name) {
-    case 'phone': return (sc.v('play') > 0 || sc.v('out') > 0) && sc.v('b') < 1;
+    case 'phone': return (sc.v('play') > 0 || sc.v('out') > 0) && sc.v('b') < 1 && sc.v('shot') < 1;
     case 'friend': return true;
-    case 'tv': return sc.v('np') > 0 && sc.v('dj') < 1;
+    case 'tv': return sc.v('np') > 0 && sc.v('dj') < 1 && sc.v('amb') < 1 && sc.v('shot') < 1;
     case 'watch': return sc.v('remote') > 0;
-    default: return sc.v('play') > 0 && sc.v('b') < 1;
+    default: return sc.v('play') > 0 && sc.v('b') < 1 && sc.v('shot') < 1;
   }
 }
 
@@ -1382,6 +1412,13 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
     ctx.setTransform(sc.K, 0, 0, sc.K, 0, 0);
     sc.used.clear();
     PAINT[sc.name](ctx, sc);
+    const sh = sc.v('shot');
+    if (sh > 0 && sc.shot) {
+      const im = sc.img(sc.shot), pv = sc.prev && sc.v('swap') < 1 ? sc.img(sc.prev) : null;
+      ctx.globalAlpha = sh;
+      if (pv) cover(ctx, pv, 0, 0, 100, sc.H);
+      if (im) { ctx.globalAlpha = sh * (pv ? sc.v('swap') : 1); cover(ctx, im, 0, 0, 100, sc.H); }
+    }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'destination-out';
     ctx.fillStyle = '#000';
@@ -1404,9 +1441,11 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
     resize(name, px) { get(name).size(px); },
     set(name, state) {
       const sc = get(name);
+      if (state.shot && !imgs.has(state.shot)) load(state.shot);
       Object.assign(sc.st, state);
       targets(sc);
     },
+    preload(files) { for (const f of files) if (!imgs.has(f)) load(f); },
     time(sec) {
       sec = clamp(sec, 0, D - 1);
       S.sec = sec;
