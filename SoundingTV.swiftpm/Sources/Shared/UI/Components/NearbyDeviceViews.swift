@@ -290,12 +290,14 @@ private struct SlabSilhouette: Shape {
 // MARK: - Nearby list
 
 extension LinkOfferBrowser.Offer {
+    @MainActor
     var nearbyStatus: String {
         if accountHint?.isLinked(toDeviceId: LinkPeerIdentity.localDeviceId()) == true { return "Linked" }
         if isOtherAccount { return TVAccountCopy.anotherAccountStatus }
         return isSignedIn ? "Signed in" : "Ready to sign in"
     }
 
+    @MainActor
     var isOtherAccount: Bool {
         guard let accountHint, let accountId = SameAccountLinkModel.accountId else { return false }
         return !accountHint.matches(accountId: accountId)

@@ -635,7 +635,7 @@ final class CompanionClient: ObservableObject {
                 switch outcome {
                 case .delivered, .revoked:
                     LinkedCompanionStore.settle(messageId: message.id)
-                    if outcome == .revoked { self.drop(sessionId: message.sessionId) }
+                    if case .revoked = outcome { self.drop(sessionId: message.sessionId) }
                     Log.link.info("[CompanionClient] told \(message.peerName, privacy: .public): \(message.kind.rawValue, privacy: .public)")
                 case .status, .unreachable:
                     break
