@@ -211,6 +211,15 @@ final class NowPlayingLikeModel {
         }
     }
 
+    func setLiked(_ wanted: Bool, trackId: String, resolved: Track?, indexed: Bool) {
+        if liked[trackId] == nil, !isOwnedLocally(trackId) {
+            refreshes.removeValue(forKey: trackId)?.cancel()
+            liked[trackId] = indexed || (resolved?.id == trackId && resolved?.userFavorite == true)
+        }
+        guard isLiked(trackId, resolved: resolved) != wanted else { return }
+        toggle(trackId: trackId, resolved: resolved)
+    }
+
     func waitUntilSettled(_ trackId: String) async {
         while let worker = workers[trackId] {
             await worker.value

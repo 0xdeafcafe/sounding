@@ -218,9 +218,9 @@ struct PlayTrackIntent: AudioPlaybackIntent {
     }
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ShowsSnippetIntent {
         try await IntentPlayback.playTrack(id: track.id)
-        return .result()
+        return .result(snippetIntent: NowPlayingSnippetIntent())
     }
 }
 
@@ -242,9 +242,9 @@ struct PlayPlaylistIntent: AudioPlaybackIntent {
     }
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ShowsSnippetIntent {
         try await IntentPlayback.playPlaylist(id: playlist.id, shuffle: shuffle)
-        return .result()
+        return .result(snippetIntent: NowPlayingSnippetIntent())
     }
 }
 
@@ -261,9 +261,9 @@ struct PlayArtistIntent: AudioPlaybackIntent {
     }
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ShowsSnippetIntent {
         try await IntentPlayback.playArtist(id: artist.id)
-        return .result()
+        return .result(snippetIntent: NowPlayingSnippetIntent())
     }
 }
 
@@ -273,9 +273,9 @@ struct PlayLikesIntent: AudioPlaybackIntent {
     static let supportedModes: IntentModes = .background
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ShowsSnippetIntent {
         try await IntentPlayback.playLikes(shuffle: false)
-        return .result()
+        return .result(snippetIntent: NowPlayingSnippetIntent())
     }
 }
 
@@ -285,9 +285,9 @@ struct ShuffleLikesIntent: AudioPlaybackIntent {
     static let supportedModes: IntentModes = .background
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ShowsSnippetIntent {
         try await IntentPlayback.playLikes(shuffle: true)
-        return .result()
+        return .result(snippetIntent: NowPlayingSnippetIntent())
     }
 }
 
@@ -297,9 +297,9 @@ struct PlayLastLikedSetIntent: AudioPlaybackIntent {
     static let supportedModes: IntentModes = .background
 
     @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ShowsSnippetIntent {
         let resolution = try await IntentPlayback.play(MediaRequest(kind: .set, mine: true, order: .newest))
-        return .result(dialog: "Playing \(resolution.title).")
+        return .result(dialog: "Playing \(resolution.title).", snippetIntent: NowPlayingSnippetIntent())
     }
 }
 
@@ -309,9 +309,9 @@ struct PlaySimilarIntent: AudioPlaybackIntent {
     static let supportedModes: IntentModes = .background
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ShowsSnippetIntent {
         _ = try await IntentPlayback.play(MediaRequest(kind: .station))
-        return .result()
+        return .result(snippetIntent: NowPlayingSnippetIntent())
     }
 }
 
