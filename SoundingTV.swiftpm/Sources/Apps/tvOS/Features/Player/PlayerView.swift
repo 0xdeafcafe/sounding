@@ -22,9 +22,9 @@ struct PlayerView: View {
     @State private var showingSetlist = false
     @State private var showingLyrics = false
     @State private var setlistLocalFileURL: URL?
-    @State private var safeTop: CGFloat = 0
-    @State private var pinnedTop: CGFloat = 0
     @State private var mainDisabled = false
+    @State private var revealsTabBar = false
+    @State private var focusReachedTabBar = false
     @FocusState private var focus: NPFocus?
     @StateObject private var commentsStore = TrackCommentsStore()
     @StateObject private var engagement = TrackEngagementStore()
@@ -32,11 +32,7 @@ struct PlayerView: View {
     @StateObject private var idle = NPIdleMonitor()
     @ObservedObject private var setlists = SetlistIntelligenceStore.shared
 
-    static let tabBarFloor: CGFloat = 112
-
-    private var contentTop: CGFloat {
-        max(pinnedTop, Self.tabBarFloor) - safeTop + SCBrowseMetrics.contentTopInset
-    }
+    private let contentTop: CGFloat = 96
 
     var body: some View {
         withCovers(withLifecycle(rootStack))
@@ -118,13 +114,17 @@ struct PlayerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .ignoresSafeArea()
         .background { backdrop.ignoresSafeArea() }
-        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { top in
-            safeTop = top
-            if top > pinnedTop { pinnedTop = top }
+        .toolbarVisibility(idle.isIdle || (focus != nil && !revealsTabBar) ? .hidden : .visible, for: .tabBar)
+        .onChange(of: focus) { _, new in
+            if new == nil {
+                focusReachedTabBar = true
+            } else if focusReachedTabBar {
+                focusReachedTabBar = false
+                revealsTabBar = false
+            }
         }
-        .toolbarVisibility(idle.isIdle ? .hidden : .visible, for: .tabBar)
         .environment(\.colorScheme, .dark)
     }
 
@@ -177,6 +177,9 @@ struct PlayerView: View {
         }
         if panel != nil { return { exitPanel() } }
         if navigationState.tabBeforeNowPlaying != nil { return { navigationState.leaveNowPlaying() } }
+        if !revealsTabBar {
+            return { revealsTabBar = true }
+        }
         return nil
     }
 
@@ -354,6 +357,7 @@ struct PlayerView: View {
                     upNextColumn(upNext)
                         .frame(width: 560, alignment: .topLeading)
                         .opacity(panel == nil ? 1 : 0)
+                        .onMoveCommand { if $0 == .up { revealsTabBar = true } }
                 }
                 Spacer(minLength: 0)
             }
@@ -416,7 +420,7 @@ struct PlayerView: View {
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text(playerService.currentTrack?.title ?? "Not Playing")
-                    .font(.title2.weight(.bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
@@ -464,6 +468,7 @@ struct PlayerView: View {
                 ) { open(.more, from: .more) }
             }
         }
+        .onMoveCommand { if $0 == .up { revealsTabBar = true } }
         .focusSection()
     }
 
@@ -471,22 +476,22 @@ struct PlayerView: View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 18) {
                 NPIconButton(
-                    symbol: "backward.fill", label: "Previous", id: .prev, focus: $focus,
+                    symbol: "backward.fill", label: "", id: .prev, focus: $focus,
                     iconSize: 30, accessibilityTitle: "Previous track"
                 ) { Task { await playerService.playPrevious() } }
                 NPIconButton(
                     symbol: playerService.isPlaying ? "pause.fill" : "play.fill",
-                    label: playerService.isPlaying ? "Pause" : "Play", id: .play, focus: $focus,
-                    diameter: 100, iconSize: 44, swapsSymbol: true
+                    label: "", id: .play, focus: $focus,
+                    diameter: 100, iconSize: 44,
+                    accessibilityTitle: playerService.isPlaying ? "Pause" : "Play", swapsSymbol: true
                 ) { playerService.togglePlayPause() }
                 NPIconButton(
-                    symbol: "forward.fill", label: "Next", id: .next, focus: $focus,
+                    symbol: "forward.fill", label: "", id: .next, focus: $focus,
                     iconSize: 30, accessibilityTitle: "Next track"
                 ) { Task { await playerService.playNext() } }
             }
         }
         .frame(height: 112, alignment: .center)
-        .padding(.bottom, 44)
         .focusSection()
     }
 
@@ -649,6 +654,9 @@ struct PlayerView: View {
     private func applyDebugLaunchState() {
         #if DEBUG
         let env = ProcessInfo.processInfo.environment
+        if let delay = env["SOUNDING_TV_NP_MENU_AFTER"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { exitAction?() }
+        }
         if let raw = env["SOUNDING_TV_NP_FOCUS"] {
             let map: [String: NPFocus] = [
                 "prev": .prev, "play": .play, "next": .next, "like": .like, "comments": .comments,

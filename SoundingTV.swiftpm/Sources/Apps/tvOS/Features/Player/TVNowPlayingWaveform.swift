@@ -470,7 +470,7 @@ private struct NPTapeDots: View {
     let accent: Color
     let x: (TimeInterval) -> CGFloat
 
-    private static let bucket: CGFloat = 28
+    private static let bucket: CGFloat = 96
 
     var body: some View {
         Canvas { context, size in
@@ -494,16 +494,9 @@ private struct NPTapeDots: View {
                 }
             }
             for (_, bucket) in buckets {
-                if bucket.count == 1 {
-                    context.fill(Path(ellipseIn: CGRect(x: bucket.x - 5, y: midY - 5, width: 10, height: 10)), with: .color(.white.opacity(0.5)))
-                } else {
-                    let label = Text("\(bucket.count)").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.9))
-                    let resolved = context.resolve(label)
-                    let textSize = resolved.measure(in: CGSize(width: 80, height: size.height))
-                    let pill = CGRect(x: bucket.x - textSize.width / 2 - 10, y: midY - 12, width: textSize.width + 20, height: 24)
-                    context.fill(Path(roundedRect: pill, cornerRadius: 12), with: .color(.white.opacity(0.2)))
-                    context.draw(resolved, at: CGPoint(x: bucket.x, y: midY), anchor: .center)
-                }
+                let side = 8 + CGFloat(min(bucket.count, 5)) * 1.6
+                let opacity = min(0.35 + Double(bucket.count) * 0.08, 0.75)
+                context.fill(Path(ellipseIn: CGRect(x: bucket.x - side / 2, y: midY - side / 2, width: side, height: side)), with: .color(.white.opacity(opacity)))
             }
         }
         .accessibilityHidden(true)
