@@ -110,6 +110,7 @@ struct SoundingMacApp: App {
         MacPlaybackTarget.router = outputRouter
         IntentPlayback.sink = outputRouter
         PartyScenes.outputRouter = outputRouter
+        SoundingFocus.restore()
         DevicePresenceModel.shared.attach(router: outputRouter)
     }
 

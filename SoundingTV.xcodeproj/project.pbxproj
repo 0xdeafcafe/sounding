@@ -1200,6 +1200,9 @@
 		EC0A1E750000000000000011 /* NowPlayingSnippet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000001 /* NowPlayingSnippet.swift */; };
 		EC0A1E750000000000000012 /* NowPlayingSnippet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000001 /* NowPlayingSnippet.swift */; };
 		EC0A1E750000000000000013 /* NowPlayingSnippet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000001 /* NowPlayingSnippet.swift */; };
+		EC0A1E750000000000000021 /* FocusFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000002 /* FocusFilter.swift */; };
+		EC0A1E750000000000000022 /* FocusFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000002 /* FocusFilter.swift */; };
+		EC0A1E750000000000000023 /* FocusFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000002 /* FocusFilter.swift */; };
 		5989A401BCF9D4865D3CE72E /* SpotlightIndexingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C238A0F17B410B28B37F4DF /* SpotlightIndexingService.swift */; };
 		4CB7E95C9F9C0C77996EDFA3 /* MediaRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 080453FF3B80F52922207802 /* MediaRequestTests.swift */; };
 		C7C3F5E2D1B7D58837D1B4A9 /* SoundCloudTrafficScenarioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D531A4F079CD8414D0837236 /* SoundCloudTrafficScenarioTests.swift */; };
@@ -2425,6 +2428,7 @@ F1C39D966E10112291734F31 /* TVNowPlayingAutoMix.swift */ = {isa = PBXFileReferen
 		5798F736C63E7B2C51B21F35 /* MacNowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacNowPlayingView.swift; sourceTree = "<group>"; };
 		58ABE1BA2A1DB683C809F114 /* SoundingEntityCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SoundingEntityCatalog.swift; sourceTree = "<group>"; };
 		EC0A1E750000000000000001 /* NowPlayingSnippet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingSnippet.swift; sourceTree = "<group>"; };
+		EC0A1E750000000000000002 /* FocusFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusFilter.swift; sourceTree = "<group>"; };
 		080453FF3B80F52922207802 /* MediaRequestTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaRequestTests.swift; sourceTree = "<group>"; };
 		D531A4F079CD8414D0837236 /* SoundCloudTrafficScenarioTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SoundCloudTrafficScenarioTests.swift; sourceTree = "<group>"; };
 		65BDCCC3B9100D6A139F0F28 /* PlayMediaIntentHandler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayMediaIntentHandler.swift; sourceTree = "<group>"; };
@@ -4570,6 +4574,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				301F7878F35DF2F24141D57F /* MediaRequest.swift */,
 				3A33EB8B28E2478D00BB0C01 /* AudioSchemaIntents.swift */,
 				EC0A1E750000000000000001 /* NowPlayingSnippet.swift */,
+				EC0A1E750000000000000002 /* FocusFilter.swift */,
 			);
 			name = AppIntents;
 			path = SoundingTV.swiftpm/Sources/Shared/AppIntents;
@@ -6057,6 +6062,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				791E4825D771BAD4A737B719 /* SoundingSnapshotPublisher.swift in Sources */,
 				B1FFFAD5602B248E1A5EE9DB /* SoundingEntityCatalog.swift in Sources */,
 				EC0A1E750000000000000011 /* NowPlayingSnippet.swift in Sources */,
+				EC0A1E750000000000000021 /* FocusFilter.swift in Sources */,
 				5989A401BCF9D4865D3CE72E /* SpotlightIndexingService.swift in Sources */,
 				E26A65F7BA028E02E69466FD /* SpotlightLibraryLedger.swift in Sources */,
 				BC0D7C3FF1EF6367B49541F4 /* MediaRequest.swift in Sources */,
@@ -6713,6 +6719,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				5E75863CDF2E79078B4CB681 /* SoundingSnapshotPublisher.swift in Sources */,
 				7FF81B3F78186FF2C2F4FB04 /* SoundingEntityCatalog.swift in Sources */,
 				EC0A1E750000000000000012 /* NowPlayingSnippet.swift in Sources */,
+				EC0A1E750000000000000022 /* FocusFilter.swift in Sources */,
 				212019ABCA5AFA30E0FC0528 /* SpotlightLibraryLedger.swift in Sources */,
 				56784A2CED27874DF1EA5538 /* MediaRequest.swift in Sources */,
 				6638AB9AEA47E73F5038A111 /* AudioSchemaIntents.swift in Sources */,
@@ -7205,6 +7212,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				74718AB5171205F11B7E7D66 /* SoundingSnapshotPublisher.swift in Sources */,
 				DD9EFEAE630F936FD7960C33 /* SoundingEntityCatalog.swift in Sources */,
 				EC0A1E750000000000000013 /* NowPlayingSnippet.swift in Sources */,
+				EC0A1E750000000000000023 /* FocusFilter.swift in Sources */,
 				431E6D93614EFF76A73932FD /* PlayMediaIntentHandler.swift in Sources */,
 				68E0B5CEC25832265950C998 /* SpotlightLibraryLedger.swift in Sources */,
 				481C5E5B1B46FCD25FE13240 /* MediaRequest.swift in Sources */,
