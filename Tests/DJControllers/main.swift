@@ -98,6 +98,8 @@ do {
 do {
     let profile = ControllerProfiles.pioneerDDJ400
     expect(profile.mapping.problems.isEmpty, "DDJ-400 table is valid: \(profile.mapping.problems)")
+    expect(profile.feedback.problems.isEmpty, "DDJ-400 light table is valid: \(profile.feedback.problems)")
+    expect(ControllerProfiles.profile(for: ControllerDeviceInfo(name: "Network Session 1", model: "DDJ-400 Bridge")) != nil, "network session named after a DDJ-400 host matches")
     expect(ControllerProfiles.profile(for: ControllerDeviceInfo(name: "DDJ-400")) != nil, "matches DDJ-400 port")
     expect(ControllerProfiles.profile(for: ControllerDeviceInfo(name: "PIONEER DDJ-400 MIDI 1")) != nil, "matches case-insensitively")
     expect(ControllerProfiles.profile(for: ControllerDeviceInfo(name: "Port 1", manufacturer: "Pioneer DJ", model: "DDJ400")) != nil, "matches on model")

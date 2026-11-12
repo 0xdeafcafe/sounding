@@ -11,6 +11,7 @@ struct ControllerProfile: Identifiable, Hashable, Sendable {
     var name: String
     var portNames: [String]
     var mapping: ControllerMapping
+    var feedback: ControllerFeedbackMapping = .none
 
     func matches(_ device: ControllerDeviceInfo) -> Bool {
         let candidates = [device.name, device.model, "\(device.manufacturer) \(device.model)"]
@@ -94,7 +95,29 @@ enum ControllerProfiles {
             id: "pioneer.ddj-400",
             name: "DDJ-400",
             portNames: ["*DDJ-400*", "*DDJ400*"],
-            mapping: ControllerMapping(entries: entries)
+            mapping: ControllerMapping(entries: entries),
+            feedback: pioneerDDJ400Feedback
         )
+    }()
+
+    static let pioneerDDJ400Feedback: ControllerFeedbackMapping = {
+        var outputs: [ControllerFeedbackMapping.Output] = []
+        for (channel, deck) in [(UInt8(0), MixEngine.Deck.a), (UInt8(1), MixEngine.Deck.b)] {
+            outputs += [
+                .led(channel, 0x0B, deck, .play),
+                .led(channel, 0x0C, deck, .cue),
+                .led(channel, 0x58, deck, .sync),
+                .led(channel, 0x10, deck, .loop),
+                .led(channel, 0x11, deck, .loop),
+                .led(channel, 0x4D, deck, .loop),
+                .meter(channel, 0x02, deck, .level),
+            ]
+        }
+        for (channel, deck) in [(UInt8(7), MixEngine.Deck.a), (UInt8(9), MixEngine.Deck.b)] {
+            for pad in 0..<8 {
+                outputs.append(.led(channel, UInt8(pad), deck, .hotCue(pad)))
+            }
+        }
+        return ControllerFeedbackMapping(outputs: outputs)
     }()
 }

@@ -28,6 +28,15 @@ struct LyricsStyle: Sendable {
     static let mac = LyricsStyle(kind: .mac, font: .title.weight(.bold), lineSpacing: 22, horizontalInset: 28, anchor: 0.32, dimmedOpacity: 0.3)
     static let tv = LyricsStyle(kind: .tv, font: .title.weight(.bold), lineSpacing: 40, horizontalInset: 0, anchor: 0.38, dimmedOpacity: 0.3, followPause: 6)
     static let watch = LyricsStyle(kind: .watch, font: .title3.weight(.bold), lineSpacing: 10, horizontalInset: 4, anchor: 0.3, dimmedOpacity: 0.35)
+
+    var translationFont: Font {
+        switch kind {
+        case .phone, .mac: .title3.weight(.semibold)
+        case .pad: .title2.weight(.semibold)
+        case .tv: .headline
+        case .watch: .footnote.weight(.semibold)
+        }
+    }
 }
 
 // MARK: - Pane
@@ -41,6 +50,7 @@ struct NowPlayingLyrics: View {
 
     @ObservedObject private var settings = SettingsStore.shared
     private let store = LyricsStore.shared
+    private let translator = LyricsTranslator.shared
 
     private struct FocusKey: Equatable {
         var current: String?
@@ -49,16 +59,27 @@ struct NowPlayingLyrics: View {
     }
 
     var body: some View {
+        let state = store.state(for: track?.id)
         LyricsPane(
-            state: store.state(for: track?.id),
+            state: state,
             playhead: playhead,
             style: style,
+            translation: translator.translation(for: track?.id),
             onSeek: onSeek,
             onRetry: track.map { track in { store.retry(track) } },
             onConsent: { settings.setLyricsSource($0 ? .lrclib : .off) }
         )
+        .lyricsTranslation(trackID: track?.id, lyrics: Self.translatable(state), style: style)
         .task(id: FocusKey(current: track?.id, next: nextTrack?.id, provider: settings.lyricsSource)) {
             store.focus(current: track, next: nextTrack)
+        }
+    }
+
+    private static func translatable(_ state: LyricsState) -> LyricsBody? {
+        guard case .loaded(let lyrics) = state else { return nil }
+        switch lyrics.body {
+        case .synced, .plain: return lyrics.body
+        case .instrumental: return nil
         }
     }
 }
@@ -67,6 +88,7 @@ struct LyricsPane: View {
     let state: LyricsState
     let playhead: LyricsPlayhead
     var style: LyricsStyle = .phone
+    var translation: LyricsTranslation?
     var onSeek: (TimeInterval) -> Void
     var onRetry: (() -> Void)?
     var onConsent: ((Bool) -> Void)?
@@ -107,9 +129,9 @@ struct LyricsPane: View {
         case .loaded(let lyrics):
             switch lyrics.body {
             case .synced(let lines):
-                SyncedLyricsView(lines: LyricsTimeline.displayLines(lines), playhead: playhead, style: style, onSeek: onSeek)
+                SyncedLyricsView(lines: LyricsTimeline.displayLines(lines), playhead: playhead, style: style, translation: translation, onSeek: onSeek)
             case .plain(let lines):
-                PlainLyricsView(lines: lines, style: style)
+                PlainLyricsView(lines: lines, style: style, translation: translation)
             case .instrumental:
                 LyricsUnavailable(title: "Instrumental", systemImage: "music.note", message: "This track has no lyrics.", style: style)
             }
@@ -163,6 +185,7 @@ struct LyricsCredit: View {
 struct PlainLyricsView: View {
     let lines: [String]
     let style: LyricsStyle
+    var translation: LyricsTranslation?
 
     var body: some View {
         ScrollView {
@@ -176,10 +199,19 @@ struct PlainLyricsView: View {
                         Color.clear.frame(height: style.lineSpacing * 0.4)
                             .accessibilityHidden(true)
                     } else {
-                        Text(line)
-                            .font(style.font)
-                            .foregroundStyle(.white.opacity(0.85))
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(line)
+                                .font(style.font)
+                                .foregroundStyle(.white.opacity(0.85))
+                                .fixedSize(horizontal: false, vertical: true)
+                            if let translated = translation?.text(for: line) {
+                                Text(translated)
+                                    .font(style.translationFont)
+                                    .foregroundStyle(.white.opacity(0.6))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
                     }
                 }
                 LyricsCredit()
@@ -202,6 +234,7 @@ struct SyncedLyricsView: View {
     let lines: [LyricsDisplayLine]
     let playhead: LyricsPlayhead
     let style: LyricsStyle
+    var translation: LyricsTranslation?
     var onSeek: (TimeInterval) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -260,6 +293,10 @@ struct SyncedLyricsView: View {
                     #endif
                 }
                 .onAppear { scroll(proxy, to: currentIndex(), animated: false) }
+                .onChange(of: translation) { _, _ in
+                    guard Date() >= followResumesAt else { return }
+                    scroll(proxy, to: active, animated: true)
+                }
                 #if os(tvOS)
                 .onChange(of: focused) { _, value in
                     if isMovingFocus {
@@ -286,10 +323,11 @@ struct SyncedLyricsView: View {
         let opacity = isActive ? 1 : (distance < 0 ? style.dimmedOpacity + 0.05 : style.dimmedOpacity)
         switch line {
         case .line(let lyric):
+            let translated = translation?.text(for: lyric.text)
             Button {
                 onSeek(lyric.start)
             } label: {
-                LyricLineLabel(line: lyric, isActive: isActive, playhead: playhead, style: style, dimmedOpacity: isActive ? style.dimmedOpacity : opacity)
+                LyricLineLabel(line: lyric, translation: translated, isActive: isActive, playhead: playhead, style: style, dimmedOpacity: isActive ? style.dimmedOpacity : opacity)
                     .blur(radius: blur)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
@@ -298,7 +336,7 @@ struct SyncedLyricsView: View {
             #if os(tvOS)
             .focused($focused, equals: line.id)
             #endif
-            .accessibilityLabel(lyric.text)
+            .accessibilityLabel(translated.map { "\(lyric.text), \($0)" } ?? lyric.text)
             .accessibilityHint("Plays from this line")
             .accessibilityAddTraits(isActive ? .isSelected : [])
             .animation(reduceMotion ? nil : .smooth(duration: 0.45), value: active)
@@ -419,12 +457,29 @@ private struct LyricLineFocusBody: View {
 
 private struct LyricLineLabel: View {
     let line: LyricLine
+    var translation: String?
     let isActive: Bool
     let playhead: LyricsPlayhead
     let style: LyricsStyle
     let dimmedOpacity: Double
 
     var body: some View {
+        if let translation {
+            VStack(alignment: .leading, spacing: style.lineSpacing * 0.2) {
+                original
+                Text(translation)
+                    .font(style.translationFont)
+                    .foregroundStyle(.white.opacity(isActive ? 0.72 : dimmedOpacity * 0.85))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            original
+        }
+    }
+
+    @ViewBuilder
+    private var original: some View {
         if isActive, line.hasWordTiming {
             TimelineView(.animation(minimumInterval: 1 / 30, paused: playhead.rate == 0)) { context in
                 text(at: playhead.position(at: context.date))
