@@ -204,7 +204,7 @@ final class TrackMapModel: ObservableObject {
     private func observeUndo() {
         let manager = undo
         let center = NotificationCenter.default
-        let names: [Notification.Name] = [.NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange, .NSUndoManagerCheckpoint]
+        let names: [Notification.Name] = [.NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange]
         undoChanges = Publishers.MergeMany(names.map { center.publisher(for: $0, object: manager) })
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.refreshUndoState() } }
