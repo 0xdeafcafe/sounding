@@ -2,7 +2,7 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-struct WatchNowPlayingEntry: TimelineEntry {
+struct WatchNowPlayingEntry: TimelineEntry, RelevanceEntry {
     let date: Date
     let nowPlaying: SoundingSnapshot.NowPlaying?
     let resume: SoundingSnapshot.Resume?

@@ -1887,6 +1887,13 @@
 		C0AA5E000000000000000014 /* RekordboxComparisonRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0AA5E000000000000000004 /* RekordboxComparisonRunner.swift */; };
 		C0AA5E000000000000000015 /* RekordboxComparisonReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0AA5E000000000000000005 /* RekordboxComparisonReport.swift */; };
 		C0AA5E000000000000000016 /* RekordboxComparisonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0AA5E000000000000000006 /* RekordboxComparisonTests.swift */; };
+		EC0A00000000000000000002 /* SkipControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A00000000000000000001 /* SkipControl.swift */; };
+		EC0A00000000000000000003 /* SkipControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A00000000000000000001 /* SkipControl.swift */; };
+		EC0A00000000000000000004 /* SkipControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A00000000000000000001 /* SkipControl.swift */; };
+		EC0A00000000000000000006 /* WatchListeningWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A00000000000000000005 /* WatchListeningWidget.swift */; };
+		EC0A00000000000000000007 /* IdentifySongControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE7F1AB0000000000000007 /* IdentifySongControl.swift */; };
+		EC0A00000000000000000008 /* IdentifySongIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE7F1AB0000000000000003 /* IdentifySongIntent.swift */; };
+		EC0A00000000000000000009 /* IdentifySongIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE7F1AB0000000000000003 /* IdentifySongIntent.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2947,6 +2954,8 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 		C0AA5E000000000000000004 /* RekordboxComparisonRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RekordboxComparisonRunner.swift; sourceTree = "<group>"; };
 		C0AA5E000000000000000005 /* RekordboxComparisonReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RekordboxComparisonReport.swift; sourceTree = "<group>"; };
 		C0AA5E000000000000000006 /* RekordboxComparisonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RekordboxComparisonTests.swift; sourceTree = "<group>"; };
+		EC0A00000000000000000001 /* SkipControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkipControl.swift; sourceTree = "<group>"; };
+		EC0A00000000000000000005 /* WatchListeningWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchListeningWidget.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4451,6 +4460,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				90288CC08DDF7BB3FD5767DA /* SoundingWidgetBundle.swift */,
 				C8A86B5049DA8B8216AB414D /* NowPlayingWidget.swift */,
 				F168E6FC6C97BEE2635F50C5 /* PlayPauseControl.swift */,
+				EC0A00000000000000000001 /* SkipControl.swift */,
 				A7C0DEAF11000000000000F1 /* ResumeControl.swift */,
 				1DE7F1AB0000000000000007 /* IdentifySongControl.swift */,
 				506A62173F56343F44C50C7E /* PlaybackControlBridge.swift */,
@@ -4957,6 +4967,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			children = (
 				A7C0DEAF00000000000000A3 /* WatchWidgetBundle.swift */,
 				A7C0DEAF00000000000000A4 /* WatchNowPlayingWidget.swift */,
+				EC0A00000000000000000005 /* WatchListeningWidget.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -5514,6 +5525,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EC0A00000000000000000002 /* SkipControl.swift in Sources */,
 				AD91A0000000000000B10000 /* WidgetArtworkStore.swift in Sources */,
 				AD91A0000000000000B30000 /* SoundingWidgetLink.swift in Sources */,
 				AD91A0000000000000B70000 /* RecentlyPlayedWidget.swift in Sources */,
@@ -7222,6 +7234,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EC0A00000000000000000009 /* IdentifySongIntent.swift in Sources */,
 				5ECC4A100000000000000014 /* SoundingKeychain.swift in Sources */,
 				5D0A7A000000000000000900 /* SoundingDataFormat.swift in Sources */,
 				5D0A7A000000000000000901 /* SoundingDataFiles.swift in Sources */,
@@ -7352,6 +7365,10 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EC0A00000000000000000008 /* IdentifySongIntent.swift in Sources */,
+				EC0A00000000000000000007 /* IdentifySongControl.swift in Sources */,
+				EC0A00000000000000000006 /* WatchListeningWidget.swift in Sources */,
+				EC0A00000000000000000004 /* SkipControl.swift in Sources */,
 				A7C0DEAF00000000000000D3 /* SoundingSnapshot.swift in Sources */,
 				A7C0DEAF00000000000000D4 /* PlaybackControlIntents.swift in Sources */,
 				A7C0DEAF00000000000000D1 /* WatchWidgetBundle.swift in Sources */,
@@ -7373,6 +7390,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EC0A00000000000000000003 /* SkipControl.swift in Sources */,
 				AC0E5A000000000000000101 /* WidgetArtworkStore.swift in Sources */,
 				AC0E5A000000000000000102 /* SoundingWidgetLink.swift in Sources */,
 				AC0E5A000000000000000103 /* RecentlyPlayedWidget.swift in Sources */,

@@ -86,6 +86,8 @@ final class WatchSnapshotWriter {
         snapshot = next
         guard SoundingSnapshotStore.save(next) else { return }
         WidgetCenter.shared.reloadTimelines(ofKind: SoundingSurfaceKind.watchNowPlayingWidget)
+        WidgetCenter.shared.reloadTimelines(ofKind: SoundingSurfaceKind.watchListeningWidget)
+        WidgetCenter.shared.invalidateRelevance(ofKind: SoundingSurfaceKind.watchListeningWidget)
         ControlCenter.shared.reloadControls(ofKind: SoundingSurfaceKind.playPauseControl)
     }
 }
