@@ -204,6 +204,11 @@ struct SoundingTViOSApp: App {
         .devicePairing(pairing, enabled: isPrimary)
         .playlistFolderPrompts(isEnabled: isPrimary)
         .nearbyDeviceCard(pairing.card, isEnabled: isPrimary && pairing.showsNearbyCard)
+        .reconnectCard(yieldingTo: pairing.card, isEnabled: isPrimary && pairing.showsNearbyCard) { done in
+            NavigationStack {
+                SoundCloudLoginView.standalone(onComplete: done)
+            }
+        }
         .tvAccountPrompts(router: coordinator.output, isEnabled: isPrimary)
         .linkedCapsule(pairing.card.autoLinker)
         .sheet(isPresented: isPrimary ? $signInNotifications.isPriming : .constant(false)) {

@@ -229,7 +229,10 @@ struct MacRootView: View {
             .sheet(item: tvLinking.confirmationBinding(for: .window)) { confirmation in
                 MacSameAccountLinkSheet(confirmation: confirmation, linking: tvLinking, linker: tvLinking.linker)
             }
-            .nearbyDeviceCardSheet(tvLinking.card, isEnabled: tvLinking.confirmation == nil)
+            .nearbyDeviceCard(tvLinking.card, isEnabled: tvLinking.confirmation == nil)
+            .reconnectCard(yieldingTo: tvLinking.card, isEnabled: tvLinking.confirmation == nil && !isShowingSharePlaySignIn) { done in
+                MacSoundCloudSignInView(peerName: nil, forHandoff: false, isReauthentication: true, onComplete: done)
+            }
             .listenTogether { isShowingSharePlaySignIn = true }
             .sheet(isPresented: $isShowingSharePlaySignIn) {
                 MacSoundCloudSignInView(peerName: nil, forHandoff: false) {
