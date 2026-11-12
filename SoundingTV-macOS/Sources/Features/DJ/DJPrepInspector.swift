@@ -5,30 +5,34 @@ struct DJPrepInspector: View {
     @State private var bpmText = ""
     @State private var startText = ""
     @State private var endText = ""
+    @FocusState private var laneFocused: Bool
 
     var body: some View {
         if let detail = model.detail, let row = model.selectedRow {
             let trackMap = model.trackMap
-            VStack(spacing: 0) {
-                Form {
+            Form {
+                Section {
+                    MacPrepLane(model: model, laneFocused: $laneFocused)
+                }
+                Group {
                     gridSection(detail, row: row)
                     if let cue = trackMap.selectedCue {
                         TrackMapCueEditor(model: trackMap, cue: cue)
                     }
                     startEndSection(detail)
-                    TrackMapSections(model: trackMap, showsPads: false) { row in
+                    TrackMapSections(model: trackMap) { row in
                         TrackMapStandardRow(model: trackMap, row: row)
                     } pads: {
-                        EmptyView()
+                        TrackMapPadGrid(model: trackMap)
                     }
                 }
-                .formStyle(.grouped)
                 .disabled(!row.access.canEdit)
-                Divider()
-                DJUSBPanel(model: model)
-                    .padding(16)
             }
-            .onAppear { syncFields() }
+            .formStyle(.grouped)
+            .onAppear {
+                syncFields()
+                laneFocused = true
+            }
             .onChange(of: model.detail?.grid) { _, _ in syncFields() }
             .onChange(of: trackMap.editingCueId) { _, id in
                 guard let id else { return }
@@ -36,7 +40,10 @@ struct DJPrepInspector: View {
                 trackMap.editingCueId = nil
             }
             .onChange(of: model.trim) { _, _ in syncFields() }
-            .onChange(of: model.detail?.trackId) { _, _ in syncFields() }
+            .onChange(of: model.detail?.trackId) { _, _ in
+                syncFields()
+                laneFocused = true
+            }
         } else {
             ContentUnavailableView("No Selection", systemImage: "sidebar.trailing")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -57,8 +64,6 @@ struct DJPrepInspector: View {
         return String(format: "%d:%02d.%03d", millis / 60_000, (millis / 1000) % 60, millis % 1000)
     }
 
-    // MARK: Beat grid
-
     private func gridSection(_ detail: MacPrepModel.Detail, row: MacPrepModel.Row) -> some View {
         Section {
             LabeledContent("Tempo") {
@@ -70,6 +75,7 @@ struct DJPrepInspector: View {
                         .frame(width: 70)
                         .onSubmit {
                             if let value = Double(bpmText.replacingOccurrences(of: ",", with: ".")) { model.setBPM(value) }
+                            laneFocused = true
                         }
                     Text("BPM").foregroundStyle(.secondary)
                 }
@@ -88,7 +94,9 @@ struct DJPrepInspector: View {
             HStack(spacing: 6) {
                 ControlGroup {
                     Button { model.nudge(byMillis: -PrepGridEditor.nudgeStepMillis) } label: { Label("Nudge Earlier", systemImage: "chevron.left") }
+                        .help("Nudge the grid earlier (⌥←)")
                     Button { model.nudge(byMillis: PrepGridEditor.nudgeStepMillis) } label: { Label("Nudge Later", systemImage: "chevron.right") }
+                        .help("Nudge the grid later (⌥→)")
                 }
                 .labelStyle(.iconOnly)
                 .fixedSize()
@@ -136,8 +144,6 @@ struct DJPrepInspector: View {
         return parts.joined(separator: " · ")
     }
 
-    // MARK: Start and end
-
     private func startEndSection(_ detail: MacPrepModel.Detail) -> some View {
         Section {
             LabeledContent("Start") {
@@ -146,7 +152,10 @@ struct DJPrepInspector: View {
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()
                     .frame(width: 96)
-                    .onSubmit { if let value = TrackTrimFormat.seconds(from: startText) { model.setTrim(start: value) } }
+                    .onSubmit {
+                        if let value = TrackTrimFormat.seconds(from: startText) { model.setTrim(start: value) }
+                        laneFocused = true
+                    }
             }
             LabeledContent("End") {
                 TextField("End", text: $endText)
@@ -154,11 +163,14 @@ struct DJPrepInspector: View {
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()
                     .frame(width: 96)
-                    .onSubmit { if let value = TrackTrimFormat.seconds(from: endText) { model.setTrim(end: value) } }
+                    .onSubmit {
+                        if let value = TrackTrimFormat.seconds(from: endText) { model.setTrim(end: value) }
+                        laneFocused = true
+                    }
             }
             HStack {
-                Button("Start at Cursor") { model.setTrim(start: model.cursorSeconds) }
-                Button("End at Cursor") { model.setTrim(end: model.cursorSeconds) }
+                Button("Start at Cursor") { model.setTrim(start: model.markSeconds) }
+                Button("End at Cursor") { model.setTrim(end: model.markSeconds) }
             }
             .controlSize(.small)
         } header: {
@@ -169,49 +181,102 @@ struct DJPrepInspector: View {
     }
 }
 
-struct DJUSBPanel: View {
+private struct MacPrepLane: View {
     @ObservedObject var model: MacPrepModel
+    var laneFocused: FocusState<Bool>.Binding
+    @ObservedObject private var player = PlayerService.shared
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Label(volume?.name ?? "USB Stick", systemImage: "externaldrive")
-                    .font(.headline)
-                Spacer()
-                if let volume {
-                    Text("\(volume.formatName) · \(MacUSBExportModel.byteString(volume.availableBytes)) free")
-                        .font(.callout)
-                        .foregroundStyle(MacSecondaryStyle())
-                }
-            }
-            Text(status)
-                .font(.callout)
-                .foregroundStyle(MacSecondaryStyle())
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                Button("Export to USB…") { model.showsUSBExport = true }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.exportableCount == 0)
-                Text("⇧⌘E")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .accessibilityElement(children: .contain)
+    private var trackMap: TrackMapModel { model.trackMap }
+
+    private var isPlayingHere: Bool {
+        player.isPlaying && player.currentTrack?.id == model.detail?.trackId
     }
 
-    private var volume: MacUSBVolume? { model.volumes.first }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { geo in
+                TrackMapLane(model: trackMap, height: 64, style: .phone, highlightedId: trackMap.selectedCueId)
+                    .padding(6)
+                    .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                guard geo.size.width > 12 else { return }
+                                trackMap.previewFraction((value.location.x - 6) / (geo.size.width - 12))
+                                laneFocused.wrappedValue = true
+                            }
+                    )
+            }
+            .frame(height: 76 + (trackMap.phrases.isEmpty ? 0 : 8))
+            .focusable()
+            .focusEffectDisabled()
+            .focused(laneFocused)
+            .onKeyPress(phases: [.down, .repeat]) { press in
+                MacPrepKeys.handle(press, model: model)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(TrackMapCopy.timeline)
+            .accessibilityValue(TrackMapCopy.timelineValue(trackMap.markText, of: trackMap.durationText))
+            .accessibilityHint(TrackMapCopy.timelineHint)
+            .accessibilityAdjustableAction { direction in
+                trackMap.nudgePreview(by: direction == .increment ? trackMap.beatStep : -trackMap.beatStep)
+            }
 
-    private var status: String {
-        var parts = ["\(model.exportableCount) \(model.exportableCount == 1 ? "track" : "tracks") ready"]
-        if model.ledger.lastExportMillis == 0 {
-            parts.append("not exported yet")
-        } else if model.changedSinceExport > 0 {
-            parts.append("\(model.changedSinceExport) changed since last export")
-        } else {
-            parts.append("up to date")
+            TrackMapReadout(model: trackMap, showsPlayButton: false)
+                .font(.callout)
+
+            HStack(spacing: 8) {
+                Button(isPlayingHere ? "Pause" : "Play", systemImage: isPlayingHere ? "pause.fill" : "play.fill") { model.togglePlay() }
+                    .help(isPlayingHere ? "Pause (Space)" : "Play from the cursor (Space)")
+                Spacer()
+                Group {
+                    Button(TrackMapCopy.addLoop, systemImage: "repeat") { trackMap.addLoop() }
+                        .help("\(TrackMapCopy.addLoop) (L)")
+                    Button(TrackMapCopy.saveCuePoint, systemImage: "plus") { trackMap.saveCue() }
+                        .help("\(TrackMapCopy.save(at: trackMap.markText)) (M)")
+                }
+                .disabled(!(model.selectedRow?.access.canEdit ?? false))
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
         }
-        if model.streamingCount > 0 { parts.append("streamed tracks aren’t exported") }
-        return parts.joined(separator: " · ")
+        .task(id: isPlayingHere) {
+            while isPlayingHere, !Task.isCancelled {
+                trackMap.objectWillChange.send()
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+    }
+}
+
+@MainActor
+enum MacPrepKeys {
+    static func handle(_ press: KeyPress, model: MacPrepModel) -> KeyPress.Result {
+        if press.key == .leftArrow || press.key == .rightArrow, press.modifiers.contains(.option) {
+            model.nudge(byMillis: press.key == .leftArrow ? -PrepGridEditor.nudgeStepMillis : PrepGridEditor.nudgeStepMillis)
+            return .handled
+        }
+        if press.phase == .repeat {
+            guard press.key == .leftArrow || press.key == .rightArrow, press.modifiers.isEmpty else { return .ignored }
+            return MacTrackMapKeys.handle(press, model: model.trackMap)
+        }
+        if press.key == .space, press.modifiers.isEmpty {
+            model.togglePlay()
+            return .handled
+        }
+        if press.modifiers.isEmpty {
+            switch press.characters.lowercased() {
+            case "d":
+                model.setDownbeat()
+                return .handled
+            case "t":
+                model.tap()
+                return .handled
+            default:
+                break
+            }
+        }
+        return MacTrackMapKeys.handle(press, model: model.trackMap)
     }
 }

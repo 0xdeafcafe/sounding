@@ -1294,6 +1294,13 @@ struct MacLibraryTable: View {
         .onChange(of: layout) { _, _ in
             applyLayout()
         }
+        .onChange(of: selection) { _, ids in
+            guard ids.count == 1, let id = ids.first else {
+                MacPrepRoute.shared.selectedTrack = nil
+                return
+            }
+            MacPrepRoute.shared.selectedTrack = presentedRows.first { $0.id == id }?.track
+        }
         .foregroundStyle(.primary)
         .environment(\.defaultMinListRowHeight, usesCompactRows && !showsArtwork ? 24 : 36)
         .contextMenu(forSelectionType: String.self) { selectedIDs in

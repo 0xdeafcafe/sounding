@@ -4,6 +4,7 @@ struct MacPrepInspectorPane: View {
     let track: Track
     @StateObject private var model: MacPrepModel
     @ObservedObject private var settings = SettingsStore.shared
+    @Environment(\.undoManager) private var undoManager
 
     init(track: Track, model: @autoclosure @escaping () -> MacPrepModel = MacPrepModel()) {
         self.track = track
@@ -41,6 +42,9 @@ struct MacPrepInspectorPane: View {
             }
         }
         .task(id: track.id) { await model.show(trackId: track.id) }
+        .onAppear { model.undoManager = undoManager }
+        .onChange(of: undoManager) { _, manager in model.undoManager = manager }
+        .focusedSceneValue(\.macPrep, model)
         .preferredColorScheme(settings.prepAppearance.colorScheme)
     }
 }
