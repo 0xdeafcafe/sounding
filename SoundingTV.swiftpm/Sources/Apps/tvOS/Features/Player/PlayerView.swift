@@ -25,6 +25,7 @@ struct PlayerView: View {
     @State private var mainDisabled = false
     @State private var revealsTabBar = false
     @State private var focusReachedTabBar = false
+    @State private var safeTop: CGFloat = 0
     @FocusState private var focus: NPFocus?
     @StateObject private var commentsStore = TrackCommentsStore()
     @StateObject private var engagement = TrackEngagementStore()
@@ -33,6 +34,10 @@ struct PlayerView: View {
     @ObservedObject private var setlists = SetlistIntelligenceStore.shared
 
     private let contentTop: CGFloat = 96
+
+    private var contentOffset: CGFloat {
+        max(contentTop, safeTop + SCBrowseMetrics.contentTopInset) - safeTop
+    }
 
     var body: some View {
         withCovers(withLifecycle(rootStack))
@@ -85,7 +90,7 @@ struct PlayerView: View {
                     clock: playerService.clock,
                     isPlaying: playerService.isPlaying,
                     accent: artistTint,
-                    topInset: contentTop,
+                    topInset: contentOffset,
                     onSeek: { [trackID = playerService.currentTrack?.id] time in
                         playerService.seek(to: time, expectedTrackID: trackID)
                     }
@@ -108,13 +113,15 @@ struct PlayerView: View {
                 panelView(panel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                     .padding(.trailing, Space.page)
-                    .padding(.top, contentTop)
+                    .padding(.top, contentOffset)
                     .padding(.bottom, Space.section)
                     .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea()
+        .animation(reduceMotion ? nil : .smooth(duration: 0.45), value: contentOffset)
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { safeTop = $0 }
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
         .background { backdrop.ignoresSafeArea() }
         .toolbarVisibility(idle.isIdle || (focus != nil && !revealsTabBar) ? .hidden : .visible, for: .tabBar)
         .onChange(of: focus) { _, new in
@@ -247,7 +254,7 @@ struct PlayerView: View {
                         Task { await playerService.play(result, in: [result]) }
                     }
                 )
-                .npCover()
+                .npCover(artworkURL: track.artworkURL, palette: artworkColors.current)
             }
         }
         .onChange(of: authService.sessionHealth) { _, health in
@@ -315,7 +322,7 @@ struct PlayerView: View {
                 .opacity(isAmbient ? 1 : 0)
                 .animation(reduceMotion ? .easeInOut(duration: 0.6) : .timingCurve(0.3, 0.7, 0.2, 1, duration: 1.4), value: isAmbient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.top, contentTop + Self.ambientArtworkGrowth)
+                .padding(.top, contentOffset + Self.ambientArtworkGrowth)
             deck
                 .opacity(isAmbient ? 0 : 1)
                 .animation(.easeInOut(duration: reduceMotion ? 0.6 : 1), value: isAmbient)
@@ -365,7 +372,7 @@ struct PlayerView: View {
             tape
         }
         .padding(.horizontal, Space.page)
-        .padding(.top, contentTop)
+        .padding(.top, contentOffset)
         .padding(.bottom, Space.section)
     }
 
@@ -433,7 +440,7 @@ struct PlayerView: View {
             }
             metadataActions
                 .padding(.top, 28)
-                .padding(.bottom, 38)
+                .padding(.bottom, NPCircleStyle.labelGap + NPCircleStyle.labelRow + 14)
             VStack(alignment: .leading, spacing: 10) {
                 if let track = playerService.currentTrack, !idle.isIdle {
                     NPEntryLine(track: track, clock: playerService.clock)
@@ -467,9 +474,17 @@ struct PlayerView: View {
                     identifier: "nowplaying.action.more"
                 ) { open(.more, from: .more) }
             }
+            .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: buttonSlots)
         }
         .onMoveCommand { if $0 == .up { revealsTabBar = true } }
         .focusSection()
+    }
+
+    private var buttonSlots: String {
+        let track = playerService.currentTrack
+        let isMix = track.map { setlists.isMix($0) } ?? false
+        let tracklist = NPButtonSlots.showsTracklist(for: track, store: setlists)
+        return "\(track?.supportsSoundCloudActions ?? false)\(isMix)\(track != nil)\(tracklist)"
     }
 
     private var transport: some View {
@@ -564,8 +579,8 @@ struct PlayerView: View {
             title: track.title,
             artist: track.user.displayName,
             artistTint: artistTint,
-            artworkTop: contentTop,
-            titleTop: contentTop + Self.ambientArtworkGrowth * 2 + Self.ambientArtworkSide + Space.section
+            artworkTop: contentOffset,
+            titleTop: contentOffset + Self.ambientArtworkGrowth * 2 + Self.ambientArtworkSide + Space.section
         )
             .contentShape(Rectangle())
             .focusable()
@@ -679,6 +694,28 @@ struct PlayerView: View {
     #if DEBUG
     private func debugOpenHooks() async {
         let env = ProcessInfo.processInfo.environment
+        if let raw = env["SOUNDING_TV_NP_PLAY_TRACK"] {
+            try? await Task.sleep(for: .seconds(2))
+            var chosen: Track?
+            if raw == "set" {
+                for _ in 0..<40 where !setlists.isLoaded { try? await Task.sleep(for: .milliseconds(250)) }
+                if let id = setlists.setlists.first(where: { !$0.value.tracklist.isEmpty })?.key {
+                    chosen = try? await SoundCloudAPI.shared.getTrack(id: id)
+                } else if let likes = try? await SoundCloudAPI.shared.getLikedTracks(limit: 50) {
+                    let score: (Track) -> Int = { track in
+                        (track.description ?? "").split(separator: "\n").filter { $0.contains(" - ") || $0.contains(" – ") }.count
+                    }
+                    chosen = likes.collection.map(\.item).filter { $0.duration >= 1200 }.max { score($0) < score($1) }
+                    print("[NPDebug] tracklist lines", chosen.map(score) ?? 0)
+                }
+            } else {
+                chosen = try? await SoundCloudAPI.shared.getTrack(id: raw)
+            }
+            print("[NPDebug] play track", chosen?.id ?? "none", chosen?.title ?? "")
+            if let chosen {
+                await playerService.play(chosen, in: [chosen] + playerService.queue.prefix(3))
+            }
+        }
         if env["SOUNDING_TV_DJ_OPEN"] == "1" {
             try? await Task.sleep(for: .seconds(2))
             showingDJ = true
@@ -817,9 +854,10 @@ private struct NPLikeButton: View {
         NPIconButton(
             symbol: liked ? "heart.fill" : "heart",
             label: liked ? "Liked" : "Like",
-            id: .like, focus: focus, isOn: liked,
+            id: .like, focus: focus,
             accessibilityTitle: liked ? "Unlike" : "Like",
-            identifier: "nowplaying.action.like"
+            identifier: "nowplaying.action.like",
+            swapsSymbol: true
         ) {
             Task { await engagement.toggleLike(track) }
         }
@@ -887,9 +925,15 @@ private struct NPLineArtLayer: View {
 }
 
 extension View {
-    func npCover() -> some View {
+    func npCover(artworkURL: URL? = nil, palette: ArtworkColors.Palette? = nil) -> some View {
         frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background { BrowseBackdrop().ignoresSafeArea() }
+            .background {
+                if let palette {
+                    NPCoverBackdrop(artworkURL: artworkURL, palette: palette)
+                } else {
+                    BrowseBackdrop().ignoresSafeArea()
+                }
+            }
             .environment(\.colorScheme, .dark)
             .preferredColorScheme(.dark)
     }
