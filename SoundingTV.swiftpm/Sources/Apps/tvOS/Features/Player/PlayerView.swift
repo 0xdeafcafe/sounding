@@ -695,6 +695,7 @@ struct PlayerView: View {
     private func debugOpenHooks() async {
         let env = ProcessInfo.processInfo.environment
         if let raw = env["SOUNDING_TV_NP_PLAY_TRACK"] {
+            print("[NPDebug] play-track hook", raw)
             try? await Task.sleep(for: .seconds(2))
             var chosen: Track?
             if raw == "set" {
@@ -707,6 +708,14 @@ struct PlayerView: View {
                     }
                     chosen = likes.collection.map(\.item).filter { $0.duration >= 1200 }.max { score($0) < score($1) }
                     print("[NPDebug] tracklist lines", chosen.map(score) ?? 0)
+                }
+            } else if raw == "goplus" {
+                print("[NPDebug] looking for a FairPlay-only liked track")
+                do {
+                    let likes = try await SoundCloudAPI.shared.getLikedTracks(limit: 100)
+                    chosen = likes.collection.map(\.item).first { $0.needsFairPlay }
+                } catch {
+                    print("[NPDebug] liked tracks failed", String(describing: error))
                 }
             } else {
                 chosen = try? await SoundCloudAPI.shared.getTrack(id: raw)
