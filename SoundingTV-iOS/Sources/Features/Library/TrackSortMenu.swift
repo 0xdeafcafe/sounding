@@ -123,6 +123,7 @@ struct TrackCollectionMenu: View {
     var dateLabel = "Date Added"
     var naturalOrderLabel: String? = nil
     var filters: [TrackFilter] = TrackFilter.allCases
+    var analyseTracks: [Track]? = nil
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -136,6 +137,11 @@ struct TrackCollectionMenu: View {
                 naturalOrderLabel: naturalOrderLabel,
                 filters: filters
             )
+            if let analyseTracks {
+                Section {
+                    AnalyseMissingMenuItems(tracks: analyseTracks)
+                }
+            }
         } label: {
             Label(
                 "Sort & Filter",
