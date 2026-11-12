@@ -28,13 +28,13 @@ struct NPWaveform: View {
     @State private var suppressMoves = false
     @State private var moveCooldownTask: Task<Void, Never>?
 
-    fileprivate static let width: CGFloat = 940
+    fileprivate static let width: CGFloat = 1920 - Space.page * 2
     private static let height: CGFloat = 76
     private static let pitch: CGFloat = 6.2
     private static let barWidth: CGFloat = 3.4
     private static let minimumBar: CGFloat = 0.08
     static let tapeThreshold: TimeInterval = 360
-    private static let tapeWindow: TimeInterval = 240
+    private static let tapeWindow: TimeInterval = 450
 
     private var isTape: Bool { duration >= Self.tapeThreshold }
 
