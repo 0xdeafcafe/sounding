@@ -36,7 +36,7 @@ h2, .h2 { font-size: clamp(1.9rem, 3.4vw, 3.4rem); line-height: 1.02; letter-spa
 .invite { font-weight: 600; }
 b { font-weight: 650; }
 
-#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: none; touch-action: pan-y; outline: none; }
+#gl { position: fixed; inset: 0; width: 100%; height: var(--ih, 100%); display: none; touch-action: pan-y; outline: none; }
 
 .top { position: absolute; z-index: 30; top: 0; left: 0; right: 0; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px 16px; padding: max(12px, env(safe-area-inset-top)) var(--pad) 10px; pointer-events: none; }
 .top > * { pointer-events: auto; }
@@ -89,6 +89,9 @@ html[data-side="b"] .side.b, html[data-side="b"] .join .side.a { display: grid; 
 .live .lede, .live .cap, .live .note, .live .small, .live .join p, .live .foot p, .live .try .ink, .live .try .played { --c0: var(--ia2); --c1: var(--ib2); --cd: var(--ib2); }
 .live .after { --cd: rgb(242 236 227 / .42); }
 .live h1 .ink { display: inline-block; }
+.live.page .ink, .live.coarse:not(.dim) .ink { -webkit-text-fill-color: currentColor; background-image: none; color: var(--ink); }
+.live.page :is(.lede, .cap, .note, .small, .sub, .fine, dd, .join p, .foot p).ink, .live.page :is(.cap, .try, .join, .foot) .ink, .live.coarse:not(.dim) :is(.lede, .cap, .note, .small, .join p, .foot p).ink, .live.coarse:not(.dim) :is(.cap, .try, .join, .foot) .ink { color: var(--ink2); }
+.live.page .cap b, .live.coarse:not(.dim) .cap b, .live.page .join .invite, .live.coarse:not(.dim) .join .invite { -webkit-text-fill-color: currentColor; color: var(--ink); }
 html.live[data-plug="0"], html.live[data-plug="0"] body { background: #0b0908; }
 .live .xf, .live .snd, .live .hero .note { transition: opacity .9s var(--ease) .5s, visibility 0s; }
 html.live[data-plug="0"] .xf, html.live[data-plug="0"] .snd, html.live[data-plug="0"] .hero .note { opacity: 0; visibility: hidden; transition: opacity .35s var(--ease), visibility 0s linear .35s; }
@@ -133,6 +136,63 @@ html[data-plug="0"] .try .played, html[data-plug="1"] .try .hint { opacity: 0; v
 .live .foot .flag { -webkit-text-fill-color: #000; }
 .live .foot { position: relative; }
 .plate-mode .top, .plate-mode main, .plate-mode .foot { display: none; }
+
+.chapter .side.a, html[data-side="b"] .chapter .side.a { display: grid; }
+.chapter .caps { display: grid; gap: .9rem; }
+.chapter .visual { position: relative; }
+.chapter .visual > :not(.mass) { position: relative; z-index: 1; }
+.chapter .visual > * { --ar: 1.6; }
+.chapter .visual .k-duo { --ar: 1.7; }
+.chapter .visual .k-trio { --ar: 1.45; }
+.chapter .visual .decks-box { --ar: 1.08; }
+.chapter .visual .prep-box { --ar: 1.62; }
+.chapter .visual .sync-box { --ar: 1.02; }
+.chapter .visual .cdjs { --ar: 1.7; }
+.still .chapter { padding: 0; }
+.still .chapter .pin { max-width: 1560px; margin: 0 auto; padding: var(--sec, 96px) var(--pad); display: grid; grid-template-columns: minmax(0, 26rem) minmax(0, 1fr); column-gap: var(--gap, 64px); align-items: center; }
+.still .chapter.hero .pin { grid-template-columns: minmax(0, 30rem) minmax(0, 1fr); padding-top: clamp(112px, 16vh, 168px); }
+.still .chapter .side { max-width: none; margin: 0; padding: 0; }
+.still .chapter.flip .side { grid-column: 2; grid-row: 1; }
+.still .chapter.flip :is(.visual, .plate) { grid-column: 1; grid-row: 1; }
+.still .chapter .plate img { aspect-ratio: 16 / 10; border-radius: 12px; }
+.still .chapter.wide .pin { grid-template-columns: minmax(0, 1fr); }
+.still .chapter .cap.on ~ .cap, .still .chapter .cap { opacity: 1; }
+.live .top::before { content: ""; position: absolute; inset: 0 0 -32px; z-index: -1; background: linear-gradient(var(--bg) 72%, transparent); opacity: 0; transition: opacity .35s var(--ease), background-color .5s var(--ease); pointer-events: none; }
+.live.deep .top::before { opacity: .97; }
+.live.hud .top::before { display: none; }
+.live .mass { display: none; }
+.live main > :not(.scene) { pointer-events: auto; }
+.live .scene.chapter { position: relative; inset: auto; padding: 0; height: calc(var(--ih, 100vh) * var(--span, 2)); pointer-events: none; }
+.live .chapter .pin { position: sticky; top: 0; height: var(--svh, var(--ih, 100vh)); overflow: hidden; }
+.live .chapter .side { width: min(30vw, 28rem); }
+.live .chapter.wide .side { width: min(48vw, 46rem); }
+.live .chapter.right .side.a { left: auto; right: var(--pad); justify-items: end; text-align: right; }
+.live .chapter.hero .side { top: 50%; transform: translateY(-46%); width: min(41vw, 39rem); gap: 1rem; }
+.live .chapter .visual { position: absolute; left: calc(var(--pad) + min(30vw, 28rem) + clamp(24px, 3vw, 64px)); right: var(--pad); top: 50%; transform: translateY(-50%); display: grid; justify-items: center; opacity: var(--o, 0); visibility: var(--v, hidden); pointer-events: none; }
+.live .chapter.flip .visual { left: var(--pad); right: calc(var(--pad) + min(30vw, 28rem) + clamp(24px, 3vw, 64px)); }
+.live .chapter.flip .side.a { left: auto; right: var(--pad); }
+.live .chapter .visual > * { width: min(100%, calc((var(--ih, 100vh) - 150px) * var(--ar, 1.6))); }
+.live .chapter .visual .mass { display: none; }
+.live .flowing { position: relative; z-index: 2; background: var(--bg); transition: background-color .5s var(--ease); }
+.live .flowing::before { content: ""; position: absolute; left: 0; right: 0; top: -120px; height: 120px; background: linear-gradient(transparent, var(--bg)); pointer-events: none; }
+.live .flowing.tail::before { display: none; }
+
+@media (max-width: 860px), (max-aspect-ratio: 1/1) {
+  .live .chapter .side, .live .chapter.wide .side, .live .chapter.hero .side { left: var(--pad); right: var(--pad); width: auto; top: auto; bottom: max(26px, env(safe-area-inset-bottom)); transform: none; justify-items: start; text-align: left; }
+  .live .chapter.hero .side { gap: .8rem; }
+  .live .chapter.up .side.a { top: calc(var(--head, 64px) + 20px); bottom: auto; left: var(--pad); right: var(--pad); width: auto; }
+  .live .chapter:not(.flow) .side::before { content: ""; position: absolute; z-index: -1; inset: -36px calc(var(--pad) * -1) -60px; background: linear-gradient(transparent, var(--bg) 64px); opacity: .8; pointer-events: none; }
+  .live .chapter.up .side::before { inset: -60px calc(var(--pad) * -1) -36px; background: linear-gradient(var(--bg) calc(100% - 64px), transparent); }
+  .live .chapter .visual, .live .chapter.flip .visual { left: var(--pad); right: var(--pad); top: calc(var(--head, 64px) + 24px); bottom: auto; transform: none; height: 44vh; align-items: start; }
+  .live .chapter .visual > * { width: min(100%, calc(44vh * var(--ar, 1.6))); }
+  .live .chapter.flow { height: auto; min-height: var(--ih, 100vh); }
+  .live .chapter.flow .pin { position: relative; height: auto; min-height: var(--ih, 100vh); overflow: visible; padding: 46vh 0 48px; }
+  .live .chapter.flow .side { position: relative; left: auto; right: auto; bottom: auto; margin: 0 var(--pad); padding: 24px 0 0; }
+  .live .chapter.flow .side::before { content: ""; position: absolute; z-index: -1; inset: -72px calc(var(--pad) * -1) -48px; background: linear-gradient(transparent, var(--bg) 72px); opacity: .94; }
+  .still .chapter .pin, .still .chapter.hero .pin { grid-template-columns: minmax(0, 1fr); row-gap: clamp(32px, 6vh, 56px); }
+  .still .chapter.flip .side, .still .chapter.flip :is(.visual, .plate) { grid-column: 1; grid-row: auto; }
+  .still .chapter .pin :is(.visual, .plate) { width: min(100%, 860px); justify-self: center; }
+}
 
 /* Mid-size desktops (e.g. 1440x900): the TV stop's iPad and Mac sit close to the copy, so the column is narrower and lower there. */
 @media (min-width: 861px) and (max-width: 1600px) {

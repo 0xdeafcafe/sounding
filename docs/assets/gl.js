@@ -454,8 +454,9 @@ export function createRenderer(canvas, opts = {}) {
     const holder = { t, ready: false };
     const img = new Image();
     img.decoding = 'async';
-    img.onload = () => { if (lost) return; holder.t = texture(img); holder.ready = true; if (opts.onTexture) opts.onTexture(); };
+    const fin = () => { if (lost) return; holder.t = texture(img); holder.ready = true; if (opts.onTexture) opts.onTexture(); };
     img.src = url;
+    if (img.decode) img.decode().then(fin, () => {}); else img.onload = fin;
     return holder;
   }
 
