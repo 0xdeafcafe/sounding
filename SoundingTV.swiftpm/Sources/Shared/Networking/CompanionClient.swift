@@ -170,6 +170,10 @@ final class CompanionClient: ObservableObject {
     @Published private(set) var queueSource: PlaybackQueueSource?
     @Published private(set) var authHandoffRequest: AuthHandoffRequest?
     @Published private(set) var peerNeedsSignIn = false
+    @Published private(set) var tvAccounts: [String: TVAccountRecord] = TVAccountRecord.loadAll()
+    @Published private(set) var accountSwitch = AccountSwitchHandshake()
+    @Published private(set) var accountSwitchSessionId: String?
+    @Published private(set) var lastRejectionKind: CompanionRejection?
     @Published private(set) var isRequestingPeerSignIn = false
 
     let telemetry = CompanionTelemetry()
@@ -232,6 +236,9 @@ final class CompanionClient: ObservableObject {
     private nonisolated(unsafe) var persistTask: Task<Void, Never>?
     private nonisolated(unsafe) var peerSignInTimeout: Task<Void, Never>?
     private var lastDeviceStatusMillis: Int64 = 0
+    private var lastAccountStatusMillis: Int64 = 0
+    private var sentAccountStatus = false
+    private var accountSwitchTicker: Task<Void, Never>?
     private var lastContinueSessionMillis: Int64 = 0
 
     private static let initialReconnectDelay: TimeInterval = 5
@@ -573,6 +580,7 @@ final class CompanionClient: ObservableObject {
         LinkedCompanionStore.enqueue(PendingLinkMessage(kind: .linkRevoke, link: record))
         LinkedCompanionStore.remove(sessionId: sessionId)
         needsSignInSessionIds.remove(sessionId)
+        Self.recordUnlinked(record)
         Log.link.info("[CompanionClient] forgot \(record.peerName, privacy: .public); telling it on next contact")
         flushOutbox()
     }
@@ -945,6 +953,9 @@ final class CompanionClient: ObservableObject {
         libraryPushHighWaterMark = nil
         analysisSentKeys = []
         lastDeviceStatusMillis = 0
+        lastAccountStatusMillis = 0
+        sentAccountStatus = false
+        if accountSwitch.isBusy { accountSwitch.linkDropped() }
         lastContinueSessionMillis = 0
         if peerNeedsSignIn { peerNeedsSignIn = false }
         endPeerSignInRequest()
@@ -1180,7 +1191,8 @@ final class CompanionClient: ObservableObject {
             await synchronization.adoptNearbyCueState(body)
 
         case .linkRevoke:
-            guard message.verifiedRevoke(sessionId: link.sessionId, secret: secret) != nil else { return }
+            guard let revoke = message.verifiedRevoke(sessionId: link.sessionId, secret: secret) else { return }
+            if revoke.isExplicitUnlink { Self.recordUnlinked(link) }
             transmitNow(.acknowledgment(sessionId: link.sessionId))
             Log.link.info("[CompanionClient] \(self.linkedName, privacy: .public) forgot this device")
             drop(sessionId: link.sessionId)
@@ -1209,10 +1221,29 @@ final class CompanionClient: ObservableObject {
             if !status.needsSignIn { endPeerSignInRequest() }
             Log.link.info("[CompanionClient] \(self.linkedName, privacy: .public) needs sign-in=\(status.needsSignIn, privacy: .public)")
 
+        case .accountStatus:
+            guard let status = message.verifiedAccountStatus(sessionId: link.sessionId, secret: secret),
+                  status.issuedAtMillis >= lastAccountStatusMillis else { return }
+            lastAccountStatusMillis = status.issuedAtMillis
+            noteTVAccount(TVAccountRecord(status: status), sessionId: link.sessionId)
+            if !sentAccountStatus {
+                sentAccountStatus = true
+                sendOwnAccountStatus(sessionId: link.sessionId, secret: secret)
+            }
+
+        case .accountSwitchAnswer:
+            guard accountSwitchSessionId == link.sessionId,
+                  let payload = message.verifiedAccountSwitch(sessionId: link.sessionId, secret: secret),
+                  let answer = payload.answer else { return }
+            handleAccountSwitchAnswer(answer, nonce: payload.nonce, sessionId: link.sessionId, secret: secret)
+
         case .error:
+            let kind = CompanionRejection.classify(code: message.errorCode, message: message.error)
             Log.link.info("[CompanionClient] \(self.linkedName, privacy: .public) rejected a command: \(message.error ?? "", privacy: .public)")
+            guard kind.answersPlayback else { return }
             rejection = message.error
-            playbackConfirmations.observeRejection(message.error ?? "")
+            lastRejectionKind = kind
+            playbackConfirmations.observeRejection(message.error ?? "", code: message.errorCode, trackId: message.errorTrackId)
             rejectionTimeout?.cancel()
             rejectionTimeout = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(4))
@@ -1257,6 +1288,128 @@ final class CompanionClient: ObservableObject {
         peerSignInTimeout?.cancel()
         peerSignInTimeout = nil
         if isRequestingPeerSignIn { isRequestingPeerSignIn = false }
+    }
+
+    // MARK: - Accounts
+
+    static var myAccount: PeerAccount? {
+        SoundCloudCredentialSource.shared.accountUser.map(PeerAccount.init(user:))
+    }
+
+    static func recordUnlinked(_ record: LinkedCompanionStore.LinkRecord) {
+        KnownLinkLedger.update { $0.recordUnlinked(KnownLinkLedger.identity(name: record.peerName, kind: record.peerClass)) }
+        var choice = CrossAccountChoice.load()
+        choice.forget(link: record.sessionId)
+        choice.save()
+    }
+
+    var refusalCaption: String? {
+        guard rejection != nil, lastRejectionKind != .syncRefused else { return nil }
+        return TVAccountCopy.commandRefused(tv: linkedName)
+    }
+
+    func tvAccount(for sessionId: String) -> TVAccount {
+        tvAccounts[sessionId]?.tvAccount ?? .unknown
+    }
+
+    func relation(for sessionId: String) -> TVAccountRelation {
+        let phone: PhoneAccount = Self.myAccount.map(PhoneAccount.signedIn) ?? .signedOut
+        let reachable = isActive(sessionId) && state == .connected
+        return TVAccountRelation.resolve(tv: tvAccount(for: sessionId), phone: phone, link: .linked(reachable: reachable))
+    }
+
+    func canSwitchAccount(of sessionId: String) -> Bool {
+        tvAccounts[sessionId]?.supports(CompanionCapability.accountSwitch) == true && Self.myAccount != nil
+    }
+
+    private func noteTVAccount(_ record: TVAccountRecord, sessionId: String) {
+        guard tvAccounts[sessionId] != record else { return }
+        tvAccounts[sessionId] = record
+        TVAccountRecord.saveAll(tvAccounts.filter { key, _ in links.contains { $0.sessionId == key } || key == sessionId })
+        if let link = links.first(where: { $0.sessionId == sessionId }), let tag = record.account?.tag, tag == Self.myAccount?.tag {
+            KnownLinkLedger.update { $0.recordLinked(KnownLinkLedger.identity(name: link.peerName, kind: link.peerClass), accountTag: tag) }
+        }
+        Log.link.info("[CompanionClient] \(self.linkedName, privacy: .public) account state is \(record.state.rawValue, privacy: .public)")
+    }
+
+    private func sendOwnAccountStatus(sessionId: String, secret: Data) {
+        let mine = Self.myAccount
+        let status = AccountStatusPayload.create(
+            state: mine == nil ? .signedOut : .signedIn,
+            account: mine?.encoded(),
+            last: nil,
+            sessionId: sessionId,
+            secret: secret
+        )
+        send(.accountStatus(sessionId: sessionId, status: status))
+    }
+
+    func beginAccountSwitch(sessionId: String) {
+        guard canSwitchAccount(of: sessionId), !accountSwitch.isBusy else { return }
+        accountSwitch.reset()
+        accountSwitch.begin()
+        accountSwitchSessionId = sessionId
+    }
+
+    func cancelAccountSwitch() {
+        accountSwitch.cancel()
+        if accountSwitch.phase == .idle { accountSwitchSessionId = nil }
+    }
+
+    func clearAccountSwitch() {
+        guard !accountSwitch.isBusy else { return }
+        accountSwitch.reset()
+        accountSwitchSessionId = nil
+    }
+
+    func confirmAccountSwitch() async {
+        guard let sessionId = accountSwitchSessionId, accountSwitch.phase == .confirming else { return }
+        if !isActive(sessionId) { select(sessionId: sessionId) }
+        let nonce = UUID().uuidString
+        guard accountSwitch.confirm(nonce: nonce, at: Date()) else { return }
+        startAccountSwitchTicker()
+        guard await waitUntilReachable(timeout: .seconds(8)),
+              let link, link.sessionId == sessionId, let secret = link.secret,
+              let account = Self.myAccount?.encoded() else {
+            accountSwitch.linkDropped()
+            return
+        }
+        Log.link.info("[CompanionClient] asking \(self.linkedName, privacy: .public) to switch to this account")
+        send(.accountSwitch(
+            .accountSwitchRequest,
+            sessionId: sessionId,
+            payload: .request(account: account, nonce: nonce, sessionId: sessionId, secret: secret)
+        ))
+    }
+
+    private func handleAccountSwitchAnswer(_ answer: AccountSwitchPayload.Answer, nonce: String, sessionId: String, secret: Data) {
+        guard case .sendCredentials = accountSwitch.receive(answer, nonce: nonce, at: Date()) else { return }
+        guard accountSwitch.mayReleaseCredentials, let session = DeviceSessionStore.load(), session.isUsable else {
+            _ = accountSwitch.receive(.refused, nonce: nonce, at: Date())
+            return
+        }
+        let token = TokenPayload.create(
+            token: session.oauthToken,
+            refreshToken: session.refreshToken,
+            clientId: session.clientId,
+            expiresAt: session.expiresAt,
+            sessionId: sessionId,
+            secret: secret
+        )
+        send(.accountSwitch(.accountSwitchCredentials, sessionId: sessionId, payload: .credentials(token, nonce: nonce, sessionId: sessionId, secret: secret)))
+        accountSwitch.credentialsSent(at: Date())
+        Log.link.info("[CompanionClient] \(self.linkedName, privacy: .public) accepted the switch; sent this sign-in")
+    }
+
+    private func startAccountSwitchTicker() {
+        accountSwitchTicker?.cancel()
+        accountSwitchTicker = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, self.accountSwitch.isBusy else { return }
+                self.accountSwitch.tick(at: Date())
+            }
+        }
     }
 
     func sendAuthHandoffSession(_ session: StoredSession) {
@@ -2053,6 +2206,8 @@ final class OutputRouter: ObservableObject {
     @Published private(set) var isMoving = false
     @Published private(set) var notice: String?
     @Published private(set) var entries: [OutputListEntry] = []
+    @Published private(set) var accountChoice: AccountChoiceRequest?
+    @Published var accountRefusal: AccountRefusalAlert?
 
     private let preference: OutputPreference
     private let now: () -> Date
@@ -2416,6 +2571,7 @@ final class OutputRouter: ObservableObject {
         }
         if let problem = await focus(on: device) { return problem }
         _ = await client.waitUntilLive(timeout: Self.remoteStateTimeout)
+        guard await confirmAccount(for: device, controlling: forced == .controlRemote) else { return nil }
 
         let remote = client.telemetry.isLive ? client.telemetry.playback : nil
         let handover = forced ?? OutputHandover.plan(
@@ -2464,6 +2620,10 @@ final class OutputRouter: ObservableObject {
         case .rejected(let reason):
             Log.link.info("[OutputRouter] \(device.name, privacy: .public) rejected the move: \(reason, privacy: .public)")
             return "\(device.name) couldn’t play this, so playback stayed on this \(here)."
+        case .trackUnavailable(let reason):
+            Log.link.info("[OutputRouter] \(device.name, privacy: .public) can't play the track: \(reason, privacy: .public)")
+            if presentAccountRefusal(for: device) { return nil }
+            return "\(device.name) couldn’t play this, so playback stayed on this \(here)."
         case .timedOut:
             Log.link.info("[OutputRouter] \(device.name, privacy: .public) didn't confirm the move in time")
             if wasPlaying { pauseIfMoveLands(trackId: track.id) }
@@ -2500,11 +2660,78 @@ final class OutputRouter: ObservableObject {
             return nil
         case .rejected:
             return "\(device.name) couldn’t play this."
+        case .trackUnavailable:
+            if presentAccountRefusal(for: device) { return nil }
+            return "\(device.name) couldn’t play this."
         case .timedOut:
             return "\(device.name) didn’t respond."
         case .disconnected:
             return "\(device.name) isn't reachable right now."
         }
+    }
+
+    // MARK: Accounts
+
+    func accountSubtitle(for device: OutputDevice) -> String? {
+        guard let sessionId = device.linkSessionId else { return nil }
+        return TVAccountCopy.playOnSubtitle(client.relation(for: sessionId))
+    }
+
+    func needsAccountChoice(for device: OutputDevice) -> Bool {
+        guard let sessionId = device.linkSessionId else { return false }
+        return CrossAccountChoice.needsChoice(client.relation(for: sessionId), link: sessionId, choice: .load())
+    }
+
+    func confirmAccount(for device: OutputDevice, controlling: Bool) async -> Bool {
+        guard let sessionId = device.linkSessionId else { return true }
+        let relation = client.relation(for: sessionId)
+        guard case .differentAccounts(let theirs, let mine) = relation,
+              CrossAccountChoice.needsChoice(relation, link: sessionId, choice: .load()) else { return true }
+        accountChoice?.resume(.cancel)
+        let answer = await withCheckedContinuation { (continuation: CheckedContinuation<AccountChoiceAnswer, Never>) in
+            var resumed = false
+            accountChoice = AccountChoiceRequest(
+                sessionId: sessionId,
+                tvName: device.name,
+                choice: TVAccountCopy.choice(tv: device.name, theirs: theirs, mine: mine, controlling: controlling),
+                canSwitch: client.canSwitchAccount(of: sessionId)
+            ) { [weak self] answer in
+                guard !resumed else { return }
+                resumed = true
+                self?.accountChoice = nil
+                continuation.resume(returning: answer)
+            }
+        }
+        switch answer {
+        case .proceed:
+            if let theirs {
+                var choice = CrossAccountChoice.load()
+                choice.remember(link: sessionId, tv: theirs, mine: mine)
+                choice.save()
+            }
+            return true
+        case .switchAccount:
+            client.beginAccountSwitch(sessionId: sessionId)
+            return false
+        case .cancel:
+            return false
+        }
+    }
+
+    func answerAccountChoice(_ answer: AccountChoiceAnswer) {
+        accountChoice?.resume(answer)
+    }
+
+    @discardableResult
+    private func presentAccountRefusal(for device: OutputDevice) -> Bool {
+        guard let sessionId = device.linkSessionId,
+              case .differentAccounts(let theirs, let mine) = client.relation(for: sessionId) else { return false }
+        accountRefusal = AccountRefusalAlert(
+            sessionId: sessionId,
+            alert: TVAccountCopy.trackUnavailable(tv: device.name, theirs: theirs),
+            switchAction: client.canSwitchAccount(of: sessionId) ? TVAccountCopy.switchAction(tv: device.name, mine: mine) : nil
+        )
+        return true
     }
 
     private func pauseIfMoveLands(trackId: String) {
@@ -2701,6 +2928,7 @@ final class OutputRouter: ObservableObject {
         lateMoveGuard = nil
         if isRemote, current != device { select(.thisDevice) }
         if let problem = await focus(on: device) { return problem }
+        guard await confirmAccount(for: device, controlling: false) else { return nil }
 
         var ids = context.filter { !$0.isLocal }.map(\.id)
         if !ids.contains(track.id) { ids.insert(track.id, at: 0) }
@@ -2720,6 +2948,9 @@ final class OutputRouter: ObservableObject {
             select(device)
             return nil
         case .rejected:
+            return "\(device.name) couldn’t play this."
+        case .trackUnavailable:
+            if presentAccountRefusal(for: device) { return nil }
             return "\(device.name) couldn’t play this."
         case .timedOut:
             return "\(device.name) didn’t respond."

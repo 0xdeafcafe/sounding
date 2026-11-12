@@ -704,3 +704,71 @@ extension PeerAccount {
         self.init(userId: user.id, name: user.displayName, username: user.username, avatarURL: user.avatarURL?.absoluteString)
     }
 }
+
+struct TVAccountRecord: Codable, Equatable, Sendable {
+    static let defaultsKey = "red.forbes.sounding.tvAccounts.v1"
+
+    var state: AccountStatusPayload.State
+    var account: PeerAccount?
+    var last: PeerAccount?
+    var capabilities: [String]
+
+    init(state: AccountStatusPayload.State, account: PeerAccount?, last: PeerAccount?, capabilities: [String]) {
+        self.state = state
+        self.account = account
+        self.last = last
+        self.capabilities = capabilities
+    }
+
+    init(status: AccountStatusPayload) {
+        self.init(
+            state: status.state,
+            account: PeerAccount.decode(status.account),
+            last: PeerAccount.decode(status.last),
+            capabilities: status.capabilities
+        )
+    }
+
+    var tvAccount: TVAccount {
+        switch state {
+        case .signedOut: return .signedOut
+        case .needsSignIn: return .needsSignIn(last: last)
+        case .signedIn: return account.map(TVAccount.signedIn) ?? .unknown
+        }
+    }
+
+    func supports(_ capability: String) -> Bool { capabilities.contains(capability) }
+
+    static func loadAll(defaults: UserDefaults = .standard) -> [String: TVAccountRecord] {
+        guard let data = defaults.data(forKey: defaultsKey),
+              let records = try? JSONDecoder().decode([String: TVAccountRecord].self, from: data) else { return [:] }
+        return records
+    }
+
+    static func saveAll(_ records: [String: TVAccountRecord], defaults: UserDefaults = .standard) {
+        guard let data = try? JSONEncoder().encode(records) else { return }
+        defaults.set(data, forKey: defaultsKey)
+    }
+}
+
+enum AccountChoiceAnswer: Equatable, Sendable {
+    case proceed
+    case switchAccount
+    case cancel
+}
+
+struct AccountChoiceRequest: Identifiable {
+    let id = UUID()
+    let sessionId: String
+    let tvName: String
+    let choice: TVAccountCopy.Choice
+    let canSwitch: Bool
+    let resume: (AccountChoiceAnswer) -> Void
+}
+
+struct AccountRefusalAlert: Identifiable, Equatable {
+    let id = UUID()
+    let sessionId: String
+    let alert: TVAccountCopy.Alert
+    let switchAction: String?
+}

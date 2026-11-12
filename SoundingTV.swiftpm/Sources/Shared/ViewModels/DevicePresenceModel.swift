@@ -192,7 +192,12 @@ final class DevicePresenceModel: ObservableObject {
         }
         let currentOutputID = router.current.isLocal ? nil : router.current.id
         let client = router.client
-        guard client.isReachable, client.telemetry.isLive, let device = client.linkedOutputDevice else {
+        guard client.isReachable, client.telemetry.isLive, let device = client.linkedOutputDevice,
+              PresenceAccountFilter.keeps(
+                isOutput: device.id == currentOutputID,
+                tv: device.linkSessionId.map(client.tvAccount(for:)) ?? .unknown,
+                mine: CompanionClient.myAccount
+              ) else {
             liveStart = nil
             return ([], outputs, currentOutputID)
         }
