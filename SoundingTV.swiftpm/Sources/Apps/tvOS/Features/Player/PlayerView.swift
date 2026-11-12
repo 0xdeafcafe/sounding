@@ -22,6 +22,7 @@ struct PlayerView: View {
     @State private var showingSetlist = false
     @State private var showingLyrics = false
     @State private var setlistLocalFileURL: URL?
+    @State private var safeTop: CGFloat = 0
     @FocusState private var focus: NPFocus?
     @StateObject private var commentsStore = TrackCommentsStore()
     @StateObject private var engagement = TrackEngagementStore()
@@ -29,8 +30,19 @@ struct PlayerView: View {
     @StateObject private var idle = NPIdleMonitor()
     @ObservedObject private var setlists = SetlistIntelligenceStore.shared
 
+    static let tabBarFloor: CGFloat = 112
+
+    private var contentTop: CGFloat {
+        max(safeTop, Self.tabBarFloor) + SCBrowseMetrics.contentTopInset
+    }
+
     var body: some View {
-        withCovers(withLifecycle(rootStack))
+        GeometryReader { proxy in
+            withCovers(withLifecycle(rootStack))
+                .onChange(of: proxy.safeAreaInsets.top, initial: true) { _, top in
+                    if top > safeTop { safeTop = top }
+                }
+        }
             .task(id: playerService.currentTrack?.id) {
                 commentsStore.ensureLoaded(for: playerService.currentTrack)
             }
@@ -77,6 +89,7 @@ struct PlayerView: View {
                     clock: playerService.clock,
                     isPlaying: playerService.isPlaying,
                     accent: artistTint,
+                    topInset: contentTop,
                     onSeek: { [trackID = playerService.currentTrack?.id] time in
                         playerService.seek(to: time, expectedTrackID: trackID)
                     }
@@ -98,7 +111,7 @@ struct PlayerView: View {
                 panelView(panel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                     .padding(.trailing, 80)
-                    .padding(.top, 70)
+                    .padding(.top, contentTop)
                     .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
             }
         }
@@ -249,7 +262,7 @@ struct PlayerView: View {
     }
 
     private var idleEligible: Bool {
-        isVisible && scenePhase == .active && playerService.isPlaying && panel == nil && !showingLyrics && !isCoverPresented
+        isVisible && scenePhase == .active && playerService.isPlaying && panel == nil && !showingLyrics && !isCoverPresented && focus != nil
     }
 
 
@@ -286,9 +299,10 @@ struct PlayerView: View {
         return ZStack {
             artwork
                 .scaleEffect(isAmbient && !reduceMotion ? 1.06 : 0.96)
-                .offset(y: -40)
                 .opacity(isAmbient ? 1 : 0)
                 .animation(reduceMotion ? .easeInOut(duration: 0.6) : .timingCurve(0.3, 0.7, 0.2, 1, duration: 1.4), value: isAmbient)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, contentTop + Self.ambientArtworkGrowth)
             deck
                 .opacity(isAmbient ? 0 : 1)
                 .animation(.easeInOut(duration: reduceMotion ? 0.6 : 1), value: isAmbient)
@@ -300,6 +314,9 @@ struct PlayerView: View {
         .animation(reduceMotion ? .easeInOut(duration: 0.3) : Motion.settle, value: isDimmed)
     }
 
+    static let ambientArtworkSide: CGFloat = 600
+    static let ambientArtworkGrowth: CGFloat = ambientArtworkSide * 0.03
+
     private var artwork: some View {
         ZStack {
             ArtworkImage(url: playerService.currentTrack?.largeArtworkURL ?? playerService.currentTrack?.artworkURL, variant: .hero, identity: playerService.currentTrack?.id)
@@ -307,7 +324,7 @@ struct PlayerView: View {
                 .id(playerService.currentTrack?.id)
                 .transition(.opacity)
         }
-        .frame(width: 600, height: 600)
+        .frame(width: Self.ambientArtworkSide, height: Self.ambientArtworkSide)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
         .shadow(color: .black.opacity(0.5), radius: 40, y: 30)
@@ -334,7 +351,7 @@ struct PlayerView: View {
             tape
         }
         .padding(.horizontal, Spacing.screen)
-        .padding(.top, 80)
+        .padding(.top, contentTop)
         .padding(.bottom, 56)
     }
 
@@ -542,7 +559,13 @@ struct PlayerView: View {
     }
 
     private func ambientOverlay(_ track: Track) -> some View {
-        NPAmbientOverlay(title: track.title, artist: track.user.displayName, artistTint: artistTint, isCentred: !reduceMotion)
+        NPAmbientOverlay(
+            title: track.title,
+            artist: track.user.displayName,
+            artistTint: artistTint,
+            isCentred: !reduceMotion,
+            titleTop: contentTop + Self.ambientArtworkGrowth * 2 + Self.ambientArtworkSide + Space.section
+        )
             .contentShape(Rectangle())
             .focusable()
             .focused($focus, equals: .idle)

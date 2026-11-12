@@ -92,6 +92,7 @@ struct NPAmbientOverlay: View {
     let artist: String
     var artistTint: Color = Color.white.opacity(0.66)
     var isCentred = true
+    var titleTop: CGFloat = 840
 
     var body: some View {
         ZStack {
@@ -120,7 +121,7 @@ struct NPAmbientOverlay: View {
             .frame(width: isCentred ? 1600 : 600, alignment: isCentred ? .center : .leading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isCentred ? .top : .topLeading)
             .padding(.leading, isCentred ? 0 : 145)
-            .padding(.top, 840)
+            .padding(.top, titleTop)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Now Playing, \(title) by \(artist)")

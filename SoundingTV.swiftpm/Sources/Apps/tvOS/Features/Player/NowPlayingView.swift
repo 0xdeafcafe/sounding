@@ -12,7 +12,7 @@ struct NowPlayingView: View {
             emptyState
         } else {
             PlayerView()
-                .overlay(alignment: .topLeading) {
+                .overlay(alignment: .bottomLeading) {
                     TVDevicePresenceCaption(entries: presence.entries)
                 }
         }
@@ -122,9 +122,9 @@ private struct TVDevicePresenceCaption: View {
             }
             .font(.caption.weight(.medium))
             .foregroundStyle(.white.opacity(first.isLive ? 0.7 : 0.5))
-            .frame(maxWidth: 900, alignment: .leading)
+            .frame(maxWidth: 640, alignment: .leading)
             .padding(.leading, Spacing.screen)
-            .padding(.top, 44)
+            .padding(.bottom, Space.page)
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(DevicePresence.summary(localTitle: nil, others: entries, now: Date()))
