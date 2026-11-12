@@ -654,8 +654,16 @@ struct MacRootView: View {
                 isShowingNowPlaying = true
                 nowPlayingPresentation.consumePresentationRequest()
             }
-            await sidebarPlaylists.loadIfNeeded(credentials: credentials)
             MacConsoleController.shared.isConsoleActive = (selection == .console)
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["SOUNDING_TV_MAC_INSPECT"]?.lowercased() == "prep" {
+                let likes = await MacPrepLibraryIndex.shared.load()
+                if let track = likes.first ?? (VisualFixtures.isEnabled ? VisualFixtures.tracks.first : nil) {
+                    MacPrepRoute.shared.inspect(track)
+                }
+            }
+            #endif
+            await sidebarPlaylists.loadIfNeeded(credentials: credentials)
             #if DEBUG
             switch ProcessInfo.processInfo.environment["SOUNDING_TV_MAC_OPEN"] {
             case "playlist":
