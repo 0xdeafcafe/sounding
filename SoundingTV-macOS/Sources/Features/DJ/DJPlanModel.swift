@@ -373,15 +373,29 @@ extension DJPlanModel {
         reconcileSelected()
     }
 
+    static let liveHorizon = 10
+
     static func live(player: PlayerService = .shared, headphones: DJPlanHeadphonePreview = DJPlanNoHeadphones(), actions: DJPlanActions = DJPlanActions()) async -> DJPlanModel {
         let queue = player.queue
         let current = min(max(0, player.currentIndex), max(0, queue.count - 1))
-        var tracks: [DJPlanTrack] = []
-        var samples: [String: [Float]] = [:]
-        for track in queue.dropFirst(max(0, current - 1)) {
-            tracks.append(await DJPlanDirectorPlanner.describe(track))
-            if case .success(let waveform) = await WaveformService.shared.waveform(for: track) { samples[track.id] = waveform.samples }
+        let start = max(0, current - 1)
+        let window = Array(queue.dropFirst(start).prefix(liveHorizon + 2))
+        let described = await withTaskGroup(of: (Int, DJPlanTrack, [Float]?).self) { group in
+            for (offset, track) in window.enumerated() {
+                group.addTask {
+                    let plan = await DJPlanDirectorPlanner.describe(track)
+                    var samples: [Float]?
+                    if case .success(let waveform) = await WaveformService.shared.waveform(for: track) { samples = waveform.samples }
+                    return (offset, plan, samples)
+                }
+            }
+            var results: [(Int, DJPlanTrack, [Float]?)] = []
+            for await result in group { results.append(result) }
+            return results.sorted { $0.0 < $1.0 }
         }
+        let tracks = described.map(\.1)
+        var samples: [String: [Float]] = [:]
+        for (_, track, waveform) in described { if let waveform { samples[track.id] = waveform } }
         let locked = current > 0 ? 2 : 1
         let model = DJPlanModel(
             crate: DJPlanCrate(name: "Up Next", tracks: tracks, lockedCount: min(locked, tracks.count)),
