@@ -466,82 +466,22 @@ enum MacPrepSnapshot {
             let library = MacPrepFixtures.library(store: store)
             content = AnyView(MacLibrarySettingsTab(library: library).frame(width: 680, height: 560))
             size = CGSize(width: 680, height: 560)
-        case "stick", "stick-playlist":
-            let volume = try? MacPrepStickFixture.make()
-            if let volume { MacDJSticks.shared.installFixture([volume]) }
-            let candidates = VisualFixtures.tracks.map {
-                MatchCandidate(trackId: $0.id, title: $0.title, artist: $0.user.username, durationSeconds: $0.duration)
-            }
-            let stick = MacPrepStickModel(store: store, candidates: { candidates })
-            let model = MacPrepModel(store: store, tracks: MacPrepFixtures.source(), stick: stick)
-            let target: MacPrepModel.Source = .stick(volume: volume?.id ?? "", playlist: scene == "stick" ? nil : 3)
-            content = AnyView(MacPrepView(model: model).task {
-                try? await Task.sleep(for: .milliseconds(500))
-                model.source = target
-                try? await Task.sleep(for: .milliseconds(1200))
-                stick.selection = scene == "stick" ? 1 : 6
-                try? await Task.sleep(for: .milliseconds(800))
-                stick.cursorSeconds = 0.12 + 16 * (240 / 124.0) - 3
-                stick.selectedCueId = stick.detail?.cues.first { $0.hotCueIndex == 0 }?.id
-            })
-        case "stick-inspector", "stick-inspector-done":
-            let volume = try? MacPrepStickFixture.make()
-            if let volume { MacDJSticks.shared.installFixture([volume]) }
-            let candidates = VisualFixtures.tracks.map {
-                MatchCandidate(trackId: $0.id, title: $0.title, artist: $0.user.username, durationSeconds: $0.duration)
-            }
-            let stick = MacPrepStickModel(store: store, candidates: { candidates })
-            await stick.open(volume: volume?.id ?? "", playlist: nil)
-            stick.selection = 1
-            try? await Task.sleep(for: .milliseconds(600))
-            if scene == "stick-inspector-done" {
-                await store.upsert(CuePoint(trackId: MacPrepFixtures.tracks[0].id, kind: .hotCue, positionMillis: 31_000, hotCueIndex: 0, label: "My drop"))
-                await stick.importSelected()
-            }
-            content = AnyView(MacPrepStickInspector(stick: stick))
-            size = CGSize(width: 340, height: 760)
-        case "dj-prep", "dj-prep-go", "dj-prep-menu":
-            let model = await DJPrepFixtures.model(store: store, tier: scene == "dj-prep-go" ? .go : .goPlus)
-            let context = DJPrepFixtures.context()
-            content = AnyView(DJPrepScreen(model: model, context: context).task {
-                try? await Task.sleep(for: .milliseconds(700))
-                model.source = .playlist("1#Gigs/Friday")
-                try? await Task.sleep(for: .milliseconds(500))
-                let target = MacPrepFixtures.tracks[scene == "dj-prep-go" ? 8 : 6]
-                model.selection = target.id
-                try? await Task.sleep(for: .milliseconds(500))
-                model.cursorSeconds = 0.12 + 48 * (240 / 120.0) + 0.5
-                model.selectedCueId = model.detail?.cues.first { $0.hotCueIndex == 1 }?.id
-            })
-            size = CGSize(width: 1280, height: 800)
-        case "dj-library", "dj-library-go":
-            let model = await DJPrepFixtures.model(store: store, tier: scene == "dj-library-go" ? .go : .goPlus)
-            model.searchText = ""
-            content = AnyView(DJLibraryPanel(model: model, context: DJPrepFixtures.context())
-                .padding(12)
-                .frame(width: 330, height: 720))
-            size = CGSize(width: 330, height: 720)
-        case "empty":
-            content = AnyView(MacPrepView(model: MacPrepModel(store: MacPrepFixtures.makeStore(), tracks: MacPrepFixtures.source())))
         default:
             let model = MacPrepModel(store: store, tracks: MacPrepFixtures.source())
-            content = AnyView(MacPrepView(model: model).task {
+            content = AnyView(MacPrepInspectorPane(track: VisualFixtures.tracks[6], model: model).task {
                 try? await Task.sleep(for: .milliseconds(600))
-                model.selection = MacPrepFixtures.tracks[0].id
-                try? await Task.sleep(for: .milliseconds(400))
                 model.cursorSeconds = 0.12 + 40 * (240 / 124.0) - 3
                 model.selectedCueId = "\(MacPrepFixtures.tracks[0].id)#hot#0"
             })
+            size = CGSize(width: 360, height: 820)
         }
 
         let controller = NSHostingController(rootView: content.environment(\.colorScheme, dark ? .dark : .light))
         controller.sceneBridgingOptions = [.toolbars, .title]
         let window = NSWindow(contentViewController: controller)
-        window.styleMask = scene == "prep" || scene == "empty" || scene.hasPrefix("stick") || scene.hasPrefix("dj-prep")
-            ? [.titled, .closable, .resizable, .fullSizeContentView, .miniaturizable]
-            : [.titled, .closable]
+        window.styleMask = [.titled, .closable]
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        if scene != "prep", scene != "empty", !scene.hasPrefix("stick") { window.title = "" }
+        window.title = ""
         if let width = ProcessInfo.processInfo.environment["SOUNDING_TV_PREP_SNAPSHOT_WIDTH"].flatMap(Double.init) {
             size.width = width
             size.height = (ProcessInfo.processInfo.environment["SOUNDING_TV_PREP_SNAPSHOT_HEIGHT"].flatMap(Double.init)) ?? size.height
@@ -619,23 +559,4 @@ private func soundingtv_mac_prep_snapshot_bootstrap() {
 @section("__DATA,__mod_init_func")
 @used
 private let soundingtv_mac_prep_snapshot_bootstrap_ptr: @convention(c) () -> Void = soundingtv_mac_prep_snapshot_bootstrap
-
-struct MacPrepView: View {
-    private let model: () -> MacPrepModel
-    @ObservedObject private var engine = MixEngine.shared
-    @ObservedObject private var registry = MacDeckTrackRegistry.shared
-    @ObservedObject private var settings = SettingsStore.shared
-
-    init(model: @autoclosure @escaping () -> MacPrepModel = MacPrepModel()) {
-        self.model = model
-    }
-
-    var body: some View {
-        DJPrepScreen(model: model(), context: .live(tracks: { MacPrepTrackSource.live.track($0) }))
-            .navigationTitle("Prep")
-            .frame(minWidth: 1080, minHeight: 640)
-            .tint(Color.scAccent)
-            .preferredColorScheme(settings.prepAppearance.colorScheme)
-    }
-}
 #endif

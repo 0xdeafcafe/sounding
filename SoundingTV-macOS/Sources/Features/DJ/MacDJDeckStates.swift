@@ -108,7 +108,7 @@ struct MacDJNoGridControls: View {
     }
 
     private func openPrep() {
-        MacPrepRoute.shared.openPage(trackId: MacDeckTrackRegistry.shared.track(for: deck)?.id)
+        if let track = MacDeckTrackRegistry.shared.track(for: deck) { MacPrepRoute.shared.inspect(track) }
     }
 }
 

@@ -3,7 +3,6 @@ import SwiftUI
 struct MacLibrarySettingsTab: View {
     @ObservedObject var library: MacRekordboxLibrary
     @ObservedObject private var settings = SettingsStore.shared
-    @Environment(\.openWindow) private var openWindow
     @State private var sheet: Sheet?
 
     enum Sheet: Identifiable {
@@ -71,11 +70,6 @@ struct MacLibrarySettingsTab: View {
                     ForEach(PrepAppearance.allCases) { appearance in
                         Text(appearance.displayName).tag(appearance)
                     }
-                }
-                Button("Open Prep") {
-                    openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
-                    MacPrepRoute.shared.openPage()
                 }
                 Button("Export to USB…") { sheet = .usb }
                     .disabled(library.fileCount == 0)

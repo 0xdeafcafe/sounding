@@ -1421,3 +1421,44 @@ private struct MacNewMessageSheet: View {
 }
 
 extension OutputRouter: IntentPlaybackSink {}
+
+struct MacPrepCommands: Commands {
+    @FocusedValue(\.macPrep) private var model
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandMenu("Prep") {
+            Button("Prep") {
+                openWindow(id: "main")
+                MacPrepRoute.shared.inspectCurrent()
+            }
+            .keyboardShortcut("p", modifiers: [.option, .command])
+            Button("Import rekordbox Library…") {
+                openWindow(id: "main")
+                MacRekordboxFolderPresenter.choose()
+            }
+            Divider()
+            Group {
+                Button("Set Downbeat at Cursor") { model?.setDownbeat() }
+                    .keyboardShortcut("d", modifiers: .command)
+                Button("Lock Grid") { model?.toggleLock() }
+                    .keyboardShortcut("l", modifiers: [.option, .command])
+                Button("Halve Tempo") { model?.halveTempo() }
+                    .keyboardShortcut("[", modifiers: .command)
+                Button("Double Tempo") { model?.doubleTempo() }
+                    .keyboardShortcut("]", modifiers: .command)
+                Divider()
+                Button(TrackMapCopy.saveCuePoint) { model?.trackMap.saveCue() }
+                Button(TrackMapCopy.addLoop) { model?.trackMap.addLoop() }
+                ForEach(TrackMapModel.MixRole.allCases, id: \.self) { role in
+                    Button("Set \(role.title)") { model?.trackMap.setMix(role) }
+                }
+                Button(TrackMapCopy.delete) { model?.trackMap.deleteSelected() }
+                Divider()
+                Button("Export to USB…") { model?.showsUSBExport = true }
+                    .keyboardShortcut("e", modifiers: [.shift, .command])
+            }
+            .disabled(model == nil)
+        }
+    }
+}

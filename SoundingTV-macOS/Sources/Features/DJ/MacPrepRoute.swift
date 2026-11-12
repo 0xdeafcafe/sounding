@@ -5,8 +5,8 @@ import AppKit
 final class MacPrepRoute: ObservableObject {
     static let shared = MacPrepRoute()
 
-    @Published var pendingTrackId: String?
     @Published var inspectedTrack: Track?
+    @Published var selectedTrack: Track?
 
     private init() {}
 
@@ -15,14 +15,8 @@ final class MacPrepRoute: ObservableObject {
         inspectedTrack = track
     }
 
-    func openPage(trackId: String? = nil) {
-        pendingTrackId = trackId
-        MacRootSelection.shared.request(.prep)
-    }
-
-    func consumePendingTrack() -> String? {
-        defer { pendingTrackId = nil }
-        return pendingTrackId
+    func inspectCurrent() {
+        if let track = selectedTrack ?? MacNowPlayingModel.shared.track { inspect(track) }
     }
 }
 

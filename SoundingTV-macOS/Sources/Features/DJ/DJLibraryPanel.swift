@@ -304,3 +304,119 @@ private struct DJLibraryGhost: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
     }
 }
+
+struct DJTrackMenu: View {
+    let row: MacPrepModel.Row
+    let model: MacPrepModel
+    let context: DJDeckContext
+    @Binding var refusal: String?
+
+    var body: some View {
+        Button("Play Next") { context.playNext(row.id) }
+        Button("Add to Auto Mix Queue") { context.addToAutoMix(row.id) }
+        Button("Plan Transition In") { context.planTransition(row.id) }
+            .keyboardShortcut("3", modifiers: .command)
+            .disabled(!row.access.canLoad)
+        Divider()
+        Button("Load on Deck A") { load(.a) }
+            .keyboardShortcut("1", modifiers: .shift)
+            .disabled(!row.access.canLoad || context.decks.isEmpty)
+        Button("Load on Deck B") { load(.b) }
+            .keyboardShortcut("2", modifiers: .shift)
+            .disabled(!row.access.canLoad || context.decks.isEmpty)
+        Button("Edit Grid & Cues") {
+            if let track = model.track(row.id) { MacPrepRoute.shared.inspect(track) }
+        }
+        .disabled(!row.access.canEdit)
+        Button("Export to USB…") { model.showsUSBExport = true }
+            .disabled(!row.canExport)
+        if !model.playlists.isEmpty {
+            Menu("Add to Crate") {
+                ForEach(model.playlists) { crate in
+                    Button(crate.name) { model.add([row.id], toCrate: crate.id) }
+                }
+            }
+        }
+        switch row.access {
+        case .streams:
+            Divider()
+            Text("Streams on Go+ · SoundCloud audio isn’t exported")
+        case .autoMixOnly:
+            Divider()
+            Text("Auto Mix only · Go+ unlocks decks")
+        case .local:
+            EmptyView()
+        }
+    }
+
+    private func load(_ deck: MixEngine.Deck) {
+        if case .refused(let message) = context.request(row.id, onto: deck) { refusal = message }
+    }
+}
+struct DJAnalysingCell: View {
+    var body: some View {
+        HStack(spacing: 4) {
+            ProgressView().controlSize(.mini)
+            Text("Analysing").font(.caption).foregroundStyle(.secondary)
+        }
+        .fixedSize()
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct DJEnergyBars: View {
+    let energy: Int?
+
+    var body: some View {
+        HStack(spacing: 1.5) {
+            ForEach(0..<10, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 0.5)
+                    .fill(index < (energy ?? 0) ? AnyShapeStyle(.primary) : AnyShapeStyle(.quaternary))
+                    .frame(width: 2.5, height: 11)
+            }
+        }
+        .opacity(energy == nil ? 0.5 : 1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(energy.map { "Energy \($0) of 10" } ?? "Energy unknown")
+    }
+}
+
+struct DJSourceCell: View {
+    let row: MacPrepModel.Row
+    var onRelink: () -> Void = {}
+
+    var body: some View {
+        switch row.access {
+        case .local where row.fileMissing:
+            HStack(spacing: 4) {
+                Label("File moved", systemImage: "exclamationmark.triangle")
+                    .labelStyle(.titleAndIcon)
+                Button("Relink", action: onRelink)
+                    .buttonStyle(.link)
+            }
+            .fontWeight(.medium)
+        case .local:
+            Text(row.sourceText).foregroundStyle(MacSecondaryStyle())
+        case .streams:
+            Label(row.sourceText, systemImage: "cloud")
+                .foregroundStyle(MacSecondaryStyle())
+        case .autoMixOnly:
+            Label(row.sourceText, systemImage: "cloud")
+                .foregroundStyle(.tertiary)
+        }
+    }
+}
+
+struct DJRefusalBanner: View {
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: "lock.fill")
+            .font(.callout.weight(.medium))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .glassEffect(.regular, in: Capsule())
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+

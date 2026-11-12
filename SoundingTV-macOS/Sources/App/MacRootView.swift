@@ -70,7 +70,6 @@ struct MacRootView: View {
         case albums
         case artists
         case sets
-        case prep
         case setlists
         case downloads
         case history
@@ -104,7 +103,6 @@ struct MacRootView: View {
             case .albums: return "Albums"
             case .artists: return "Artists"
             case .sets: return "Sets"
-            case .prep: return "Prep"
             case .setlists: return "Setlists"
             case .downloads: return "Downloads"
             case .history: return "History"
@@ -138,7 +136,6 @@ struct MacRootView: View {
             case .albums: return SidebarSymbol.albums
             case .artists: return SidebarSymbol.artists
             case .sets: return SidebarSymbol.sets
-            case .prep: return SidebarSymbol.prep
             case .setlists: return SidebarSymbol.setlists
             case .downloads: return SidebarSymbol.downloads
             case .history: return SidebarSymbol.history
@@ -161,7 +158,7 @@ struct MacRootView: View {
 
         var worksSignedOut: Bool {
             switch self {
-            case .search, .home, .console, .hardware, .library, .albums, .artists, .prep, .setlists, .downloads, .history, .mixes, .account: return true
+            case .search, .home, .console, .hardware, .library, .albums, .artists, .setlists, .downloads, .history, .mixes, .account: return true
             default: return false
             }
         }
@@ -184,7 +181,7 @@ struct MacRootView: View {
             case "artists": return .artists
             case "albums": return .albums
             case "sets": return .sets
-            case "prep": return .prep
+            case "prep": return .library
             case "setlists": return .setlists
             case "downloads": return .downloads
             case "history": return .history
@@ -927,7 +924,6 @@ struct MacRootView: View {
         switch selection {
         case .likes: return 3
         case .console: return 4
-        case .prep: return 1
         case .library, .friendsWithADJ, .account, nil: return 2
         case .search: return 4
         case .playlists, .myPlaylists, .likedPlaylists: return 2
@@ -1093,7 +1089,6 @@ struct MacRootView: View {
         case .albums: MacLibraryCollectionsPane(model: albumsCollection)
         case .artists: MacLibraryCollectionsPane(model: artistsCollection)
         case .sets: MacSetsPane(model: likesModel)
-        case .prep: MacPrepPane()
         case .setlists: MacSetsPane(model: likesModel)
         case .downloads: DownloadedMusicView().scrollContentBackground(.hidden)
         case .history: MacHistoryView()
@@ -1612,7 +1607,6 @@ private struct MacSidebar: View {
         if showsAlbums { items.append(.albums) }
         if showsArtists { items.append(.artists) }
         if showsSets { items.append(.sets) }
-        items.append(.prep)
         if showsDownloads { items.append(.downloads) }
         if showsHistory { items.append(.history) }
         if showsPrivateShares { items.append(.friendsWithADJ) }
@@ -2094,7 +2088,6 @@ extension MacRootView {
                 case .albums: MacLibraryCollectionsPane(model: LibraryCollectionsModel(kind: .albums))
                 case .artists: MacLibraryCollectionsPane(model: LibraryCollectionsModel(kind: .artists))
                 case .sets: MacSetsPane(model: MacLibraryModel(mode: .liked)).environmentObject(SoundCloudCredentialSource.shared)
-                case .prep: MacPrepPane().environmentObject(SoundCloudCredentialSource.shared)
                 case .mixes: MixHistoryHarness.staticView(route: env["SOUNDING_TV_MIXES_ROUTE"], width: width)
                         .environment(\.colorScheme, env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SCHEME"] == "dark" ? .dark : .light)
                 case .myPlaylists: MacPlaylistsView(model: MacPlaylistsModel(), scope: .mine).environmentObject(SoundCloudCredentialSource.shared)
