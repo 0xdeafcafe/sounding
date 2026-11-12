@@ -4,6 +4,7 @@ struct MacPrepView: View {
     private let model: () -> MacPrepModel
     @ObservedObject private var engine = MixEngine.shared
     @ObservedObject private var registry = MacDeckTrackRegistry.shared
+    @ObservedObject private var settings = SettingsStore.shared
 
     init(model: @autoclosure @escaping () -> MacPrepModel = MacPrepModel()) {
         self.model = model
@@ -14,6 +15,17 @@ struct MacPrepView: View {
             .navigationTitle("Prep")
             .frame(minWidth: 1080, minHeight: 640)
             .tint(Color.scAccent)
+            .preferredColorScheme(settings.prepAppearance.colorScheme)
+    }
+}
+
+private struct PrepAppearanceEnvironment: ViewModifier {
+    @ObservedObject private var settings = SettingsStore.shared
+
+    func body(content: Content) -> some View {
+        content.transformEnvironment(\.colorScheme) { scheme in
+            if let forced = settings.prepAppearance.colorScheme { scheme = forced }
+        }
     }
 }
 
@@ -60,16 +72,19 @@ struct MacPrepInspectorPane: View {
             }
         }
         .task(id: track.id) { await model.show(trackId: track.id) }
+        .modifier(PrepAppearanceEnvironment())
     }
 }
 
 struct MacPrepPane: View {
     @StateObject private var model = MacPrepModel()
     @ObservedObject private var registry = MacDeckTrackRegistry.shared
+    @ObservedObject private var settings = SettingsStore.shared
 
     var body: some View {
         DJPrepScreen(model: model, context: .live(tracks: { MacPrepTrackSource.live.track($0) }))
             .navigationTitle("Prep")
+            .preferredColorScheme(settings.prepAppearance.colorScheme)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {

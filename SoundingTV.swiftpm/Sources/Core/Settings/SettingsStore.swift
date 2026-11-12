@@ -277,6 +277,27 @@ enum DJBlendLength: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum PrepAppearance: String, Codable, CaseIterable, Identifiable, Sendable {
+    case matchWindow
+    case dark
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .matchWindow: return "Match Window"
+        case .dark:        return "Dark"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .matchWindow: return nil
+        case .dark:        return .dark
+        }
+    }
+}
+
 enum DJSourceStrategy: String, Codable, CaseIterable, Identifiable, Sendable {
     case currentSources
     case goodMatches
@@ -597,6 +618,12 @@ enum SettingKeys {
         static let id = "djMatchWorkout"
         static let defaultScope: SettingScope = .deviceLocal
         static let defaultValue: Bool = false
+    }
+
+    enum PrepAppearanceSetting: SettingDefinition {
+        static let id = "prepAppearance"
+        static let defaultScope: SettingScope = .deviceLocal
+        static let defaultValue: PrepAppearance = .matchWindow
     }
 
     enum DJStartOptions: SettingDefinition {
@@ -945,6 +972,7 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var djPerformanceLevel: MixPerformanceLevel
     @Published private(set) var djMoveStyle: AutoMixStyle
     @Published private(set) var djMatchWorkout: Bool
+    @Published private(set) var prepAppearance: PrepAppearance
     @Published private(set) var djStartConfiguration: DJStartConfiguration
     @Published private(set) var setMinimumDurationSeconds: Double
     @Published private(set) var ambientScreensaverTimeoutSeconds: Double
@@ -1016,6 +1044,7 @@ final class SettingsStore: ObservableObject {
         djPerformanceLevel = SettingKeys.DJPerformanceLevel.defaultValue
         djMoveStyle = SettingKeys.DJMoveStyle.defaultValue
         djMatchWorkout = SettingKeys.DJMatchWorkout.defaultValue
+        prepAppearance = SettingKeys.PrepAppearanceSetting.defaultValue
         djStartConfiguration = SettingKeys.DJStartOptions.defaultValue
         setMinimumDurationSeconds = SettingKeys.SetMinimumDurationSeconds.defaultValue
         ambientScreensaverTimeoutSeconds = SettingKeys.AmbientScreensaverTimeoutSeconds.defaultValue
@@ -1083,6 +1112,7 @@ final class SettingsStore: ObservableObject {
         djPerformanceLevel = deviceValue(SettingKeys.DJPerformanceLevel.self)
         djMoveStyle = deviceValue(SettingKeys.DJMoveStyle.self)
         djMatchWorkout = deviceValue(SettingKeys.DJMatchWorkout.self)
+        prepAppearance = deviceValue(SettingKeys.PrepAppearanceSetting.self)
         djStartConfiguration = deviceValue(SettingKeys.DJStartOptions.self)
         setMinimumDurationSeconds = deviceValue(SettingKeys.SetMinimumDurationSeconds.self)
         ambientScreensaverTimeoutSeconds = deviceValue(SettingKeys.AmbientScreensaverTimeoutSeconds.self)
@@ -1144,6 +1174,7 @@ final class SettingsStore: ObservableObject {
             adoptFromAccount(SettingKeys.DJPerformanceLevel.self, accountID: accountID),
             adoptFromAccount(SettingKeys.DJMoveStyle.self, accountID: accountID),
             adoptFromAccount(SettingKeys.DJMatchWorkout.self, accountID: accountID),
+            adoptFromAccount(SettingKeys.PrepAppearanceSetting.self, accountID: accountID),
             adoptFromAccount(SettingKeys.DJStartOptions.self, accountID: accountID),
             adoptFromAccount(SettingKeys.SetMinimumDurationSeconds.self, accountID: accountID),
             adoptFromAccount(SettingKeys.AmbientScreensaverTimeoutSeconds.self, accountID: accountID),
@@ -1182,6 +1213,9 @@ final class SettingsStore: ObservableObject {
     private func applyDebugAutoMix() {
         #if DEBUG
         let env = ProcessInfo.processInfo.environment
+        if let appearance = env["SOUNDING_TV_PREP_APPEARANCE"].flatMap(PrepAppearance.init(rawValue:)) {
+            setPrepAppearance(appearance)
+        }
         guard let raw = env["SOUNDING_TV_AUTOMIX"] else { return }
         setDJAutoMixEnabled(raw == "1")
         if let profile = env["SOUNDING_TV_AUTOMIX_PROFILE"] { setDJDefaultProfileId(DJProfileID(profile)) }
@@ -1352,6 +1386,12 @@ final class SettingsStore: ObservableObject {
         guard value != djMatchWorkout else { return }
         djMatchWorkout = value
         writeLocal(SettingKeys.DJMatchWorkout.self, value)
+    }
+
+    func setPrepAppearance(_ value: PrepAppearance) {
+        guard value != prepAppearance else { return }
+        prepAppearance = value
+        writeLocal(SettingKeys.PrepAppearanceSetting.self, value)
     }
 
     func setDJStartConfiguration(_ value: DJStartConfiguration) {
@@ -1564,6 +1604,10 @@ final class SettingsStore: ObservableObject {
 
     var djMatchWorkoutBinding: Binding<Bool> {
         Binding(get: { self.djMatchWorkout }, set: { self.setDJMatchWorkout($0) })
+    }
+
+    var prepAppearanceBinding: Binding<PrepAppearance> {
+        Binding(get: { self.prepAppearance }, set: { self.setPrepAppearance($0) })
     }
 
     var djTransitionLengthSecondsBinding: Binding<Double> {

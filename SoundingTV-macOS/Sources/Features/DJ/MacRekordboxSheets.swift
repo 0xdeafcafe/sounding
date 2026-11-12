@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MacLibrarySettingsTab: View {
     @ObservedObject var library: MacRekordboxLibrary
+    @ObservedObject private var settings = SettingsStore.shared
     @Environment(\.openWindow) private var openWindow
     @State private var sheet: Sheet?
 
@@ -66,6 +67,11 @@ struct MacLibrarySettingsTab: View {
             }
 
             Section {
+                Picker("Appearance", selection: settings.prepAppearanceBinding) {
+                    ForEach(PrepAppearance.allCases) { appearance in
+                        Text(appearance.displayName).tag(appearance)
+                    }
+                }
                 Button("Open Prep") { openWindow(id: MacPrepCommands.windowID) }
                 Button("Export to USB…") { sheet = .usb }
                     .disabled(library.fileCount == 0)
