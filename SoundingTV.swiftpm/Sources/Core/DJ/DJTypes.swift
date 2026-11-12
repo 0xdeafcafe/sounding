@@ -954,7 +954,11 @@ struct DJProfile: Sendable, Equatable, Codable, Identifiable {
 
 enum DJFormat {
     static func time(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite else { return "0:00" }
         let total = max(0, Int(seconds.rounded()))
+        if total >= 3600 {
+            return String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
+        }
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
