@@ -1745,6 +1745,7 @@
 		605AA4E9F6E16AEE8966D0DB /* DJPlanScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84CD9E70883F49CB242A79A1 /* DJPlanScreen.swift */; };
 		669588E829D65E350F085F2C /* DJPlanModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C154A2C8DE67C8A0B56E799 /* DJPlanModel.swift */; };
 		B259D218B452C05EEC5C1037 /* MacPrepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E778DC9E402515B235490BB /* MacPrepView.swift */; };
+		B259D218B452C05EEC5C1A01 /* MacPrepRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E778DC9E402515B235491A1 /* MacPrepRoute.swift */; };
 		F6DCE85539D64CFDBA376614 /* DJPrepFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD07C00EF3AD4B0E887A614F /* DJPrepFixtures.swift */; };
 		73DD2904604D416B9694AF26 /* DJLibraryPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27425C210844937B378D7EC /* DJLibraryPanel.swift */; };
 		F437B7A941034C58826B76AD /* DJPrepInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FBFAA13F23B401C9EB18039 /* DJPrepInspector.swift */; };
@@ -2948,6 +2949,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 		84CD9E70883F49CB242A79A1 /* DJPlanScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJPlanScreen.swift; sourceTree = "<group>"; };
 		6C154A2C8DE67C8A0B56E799 /* DJPlanModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJPlanModel.swift; sourceTree = "<group>"; };
 		8E778DC9E402515B235490BB /* MacPrepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPrepView.swift; sourceTree = "<group>"; };
+		8E778DC9E402515B235491A1 /* MacPrepRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPrepRoute.swift; sourceTree = "<group>"; };
 		FD07C00EF3AD4B0E887A614F /* DJPrepFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJPrepFixtures.swift; sourceTree = "<group>"; };
 		B27425C210844937B378D7EC /* DJLibraryPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJLibraryPanel.swift; sourceTree = "<group>"; };
 		9FBFAA13F23B401C9EB18039 /* DJPrepInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJPrepInspector.swift; sourceTree = "<group>"; };
@@ -4442,6 +4444,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				6A5EBDCCFF9ED5B56B082D3D /* MacRekordboxFolderImport.swift */,
 				909EC91D928458DFC591B5AD /* MacRekordboxFolderSheet.swift */,
 				8E778DC9E402515B235490BB /* MacPrepView.swift */,
+				8E778DC9E402515B235491A1 /* MacPrepRoute.swift */,
 				FD07C00EF3AD4B0E887A614F /* DJPrepFixtures.swift */,
 				B27425C210844937B378D7EC /* DJLibraryPanel.swift */,
 				9FBFAA13F23B401C9EB18039 /* DJPrepInspector.swift */,
@@ -6060,6 +6063,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				605AA4E9F6E16AEE8966D0DB /* DJPlanScreen.swift in Sources */,
 				669588E829D65E350F085F2C /* DJPlanModel.swift in Sources */,
 				B259D218B452C05EEC5C1037 /* MacPrepView.swift in Sources */,
+				B259D218B452C05EEC5C1A01 /* MacPrepRoute.swift in Sources */,
 				F6DCE85539D64CFDBA376614 /* DJPrepFixtures.swift in Sources */,
 				73DD2904604D416B9694AF26 /* DJLibraryPanel.swift in Sources */,
 				F437B7A941034C58826B76AD /* DJPrepInspector.swift in Sources */,

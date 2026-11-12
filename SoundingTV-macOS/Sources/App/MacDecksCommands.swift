@@ -67,6 +67,22 @@ struct DecksCommands: Commands {
             Divider()
 
             Button {
+                MacDJPerformModel.shared.isPlanPresented = true
+            } label: {
+                Label("Plan Transitions…", systemImage: "arrow.triangle.merge")
+            }
+            .keyboardShortcut("3", modifiers: [.command])
+
+            Button {
+                MacRootSelection.shared.request(.hardware)
+            } label: {
+                Label("Hardware", systemImage: "slider.vertical.3")
+            }
+            .keyboardShortcut("h", modifiers: [.command, .option])
+
+            Divider()
+
+            Button {
                 MacConsoleController.shared.showKeyboardShortcuts = true
             } label: {
                 Label("Keyboard Shortcuts…", systemImage: "keyboard")

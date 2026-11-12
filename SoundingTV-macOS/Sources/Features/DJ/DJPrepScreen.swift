@@ -108,6 +108,12 @@ struct DJPrepScreen<Strip: View>: View {
         .task {
             model.undoManager = undoManager
             await model.reload()
+            if let id = MacPrepRoute.shared.consumePendingTrack() { await model.show(trackId: id) }
+        }
+        .onReceive(MacPrepRoute.shared.$pendingTrackId.compactMap { $0 }) { id in
+            guard !model.isLoading else { return }
+            MacPrepRoute.shared.pendingTrackId = nil
+            Task { await model.show(trackId: id) }
         }
         .onChange(of: undoManager) { _, manager in model.undoManager = manager }
     }

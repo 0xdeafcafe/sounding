@@ -56,16 +56,16 @@ struct MacDJPerformView: View {
         let deckWidth = floor((contentWidth - mixerWidth - mixerGap * 2 - (showsMixer ? 0 : 14)) / 2)
         let deckBX = 16 + deckWidth + 14 + mixerWidth + mixerGap
         let deckHeight: CGFloat = 436
-        let wavesTop: CGFloat = 48
+        let showsStrip = !open && (state.panel?.isAutoMixOn == true || !state.owned.isEmpty)
+        let wavesTop: CGFloat = showsStrip ? 48 : 16
         let wavesHeight = max(180, canvas.height - wavesTop - 14 - deckHeight - 28)
         let decksTop = wavesTop + wavesHeight + 14
         let usesCanvas = model.isFixture
         return ZStack(alignment: .topLeading) {
-            if !open, state.panel?.isAutoMixOn == true || !state.owned.isEmpty {
-                let stripX = MacDJModeSwitch.reservedWidth / scale
+            if showsStrip {
                 MacDJAutoMixStrip(state: state, model: model)
-                    .frame(width: contentWidth + 16 - stripX)
-                    .offset(x: stripX, y: 6)
+                    .frame(width: contentWidth)
+                    .offset(x: 16, y: 6)
             }
             MacDJStackedWaveforms(state: state, usesCanvas: usesCanvas, layout: model.layout) { model.zoomBars = $0 }
                 .frame(width: contentWidth, height: wavesHeight)

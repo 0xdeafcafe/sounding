@@ -48,7 +48,7 @@ enum MacDJUnits {
 final class MacDJPerformModel: ObservableObject {
     static let shared = MacDJPerformModel()
 
-    @Published var mode: MacDJMode = .perform
+    @Published var isPlanPresented = false
     @Published var panelTab: MacDJPanelTab = .autoMix
     @Published var isPanelOpen = true
     @Published var padModes: [MixEngine.Deck: MacDJPadMode] = [.a: .hotCue, .b: .loop]
@@ -70,9 +70,6 @@ final class MacDJPerformModel: ObservableObject {
         if let name = ProcessInfo.processInfo.environment["SOUNDING_TV_DJ_FIXTURE"] {
             fixture = MacDJFixtures.state(named: name)
             isPanelOpen = !name.hasPrefix("collapsed")
-        }
-        if let page = ProcessInfo.processInfo.environment["SOUNDING_TV_MAC_DJ_PAGE"].flatMap({ MacDJMode(rawValue: $0.lowercased()) }) {
-            mode = page
         }
         switch ProcessInfo.processInfo.environment["SOUNDING_TV_MAC_DJ_PANEL"]?.lowercased() {
         case "library": panelTab = .library

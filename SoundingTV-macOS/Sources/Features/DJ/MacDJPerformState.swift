@@ -1,29 +1,5 @@
 import SwiftUI
 
-enum MacDJMode: String, CaseIterable, Identifiable {
-    case perform
-    case prep
-    case plan
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .perform: return "Perform"
-        case .prep: return "Prep"
-        case .plan: return "Plan"
-        }
-    }
-
-    var shortcut: KeyEquivalent {
-        switch self {
-        case .perform: return "1"
-        case .prep: return "2"
-        case .plan: return "3"
-        }
-    }
-}
-
 enum MacDJPanelTab: Hashable {
     case autoMix
     case library

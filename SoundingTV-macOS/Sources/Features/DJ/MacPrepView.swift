@@ -14,7 +14,72 @@ struct MacPrepView: View {
             .navigationTitle("Prep")
             .frame(minWidth: 1080, minHeight: 640)
             .tint(Color.scAccent)
-            .preferredColorScheme(.dark)
+    }
+}
+
+struct MacPrepInspectorPane: View {
+    let track: Track
+    @StateObject private var model: MacPrepModel
+    @Environment(\.openWindow) private var openWindow
+
+    init(track: Track, model: @autoclosure @escaping () -> MacPrepModel = MacPrepModel()) {
+        self.track = track
+        _model = StateObject(wrappedValue: model())
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                SCArtworkResolver(url: track.artworkURL) { image in
+                    SCArtwork(image: image, identity: track.id, style: .mac, cornerRadius: 6)
+                }
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(track.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text(track.user.displayName)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Button("Open in Prep") { MacPrepRoute.shared.openPage(trackId: track.id) }
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            Divider()
+            if model.isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                DJPrepInspector(model: model)
+            }
+        }
+        .task(id: track.id) { await model.show(trackId: track.id) }
+    }
+}
+
+struct MacPrepPane: View {
+    @StateObject private var model = MacPrepModel()
+    @ObservedObject private var registry = MacDeckTrackRegistry.shared
+
+    var body: some View {
+        DJPrepScreen(model: model, context: .live(tracks: { MacPrepTrackSource.live.track($0) }))
+            .navigationTitle("Prep")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        model.inspectorChoice = !model.isInspectorShown
+                    } label: {
+                        Label("Inspector", systemImage: "sidebar.right")
+                    }
+                    .help("Show or hide the inspector (\u{2325}\u{2318}I)")
+                }
+            }
     }
 }
 
@@ -30,10 +95,11 @@ struct MacPrepCommands: Commands {
 
     var body: some Commands {
         CommandGroup(before: .windowArrangement) {
-            Button("Prep") { openWindow(id: Self.windowID) }
-                .keyboardShortcut("p", modifiers: [.option, .command])
+            Button("Prep Window") { openWindow(id: Self.windowID) }
         }
         CommandMenu("Prep") {
+            Button("Show Prep") { MacPrepRoute.shared.openPage() }
+                .keyboardShortcut("p", modifiers: [.option, .command])
             Button("Import rekordbox Library…") { MacRekordboxFolderPresenter.choose() }
             Divider()
             Group {

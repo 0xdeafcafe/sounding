@@ -177,6 +177,13 @@ struct MacTrackContextMenu: View {
         Divider()
 
         Button {
+            MacPrepRoute.shared.inspect(track)
+        } label: {
+            Label("Prep", systemImage: "waveform.path.badge.plus")
+        }
+        .disabled(!isPlayable)
+
+        Button {
             MacTrackTrimPresenter.shared.present(track)
         } label: {
             Label("Edit Start & End…", systemImage: "timeline.selection")
