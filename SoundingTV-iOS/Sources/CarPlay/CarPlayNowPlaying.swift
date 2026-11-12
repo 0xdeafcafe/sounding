@@ -15,6 +15,9 @@ extension CarPlayController {
         template.isUpNextButtonEnabled = true
         template.upNextTitle = "Up Next"
         template.isAlbumArtistButtonEnabled = true
+        if #available(iOS 27.0, *) {
+            template.allowsMiniPlayer = true
+        }
         template.add(self)
         nowPlayingState = nil
         refreshNowPlaying()
