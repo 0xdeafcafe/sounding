@@ -2133,7 +2133,14 @@ extension MacRootView {
         .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
 
         let djSheet = env["SOUNDING_TV_MAC_DJ_SHEET"]?.lowercased()
-        let capturesFullWindow = env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_FULL"] == "1"
+        let inspectsPrep = env["SOUNDING_TV_MAC_INSPECT"]?.lowercased() == "prep"
+        let capturesFullWindow = env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_FULL"] == "1" || inspectsPrep
+        if inspectsPrep {
+            let likes = await MacPrepLibraryIndex.shared.load()
+            if let track = likes.first ?? (VisualFixtures.isEnabled ? VisualFixtures.tracks.first : nil) {
+                MacPrepRoute.shared.inspect(track)
+            }
+        }
         let isDecks = section == .console || djSheet != nil || env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SHEET"] == "plan"
         let scheme = env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SCHEME"]?.lowercased() ?? (isDecks ? "dark" : "light")
         let appearance: NSAppearance.Name = scheme == "dark" ? .darkAqua : .aqua
@@ -2167,7 +2174,7 @@ extension MacRootView {
             size: size,
             titled: capturesFullWindow && djSheet == nil,
             appearance: appearance,
-            delay: env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_DELAY"].flatMap(Double.init) ?? 1.5
+            delay: env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_DELAY"].flatMap(Double.init) ?? (inspectsPrep ? 4 : 1.5)
         ) else {
             Log.ui.error("ROOT_SNAPSHOT FAIL: could not rasterise view")
             exit(1)
