@@ -150,26 +150,29 @@ struct RootView: View {
             tabs
                 .tabViewStyle(.tabBarOnly)
                 .background(BrowseBackdrop())
-                .animation(reduceMotion ? nil : Motion.settle, value: navigationState.selectedTab)
         } else {
             TVMusicStepView(onContinue: answerMusicStep)
                 .transition(.push(from: .trailing))
         }
     }
 
-    @ViewBuilder
     private var tabs: some View {
-        if !authService.needsSignIn {
-            TabView(selection: $navigationState.selectedTab) {
+        TabView(selection: $navigationState.selectedTab) {
+            if !authService.needsSignIn {
+                Tab(value: NavigationState.Tab.search, role: .search) {
+                    SearchView()
+                } label: {
+                    Image(systemName: NavigationState.Tab.search.icon)
+                        .accessibilityLabel("Search")
+                }
+                .accessibilityIdentifier("sidebar.tab.search")
                 Tab("Home", systemImage: NavigationState.Tab.home.icon, value: .home) {
                     HomeView()
                 }
                 .accessibilityIdentifier("sidebar.tab.home")
-                Tab(value: NavigationState.Tab.search, role: .search) {
-                    SearchView()
-                }
-                .accessibilityIdentifier("sidebar.tab.search")
-                libraryTab
+            }
+            libraryTab
+            if !authService.needsSignIn {
                 Tab("Decks", systemImage: NavigationState.Tab.decks.icon, value: .decks) {
                     DJModeView { navigationState.selectedTab = .home }
                 }
@@ -178,18 +181,11 @@ struct RootView: View {
                     TVStationsView()
                 }
                 .accessibilityIdentifier("sidebar.tab.stations")
-                nowPlayingTab
-                settingsTab
             }
-            .toolbarVisibility(.visible, for: .tabBar)
-        } else {
-            TabView(selection: $navigationState.selectedTab) {
-                libraryTab
-                nowPlayingTab
-                settingsTab
-            }
-            .toolbarVisibility(.visible, for: .tabBar)
+            nowPlayingTab
+            settingsTab
         }
+        .toolbarVisibility(.visible, for: .tabBar)
     }
 
     private var libraryTab: some TabContent<NavigationState.Tab> {
@@ -207,8 +203,11 @@ struct RootView: View {
     }
 
     private var settingsTab: some TabContent<NavigationState.Tab> {
-        Tab("Settings", systemImage: NavigationState.Tab.settings.icon, value: .settings) {
+        Tab(value: NavigationState.Tab.settings) {
             SettingsView()
+        } label: {
+            Image(systemName: NavigationState.Tab.settings.icon)
+                .accessibilityLabel("Settings")
         }
         .accessibilityIdentifier("sidebar.tab.settings")
     }

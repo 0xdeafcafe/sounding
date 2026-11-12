@@ -299,7 +299,14 @@ enum SCBrowseMetrics {
 
 struct BrowseBackdrop: View {
     var body: some View {
-        Color.clear
+        LinearGradient(
+            colors: [Color(white: 0.11), Color(white: 0.05)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
