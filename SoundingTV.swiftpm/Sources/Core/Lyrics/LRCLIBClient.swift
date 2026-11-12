@@ -135,6 +135,14 @@ struct LRCLIBRecord: Decodable, Equatable, Sendable {
         return Lyrics(body: body, recordID: id, trackName: trackName, artistName: artistName)
     }
 
+    func lyrics(allowingSync: Bool) -> Lyrics? {
+        guard let lyrics else { return nil }
+        guard !allowingSync, case .synced(let lines) = lyrics.body else { return lyrics }
+        let text = plainLyrics ?? lines.map(\.text).joined(separator: "\n")
+        guard let plain = LRCLIBRecord.plainLines(text) else { return nil }
+        return Lyrics(body: .plain(plain), recordID: id, trackName: trackName, artistName: artistName)
+    }
+
     static func plainLines(_ text: String?) -> [String]? {
         guard let text else { return nil }
         let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
@@ -184,43 +192,82 @@ struct LRCLIBSummary: Decodable, Equatable, Sendable {
     }
 }
 
+enum LyricsFit: Equatable, Sendable {
+    case synced
+    case plainOnly
+}
+
+struct LyricsCandidateScore: Equatable, Sendable {
+    var value: Double
+    var fit: LyricsFit
+}
+
 enum LyricsCandidateRanker {
-    static let durationTolerance: Double = 2
+    static let durationTolerance: Double = 3
+    static let editWindow: Double = 90
+    static let editRatio = 0.8
     static let minimumTitle = 0.6
     static let minimumArtist = 0.5
 
-    static func score(_ summary: LRCLIBSummary, for signature: LyricsSignature) -> Double? {
-        var durationScore = 0.0
-        if let wanted = signature.duration {
-            guard let duration = summary.duration else { return nil }
-            let difference = abs(duration - Double(wanted))
-            guard difference <= durationTolerance else { return nil }
-            durationScore = 1 - difference / durationTolerance
+    static func durationFit(_ candidate: Double?, wanted: Int?) -> (fit: LyricsFit, score: Double)? {
+        guard let wanted, let candidate, candidate > 0 else { return (.synced, 0.5) }
+        let difference = abs(candidate - Double(wanted))
+        if difference <= durationTolerance { return (.synced, 1 - difference / durationTolerance) }
+        guard difference <= max(editWindow, min(candidate, Double(wanted)) * editRatio) else { return nil }
+        return (.plainOnly, -min(1, difference / 300))
+    }
+
+    static func nameScore(track: String, artist: String, pairs: [LyricsNamePair]) -> Double? {
+        let candidateBase = LyricsText.baseTitle(track)
+        let candidatePrimary = LyricsText.primaryArtist(artist)
+        var best: Double?
+        for pair in pairs {
+            let title = max(
+                LyricsText.similarity(track, pair.track),
+                LyricsText.similarity(LyricsText.removeFeaturing(track), LyricsText.removeFeaturing(pair.track)),
+                LyricsText.similarity(candidateBase, LyricsText.baseTitle(pair.track)) * 0.95
+            )
+            let artistScore = max(
+                LyricsText.similarity(artist, pair.artist),
+                LyricsText.similarity(candidatePrimary, LyricsText.primaryArtist(pair.artist))
+            )
+            guard title >= minimumTitle, artistScore >= minimumArtist else { continue }
+            best = max(best ?? 0, title * 3 + artistScore * 2)
         }
-        let title = max(
-            LyricsText.similarity(summary.trackName, signature.track),
-            LyricsText.similarity(LyricsText.removeFeaturing(summary.trackName), LyricsText.removeFeaturing(signature.track))
-        )
-        let artist = max(
-            LyricsText.similarity(summary.artistName, signature.artist),
-            LyricsText.similarity(LyricsText.primaryArtist(summary.artistName), LyricsText.primaryArtist(signature.artist))
-        )
-        guard title >= minimumTitle, artist >= minimumArtist else { return nil }
-        var score = title * 3 + artist * 2 + durationScore
-        if summary.hasSyncedLyrics == true { score += 1 }
-        if summary.hasWordSync == true { score += 0.5 }
-        if summary.hasPlainLyrics == true { score += 0.2 }
+        return best
+    }
+
+    static func score(_ summary: LRCLIBSummary, for plan: LyricsQueryPlan) -> LyricsCandidateScore? {
+        guard let duration = durationFit(summary.duration, wanted: plan.duration),
+              let names = nameScore(track: summary.trackName, artist: summary.artistName, pairs: plan.pairs) else { return nil }
+        let otherVersion = plan.isVersion && LyricsText.removeVersion(summary.trackName) == summary.trackName
+        let fit: LyricsFit = otherVersion ? .plainOnly : duration.fit
+        var score = names + duration.score
+        if fit == .synced {
+            if summary.hasSyncedLyrics == true { score += 1 }
+            if summary.hasWordSync == true { score += 0.5 }
+        }
+        if summary.hasPlainLyrics == true || summary.hasSyncedLyrics == true { score += 0.2 }
         if summary.instrumental == true { score -= 0.5 }
-        if let album = signature.album, let candidate = summary.albumName, LyricsText.similarity(album, candidate) >= 0.8 {
+        if let album = plan.primary.album, let candidate = summary.albumName, LyricsText.similarity(album, candidate) >= 0.8 {
             score += 0.3
         }
-        return score
+        return LyricsCandidateScore(value: score, fit: fit)
+    }
+
+    static func score(_ summary: LRCLIBSummary, for signature: LyricsSignature) -> Double? {
+        score(summary, for: LyricsQueryPlan(signature: signature))?.value
+    }
+
+    static func best(_ summaries: [LRCLIBSummary], for plan: LyricsQueryPlan) -> (summary: LRCLIBSummary, fit: LyricsFit)? {
+        summaries
+            .compactMap { summary in score(summary, for: plan).map { (summary, $0) } }
+            .max { $0.1.value < $1.1.value }
+            .map { ($0.0, $0.1.fit) }
     }
 
     static func best(_ summaries: [LRCLIBSummary], for signature: LyricsSignature) -> LRCLIBSummary? {
-        summaries
-            .compactMap { summary in score(summary, for: signature).map { (summary, $0) } }
-            .max { $0.1 < $1.1 }?.0
+        best(summaries, for: LyricsQueryPlan(signature: signature))?.summary
     }
 }
 
@@ -252,62 +299,58 @@ actor LRCLIBClient {
     }
 
     func lookup(_ source: LyricsTrackInfo) async throws -> LyricsLookup {
-        let candidates = LyricsSignatureDeriver.candidates(for: source)
-        guard let primary = candidates.first else { return .notFound }
-        for candidate in candidates {
-            if let record = try await get(candidate), let lyrics = record.lyrics {
-                return .found(lyrics)
-            }
-        }
-        if let lyrics = try await searchFallback(primary) {
-            return .found(lyrics)
+        guard let plan = LyricsSignatureDeriver.plan(for: source) else { return .notFound }
+        return try await lookup(plan)
+    }
+
+    func lookup(_ plan: LyricsQueryPlan) async throws -> LyricsLookup {
+        var sent = Set<String>()
+        let steps: [(path: String, query: [URLQueryItem])] = [
+            ("/api/get", Self.getQuery(plan.primary, includeDuration: true)),
+            ("/api/get", Self.getQuery(plan.base, includeDuration: false)),
+            ("/api/search", [URLQueryItem(name: "track_name", value: plan.base.track), URLQueryItem(name: "artist_name", value: plan.base.artist)]),
+            ("/api/search", [URLQueryItem(name: "q", value: plan.freeText)]),
+        ]
+        for step in steps where sent.insert(step.path + "?" + step.query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")).inserted {
+            let lyrics = step.path == "/api/get"
+                ? try await get(query: step.query, plan: plan)
+                : try await search(query: step.query, plan: plan)
+            if let lyrics { return .found(lyrics) }
         }
         return .notFound
     }
 
-    func get(_ signature: LyricsSignature) async throws -> LRCLIBRecord? {
+    static func getQuery(_ signature: LyricsSignature, includeDuration: Bool) -> [URLQueryItem] {
         var items = [
             URLQueryItem(name: "track_name", value: signature.track),
             URLQueryItem(name: "artist_name", value: signature.artist),
         ]
-        if let album = signature.album { items.append(URLQueryItem(name: "album_name", value: album)) }
-        if let duration = signature.duration, (1...3600).contains(duration) {
+        if includeDuration, let duration = signature.duration, (1...3600).contains(duration) {
             items.append(URLQueryItem(name: "duration", value: String(duration)))
         }
-        guard let data = try await fetch(path: "/api/get", query: items) else { return nil }
-        return try? decoder.decode(LRCLIBRecord.self, from: data)
+        return items
     }
 
-    func get(id: Int) async throws -> LRCLIBRecord? {
-        guard let data = try await fetch(path: "/api/get/\(id)", query: []) else { return nil }
-        return try? decoder.decode(LRCLIBRecord.self, from: data)
+    private func get(query: [URLQueryItem], plan: LyricsQueryPlan) async throws -> Lyrics? {
+        guard let data = try await fetch(path: "/api/get", query: query),
+              let record = try? decoder.decode(LRCLIBRecord.self, from: data),
+              let score = LyricsCandidateRanker.score(LRCLIBSummary(record: record), for: plan) else { return nil }
+        return record.lyrics(allowingSync: score.fit == .synced)
     }
 
-    private func searchFallback(_ signature: LyricsSignature) async throws -> Lyrics? {
-        let query = [
-            URLQueryItem(name: "track_name", value: signature.track),
-            URLQueryItem(name: "artist_name", value: signature.artist),
-        ]
-        let summaries: [LRCLIBSummary]?
-        do {
-            summaries = try await fetch(path: "/api/v2/search", query: query, tolerateFailure: true)
-                .flatMap { try? decoder.decode([LRCLIBSummary].self, from: $0) }
-        } catch LyricsError.unavailable {
-            summaries = nil
-        }
-        if let summaries {
-            guard let best = LyricsCandidateRanker.best(summaries, for: signature) else { return nil }
-            return try await get(id: best.id)?.lyrics
-        }
+    private func search(query: [URLQueryItem], plan: LyricsQueryPlan) async throws -> Lyrics? {
         guard let data = try await fetch(path: "/api/search", query: query),
               let records = try? decoder.decode([LRCLIBRecord].self, from: data) else { return nil }
-        guard let best = LyricsCandidateRanker.best(records.map(LRCLIBSummary.init(record:)), for: signature) else { return nil }
-        return records.first(where: { $0.id == best.id })?.lyrics
+        let usable = records.filter { $0.lyrics != nil }
+        guard let best = LyricsCandidateRanker.best(usable.map(LRCLIBSummary.init(record:)), for: plan),
+              let record = usable.first(where: { $0.id == best.summary.id }) else { return nil }
+        return record.lyrics(allowingSync: best.fit == .synced)
     }
 
-    private func fetch(path: String, query: [URLQueryItem], tolerateFailure: Bool = false) async throws -> Data? {
+    private func fetch(path: String, query: [URLQueryItem]) async throws -> Data? {
         var components = URLComponents(url: Self.host.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         components.queryItems = query.isEmpty ? nil : query
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         var request = URLRequest(url: components.url!)
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -334,7 +377,6 @@ actor LRCLIBClient {
         case 200:
             let type = response.value(forHTTPHeaderField: "Content-Type") ?? "application/json"
             guard type.contains("json") else {
-                if tolerateFailure { return nil }
                 throw LyricsError.unavailable
             }
             return data
@@ -345,7 +387,6 @@ actor LRCLIBClient {
             let until = await gate.noteRetryAfter(retry)
             throw LyricsError.rateLimited(until: until)
         default:
-            if tolerateFailure { return nil }
             throw LyricsError.unavailable
         }
     }

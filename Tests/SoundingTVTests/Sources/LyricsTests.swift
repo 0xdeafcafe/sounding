@@ -178,6 +178,33 @@ final class LyricsSignatureTests: XCTestCase {
         XCTAssertEqual(first(local)?.duration, 244)
     }
 
+    func testPlanStripsVersionFeaturingAndPromoTags() throws {
+        let info = LyricsTrackInfo(title: "fred again.. - adore u (w/ obongjayar) **FREE DOWNLOAD**", uploader: "fredagain", duration: 222)
+        let plan = try XCTUnwrap(LyricsSignatureDeriver.plan(for: info))
+        XCTAssertEqual(plan.primary.track, "adore u (w/ obongjayar)")
+        XCTAssertEqual(plan.base.track, "adore u")
+        XCTAssertEqual(plan.base.artist, "fred again..")
+        XCTAssertFalse(plan.isVersion)
+        let remix = try XCTUnwrap(LyricsSignatureDeriver.plan(for: LyricsTrackInfo(title: "Dua Lipa - Levitating (Jack Hardy Bootleg)", uploader: "Jack Hardy", duration: 289)))
+        XCTAssertEqual(remix.base.track, "Levitating")
+        XCTAssertTrue(remix.isVersion)
+        XCTAssertEqual(LyricsText.removeVersion("Gecko (Overdrive) - Radio Edit"), "Gecko (Overdrive)")
+        XCTAssertEqual(LyricsText.removeVersion("(It Goes Like) Nanana"), "(It Goes Like) Nanana")
+    }
+
+    func testPlanKeepsTheReversedSplitForTitleFirstUploads() throws {
+        let info = LyricsTrackInfo(title: "How Deep Is Your Love - Calvin Harris & Disciples", uploader: "House Music HD", duration: 214)
+        let plan = try XCTUnwrap(LyricsSignatureDeriver.plan(for: info))
+        XCTAssertEqual(plan.freeText, "How Deep Is Your Love Calvin Harris & Disciples")
+        let record = LRCLIBSummary(id: 1, trackName: "How Deep Is Your Love", artistName: "Calvin Harris", duration: 213)
+        XCTAssertEqual(LyricsCandidateRanker.score(record, for: plan)?.fit, .synced)
+    }
+
+    func testCacheKeyIsVersioned() throws {
+        let plan = try XCTUnwrap(LyricsSignatureDeriver.plan(for: LyricsTrackInfo(title: "Midnight City", uploader: "M83", duration: 243)))
+        XCTAssertTrue(plan.cacheKey.hasPrefix(LyricsQueryPlan.cacheVersion + "|"))
+    }
+
     func testMixesAreRecognised() {
         XCTAssertTrue(LyricsTrackInfo(title: "Essy - Wildeburg 2025", uploader: "Wildeburg", duration: 10_717).isMix)
         XCTAssertFalse(LyricsTrackInfo(title: "Song", uploader: "A", duration: 200).isMix)
@@ -187,11 +214,22 @@ final class LyricsSignatureTests: XCTestCase {
 final class LyricsRankingTests: XCTestCase {
     private let signature = LyricsSignature(track: "Midnight City", artist: "M83", album: nil, duration: 243)
 
-    func testRejectsDurationOutsideTwoSeconds() {
-        let far = LRCLIBSummary(id: 1, trackName: "Midnight City", artistName: "M83", duration: 246)
-        XCTAssertNil(LyricsCandidateRanker.score(far, for: signature))
-        let near = LRCLIBSummary(id: 2, trackName: "Midnight City", artistName: "M83", duration: 241.5)
-        XCTAssertNotNil(LyricsCandidateRanker.score(near, for: signature))
+    func testDurationSyncsWhenCloseFallsBackToPlainForEditsAndRejectsFar() {
+        let plan = LyricsQueryPlan(signature: signature)
+        let near = LRCLIBSummary(id: 1, trackName: "Midnight City", artistName: "M83", duration: 245.5)
+        XCTAssertEqual(LyricsCandidateRanker.score(near, for: plan)?.fit, .synced)
+        let edit = LRCLIBSummary(id: 2, trackName: "Midnight City", artistName: "M83", duration: 380)
+        XCTAssertEqual(LyricsCandidateRanker.score(edit, for: plan)?.fit, .plainOnly)
+        let far = LRCLIBSummary(id: 3, trackName: "Midnight City", artistName: "M83", duration: 600)
+        XCTAssertNil(LyricsCandidateRanker.score(far, for: plan))
+    }
+
+    func testRemixOfAnotherVersionIsPlainEvenAtTheSameLength() {
+        let remix = LyricsQueryPlan(signature: LyricsSignature(track: "Midnight City (Eric Prydz Remix)", artist: "M83", duration: 243))
+        let original = LRCLIBSummary(id: 1, trackName: "Midnight City", artistName: "M83", duration: 243)
+        XCTAssertEqual(LyricsCandidateRanker.score(original, for: remix)?.fit, .plainOnly)
+        let same = LRCLIBSummary(id: 2, trackName: "Midnight City (Eric Prydz Remix)", artistName: "M83", duration: 243)
+        XCTAssertEqual(LyricsCandidateRanker.score(same, for: remix)?.fit, .synced)
     }
 
     func testPrefersSyncedWordSyncAndCloserDuration() {
@@ -269,37 +307,51 @@ final class LyricsClientTests: XCTestCase {
         XCTAssertEqual(transport.paths, ["/api/get"])
     }
 
-    func testFallsBackToV2SearchThenGetByID() async throws {
+    func testGetWithoutDurationGivesPlainLyricsForAnEdit() async throws {
+        let extended = LyricsTrackInfo(title: "M83 - Midnight City (Extended Mix) [FREE DL]", uploader: "Label", duration: 380)
         let transport = StubLyricsTransport([
-            ("/api/v2/search", .init(status: 200, body: #"[{"id":9,"trackName":"Midnight City","artistName":"M83","duration":244,"instrumental":false,"hasWordSync":false,"hasPlainLyrics":true,"hasSyncedLyrics":true,"hasLyricsfile":true},{"id":10,"trackName":"Midnight City","artistName":"M83","duration":300,"hasSyncedLyrics":true}]"#)),
-            ("/api/get/9", .init(status: 200, body: #"{"id":9,"trackName":"Midnight City","artistName":"M83","duration":244,"plainLyrics":"Waiting in a car","syncedLyrics":null}"#)),
+            ("/api/get", .init(status: 404, body: #"{"statusCode":404}"#)),
+            ("/api/get", .init(status: 200, body: #"{"id":8,"trackName":"Midnight City","artistName":"M83","duration":243,"plainLyrics":"Waiting in a car","syncedLyrics":"[00:10.00]Waiting in a car"}"#)),
         ])
         let client = LRCLIBClient(transport: transport, gate: gate())
-        let result = try await client.lookup(info)
-        XCTAssertEqual(result, .found(Lyrics(body: .plain(["Waiting in a car"]), recordID: 9, trackName: "Midnight City", artistName: "M83")))
-        XCTAssertEqual(transport.paths.last, "/api/get/9")
-        XCTAssertTrue(transport.paths.contains("/api/v2/search"))
-        XCTAssertFalse(transport.paths.contains("/api/search"))
+        let result = try await client.lookup(extended)
+        XCTAssertEqual(result, .found(Lyrics(body: .plain(["Waiting in a car"]), recordID: 8, trackName: "Midnight City", artistName: "M83")))
+        XCTAssertEqual(transport.paths, ["/api/get", "/api/get"])
+        let query = URLComponents(url: try XCTUnwrap(transport.requests.last?.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertNil(query.first(where: { $0.name == "duration" }))
+        XCTAssertNil(transport.requests.first?.url?.query?.range(of: "album_name"))
     }
 
-    func testV2FailureFallsBackToV1Search() async throws {
+    func testSearchesByFieldsThenFreeText() async throws {
         let transport = StubLyricsTransport([
-            ("/api/v2/search", .init(status: 400, body: "Failed to deserialize query string", headers: ["Content-Type": "text/plain"])),
-            ("/api/search", .init(status: 200, body: #"[{"id":11,"trackName":"Midnight City","artistName":"M83","duration":243,"plainLyrics":"Waiting","syncedLyrics":"[00:01.00]Waiting"}]"#)),
+            ("/api/search", .init(status: 200, body: "[]")),
+            ("/api/search", .init(status: 200, body: #"[{"id":10,"trackName":"Midnight City","artistName":"M83","duration":600,"syncedLyrics":"[00:01.00]Far"},{"id":11,"trackName":"Midnight City","artistName":"M83","duration":244,"plainLyrics":"Waiting","syncedLyrics":"[00:01.00]Waiting"}]"#)),
         ])
         let client = LRCLIBClient(transport: transport, gate: gate())
         let result = try await client.lookup(info)
-        guard case .found(let lyrics) = result else { return XCTFail("expected lyrics") }
+        guard case .found(let lyrics) = result, case .synced = lyrics.body else { return XCTFail("expected synced lyrics") }
         XCTAssertEqual(lyrics.recordID, 11)
-        XCTAssertEqual(transport.paths.last, "/api/search")
+        XCTAssertEqual(transport.paths, ["/api/get", "/api/get", "/api/search", "/api/search"])
+        let query = URLComponents(url: try XCTUnwrap(transport.requests.last?.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(query.first(where: { $0.name == "q" })?.value, "M83 Midnight City")
     }
 
-    func testNotFoundWhenNothingMatches() async throws {
-        let transport = StubLyricsTransport([("/api/v2/search", .init(status: 200, body: "[]"))])
+    func testNotFoundAfterAtMostFourRequests() async throws {
+        let transport = StubLyricsTransport([
+            ("/api/search", .init(status: 200, body: "[]")),
+            ("/api/search", .init(status: 200, body: "[]")),
+        ])
         let client = LRCLIBClient(transport: transport, gate: gate())
         let result = try await client.lookup(info)
         XCTAssertEqual(result, .notFound)
-        XCTAssertFalse(transport.paths.contains("/api/search"))
+        XCTAssertLessThanOrEqual(transport.paths.count, 4)
+    }
+
+    func testPlusIsEncodedInQueries() async throws {
+        let transport = StubLyricsTransport([])
+        let client = LRCLIBClient(transport: transport, gate: gate())
+        _ = try await client.lookup(LyricsTrackInfo(title: "Artist - A+B", uploader: "Label", duration: 200))
+        XCTAssertTrue(transport.requests.first?.url?.absoluteString.contains("A%2BB") == true)
     }
 
     func testRateLimitStopsFurtherRequests() async throws {

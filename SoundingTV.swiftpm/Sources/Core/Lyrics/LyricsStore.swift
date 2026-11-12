@@ -161,7 +161,7 @@ final class LyricsStore {
             then?()
             return
         }
-        guard let key = LyricsSignatureDeriver.candidates(for: source).first?.cacheKey else {
+        guard let plan = LyricsSignatureDeriver.plan(for: source) else {
             states[track.id] = .notFound
             then?()
             return
@@ -170,13 +170,14 @@ final class LyricsStore {
         let client = self.client
         let cache = self.cache
         let id = track.id
+        let key = plan.cacheKey
         tasks[id] = Task { [weak self] in
             let state: LyricsState
             if let cached = await cache.lookup(for: key) {
                 state = Self.state(for: cached)
             } else {
                 do {
-                    let lookup = try await client.lookup(source)
+                    let lookup = try await client.lookup(plan)
                     await cache.store(lookup, for: key)
                     state = Self.state(for: lookup)
                 } catch LyricsError.offline {

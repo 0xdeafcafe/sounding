@@ -39,7 +39,7 @@ struct LyricsTrackInfo: Hashable, Sendable {
             publisherArtist: track.publisher?.artist,
             publisherTitle: track.publisher?.releaseTitle,
             album: track.publisher?.albumTitle,
-            duration: track.duration,
+            duration: track.isPreviewOnly ? 0 : track.duration,
             isLocal: track.isLocal
         )
     }
@@ -47,10 +47,91 @@ struct LyricsTrackInfo: Hashable, Sendable {
     var isMix: Bool { CollectionKind.classify(trackDurationSeconds: duration) == .set }
 }
 
+struct LyricsNamePair: Hashable, Sendable {
+    var track: String
+    var artist: String
+}
+
+struct LyricsQueryPlan: Hashable, Sendable {
+    static let cacheVersion = "v2"
+
+    var primary: LyricsSignature
+    var base: LyricsSignature
+    var freeText: String
+    var pairs: [LyricsNamePair]
+
+    var duration: Int? { primary.duration }
+    var isVersion: Bool { LyricsText.removeVersion(primary.track) != primary.track }
+    var cacheKey: String { Self.cacheVersion + "|" + primary.cacheKey }
+
+    init(primary: LyricsSignature, base: LyricsSignature, freeText: String, pairs: [LyricsNamePair]) {
+        self.primary = primary
+        self.base = base
+        self.freeText = freeText
+        self.pairs = pairs
+    }
+
+    init(signature: LyricsSignature) {
+        let base = LyricsSignature(
+            track: LyricsText.baseTitle(signature.track),
+            artist: LyricsText.primaryArtist(signature.artist),
+            duration: signature.duration
+        )
+        self.init(
+            primary: signature,
+            base: base,
+            freeText: base.track + " " + base.artist,
+            pairs: LyricsSignatureDeriver.uniquePairs([signature, base].map { LyricsNamePair(track: $0.track, artist: $0.artist) })
+        )
+    }
+}
+
 enum LyricsSignatureDeriver {
     static let maximumCandidates = 3
 
+    static func plan(for source: LyricsTrackInfo) -> LyricsQueryPlan? {
+        let signatures = allCandidates(for: source)
+        guard let primary = signatures.first else { return nil }
+        let base = LyricsSignature(
+            track: LyricsText.baseTitle(primary.track),
+            artist: LyricsText.primaryArtist(primary.artist),
+            duration: primary.duration
+        )
+        var pairs: [LyricsNamePair] = []
+        for signature in signatures {
+            pairs.append(LyricsNamePair(track: signature.track, artist: signature.artist))
+            pairs.append(LyricsNamePair(track: LyricsText.baseTitle(signature.track), artist: LyricsText.primaryArtist(signature.artist)))
+        }
+        let cleanedTitle = LyricsText.stripTags(source.title)
+        let split = LyricsText.splitArtistTitle(cleanedTitle)
+        if let split {
+            pairs.append(LyricsNamePair(track: LyricsText.baseTitle(split.artist), artist: split.title))
+        }
+        let freeText: String
+        if let split {
+            freeText = LyricsText.removeFeaturing(split.artist) + " " + LyricsText.baseTitle(split.title)
+        } else if source.publisherArtist != nil || source.isLocal {
+            freeText = base.track + " " + base.artist
+        } else {
+            freeText = base.track
+        }
+        return LyricsQueryPlan(primary: primary, base: base, freeText: freeText, pairs: uniquePairs(pairs))
+    }
+
+    static func uniquePairs(_ pairs: [LyricsNamePair]) -> [LyricsNamePair] {
+        var seen = Set<String>()
+        return pairs.filter { pair in
+            let key = LyricsText.normalised(pair.track) + "|" + LyricsText.normalised(pair.artist)
+            guard !LyricsText.normalised(pair.track).isEmpty, !LyricsText.normalised(pair.artist).isEmpty else { return false }
+            return seen.insert(key).inserted
+        }
+    }
+
     static func candidates(for source: LyricsTrackInfo) -> [LyricsSignature] {
+        Array(allCandidates(for: source).prefix(maximumCandidates))
+    }
+
+    private static func allCandidates(for source: LyricsTrackInfo) -> [LyricsSignature] {
         let duration = source.duration > 0 ? Int(source.duration.rounded()) : nil
         let album = source.album.flatMap { LyricsText.nonEmpty(LyricsText.stripTags($0)) }
         var ordered: [LyricsSignature] = []
@@ -100,7 +181,7 @@ enum LyricsSignatureDeriver {
             seen.insert(key)
             unique.append(candidate)
         }
-        return Array(unique.prefix(maximumCandidates))
+        return unique
     }
 }
 
@@ -121,7 +202,7 @@ enum LyricsText {
 
     static func stripTags(_ text: String) -> String {
         var result = text
-        result = result.replacingOccurrences(of: "\\*[^*]{1,40}\\*", with: " ", options: .regularExpression)
+        result = result.replacingOccurrences(of: "\\*+[^*]{1,40}\\*+", with: " ", options: .regularExpression)
         result = result.replacingOccurrences(of: "^\\s*(premiere|exclusive|free\\s*(dl|download))\\s*[:|\\-–]\\s*", with: "", options: [.regularExpression, .caseInsensitive])
         let junk = "(" + junkPatterns.joined(separator: "|") + ")"
         result = result.replacingOccurrences(of: "\\s*[\\[(【]\\s*\(junk)\\s*[\\])】]", with: " ", options: [.regularExpression, .caseInsensitive])
@@ -145,14 +226,32 @@ enum LyricsText {
 
     static func removeFeaturing(_ text: String) -> String {
         var result = text.replacingOccurrences(
-            of: "\\s*[(\\[]\\s*(feat\\.?|ft\\.?|featuring|with)\\s[^)\\]]*[)\\]]",
+            of: "\\s*[(\\[]\\s*(feat\\.?|ft\\.?|featuring|with|w/)\\s[^)\\]]*[)\\]]",
             with: "", options: [.regularExpression, .caseInsensitive]
         )
         result = result.replacingOccurrences(
-            of: "\\s+(feat\\.?|ft\\.?|featuring)\\s.*?(?=\\s*[(\\[]|$)",
+            of: "\\s+(feat\\.?|ft\\.?|featuring|w/)\\s.*?(?=\\s*[(\\[]|$)",
             with: "", options: [.regularExpression, .caseInsensitive]
         )
         return result.trimmingCharacters(in: .whitespaces)
+    }
+
+    private static let versionWords = "remix|rmx|mix|edit|bootleg|rework|vip|dub|flip|version|refix|re-?edit|remaster(ed)?|live|acoustic|extended|radio|club|cover|sped\\s*up|slowed"
+
+    static func removeVersion(_ text: String) -> String {
+        var result = text.replacingOccurrences(
+            of: "\\s*[(\\[][^)\\]]*\\b(\(versionWords))\\b[^)\\]]*[)\\]]",
+            with: "", options: [.regularExpression, .caseInsensitive]
+        )
+        result = result.replacingOccurrences(
+            of: "\\s+[-–—]\\s+[^-–—]*\\b(\(versionWords))\\b[^-–—]*$",
+            with: "", options: [.regularExpression, .caseInsensitive]
+        )
+        return nonEmpty(result) ?? text
+    }
+
+    static func baseTitle(_ text: String) -> String {
+        nonEmpty(removeFeaturing(removeVersion(text))) ?? text
     }
 
     static func primaryArtist(_ text: String) -> String {
