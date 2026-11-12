@@ -671,6 +671,7 @@ final class DownloadManager: NSObject, ObservableObject {
     }
 
     func downloadRefusalReason(for track: Track) -> DownloadError? {
+        if track.needsFairPlay { return .protectedTrack }
         guard isFullyEntitled(track) else { return .previewOnly }
         return nil
     }
@@ -872,6 +873,7 @@ final class DownloadManager: NSObject, ObservableObject {
     @discardableResult
     func download(track: Track, confirmed: Bool = false) -> DownloadRequestResult {
         if let denial = entitlementDenial(for: track) { return .refused(.entitlement(denial)) }
+        if track.needsFairPlay { return .refused(.protectedTrack) }
         guard isFullyEntitled(track) else { return .refused(.previewOnly) }
         let sizeEstimate = estimate(track: track)
         if !confirmed, sizeEstimate.requiresConfirmation { return .needsConfirmation(sizeEstimate) }
@@ -906,7 +908,9 @@ final class DownloadManager: NSObject, ObservableObject {
             return .refused(.streamResolutionFailed)
         }
         let entitled = members.ordered.filter { isFullyEntitled($0) && entitlementDenial(for: $0) == nil }
-        if !members.ordered.isEmpty, entitled.isEmpty { return .refused(.previewOnly) }
+        if !members.ordered.isEmpty, entitled.isEmpty {
+            return .refused(members.ordered.allSatisfy(\.needsFairPlay) ? .protectedTrack : .previewOnly)
+        }
         let pending = entitled.filter { entries[$0.id]?.isDownloaded != true }
         let estimate = DownloadSizeEstimate.estimate(tracks: pending, ceiling: quality, isOnCellular: isOnCellular)
         if !confirmed, estimate.requiresConfirmation { return .needsConfirmation(estimate) }
@@ -1148,12 +1152,12 @@ final class DownloadManager: NSObject, ObservableObject {
     }
 
     private func isFullyEntitled(_ track: Track) -> Bool {
-        !track.transcodings.isEmpty
+        !track.decodableTranscodings.isEmpty
     }
 
     private func chooseSource(for track: Track) -> DownloadSourceSelection.Source? {
         DownloadSourceSelection.choose(
-            from: track.transcodings,
+            from: track.decodableTranscodings,
             ceiling: quality,
             allowsHighQuality: DownloadSourceSelection.allowsHighQuality(for: SubscriptionService.shared.tier)
         )
@@ -1374,7 +1378,8 @@ final class DownloadManager: NSObject, ObservableObject {
             guard let self else { return }
             guard let source = self.chooseSource(for: track) else {
                 self.activeResolutionTasks[track.id] = nil
-                self.fail(trackId: track.id, reason: DownloadError.unsupportedContainer.errorDescription!)
+                let reason: DownloadError = track.needsFairPlay ? .protectedTrack : .unsupportedContainer
+                self.fail(trackId: track.id, reason: reason.errorDescription!)
                 return
             }
             do {
@@ -3064,7 +3069,8 @@ enum DownloadSourceSelection {
         tier == .goPlus || tier == .dj || tier == .unknown
     }
 
-    static func choose(from transcodings: [Transcoding], ceiling: QualityCeiling = .maximum, allowsHighQuality: Bool = true) -> Source? {
+    static func choose(from candidates: [Transcoding], ceiling: QualityCeiling = .maximum, allowsHighQuality: Bool = true) -> Source? {
+        let transcodings = candidates.filter { !$0.isEncrypted }
         let standard = transcodings.filter { !$0.isHQ }
         let entitled = allowsHighQuality || standard.isEmpty ? transcodings : standard
         let pool = ceiling.capping(entitled)

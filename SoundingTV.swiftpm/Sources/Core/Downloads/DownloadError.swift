@@ -5,6 +5,7 @@ enum DownloadError: LocalizedError, Equatable {
     case streamResolutionFailed
     case emptyPlaylist
     case encryptedStream
+    case protectedTrack
     case byteRangeSegments
     case playlistTooDeep
     case unsupportedContainer
@@ -19,6 +20,7 @@ enum DownloadError: LocalizedError, Equatable {
         case .streamResolutionFailed: return "Could not resolve the stream."
         case .emptyPlaylist: return "The stream had no audio segments."
         case .encryptedStream: return "This stream is protected and can't be downloaded."
+        case .protectedTrack: return "Protected Go+ track. It plays, but can\u{2019}t be downloaded."
         case .byteRangeSegments: return "This stream's segment format isn't supported for downloads."
         case .playlistTooDeep: return "This stream's playlist nests too deeply."
         case .unsupportedContainer: return "This track's audio format isn't supported for downloads."

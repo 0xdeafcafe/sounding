@@ -281,7 +281,7 @@ final class DJSessionDirector: ObservableObject {
             headline: unavailableReason
                 ?? headline
                 ?? (host.upcomingMixTrack == nil
-                    ? "Nothing queued after this track"
+                    ? (host.protectedTrackBlocksMix ? PlaybackSourceResolutionError.protectedAudioStatus : "Nothing queued after this track")
                     : isAVPlayerHoldingCurrentTrack && !isStreamingBeforeHandover ? "Auto Mix starts with the next track" : "Listening for a clean transition point"),
             reasoning: unavailableReason ?? plan?.reasoning,
             incomingTrackId: plan?.incomingTrackId ?? host.upcomingMixTrack?.id,
@@ -464,7 +464,8 @@ final class DJSessionDirector: ObservableObject {
     }
 
     func ownsTrackStart(_ track: Track, exclusiveElsewhere: Bool) -> Bool {
-        DJTransitionPlanningPolicy.startsInMixEngine(
+        guard !track.needsFairPlay else { return false }
+        return DJTransitionPlanningPolicy.startsInMixEngine(
             sessionIsEnabled: host.djSessionEnabled || host.requiresMixEngineOutput,
             exclusiveElsewhere: exclusiveElsewhere,
             trackDuration: track.duration,
@@ -663,6 +664,7 @@ final class DJSessionDirector: ObservableObject {
     }
 
     func fallbackReason(for track: Track) -> String? {
+        if host.djSessionEnabled, track.needsFairPlay { return PlaybackSourceResolutionError.protectedAudioStatus }
         guard host.djSessionEnabled, let fallback = avPlayerFallback, fallback.trackId == track.id else { return nil }
         return fallback.reason
     }

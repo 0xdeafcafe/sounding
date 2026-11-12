@@ -102,6 +102,7 @@ final class PlayedAudioCache {
         guard !track.isLocal,
               transcoding.codec != .opus,
               !transcoding.isSnippet,
+              !transcoding.isEncrypted,
               let accountID = activeAccountID(),
               SubscriptionService.shared.playbackGrant(for: track) == .full,
               !DownloadManager.shared.isLocallyAvailable(track),

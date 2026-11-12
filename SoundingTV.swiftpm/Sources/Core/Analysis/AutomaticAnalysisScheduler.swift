@@ -421,7 +421,11 @@ actor AutomaticAnalysisScheduler {
 
         guard localFileURL != nil || localAudio != nil else {
             guard trigger == .requested else { return .complete }
-            let state = AnalysisWorkState.notEligible("Download this track to analyse its tempo and key")
+            let state = AnalysisWorkState.notEligible(
+                track.needsFairPlay
+                    ? PlaybackSourceResolutionError.protectedAudioStatus
+                    : "Download this track to analyse its tempo and key"
+            )
             await publish(state, for: track.id)
             return state
         }
@@ -941,6 +945,7 @@ enum SetlistAudioSources {
         if let mixError = error as? MixEngineError {
             switch mixError {
             case .encryptedStream: return "This stream is protected. Download the mix to identify its tracks"
+            case .protectedTrack: return PlaybackSourceResolutionError.protectedAudioStatus
             case .unsupportedFormat: return "This stream can’t be identified. Download the mix to identify its tracks"
             default: break
             }
