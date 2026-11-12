@@ -1206,6 +1206,10 @@
 		EC0A1E750000000000000031 /* VisualSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000003 /* VisualSearch.swift */; };
 		EC0A1E750000000000000032 /* VisualSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000003 /* VisualSearch.swift */; };
 		EC0A1E750000000000000033 /* VisualSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000003 /* VisualSearch.swift */; };
+		EC0A1E750000000000000041 /* MacTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000004 /* MacTransport.swift */; };
+		EC0A1E750000000000000051 /* MacDockMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000005 /* MacDockMenu.swift */; };
+		EC0A1E750000000000000061 /* MacScripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000006 /* MacScripting.swift */; };
+		EC0A1E750000000000000071 /* Sounding.sdef in Resources */ = {isa = PBXBuildFile; fileRef = EC0A1E750000000000000007 /* Sounding.sdef */; };
 		5989A401BCF9D4865D3CE72E /* SpotlightIndexingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C238A0F17B410B28B37F4DF /* SpotlightIndexingService.swift */; };
 		4CB7E95C9F9C0C77996EDFA3 /* MediaRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 080453FF3B80F52922207802 /* MediaRequestTests.swift */; };
 		C7C3F5E2D1B7D58837D1B4A9 /* SoundCloudTrafficScenarioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D531A4F079CD8414D0837236 /* SoundCloudTrafficScenarioTests.swift */; };
@@ -2433,6 +2437,10 @@ F1C39D966E10112291734F31 /* TVNowPlayingAutoMix.swift */ = {isa = PBXFileReferen
 		EC0A1E750000000000000001 /* NowPlayingSnippet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingSnippet.swift; sourceTree = "<group>"; };
 		EC0A1E750000000000000002 /* FocusFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusFilter.swift; sourceTree = "<group>"; };
 		EC0A1E750000000000000003 /* VisualSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualSearch.swift; sourceTree = "<group>"; };
+		EC0A1E750000000000000004 /* MacTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacTransport.swift; sourceTree = "<group>"; };
+		EC0A1E750000000000000005 /* MacDockMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDockMenu.swift; sourceTree = "<group>"; };
+		EC0A1E750000000000000006 /* MacScripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacScripting.swift; sourceTree = "<group>"; };
+		EC0A1E750000000000000007 /* Sounding.sdef */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = Sounding.sdef; sourceTree = "<group>"; };
 		080453FF3B80F52922207802 /* MediaRequestTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaRequestTests.swift; sourceTree = "<group>"; };
 		D531A4F079CD8414D0837236 /* SoundCloudTrafficScenarioTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SoundCloudTrafficScenarioTests.swift; sourceTree = "<group>"; };
 		65BDCCC3B9100D6A139F0F28 /* PlayMediaIntentHandler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayMediaIntentHandler.swift; sourceTree = "<group>"; };
@@ -4563,6 +4571,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				F448DD3406AD92B71CE30B18 /* Assets.xcassets */,
 				2EE331F33692E515C0DB7575 /* Info.plist */,
 				F821FFCE0483C1EA753D33DA /* SoundingTV-macOS.entitlements */,
+				EC0A1E750000000000000007 /* Sounding.sdef */,
 				F8A4066AA544ADF971CCC6E5 /* Sources */,
 			);
 			path = "SoundingTV-macOS";
@@ -4802,6 +4811,9 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				2AC691D099BEC73B54486A78 /* MacRootView.swift */,
 				BDEDDFA5A5EE2958BD812B61 /* SoundingMacApp.swift */,
 				F18DC1390A180A1A7FA90B0A /* MacOutsideAlerts.swift */,
+				EC0A1E750000000000000004 /* MacTransport.swift */,
+				EC0A1E750000000000000005 /* MacDockMenu.swift */,
+				EC0A1E750000000000000006 /* MacScripting.swift */,
 			);
 			name = App;
 			path = "SoundingTV-macOS/Sources/App";
@@ -5433,6 +5445,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				07638EF5E09F8A0E1B505C9E /* LearnedSetPriors.json in Resources */,
 				1DF008756C2DA69FE196B064 /* Localizable.strings in Resources */,
 				DD33B619781840D3E5C265E8 /* Assets.xcassets in Resources */,
+				EC0A1E750000000000000071 /* Sounding.sdef in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6069,6 +6082,9 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				EC0A1E750000000000000011 /* NowPlayingSnippet.swift in Sources */,
 				EC0A1E750000000000000021 /* FocusFilter.swift in Sources */,
 				EC0A1E750000000000000031 /* VisualSearch.swift in Sources */,
+				EC0A1E750000000000000041 /* MacTransport.swift in Sources */,
+				EC0A1E750000000000000051 /* MacDockMenu.swift in Sources */,
+				EC0A1E750000000000000061 /* MacScripting.swift in Sources */,
 				5989A401BCF9D4865D3CE72E /* SpotlightIndexingService.swift in Sources */,
 				E26A65F7BA028E02E69466FD /* SpotlightLibraryLedger.swift in Sources */,
 				BC0D7C3FF1EF6367B49541F4 /* MediaRequest.swift in Sources */,
