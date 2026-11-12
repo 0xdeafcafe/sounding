@@ -66,15 +66,16 @@ final class NearbyLinkInbox: ObservableObject {
     static let shared = NearbyLinkInbox()
 
     @Published var pending: NearbyLinkRequest?
-    let dismissed = PassthroughSubject<NearbyLinkRequest, Never>()
+    let dismissed = PassthroughSubject<NearbyLinkRequest.Notice, Never>()
 
     func link(_ request: NearbyLinkRequest) {
         pending = request
     }
 
-    func notNow(_ request: NearbyLinkRequest) {
-        NearbyDeviceCardModel.rememberNotNow(kind: request.tvKind, name: request.tvName)
-        dismissed.send(request)
+    func notNow(_ notice: NearbyLinkRequest.Notice) {
+        guard let name = notice.tvName else { return }
+        NearbyDeviceCardModel.rememberNotNow(kind: notice.tvKind, name: name)
+        dismissed.send(notice)
     }
 }
 
@@ -189,9 +190,9 @@ final class NearbyDeviceCardModel: ObservableObject {
         pendingLink = nil
     }
 
-    private func dismissedOutside(_ request: NearbyLinkRequest) {
+    private func dismissedOutside(_ notice: NearbyLinkRequest.Notice) {
         dismissals = NearbyCardDismissals.load()
-        if let candidate, candidate.purpose == .link, Self.ignoreKey(candidate) == Self.deviceKey(request.tvKind, request.tvName), phase == .offering {
+        if let candidate, candidate.purpose == .link, let name = notice.tvName, Self.ignoreKey(candidate) == Self.deviceKey(notice.tvKind, name), phase == .offering {
             close(candidate)
         } else {
             refresh()
