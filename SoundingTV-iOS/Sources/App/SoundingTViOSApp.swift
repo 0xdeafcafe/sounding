@@ -72,6 +72,7 @@ struct SoundingTViOSApp: App {
         }
         IntentPlayback.sink = playbackCoordinator
         PartyScenes.outputRouter = playbackCoordinator.output
+        SoundingFocus.restore()
         let runtime = AppRuntime(platform: RuntimePlatformServices(
             deviceLabel: "iPhone",
             account: CompanionAppBootstrap.account,

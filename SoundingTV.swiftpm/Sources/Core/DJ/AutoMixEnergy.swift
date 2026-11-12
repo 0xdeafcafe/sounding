@@ -18,11 +18,19 @@ final class AutoMixEnergy: ObservableObject {
         let heartRate: Double?
     }
 
+    struct FocusMode: Equatable, Sendable {
+        var quiet = false
+        var workout = false
+    }
+
     static let heartRateFreshness: TimeInterval = 30
     static let remoteFreshness: TimeInterval = 90
+    static let focusQuietLevel = 3
+    static let focusWorkoutLevel = 8
 
     @Published private(set) var heartRate: (bpm: Double, at: Date)?
     @Published private(set) var remote: (level: Int, heartRate: Double?, at: Date)?
+    @Published private(set) var focus = FocusMode()
 
     private let settings: SettingsStore
 
@@ -35,6 +43,13 @@ final class AutoMixEnergy: ObservableObject {
         heartRate = (bpm, date)
     }
 
+    var matchesWorkout: Bool { settings.djMatchWorkout || focus.workout }
+
+    func setFocus(_ mode: FocusMode) {
+        guard mode != focus else { return }
+        focus = mode
+    }
+
     func receiveRemote(level: Int, heartRate: Double?, at date: Date = Date()) {
         guard (1...10).contains(level) else {
             remote = nil
@@ -44,8 +59,14 @@ final class AutoMixEnergy: ObservableObject {
     }
 
     func reading(now: Date = Date(), calendar: Calendar = .current) -> Reading {
-        if settings.djMatchWorkout, let heartRate, now.timeIntervalSince(heartRate.at) <= Self.heartRateFreshness {
+        if matchesWorkout, let heartRate, now.timeIntervalSince(heartRate.at) <= Self.heartRateFreshness {
             return Reading(level: Self.level(heartRate: heartRate.bpm), source: .workout, heartRate: heartRate.bpm)
+        }
+        if focus.workout {
+            return Reading(level: Self.focusWorkoutLevel, source: .manual, heartRate: nil)
+        }
+        if focus.quiet {
+            return Reading(level: Self.focusQuietLevel, source: .manual, heartRate: nil)
         }
         if let remote, now.timeIntervalSince(remote.at) <= Self.remoteFreshness {
             return Reading(level: remote.level, source: .remote, heartRate: remote.heartRate)

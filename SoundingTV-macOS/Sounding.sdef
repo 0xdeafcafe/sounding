@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<dictionary title="Sounding Terminology" xmlns:xi="http://www.w3.org/2003/XInclude">
+	<xi:include href="file:///System/Library/ScriptingDefinitions/CocoaStandard.sdef" xpointer="xpointer(/dictionary/suite)"/>
+	<suite name="Sounding Suite" code="Sndg" description="Control playback in Sounding.">
+		<enumeration name="player state" code="ePlS">
+			<enumerator name="stopped" code="kPSS" description="Nothing is playing."/>
+			<enumerator name="playing" code="kPSP" description="Music is playing."/>
+			<enumerator name="paused" code="kPSp" description="Music is paused."/>
+		</enumeration>
+		<class-extension extends="application" description="Sounding’s playback.">
+			<property name="player state" code="pPlS" type="player state" access="r" description="Whether Sounding is playing, paused or stopped.">
+				<cocoa key="soundingPlayerState"/>
+			</property>
+			<property name="current track name" code="pTrN" type="text" access="r" description="The title of the track that’s playing.">
+				<cocoa key="soundingCurrentTrackName"/>
+			</property>
+			<property name="current track artist" code="pTrA" type="text" access="r" description="The artist of the track that’s playing.">
+				<cocoa key="soundingCurrentTrackArtist"/>
+			</property>
+			<property name="current track URL" code="pTrU" type="text" access="r" description="The SoundCloud link of the track that’s playing.">
+				<cocoa key="soundingCurrentTrackURL"/>
+			</property>
+		</class-extension>
+		<command name="play" code="SndgPlay" description="Play the current track.">
+			<cocoa class="SoundingPlayCommand"/>
+		</command>
+		<command name="pause" code="SndgPaus" description="Pause playback.">
+			<cocoa class="SoundingPauseCommand"/>
+		</command>
+		<command name="playpause" code="SndgPlPs" description="Play if paused, pause if playing.">
+			<cocoa class="SoundingPlayPauseCommand"/>
+		</command>
+		<command name="next track" code="SndgNext" description="Skip to the next track.">
+			<cocoa class="SoundingNextTrackCommand"/>
+		</command>
+		<command name="previous track" code="SndgPrev" description="Go back to the previous track.">
+			<cocoa class="SoundingPreviousTrackCommand"/>
+		</command>
+	</suite>
+</dictionary>

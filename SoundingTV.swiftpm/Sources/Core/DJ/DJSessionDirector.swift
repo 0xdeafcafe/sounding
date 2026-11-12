@@ -1234,7 +1234,7 @@ final class DJSessionDirector: ObservableObject {
             engine.cancelPerformance(on: deck, overlapping: window)
             return
         }
-        let level = SettingsStore.shared.djPerformanceLevel
+        let level = AutoMixEnergy.shared.focus.quiet ? .off : SettingsStore.shared.djPerformanceLevel
         guard level != .off, let features = plan.outgoingFeatures else {
             cancelPerformance()
             return
@@ -2176,7 +2176,7 @@ final class DJSessionDirector: ObservableObject {
             legacyTempoMatch: plan == nil ? legacyTempoMatch(to: track) : nil,
             resetsIncoming: host.isAutoMixEnabled,
             startsPaused: !(host.isPlaying || engine[outgoing].isPlaying),
-            riserLevel: host.djProfile?.id == .wedding ? 0 : SettingsStore.shared.djRiserLevel
+            riserLevel: host.djProfile?.id == .wedding || AutoMixEnergy.shared.focus.quiet ? 0 : SettingsStore.shared.djRiserLevel
         )
         let jumping = isJumping
         let outcome = MixTransitionPerformer(engine: engine).begin(request, actions: actions) { [weak self] in

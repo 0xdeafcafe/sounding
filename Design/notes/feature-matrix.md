@@ -72,7 +72,7 @@ sources live inside the SwiftPM package under `Sources/Apps/tvOS`.
 | Queue view | ● | ◐ ⁶ | ● | ○ |
 | Queue reorder / remove | ◐ ⁷ | ◐ ⁶ | ● | ○ |
 | Add to queue / play next | ● | ● | ● | ◐ |
-| Add to playlist | ● | ○ | ● | ○ |
+| Add to playlist | ● | ● | ● | ○ |
 | Like / unlike | ● | ● | ● | ○ |
 | Persistent mini transport | ● | ● | ● | ◐ |
 | Full Now Playing screen | ● | ● | ● | ● |
@@ -80,6 +80,7 @@ sources live inside the SwiftPM package under `Sources/Apps/tvOS`.
 | Timed comments on waveform | ● | ● | ● | ○ |
 | Comments panel | ● | ● | ● | ○ |
 | "Behind the Track" info | ● | ● | ● | ○ |
+| Synced lyrics (LRCLIB, opt-in) | ● | ● | ● | ○ |
 | Output routing / AirPlay picker | ● | ● | ● | ◐ ⁸ |
 | Background audio | ● | ● | ● | — |
 | System Now Playing / media keys | ● | ● | ● | ◐ |
@@ -183,26 +184,32 @@ is gated to `#if os(macOS) || os(tvOS)` — mains-powered devices do the heavy l
 | --- | :---: | :---: | :---: | :---: |
 | Remote queue **server** (is controlled) | ● | ○ | ○ | ○ |
 | Remote queue **client** (controls a TV) | ○ | ● | ● | ◐ |
-| Polyphony (synchronised nearby listening) | ● | ● | ● | ◐ ²⁶ |
+| SharePlay (Listen Together) | ● ²⁶ | ● | ● | ○ |
 | WatchConnectivity host | — | ● | — | — |
 | Handoff (`NSUserActivity`) | ● | ● | ● | ◐ ²³ |
 | App Intents / Siri Shortcuts | ● | ● | ● | ○ |
+| Interactive Now Playing snippet (Like, Skip, Add to Playlist) | ○ | ● | ● | ○ |
+| Focus filter (Output, Quiet Auto Mix, Wind Down, Workout Energy) | ○ | ● | ● | ○ |
+| Visual Intelligence (find the artist or track) | ○ | ● | ◐ ²⁷ | ○ |
 | Spotlight indexing | ○ | ● | ○ | ○ |
 | Top Shelf | ● | — | — | — |
+| Dock menu (now playing, transport, like, recents) | — | — | ● | — |
+| AppleScript dictionary (`Sounding.sdef`) | — | — | ● | — |
 | Share extension target | — | ● | ○ | — |
 | Deep links (`soundingtv://`) | ● | ● | ○ | ○ |
 | Universal links (`applinks:`) | ○ | ● | ● | ○ |
 
 ²³ Activity type declared in `Info.plist` but no `onContinueUserActivity` handler found.
-²⁶ The Watch mirrors Polyphony state and can start or leave the session hosted by its paired iPhone; audio remains on the phone.
+²⁶ Apple TV joins from FaceTime or continuation and offers SharePlay only during a FaceTime call. Auto Mix is off for every SharePlay session.
+²⁷ Built and registered on the Mac (`SemanticContentDescriptor` is macOS 27); it appears only where the system offers Visual Intelligence.
 
 ### 2.8 Platform-exclusive abilities
 
 | Platform | Exclusive to it |
 | --- | --- |
 | **tvOS** | Top Shelf shelves; ambient screensaver (`AmbientScreenView`, DJ-aware); focus-engine design language; remote-queue **server**; `.sidebarAdaptable` tab view; d-pad scrub / `onMoveCommand`; QR-code sign-in display |
-| **iOS** | Native OAuth (the only real login origin); Spotlight indexing; share extension; WatchConnectivity host; camera QR scan; tab-bar bottom accessory transport |
-| **macOS** | `MenuBarExtra` mini player; multi-window (Now Playing + Mini Player as separate `Window` scenes); real menu-bar commands + keyboard shortcuts; CoreMIDI hardware (DDJ-400 mapping, live MIDI monitor); CoreAudio device introspection / cue-bus detection; manual analysis correction; `NSVisualEffectView` materials; app sandbox |
+| **iOS** | Native OAuth (the only real login origin); Spotlight indexing; share extension; WatchConnectivity host; camera QR scan; tab-bar bottom accessory transport; Visual Intelligence from the camera |
+| **macOS** | `MenuBarExtra` mini player; multi-window (Now Playing + Mini Player as separate `Window` scenes); real menu-bar commands + keyboard shortcuts; CoreMIDI hardware (DDJ-400 mapping, live MIDI monitor); CoreAudio device introspection / cue-bus detection; manual analysis correction; Dock menu; AppleScript dictionary; `NSVisualEffectView` materials; app sandbox |
 | **watchOS** | Digital Crown scrubbing; authorize an Apple TV from the wrist; phone-relayed transport |
 
 ---
@@ -222,7 +229,6 @@ compiled into that target; `○` means the module is not in the target at all.
 | `Core/Models` | 6 | 5 | 5 | 5 | 5 | ○ |
 | `Core/Networking` | 2 | 2 | 2 | ○ | ○ | ○ |
 | `Core/Playback` | 7 | 7 | 7 | 3 | ○ | ○ |
-| `Core/Polyphony` | 1 | 1 | 1 | ○ | ○ | ○ |
 | `Core/Setlist` | 3 | 3 | 3 | 3 | 3 | ○ |
 | `Core/Settings` | 1 | 1 | 1 | 1 | ○ | ○ |
 | `Core/SoundCloud` | 2 | 2 | 2 | 2 | 2 | ○ |
@@ -240,7 +246,7 @@ compiled into that target; `○` means the module is not in the target at all.
 
 **Reading the gaps**
 
-- **watchOS omits `Core/Sync`, `Core/Networking`, `Core/Polyphony`** and takes only 1 of
+- **watchOS omits `Core/Sync` and `Core/Networking`** and takes only 1 of
   15 `Core/DJ` files. It is a thin client by construction: no CloudKit, no peer transport,
   no mix engine.
 - **tvOS omits `Shared/Networking`** (`CompanionClient`) — it is the server, not a client.
@@ -318,16 +324,16 @@ CloudKit container is `iCloud.red.forbes.sounding`; app group is
   standalone capability the code does not deliver.
 - **watchOS has no CloudKit.** It adopts its session over WatchConnectivity only, so if
   the phone was never reachable the watch is fully blocked.
-- **No lyrics feature — by design.** When mirroring Apple Music's Now Playing, the pane
-  toggle's second slot is Up Next / Comments / Tracklist / About, never Lyrics.
+- **Lyrics come from LRCLIB only**, opt-in, on iPhone, iPad, Mac and Apple TV (owner
+  decision 2026-11-08, reversing the old no-lyrics rule). The Watch and CarPlay have none.
 
 **Missing surfaces**
 
 - No **local queue editor** on iPhone — `QueueManagerView` only manages the Apple TV's queue.
 - `WatchSearchView` is **fully built but orphaned** — nothing navigates to it.
-- No **Add to Playlist** on iOS (present on tvOS and macOS).
 - No **repeat-mode** control on watchOS; shuffle is playlist-level only.
-- macOS has no **drag & drop** and no **AppleScript** support.
+- macOS has no **drag & drop**. Its AppleScript dictionary is transport and read-only
+  now-playing properties only.
 - macOS **MIDI mapping editor** is not built — `HardwarePane` is a raw monitor and says so.
 
 **Honest limitations documented in-product**
@@ -338,13 +344,16 @@ CloudKit container is `iCloud.red.forbes.sounding`; app group is
 - CDJ / Pioneer Pro DJ Link is **impossible**, not merely absent — proprietary, no SDK.
 - No Dolby Atmos: SoundCloud does not provide spatial masters.
 
+**Removed**
+
+- Polyphony was removed on 2026-11-08; listening together is SharePlay only
+  (`Core/Playback/ListenTogether.swift`).
+
 **In-flight refactor (working tree, not committed)**
 
 - `RemoteQueueClient` is being moved out of `SoundingTV-iOS/Sources/Features/AppleTV/`
   into `SoundingTV.swiftpm/Sources/Shared/Networking/` so iOS, macOS and watchOS share one
   client. iOS code still references it throughout.
-- The Polyphony engine has moved to `Core/Polyphony`; the old iOS implementation remains
-  behind `#if POLYPHONY_LEGACY_IMPLEMENTATION` as migration history.
 
 ---
 
@@ -377,11 +386,15 @@ carries most of the real verification burden and is invoked from debug menus and
 | ShazamKit | `Core/Setlist/SetlistIntelligenceStore` — macOS primary, tvOS secondary |
 | FoundationModels | `Core/Setlist/DeckIdentity` — excluded on tvOS + watchOS |
 | CloudKit (`CKSyncEngine`) | `Core/Sync/CloudSyncEngine` — the single sync integration point |
-| Network (Bonjour / NWConnection) | `Auth/Shared`, `Core/Downloads`, `Core/Networking`, `Core/Polyphony`, `Shared/Networking` |
+| Network (Bonjour / NWConnection) | `Auth/Shared`, `Core/Downloads`, `Core/Networking`, `Shared/Networking` |
+| GroupActivities (SharePlay) | `Core/Playback/ListenTogether`, `Shared/UI/Components/ListenTogetherViews` |
 | CryptoKit | Pairing, sync payload hashing, artwork cache keys, PSK derivation |
 | SQLite3 (direct, no ORM) | `AnalysisCache`, `CueStore`, `LibraryCache` |
-| AppIntents | `Shared/AppIntents` |
+| AppIntents | `Shared/AppIntents` — entities, Shortcuts, `SnippetIntent` Now Playing snippet, `SetFocusFilterIntent` |
+| VisualIntelligence + Vision | `Shared/AppIntents/VisualSearch` — `IntentValueQuery` over `SemanticContentDescriptor`, on-device text recognition |
+| AppKit scripting (`NSScriptCommand`) | macOS only — `MacScripting`, `Sounding.sdef` |
 | NowPlaying / MediaPlayer | `Core/Playback` — two interchangeable bridges |
 | WatchConnectivity | `PhoneWatchLinkServer` (iOS), `WatchLinkClient` (watchOS) |
 | CoreMIDI | macOS only — `MIDIControllerHub`, `DDJ400MappingResolver` |
 | WebKit | `Auth/Shared/PhoneCredentialSource` — the OAuth web login |
+| LRCLIB (HTTP) | `Core/Lyrics` — the only lyrics source |

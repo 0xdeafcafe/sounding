@@ -110,6 +110,7 @@ struct SoundingMacApp: App {
         MacPlaybackTarget.router = outputRouter
         IntentPlayback.sink = outputRouter
         PartyScenes.outputRouter = outputRouter
+        SoundingFocus.restore()
         DevicePresenceModel.shared.attach(router: outputRouter)
     }
 
@@ -483,36 +484,19 @@ struct TransportCommands: Commands {
     var body: some Commands {
         CommandMenu("Playback") {
             Button {
-                let controller = MacConsoleController.shared
-                if controller.isConsoleActive {
-                    controller.togglePlayPause(controller.focusedDeck)
-                } else if let remote = MacPlaybackTarget.output {
-                    remote.togglePlayPause()
-                } else {
-                    PlayerService.shared.togglePlayPause()
-                }
+                MacTransport.playPause()
             } label: {
                 Label("Play/Pause", systemImage: "playpause")
             }
             .keyboardShortcut(.space, modifiers: [])
             Button {
-                guard !MacConsoleController.shared.isConsoleActive else { return }
-                if let remote = MacPlaybackTarget.output {
-                    remote.next()
-                } else {
-                    Task { await PlayerService.shared.playNext() }
-                }
+                MacTransport.next()
             } label: {
                 Label("Next Track", systemImage: "forward.fill")
             }
             .keyboardShortcut(.rightArrow, modifiers: [.command])
             Button {
-                guard !MacConsoleController.shared.isConsoleActive else { return }
-                if let remote = MacPlaybackTarget.output {
-                    remote.previous()
-                } else {
-                    Task { await InstantReplay.previous(PlayerService.shared) }
-                }
+                MacTransport.previous()
             } label: {
                 Label("Previous Track", systemImage: "backward.fill")
             }
@@ -556,16 +540,12 @@ struct TransportCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
             Button {
-                guard let track = MacNowPlayingModel.shared.track else { return }
-                Task { await MacTrackEngagement.shared.toggleLike(track) }
+                MacTransport.toggleLike()
             } label: {
-                Label(
-                    MacNowPlayingModel.shared.track.map { MacTrackEngagement.shared.isLiked($0) } == true ? "Unlike" : "Like",
-                    systemImage: "heart"
-                )
+                Label(MacTransport.isLiked ? "Unlike" : "Like", systemImage: "heart")
             }
             .keyboardShortcut("l", modifiers: [.command])
-            .disabled(MacNowPlayingModel.shared.track?.supportsSoundCloudActions != true)
+            .disabled(!MacTransport.canLike)
             Divider()
             Button {
                 openWindow(id: "main")

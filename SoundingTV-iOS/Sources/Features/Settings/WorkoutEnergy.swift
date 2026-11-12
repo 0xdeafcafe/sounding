@@ -27,6 +27,8 @@ final class PhoneWorkoutEnergy: ObservableObject {
     private init() {
         refreshAccess()
         SettingsStore.shared.$djMatchWorkout
+            .combineLatest(AutoMixEnergy.shared.$focus.map(\.workout))
+            .map { $0 || $1 }
             .removeDuplicates()
             .sink { [weak self] enabled in
                 guard let self else { return }
@@ -48,7 +50,7 @@ final class PhoneWorkoutEnergy: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.access = status == .unnecessary ? .requested : .notRequested
-                if self.access == .requested, SettingsStore.shared.djMatchWorkout { self.start() }
+                if self.access == .requested, AutoMixEnergy.shared.matchesWorkout { self.start() }
             }
         }
     }
@@ -92,7 +94,7 @@ final class PhoneWorkoutEnergy: ObservableObject {
     }
 
     func noteHeartRate(_ bpm: Double, at date: Date = Date()) {
-        guard SettingsStore.shared.djMatchWorkout else { return }
+        guard AutoMixEnergy.shared.matchesWorkout else { return }
         heartRate = bpm
         AutoMixEnergy.shared.noteHeartRate(bpm, at: date)
         forward()
