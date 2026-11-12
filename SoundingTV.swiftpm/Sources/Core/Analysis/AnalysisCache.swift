@@ -761,12 +761,13 @@ actor AnalysisCache {
     }
 
     private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    private static let touchInterval: TimeInterval = 60 * 60
 
     private func readAndTouch(_ cacheKey: String) -> Data? {
         guard let db else { return nil }
 
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT payload FROM analysis WHERE cache_key = ?;", -1, &stmt, nil) == SQLITE_OK else { return nil }
+        guard sqlite3_prepare_v2(db, "SELECT payload, last_accessed_at FROM analysis WHERE cache_key = ?;", -1, &stmt, nil) == SQLITE_OK else { return nil }
         _ = cacheKey.withCString { sqlite3_bind_text(stmt, 1, $0, -1, Self.sqliteTransient) }
         guard sqlite3_step(stmt) == SQLITE_ROW else {
             sqlite3_finalize(stmt)
@@ -779,11 +780,15 @@ actor AnalysisCache {
         } else {
             data = Data()
         }
+        let lastAccessed = sqlite3_column_double(stmt, 1)
         sqlite3_finalize(stmt)
+
+        let now = Date().timeIntervalSince1970
+        guard now - lastAccessed >= Self.touchInterval else { return data }
 
         var touchStmt: OpaquePointer?
         if sqlite3_prepare_v2(db, "UPDATE analysis SET last_accessed_at = ? WHERE cache_key = ?;", -1, &touchStmt, nil) == SQLITE_OK {
-            sqlite3_bind_double(touchStmt, 1, Date().timeIntervalSince1970)
+            sqlite3_bind_double(touchStmt, 1, now)
             _ = cacheKey.withCString { sqlite3_bind_text(touchStmt, 2, $0, -1, Self.sqliteTransient) }
             sqlite3_step(touchStmt)
         }
