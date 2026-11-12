@@ -1,6 +1,6 @@
 # TV sign-in flows by account state
 
-Status: **spec for owner review, 2026-11-12.** Nothing here is built. Once the owner answers §10, the decisions go into the bible (§11 lists the edits) and this file becomes the build brief.
+Status: **approved and built, 2026-11-12.** The owner answered §10 the same day; Q1 is narrower than recommended (auto-link only for a TV this phone was already linked to and never unlinked). The decisions are in the bible (§11). §12 lists where the build differs from this text.
 
 Scope: what an Apple TV and an iPhone, iPad or Mac show for every combination of sign-in state, and the identity, protocol and security changes that make it work. Every phone-side surface is one shared implementation used by iPhone, iPad and Mac; only chrome differs (owner, 2026-11-12: "MUST be there for all devices").
 
@@ -78,8 +78,8 @@ Every surface in §6 reads this relation through `SoundingTV.swiftpm/Sources/Sha
 | # | TV | Phone | Linked | Flow | TV shows | Phone shows |
 |---|---|---|---|---|---|---|
 | 1 | Alex | Alex | yes | 1 | Normal. (TV) Remotes & Devices row has no account line. | Normal. Play On row has no account line. |
-| 2 | Alex | Alex | no, same Apple ID | 1 | "Alex's iPhone is linked" capsule, 4 s. | Links with no taps; "Linked to Living Room" capsule, 2 s. |
-| 3 | Alex | Alex | no, other Apple ID | 1 | Allow alert, "signed in to the same SoundCloud account". | Card **Link**, then the six digits. |
+| 2 | Alex | Alex | no, but was linked and never unlinked; same Apple ID | 1 | "Alex's iPhone is linked" capsule, 4 s. | Links with no taps; "Linked to Living Room" capsule, 2 s. |
+| 3 | Alex | Alex | no, never linked, unlinked, or other Apple ID | 1 | Allow alert, "signed in to the same SoundCloud account". | Card **Link**, then the six digits. |
 | 4 | signed out | Alex | either | 2 | Sign-in screen (QR, nearby line, **Play Sound**). | Card **Sign In** "as Alex", chime; or QR; or Sign In This Apple TV when linked. |
 | 5 | needs sign-in, was Alex | Alex | yes | 2b | Sign-in screen. | Devices: "Living Room is waiting to sign in." **Sign In This Apple TV**. |
 | 6 | needs sign-in, was Sam | Alex | yes | 2b | Sign-in screen. | "Living Room was signed in as Sam." **Sign In as Alex**. |
@@ -96,12 +96,12 @@ Every surface in §6 reads this relation through `SoundingTV.swiftpm/Sources/Sha
 
 ### Flow 1. Same account
 
-Goal: no QR, no chime, no code. Zero taps when both devices prove the same Apple ID; one tap otherwise.
+Goal: no QR, no chime, no code. Zero taps when this phone was already linked to the TV, never unlinked it, and both devices prove the same Apple ID; one tap otherwise.
 
 **1a. Already linked.** Nothing to do. Continue From, the other-devices bar and Output already carry the state.
 
-**1b. Not linked, same Apple ID (auto-link).** Recommended in Q1.
-- *When:* the phone is in the foreground, signed in, holds a link key, sees a TV offer whose hint matches its account and doesn't list it in `lp`, and isn't showing another pairing sheet. The TV isn't on Don't Ask or Not Now (`NearbyCardDismissals`). At most one attempt per TV per app launch.
+**1b. Link lost, never unlinked (auto-link).** Owner, Q1: "link auto if already linked and not unlinked". Same Apple ID alone isn't enough.
+- *When:* the phone is in the foreground, signed in, holds a link key, remembers a Link to this TV on this account (`KnownLinkLedger`) that the user never ended with Forget on either device, sees a TV offer whose hint matches its account and doesn't list it in `lp`, and isn't showing another pairing sheet. The TV isn't on Don't Ask or Not Now (`NearbyCardDismissals`). At most one attempt per TV per app launch.
 - *What runs:* the numeric handshake with owner tags, no UI. When both proofs verify, the phone sends `link_establish` (§7 P3): a Link with **no token** (the TV already holds Alex's session). If either proof fails, nothing is shown and the card (1c) takes over.
 - *Phone:* a glass capsule at the top, like the volume capsule: `appletv.fill` + "Linked to Living Room", 2 s, VoiceOver announcement. Mac: no capsule; the TV simply appears in Play On and Devices.
 - *TV:* the existing bottom capsule "Alex's iPhone is linked", 4 s.
@@ -109,7 +109,7 @@ Goal: no QR, no chime, no code. Zero taps when both devices prove the same Apple
 
 **1c. Not linked, one tap.** Today's card, unchanged except no token is sent:
 - Card: `appletv.fill`, "Living Room", "Apple TV · Signed in as Alex", "Link it to control playback from this iPhone.", **Link**, **Not Now**.
-- **Link** with owner proof: "Linking Living Room…" then done. Without: both screens show six digits; TV alert (§6 TV) with the "same account" message; phone **It Matches** / **It Doesn't Match**; then `link_establish`.
+- **Link** with owner proof (only for a known, never-unlinked Link, Q1): "Linking Living Room…" then done. Otherwise: both screens show six digits; TV alert (§6 TV) with the "same account" message; phone **It Matches** / **It Doesn't Match**; then `link_establish`.
 - Errors: the existing `SameAccountLinkOffer` copy ("Couldn't Link Living Room", "Living Room didn't finish linking. Try again from Devices.", 150 s).
 
 ```
@@ -350,7 +350,7 @@ Pure helpers that drive the UI, all in shared code and unit-tested: `TVAccountRe
 5. **Identity leaves only over authenticated channels.** Names and avatars travel only inside TLS-PSK Companion frames between linked devices, or in encrypted iCloud fields on the same Apple ID. The LAN sees salted hashes, as today. An unlinked TV on another account is "another account", never a name.
 6. **The TV is never a credential source over the LAN** (flow 3). Same-Apple-ID iCloud is the only way a TV's account reaches a phone, and only by the phone's **Continue as**.
 7. **Guest sessions stay off the owner's iCloud** (P10).
-8. **Auto-link needs two proofs** (Apple ID link key and the same SoundCloud account, bound to the handshake) and sends no token. Revocation, Forget and Sign Out of All Devices are unchanged.
+8. **Auto-link needs a remembered Link and two proofs** (a Link this phone held and never unlinked, the Apple ID link key, and the same SoundCloud account, bound to the handshake) and sends no token. An explicit unlink is recorded and blocks auto-link until the user links again. Revocation, Forget and Sign Out of All Devices are unchanged.
 9. Residual: a person who can both reach the TV's remote and is linked can switch its account; that matches Sign Out on the TV today.
 
 ## 9. Test plan
@@ -361,7 +361,7 @@ Unit tests (XCTest target `SoundingTVTests`, wrapped in `XCTestCase` classes, no
 |---|---|
 | `TVAccountRelationTests` | All 12 matrix rows plus `.unknown` for older builds; hint-only offers (same, other, none); needs sign-in with and without `last`; tag comparison ignores names. |
 | `TVAccountCopyTests` | Exact strings for every relation × surface in §5, including device names with apostrophes and long names. |
-| `AutoLinkPolicyTests` | Attempts only with a link key, matching hint, not in `lp`, not dismissed or ignored, foreground, no other pairing sheet, once per launch. |
+| `AutoLinkPolicyTests` | Attempts only for a known Link that was never explicitly unlinked, with a link key, matching hint, not in `lp`, not dismissed or ignored, foreground, no other pairing sheet, once per launch. |
 | `CrossAccountChoiceTests` | Remembered per (Link, TV tag, my tag); forgotten when either tag changes or the Link is forgotten. |
 | `AccountSwitchHandshakeTests` | idle → confirming → waiting (60 s) → sending → validating → done; declined, timed out, link dropped, validation unavailable, pair refused; credentials never produced before `accepted`; nonce reuse rejected. |
 | `LinkEstablishTests` | Credentials requested only for signed-out TVs; fallback for older TVs; P9 digest picks the Allow copy. |
@@ -373,22 +373,22 @@ Unit tests (XCTest target `SoundingTVTests`, wrapped in `XCTestCase` classes, no
 
 On real devices (main session only, owner's account; a second SoundCloud account must be signed in by the owner himself on one device, agents never type credentials; stop at the first 429): matrix rows 2, 3, 4, 6, 8, 10, 11 and 12 on the Living Room TV with the iPad and the Mac; B1 to B6 confirmed fixed; VoiceOver on the choice dialog and the capsules; TV focus never trapped by the switch alert.
 
-## 10. Open questions for the owner
+## 10. Owner's answers (2026-11-12)
 
-| # | Question | Recommendation |
+| # | Question | Answer |
 |---|---|---|
-| Q1 | Same account and same Apple ID: link with **no taps** (capsule "Linked to Living Room"), or keep the one-tap card? Zero taps reverses the recorded rule "nothing pairs silently". | **No taps.** Two independent proofs that it's your device, and no token moves. The card stays for every other case. |
-| Q2 | Phone signed out, TV signed in: should the TV be able to sign the phone in over the network (with **Allow** on the TV)? | **No.** Same Apple ID gets **Continue as Sam** from iCloud; everyone else signs in with SoundCloud. A TV handing out the household token is the bigger risk. |
-| Q3 | Switching a TV's account: confirm on the phone **and** the TV? | **Both.** It signs someone out, and the TV's alert proves you're in the room. |
-| Q4 | Should a TV on another account ever get the proactive nearby card or the "is nearby" notification? | **No.** It's usually someone else's TV (a friend's flat). It shows in Play On's Nearby section, Add Apple TV and Devices. |
-| Q5 | A linked TV on another account in the other-devices bar? | **No**, only as an Output with "Signed in as Sam". Matches the bible's privacy rule. |
-| Q6 | Settings › Add a Device on a signed-in TV: control-only from now on (never adopts the phone's account)? | **Yes.** Switching goes through 4c only. |
-| Q7 | iCloud session records per SoundCloud account, and guest sign-ins never written to the TV owner's iCloud? | **Yes.** Fixes devices flipping accounts. |
-| Q8 | After a switch, what happens to the old account's data on the TV? | **The same as Sign Out on the TV, but Links are kept**: downloads, Top Shelf, recents and account settings for Sam are removed. |
-| Q9 | Show the account on the TV's success screen ("Signed in as Alex.") and in the flow-2 card ("Sign it in to Sounding as Alex.")? | **Yes.** It's the cheapest way to make the account visible before and after. |
-| Q10 | Put the TV's account in the Now Playing bar while it's the Output on another account? | **No.** The bar stays calm; the Output picker row, the first-use choice and every failure name it. |
+| Q1 | Same account: link with **no taps**? | **Only when already linked and never unlinked** ("link auto if already linked and not unlinked"), on the same SoundCloud account and the same Apple ID. Same Apple ID alone gets the one-tap card. An explicit unlink is recorded and blocks auto-link until the user links again. |
+| Q2 | Phone signed out, TV signed in: may the TV sign the phone in over the network? | **No.** Same Apple ID gets **Continue as Sam** from iCloud; everyone else signs in with SoundCloud. |
+| Q3 | Switching a TV's account: confirm on the phone **and** the TV? | **Both.** The token is sent only after the TV accepts. |
+| Q4 | Proactive nearby card or notification for a TV on another account? | **No.** It shows in Play On's Nearby section, Add Apple TV and Devices. |
+| Q5 | A linked TV on another account in the other-devices bar? | **No**, only as an Output with "Signed in as Sam". |
+| Q6 | Add a Device on a signed-in TV is control-only? | **Yes.** Switching goes through 4c only. |
+| Q7 | iCloud session records per account; guest sign-ins stay off the owner's iCloud? | **Yes.** |
+| Q8 | The old account's data on the TV after a switch? | **As Sign Out on the TV, Links kept.** |
+| Q9 | "Signed in as Alex." on the TV's done screen and "Sign it in to Sounding as Alex." on the card? | **Yes.** |
+| Q10 | The TV's account in the Now Playing bar? | **No.** The Output row, the first-use choice and every failure name it. |
 
-## 11. Bible edits once approved
+## 11. Bible edits (made 2026-11-12)
 
 - §2 All platforms: a new **TV accounts** bullet (the relation, the first-use choice, "Signed in as Sam" in Play On and Devices, failures never silent) and a change to **Link a nearby Apple TV from Play On** (another-account status and its confirmation).
 - §2 Apple TV: the done subtitle "Signed in as Alex.", the two Allow alert texts, the switch alert and "Switching to Alex…", the "connected · Alex" capsule, Remotes & Devices lines.
@@ -396,3 +396,14 @@ On real devices (main session only, owner's account; a second SoundCloud account
 - §9 Nearby Apple TV card: auto-link (Q1), the "as Alex" message, no card for another account (Q4); SoundCloud sign-in renewal: per-account iCloud records (Q7).
 - `devices-and-auth.md`: §4.2 (`link_establish`), §4.3 (switch path), §4.4b (auto-link), §6 threat model rows for switching and guests, G14 closed.
 - §13 decision log: one row per answered question.
+
+## 12. As built (2026-11-12)
+
+- Owner tags (the Apple ID proof) are sent only for a known, never-unlinked Link. A TV that was never linked, or was unlinked, always gets the six digits and the Allow alert, even on the same Apple ID.
+- A signed-out TV still gets `token_transfer` straight away; `link_establish` is used for TVs that advertise an account.
+- An older TV whose offer hints another account gets no fallback: the phone says "Update Sounding on Living Room to link it from here."
+- The `link_revoke` reason (`forgotten`, `signedOut`, `replaced`) is optional and unsigned. A revoke without one counts as an explicit unlink.
+- A TV session that came from auth handoff or a switch counts as a guest's (owner proof isn't tracked per Link), so the TV writes it to iCloud only when iCloud already holds that account.
+- The legacy iCloud record keeps working for older builds and carries the account tag in its writer field; the per-account record `session-<tag>` is written beside it. The new encrypted fields need the CloudKit production schema deployed.
+- If owner verification fails during auto-link, the TV's Allow alert can flash briefly before the card takes over.
+- Not yet built: the Remote screen's first-use choice on appear (Play On, Control and Play on Living Room do ask), and the `DevicePresenceTests` and `SameAccountLinkTests` extensions.
