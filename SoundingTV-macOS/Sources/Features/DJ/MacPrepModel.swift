@@ -126,9 +126,10 @@ final class MacPrepModel: ObservableObject {
     @Published var selection: String? {
         didSet { if selection != oldValue { Task { await loadDetail() } } }
     }
+    private var switchesSourceQuietly = false
     @Published var source: Source = .all {
         didSet {
-            guard source != oldValue else { return }
+            guard source != oldValue, !switchesSourceQuietly else { return }
             if case .stick(let volume, let playlist) = source {
                 enterStick(volume: volume, playlist: playlist)
             } else {
@@ -334,6 +335,11 @@ final class MacPrepModel: ObservableObject {
             ))
         }
         allRows = built
+        if case .all = source, rows(for: .all).isEmpty, built.contains(where: \.isLike) {
+            switchesSourceQuietly = true
+            source = .likes
+            switchesSourceQuietly = false
+        }
         exportedIds = ledger.exportedIds
         let changed = await store.prepSyncRecords(changedSince: ledger.lastExportMillis)
         let exportable = Set(built.filter(\.canExport).map(\.id))
@@ -583,6 +589,47 @@ final class MacPrepModel: ObservableObject {
         guard let id = detail?.trackId, PlayerService.shared.currentTrack?.id == id else { return nil }
         return PlayerService.shared.currentTime
     }
+
+    func show(trackId id: String) async {
+        if isLoading { await reload() }
+        if allRows.contains(where: { $0.id == id }) == false, let track = tracks.track(id) {
+            await ensureRow(for: track)
+        }
+        guard let row = allRows.first(where: { $0.id == id }) else { return }
+        if !rows.contains(where: { $0.id == id }) {
+            switchesSourceQuietly = true
+            source = row.isLike && !row.hasFile ? .likes : .all
+            switchesSourceQuietly = false
+            applySource()
+        }
+        selection = id
+    }
+
+    func ensureRow(for track: Track) async {
+        MacPrepLibraryIndex.shared.install([track])
+        guard !allRows.contains(where: { $0.id == track.id }) else { return }
+        let prep = await store.prep(forTrack: track.id)
+        let cues = await store.cues(forTrack: track.id)
+        let isSoundCloud = !LocalTrackFile.isLocalTrackID(track.id)
+        var row = Row(
+            id: track.id,
+            title: track.title,
+            artist: track.user.username,
+            durationSeconds: track.duration,
+            bpm: prep?.grid?.value.bpm,
+            key: prep?.key?.value.camelot,
+            energy: prep?.energy?.value,
+            cueCount: cues.filter { $0.hotCueIndex != nil }.count,
+            hasFile: false,
+            gridLocked: prep?.hasLockedGrid ?? false
+        )
+        row.gridSource = prep?.grid?.source
+        row.access = isSoundCloud ? (access(.prep, true) == nil ? .streams : .autoMixOnly) : .local
+        row.addedMillis = Int64(track.createdAt.timeIntervalSince1970 * 1000)
+        row.analysis = prep?.grid == nil && prep?.key == nil ? .missing : .done
+        row.artworkURL = track.artworkURL
+        allRows.append(row)
+    }
 }
 
 struct MacPrepTrackSource {
@@ -646,16 +693,29 @@ final class MacPrepLibraryIndex {
     func track(_ id: String) -> Track? { tracksById[id] }
 
     func load() async -> [Track] {
+        let count = await LibraryDB.count(.likes)
+        let page = count > 0 ? await LibraryDB.tracks(.likes, offset: 0, limit: count) : nil
+        if let page, !page.tracks.isEmpty {
+            likeOrder = page.tracks.map(\.id)
+            for track in page.tracks { tracksById[track.id] = track }
+            loaded = true
+            return page.tracks
+        }
         if !loaded {
-            let rows = await LibraryCache.shared.loadAllLikes()
             let decoder = JSONDecoder()
-            for row in rows {
-                if let track = try? decoder.decode(Track.self, from: row.payload) { tracksById[track.id] = track }
+            var order: [String] = []
+            for row in await LibraryCache.shared.loadAllLikes() {
+                guard let track = try? decoder.decode(Track.self, from: row.payload) else { continue }
+                tracksById[track.id] = track
+                order.append(track.id)
             }
+            likeOrder = order
             loaded = true
         }
-        return Array(tracksById.values)
+        return likeOrder.compactMap { tracksById[$0] }
     }
+
+    private var likeOrder: [String] = []
 
     func install(_ tracks: [Track]) {
         for track in tracks { tracksById[track.id] = track }

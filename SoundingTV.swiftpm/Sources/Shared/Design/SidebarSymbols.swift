@@ -14,6 +14,7 @@ enum SidebarSymbol {
     static let albums = "square.stack"
     static let artists = "music.microphone"
     static let sets = "headphones"
+    static let prep = "waveform.path.badge.plus"
     static let setlists = "list.number"
     static let downloads = "arrow.down.circle"
     static let history = "clock.arrow.circlepath"

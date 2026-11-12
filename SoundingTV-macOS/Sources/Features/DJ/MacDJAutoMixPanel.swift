@@ -125,7 +125,7 @@ struct MacDJAutoMixPanel<Library: View>: View {
         HStack {
             Text(panel.footer)
             Spacer()
-            Button { model.mode = .plan } label: {
+            Button { model.isPlanPresented = true } label: {
                 HStack(spacing: 4) {
                     Text("Plan")
                     Text("\u{2318}3")

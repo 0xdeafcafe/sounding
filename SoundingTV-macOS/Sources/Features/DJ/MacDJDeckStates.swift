@@ -79,6 +79,7 @@ struct MacDJNoGridControls: View {
     let deck: MixEngine.Deck
 
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -91,9 +92,9 @@ struct MacDJNoGridControls: View {
                     .foregroundStyle(.white.opacity(0.35))
                     .accessibilityLabel("Sync, unavailable without a grid")
                 Group {
-                    Button("Tap Tempo") { MacDJPerformModel.shared.mode = .prep }
-                    Button("Set Downbeat") { MacDJPerformModel.shared.mode = .prep }
-                    Button("Edit in Prep") { MacDJPerformModel.shared.mode = .prep }
+                    Button("Tap Tempo") { openPrep() }
+                    Button("Set Downbeat") { openPrep() }
+                    Button("Edit in Prep") { openPrep() }
                 }
                 .buttonStyle(MacDJControlButtonStyle(height: 26))
                 .fixedSize()
@@ -105,6 +106,10 @@ struct MacDJNoGridControls: View {
                 .font(.system(size: 13))
                 .labelStyle(MacDJAutoLabelStyle())
         }
+    }
+
+    private func openPrep() {
+        MacPrepRoute.shared.openWindow(trackId: MacDeckTrackRegistry.shared.track(for: deck)?.id, open: openWindow)
     }
 }
 

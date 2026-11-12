@@ -24,7 +24,7 @@ struct MacDJWindow: View {
             .focusEffectDisabled()
             .focused($isFocused)
             .onKeyPress(keys: MacDJKeyboard.consoleKeys, phases: [.down, .up, .repeat]) { press in
-                model.mode == .perform ? MacDJKeyboard.handle(press) : .ignored
+                model.isPlanPresented ? .ignored : MacDJKeyboard.handle(press)
             }
             .onAppear {
                 isFocused = true
@@ -45,6 +45,9 @@ struct MacDJWindow: View {
                         console.loadTarget = nil
                     }
                 }
+            }
+            .sheet(isPresented: $model.isPlanPresented) {
+                MacDJPlanSheet(perform: model)
             }
             .sheet(isPresented: $console.showingAutoDJStartConfiguration) {
                 AutoDJStartConfigurationView { configuration in
@@ -75,39 +78,13 @@ struct MacDJWindow: View {
         #endif
     }
 
-    @ViewBuilder
     private var screens: some View {
-        switch model.mode {
-        case .perform:
-            MacDJPerformView(model: model, context: deckContext, prep: prep)
-                .overlay(alignment: .topLeading) {
-                    MacDJModeSwitch(mode: $model.mode).padding(.leading, 16).padding(.top, 6)
+        MacDJPerformView(model: model, context: deckContext, prep: prep)
+            .overlay(alignment: .top) {
+                if let refusal = model.refusal {
+                    DJRefusalBanner(message: refusal).padding(.top, 52)
                 }
-                .overlay(alignment: .top) {
-                    if let refusal = model.refusal {
-                        DJRefusalBanner(message: refusal).padding(.top, 52)
-                    }
-                }
-        case .prep:
-            DJPrepScreen(model: prep, context: deckContext) {
-                HStack(spacing: 12) {
-                    MacDJModeSwitch(mode: $model.mode)
-                    MacDJLiveStrip(state: model.state(at: Date()))
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
-                .padding(.bottom, 8)
             }
-        case .plan:
-            MacDJPlanHost(perform: model)
-                .padding(.top, 46)
-                .background(DJPlanPalette.canvas)
-                .environment(\.colorScheme, .dark)
-                .overlay(alignment: .topLeading) {
-                    MacDJModeSwitch(mode: $model.mode).padding(.leading, 16).padding(.top, 6)
-                }
-        }
     }
 
     var deckContext: DJDeckContext {
@@ -128,62 +105,42 @@ struct MacDJWindow: View {
         context.playedTonight = PlayerService.shared.queue.prefix(PlayerService.shared.currentIndex).reversed().map {
             DJPlayedTrack(id: $0.id, title: $0.title, artworkURL: $0.artworkURL, detail: $0.user.displayName)
         }
-        context.planTransition = { _ in model.mode = .plan }
+        context.planTransition = { _ in model.isPlanPresented = true }
         return context
     }
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            if model.mode == .perform {
-                Button {
-                    isShowingDecksView.toggle()
-                } label: {
-                    Label("Decks View", systemImage: "rectangle.3.group")
-                }
-                .help("Choose what the decks show")
-                .popover(isPresented: $isShowingDecksView, arrowEdge: .bottom) {
-                    MacDJDecksViewPopover(model: model, console: console)
-                }
+            Button {
+                isShowingDecksView.toggle()
+            } label: {
+                Label("Decks View", systemImage: "rectangle.3.group")
+            }
+            .help("Choose what the decks show")
+            .popover(isPresented: $isShowingDecksView, arrowEdge: .bottom) {
+                MacDJDecksViewPopover(model: model, console: console)
             }
             DJPlayersToolbarButton()
             Button {
-                model.mode = .perform
                 model.panelTab = .library
                 model.isPanelOpen = true
             } label: {
                 Label("Search Library", systemImage: "magnifyingglass")
             }
             .help("Search the library (\u{2318}F)")
-            switch model.mode {
-            case .perform:
-                Button {
-                    withAnimation(reduceMotion ? nil : .snappy) { model.isPanelOpen.toggle() }
-                } label: {
-                    Label(model.isPanelOpen ? "Hide Auto Mix Panel" : "Show Auto Mix Panel", systemImage: "sidebar.right")
-                }
-                .help(model.isPanelOpen ? "Hide the Auto Mix panel" : "Show the Auto Mix panel")
-            case .prep:
-                Button {
-                    prep.inspectorChoice = !prep.isInspectorShown
-                } label: {
-                    Label("Inspector", systemImage: "sidebar.right")
-                }
-                .help("Show or hide the inspector (\u{2325}\u{2318}I)")
-            case .plan:
-                EmptyView()
+            Button {
+                withAnimation(reduceMotion ? nil : .snappy) { model.isPanelOpen.toggle() }
+            } label: {
+                Label(model.isPanelOpen ? "Hide Auto Mix Panel" : "Show Auto Mix Panel", systemImage: "sidebar.right")
             }
+            .help(model.isPanelOpen ? "Hide the Auto Mix panel" : "Show the Auto Mix panel")
         }
     }
 
     private var modeShortcuts: some View {
         Group {
-            ForEach(MacDJMode.allCases) { mode in
-                Button(mode.title) { model.mode = mode }
-                    .keyboardShortcut(mode.shortcut, modifiers: .command)
-            }
             Button("Library") {
-                model.mode = .perform
                 model.panelTab = .library
                 model.isPanelOpen = true
             }
@@ -210,91 +167,53 @@ struct MacDJWindow: View {
     }
 }
 
-struct MacDJModeSwitch: View {
-    @Binding var mode: MacDJMode
-    static let reservedWidth: CGFloat = 234
+struct MacDJPlanSheet: View {
+    @ObservedObject var perform: MacDJPerformModel
+    var fixture: DJPlanModel?
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        GlassEffectContainer(spacing: 6) {
-            HStack(spacing: 6) {
-                ForEach(MacDJMode.allCases) { candidate in
-                    modeButton(candidate)
-                }
+        VStack(spacing: 0) {
+            HStack {
+                Text("Plan")
+                    .font(.title2.weight(.semibold))
+                Text("Up Next, transition by transition")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            MacDJPlanHost(perform: perform, fixture: fixture)
         }
-        .buttonBorderShape(.capsule)
-        .tint(Color.scAccent)
+        .frame(minWidth: 1080, idealWidth: 1180, minHeight: 640, idealHeight: 720)
+        .background(DJPlanPalette.canvas)
         .environment(\.colorScheme, .dark)
-        .fixedSize()
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Mode")
-    }
-
-    @ViewBuilder
-    private func modeButton(_ candidate: MacDJMode) -> some View {
-        let button = Button(candidate.title) { mode = candidate }
-            .help("\(candidate.title) (\u{2318}\(candidate.shortcut.character))")
-            .accessibilityAddTraits(candidate == mode ? .isSelected : [])
-        if candidate == mode {
-            button.buttonStyle(.glassProminent)
-        } else {
-            button.buttonStyle(.glass)
-        }
-    }
-}
-
-struct MacDJLiveStrip: View {
-    let state: MacDJPerformState
-
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    var body: some View {
-        HStack(spacing: 12) {
-            deckChip(state.deck(state.mix?.leaving ?? .a))
-            if let mix = state.mix, let step = mix.currentStep {
-                Label("\(step.label) \u{00B7} bar \(max(1, Int(mix.nowBar)))/\(Int(mix.totalBars))", systemImage: "sparkle")
-                    .labelStyle(MacDJAutoLabelStyle())
-                    .font(.system(size: 13))
-                    .lineLimit(1)
-            }
-            deckChip(state.deck((state.mix?.leaving ?? .a).other))
-        }
-        .padding(.horizontal, 6)
-        .frame(height: 34)
-        .modifier(MacDJStripGlass(isYours: false, reduceTransparency: reduceTransparency))
-        .fixedSize()
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Decks")
-    }
-
-    @ViewBuilder
-    private func deckChip(_ deck: MacDJDeckState) -> some View {
-        if !deck.isEmpty {
-            HStack(spacing: 6) {
-                MacDJDeckBadge(deck: deck.deck)
-                Text(deck.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                if deck.role == .onAir {
-                    Text(deck.remainingText).font(.system(size: 13).monospacedDigit()).foregroundStyle(.white.opacity(0.7))
-                } else if deck.role == .mixingIn {
-                    MacDJChip(kind: .mixingIn)
-                }
-            }
-            .padding(.horizontal, 6)
-        }
+        .tint(Color.scAccent)
     }
 }
 
 struct MacDJPlanHost: View {
     @ObservedObject var perform: MacDJPerformModel
+    private let isFixture: Bool
     @State private var model: DJPlanModel?
     @State private var generation = 0
+
+    init(perform: MacDJPerformModel, fixture: DJPlanModel? = nil) {
+        self.perform = perform
+        isFixture = fixture != nil
+        _model = State(initialValue: fixture)
+    }
 
     var body: some View {
         Group {
             if let model {
                 DJPlanScreen(model: model)
+            } else if PlayerService.shared.queue.isEmpty {
+                ContentUnavailableView("Nothing to Plan", systemImage: "arrow.triangle.merge", description: Text("Queue some tracks and Plan lays out each transition."))
             } else {
-                ProgressView()
+                ProgressView("Reading the queue\u{2026}")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -302,7 +221,7 @@ struct MacDJPlanHost: View {
             if model == nil { model = await Self.makeModel(perform: perform) { generation += 1; model = nil } }
         }
         .task(id: model.map(ObjectIdentifier.init)) {
-            while !Task.isCancelled, let model {
+            while !isFixture, !Task.isCancelled, let model {
                 let live = perform.planLive(at: Date())
                 if model.live != live { model.live = live }
                 try? await Task.sleep(for: .milliseconds(500))
