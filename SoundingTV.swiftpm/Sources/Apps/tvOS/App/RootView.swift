@@ -239,7 +239,7 @@ private struct SameAccountLinking: ViewModifier {
         content
             .overlay(alignment: .bottom) {
                 if let banner = linkedBanner ?? accountNotice?.text ?? nearbyHint {
-                    Label(banner, systemImage: linkedBanner == nil ? accountNotice?.symbol ?? DeviceClass.phone.symbolName : DeviceClass.phone.symbolName)
+                    Label(banner, systemImage: bannerSymbol)
                         .font(.tvCaption)
                         .foregroundStyle(Color.scTextPrimary)
                         .padding(.horizontal, Space.base)
@@ -302,6 +302,11 @@ private struct SameAccountLinking: ViewModifier {
         let name = server.linkApproval?.deviceName ?? "A nearby device"
         if server.linkApproval?.account == .different { return TVAccountCopy.tvAllowTitle(device: name) }
         return "Allow “\(name)” to link to this Apple TV?"
+    }
+
+    private var bannerSymbol: String {
+        if linkedBanner != nil { return PeerDevice(deviceClass: advertiser.linkedClass).symbolName }
+        return accountNotice?.symbol ?? PeerDevice.neutralSymbolName
     }
 
     private var nearbyHint: String? {

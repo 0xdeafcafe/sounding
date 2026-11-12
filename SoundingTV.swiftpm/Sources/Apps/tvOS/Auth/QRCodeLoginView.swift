@@ -96,7 +96,7 @@ struct QRCodeLoginView: View {
                         .accessibilityIdentifier("login.success.continue")
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
                     } else if isFaultScreen, case .failed(let fault) = state {
-                        FaultGuidance(fault: fault)
+                        FaultGuidance(fault: fault, peer: bonjourServer.peerDevice)
                             .frame(maxWidth: 900)
                     } else if let code = bonjourServer.numericComparisonCode {
                         NumericComparisonGuidance(code: code)
@@ -117,7 +117,9 @@ struct QRCodeLoginView: View {
                             state: state,
                             stage: stage,
                             waiting: hint,
-                            nearbyName: nearbyPhone.name
+                            nearbyName: nearbyPhone.name,
+                            nearbyKind: nearbyPhone.kind,
+                            peer: bonjourServer.peerDevice
                         )
                         .frame(maxWidth: 1100)
 
@@ -263,12 +265,12 @@ struct QRCodeLoginView: View {
                         DevicePicker(
                             DevicePickerInviter.descriptor,
                             onSelect: { invite($0) },
-                            label: { Label("Sign in with iPhone", systemImage: "iphone") },
+                            label: { Label(TVPairingCopy.pickerTitle, systemImage: TVPairingCopy.pickerSymbolName) },
                             fallback: { EmptyView() },
                             parameters: { DevicePickerInviter.parameters }
                         )
                     } else {
-                        Button {} label: { Label("Sign in with iPhone", systemImage: "iphone") }
+                        Button {} label: { Label(TVPairingCopy.pickerTitle, systemImage: TVPairingCopy.pickerSymbolName) }
                     }
                 }
                 .buttonStyle(SignInChromeButtonStyle(reduceMotion: reduceMotion))
@@ -288,11 +290,9 @@ struct QRCodeLoginView: View {
     private var hint: String {
         switch state {
         case .connected, .receivingToken:
-            return "Finish on your iPhone."
+            return TVPairingCopy.finishOn(bonjourServer.peerDevice)
         default:
-            return purpose == .companion
-                ? "Scan with Sounding on your iPhone, or confirm the code on your Mac."
-                : "Scan with your iPhone camera, or open Sounding on your iPhone nearby."
+            return purpose == .companion ? TVPairingCopy.companionScanHint : TVPairingCopy.scanHint
         }
     }
 
@@ -619,6 +619,7 @@ private struct NumericComparisonGuidance: View {
 
 private struct FaultGuidance: View {
     let fault: LinkServer.Fault
+    var peer = PeerDevice.unknown
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.base) {
@@ -639,7 +640,7 @@ private struct FaultGuidance: View {
         case .cannotListen:          return "This Apple TV can't be found on your network"
         case .localNetworkDenied:    return "Local Network access is off"
         case .cannotGenerateSession: return "Couldn't create a code"
-        case .connectionLost:        return "Your iPhone dropped off"
+        case .connectionLost:        return TVPairingCopy.droppedOff(peer)
         case .rejected:              return "That sign-in was refused"
         case .validationUnavailable: return "SoundCloud couldn't be reached"
         }
@@ -656,7 +657,7 @@ private struct FaultGuidance: View {
         case .connectionLost:
             return "The connection closed before it finished. Try again for a fresh code."
         case .rejected:
-            return "Try again for a fresh code, then sign in on your iPhone once more."
+            return TVPairingCopy.signInOnceMore(peer)
         case .validationUnavailable:
             return "Check this Apple TV's internet connection, then try again."
         }
@@ -797,7 +798,7 @@ private struct CodePlate: View {
         if !codeIsRedeemable {
             return state == .timeout ? "Getting a new code" : "No code"
         }
-        return matrix == nil ? "Preparing a sign-in code" : "Sign-in QR code. Scan it with your iPhone camera."
+        return matrix == nil ? "Preparing a sign-in code" : TVPairingCopy.scanAccessibility
     }
 
     @ViewBuilder
@@ -824,6 +825,8 @@ private struct LinkStatusLine: View {
     var stage: SignInStage?
     let waiting: String
     var nearbyName: String?
+    var nearbyKind: DeviceClass?
+    var peer = PeerDevice.unknown
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -890,7 +893,7 @@ private struct LinkStatusLine: View {
                 .foregroundStyle(Color.scDestructive)
         case .preparing, .waiting:
             if isNearby {
-                Image(systemName: DeviceClass.phone.symbolName)
+                Image(systemName: PeerDevice(deviceClass: nearbyKind).symbolName)
                     .font(.tvCalloutEmph)
                     .foregroundStyle(SignInInk.secondary)
             }
@@ -904,19 +907,19 @@ private struct LinkStatusLine: View {
     private var title: String {
         if let staged {
             switch staged {
-            case .phoneConnected: return "iPhone connected"
-            case .phoneFound: return "iPhone found"
+            case .phoneConnected: return TVPairingCopy.connected(peer)
+            case .phoneFound: return TVPairingCopy.found(peer)
             case .signingIn: return "Connecting…"
             case .signedIn: return "Signed in"
             case .couldntSignIn: return "Couldn\u{2019}t sign in"
-            case .notified: return "Notification sent to your iPhone"
-            case .pickerConnecting: return "iPhone connecting…"
+            case .notified: return TVPairingCopy.notified
+            case .pickerConnecting: return TVPairingCopy.pickerConnecting
             }
         }
         switch state {
         case .idle:           return "Getting ready…"
-        case .advertising:    return nearbyName.map { "\($0) is nearby: open Sounding on it to sign in." } ?? waiting
-        case .connected:      return "iPhone connected. Finish on your iPhone."
+        case .advertising:    return nearbyName.map(TVPairingCopy.nearbyHint) ?? waiting
+        case .connected:      return TVPairingCopy.connectedFinish(peer)
         case .receivingToken: return "Signing you in…"
         case .completed:      return "Signed in"
         case .timeout:        return "Code expired, getting a new one"

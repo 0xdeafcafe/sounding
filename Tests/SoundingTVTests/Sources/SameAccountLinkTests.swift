@@ -291,8 +291,8 @@ final class SameAccountLinkTests: XCTestCase {
 
     @MainActor
     func testTVFallsBackToAGenericNameAndPicksTheFirstMatch() {
-        XCTAssertEqual(SameAccountPhoneBrowser.nearbyName(in: [phone(name: nil)], accountId: "12345", linkedDeviceIds: []), "An iPhone")
-        XCTAssertEqual(SameAccountPhoneBrowser.nearbyName(in: [phone(name: "   ")], accountId: "12345", linkedDeviceIds: []), "An iPhone")
+        XCTAssertEqual(SameAccountPhoneBrowser.nearbyName(in: [phone(name: nil)], accountId: "12345", linkedDeviceIds: []), "A device")
+        XCTAssertEqual(SameAccountPhoneBrowser.nearbyName(in: [phone(name: "   ")], accountId: "12345", linkedDeviceIds: []), "A device")
         let adverts = [phone("bbbb0000", name: "iPad"), phone("aaaa0000", account: "999", name: "Other"), phone("cccc0000", name: "iPhone")]
         XCTAssertEqual(SameAccountPhoneBrowser.nearbyName(in: adverts, accountId: "12345", linkedDeviceIds: []), "iPad")
     }

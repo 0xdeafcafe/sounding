@@ -91,7 +91,7 @@ struct FeedView: View {
                 kind: .empty,
                 icon: "qrcode",
                 title: "Sign in to see your stream",
-                message: "Scan the code with your iPhone to sign in to SoundCloud.",
+                message: "Scan the code with your phone's camera to sign in to SoundCloud.",
                 actionTitle: "Sign In",
                 action: { Task { await authService.logout() } },
                 minHeight: 700,
