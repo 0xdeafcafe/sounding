@@ -15,14 +15,20 @@
   <title>Features · Sounding</title>
   <link rel="icon" type="image/webp" href="../assets/app-icon.webp">
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
-  <script>(function(r){r.classList.add('js');var s;try{s=localStorage.getItem('sounding.side')}catch(e){}r.dataset.side=s||(matchMedia('(prefers-color-scheme: dark)').matches?'b':'a')})(document.documentElement)</script>
+  <script>(function(r){var c=r.classList;c.add('js');var s;try{s=localStorage.getItem('sounding.side')}catch(e){}r.dataset.side=s||(matchMedia('(prefers-color-scheme: dark)').matches?'b':'a');if(matchMedia('(prefers-reduced-motion: reduce)').matches||/[?&]still/.test(location.search))c.add('still');setTimeout(function(){if(!c.contains('live'))c.add('still')},6000)})(document.documentElement)</script>
+  <style>html.js:not(.still):not(.live){background:#0b0908}html.js:not(.still):not(.live) body{visibility:hidden}</style>
   <link rel="stylesheet" href="../assets/site.css">
   <link rel="stylesheet" href="../assets/side.css">
   <link rel="stylesheet" href="../assets/features.css">
-  <script src="../assets/side.js" defer></script>
+  <link rel="modulepreload" href="../assets/stage.js">
+  <link rel="modulepreload" href="../assets/world.js">
+  <link rel="modulepreload" href="../assets/gl.js">
+  <link rel="modulepreload" href="../assets/shaders.js">
+  <script type="module" src="../assets/app.js"></script>
 </head>
 <body data-page="features">
   <a class="skip" href="#main">Skip to content</a>
+  <canvas id="gl" aria-hidden="true"></canvas>
 
   <header class="top">
     <a class="brand ink" href="../"><img src="../assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
@@ -35,16 +41,19 @@
   </header>
 
   <main id="main">
-    <section class="pg-hero fh" aria-labelledby="hero-h">
-      <div class="pg-lead">
-        <h1 id="hero-h">Everything it does.</h1>
-        <p class="lede">The lot, by device. If it’s on this page, it’s in the beta. If it’s half built, it isn’t on this page.</p>
-        <p class="note">A free SoundCloud account gets previews. Full tracks and downloads need Go or Go+.</p>
-        <nav class="jump" aria-label="Devices"><a href="#all">All of them</a><a href="#iphone">iPhone</a><a href="#ipad">iPad</a><a href="#mac">Mac</a><a href="#tv">Apple&nbsp;TV</a><a href="#watch">Apple&nbsp;Watch</a><a href="#extras">Widgets and the rest</a><a href="#privacy">Privacy</a></nav>
+    <section class="scene chapter hero" id="top" data-scene="hero" data-shot="crate" data-span="1.4" aria-labelledby="hero-h">
+      <div class="pin">
+        <figure class="plate" aria-hidden="true"><img class="pa" src="../assets/still/listen-a.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="../assets/still/listen-b.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"></figure>
+        <div class="side a">
+          <h1 class="ink" id="hero-h">Everything it does.</h1>
+          <p class="lede ink">The lot, by device. If it’s on this page, it’s in the beta. If it’s half built, it isn’t on this page.</p>
+          <p class="note ink">A free SoundCloud account gets previews. Full tracks and downloads need Go or Go+.</p>
+          <nav class="jump" aria-label="Devices"><a class="ink" href="#all">All of them</a><a class="ink" href="#iphone">iPhone</a><a class="ink" href="#ipad">iPad</a><a class="ink" href="#mac">Mac</a><a class="ink" href="#tv">Apple&nbsp;TV</a><a class="ink" href="#watch">Apple&nbsp;Watch</a><a class="ink" href="#extras">Widgets and the rest</a><a class="ink" href="#privacy">Privacy</a></nav>
+        </div>
       </div>
     </section>
 
-    <section class="pg-sec all" id="all" aria-labelledby="all-h">
+    <section class="pg-sec all flowing" id="all" aria-labelledby="all-h">
       <div class="pg-sh">
         <h2 id="all-h">On all of them.</h2>
         <p class="sub">Most of it is the same app everywhere, so here it is in one go.</p>
@@ -90,144 +99,144 @@
       </div>
     </section>
 
-    <section class="pg-sec" id="iphone" aria-labelledby="iphone-h">
-      <div class="pg-sh">
-        <h2 id="iphone-h">iPhone.</h2>
-        <p class="sub">Everything in the table, plus:</p>
-      </div>
-      <div class="pg-sb">
-        <dl class="fl">
-          <div><dt>Live Activity</dt><dd>Now Playing in the Dynamic Island and on the Lock Screen, and the TV sign-in while it happens.</dd></div>
-          <div><dt>Widgets</dt><dd>Now Playing and Recently Played, on the Home Screen and the Lock Screen.</dd></div>
-          <div><dt>Controls</dt><dd>Play or Pause, Resume and Identify Song in Control Center, or on the Action button.</dd></div>
-          <div><dt>Wake to This</dt><dd>An alarm that wakes you with a track, playlist or station.</dd></div>
-          <div><dt>Match My Workout</dt><dd>Your heart rate from Apple Watch sets how hard Auto Mix goes.</dd></div>
-          <div><dt>Signs in the Apple TV</dt><dd>Listens for the TV’s chime, or scans its QR code.</dd></div>
-          <div><dt>Share to the Apple TV</dt><dd>Share a SoundCloud link and pick Play Now, Play Next or Add to End.</dd></div>
-          <div><dt>Volume buttons</dt><dd>With Sounding open, they turn the TV up and down.</dd></div>
-          <div><dt>Scout</dt><dd>A notification when an artist you scout posts a new track or set.</dd></div>
-          <div><dt>Spotlight</dt><dd>Finds your tracks, playlists and artists.</dd></div>
-        </dl>
-      </div>
-    </section>
-
-    <section class="pg-sec" id="ipad" aria-labelledby="ipad-h">
-      <div class="pg-sh">
-        <h2 id="ipad-h">iPad.</h2>
-        <p class="sub">Same app as the iPhone, laid out for the bigger screen.</p>
-      </div>
-      <div class="pg-sb">
-        <dl class="fl">
-          <div><dt>The bar along the bottom</dt><dd>Shuffle, transport, repeat, Lyrics and Up Next, like Music on iPad.</dd></div>
-          <div><dt>Sidebar</dt><dd>Home, Search and Decks, then your Library and every playlist.</dd></div>
-          <div><dt>Now Playing in two columns</dt><dd>The player on the left; comments, lyrics or Up Next on the right.</dd></div>
-          <div><dt>Drag and drop</dt><dd>Tracks, albums and playlists into Up Next or onto a playlist.</dd></div>
-          <div><dt>Keyboard</dt><dd>Space to play, ⌘L to like, ⌘1 to ⌘9 to get around.</dd></div>
-          <div><dt>More windows</dt><dd>Open an artist or a playlist in a new window.</dd></div>
-          <div><dt>And most of the iPhone list</dt><dd>Widgets, controls, Wake to This, Scout, Spotlight and Share to the Apple TV.</dd></div>
-        </dl>
+    <section class="scene chapter wide flow" id="iphone" data-scene="iphone" data-shot="phone" data-span="2.4" data-states='[{"ph":"play"}]' aria-labelledby="iphone-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="iphone-h">iPhone.</h2>
+          <p class="sub ink">Everything in the table, plus:</p>
+          <dl class="fl">
+            <div><dt class="ink">Live Activity</dt><dd class="ink">Now Playing in the Dynamic Island and on the Lock Screen, and the TV sign-in while it happens.</dd></div>
+            <div><dt class="ink">Widgets</dt><dd class="ink">Now Playing and Recently Played, on the Home Screen and the Lock Screen.</dd></div>
+            <div><dt class="ink">Controls</dt><dd class="ink">Play or Pause, Resume and Identify Song in Control Center, or on the Action button.</dd></div>
+            <div><dt class="ink">Wake to This</dt><dd class="ink">An alarm that wakes you with a track, playlist or station.</dd></div>
+            <div><dt class="ink">Match My Workout</dt><dd class="ink">Your heart rate from Apple Watch sets how hard Auto Mix goes.</dd></div>
+            <div><dt class="ink">Signs in the Apple TV</dt><dd class="ink">Listens for the TV’s chime, or scans its QR code.</dd></div>
+            <div><dt class="ink">Share to the Apple TV</dt><dd class="ink">Share a SoundCloud link and pick Play Now, Play Next or Add to End.</dd></div>
+            <div><dt class="ink">Volume buttons</dt><dd class="ink">With Sounding open, they turn the TV up and down.</dd></div>
+            <div><dt class="ink">Scout</dt><dd class="ink">A notification when an artist you scout posts a new track or set.</dd></div>
+            <div><dt class="ink">Spotlight</dt><dd class="ink">Finds your tracks, playlists and artists.</dd></div>
+          </dl>
+        </div>
       </div>
     </section>
 
-    <section class="pg-sec" id="mac" aria-labelledby="mac-h">
-      <div class="pg-sh">
-        <h2 id="mac-h">Mac.</h2>
-        <p class="sub">The DJ side lives here. It’s all on the <a href="../dj/">DJ page</a>.</p>
-      </div>
-      <div class="pg-sb">
-        <h3>The DJ side</h3>
-        <dl class="fl">
-          <div><dt>Decks</dt><dd>Two decks and a mixer: EQ, filter, sync, key lock, Audio Unit effects, cue in your headphones.</dd></div>
-          <div><dt>Prep</dt><dd>Beat grids, keys, hot cues A to H, memory cues and loops (⌥⌘P).</dd></div>
-          <div><dt>rekordbox in and out</dt><dd>Import a rekordbox.xml, folder or USB stick. Export a new XML with your prep.</dd></div>
-          <div><dt>Export to USB</dt><dd>A stick the CDJ-2000NXS2 and CDJ-3000 can read (⇧⌘E). Not tried on a real CDJ yet.</dd></div>
-          <div><dt>DDJ-400</dt><dd>Mapped, jogs to pads. Controllers play your own music only.</dd></div>
-          <div><dt>DJ Players</dt><dd>Sees CDJs on the network, writes your setlist, joins as a virtual deck. Only met a fake CDJ so far.</dd></div>
-        </dl>
-        <h3>The rest</h3>
-        <dl class="fl">
-          <div><dt>Menu bar player</dt><dd>Play, skip and see what’s on without opening the window.</dd></div>
-          <div><dt>Now Playing window</dt><dd>Full window, or the player in the toolbar (⇧⌘N).</dd></div>
-          <div><dt>Menus and shortcuts</dt><dd>Playback, Library, Decks and Prep all have them.</dd></div>
-          <div><dt>Mac-only sidebar</dt><dd>Your Tracks, Private Shares and Messages.</dd></div>
-          <div><dt>Share extension</dt><dd>Share a SoundCloud link to Sounding: Play Now, Play Next or Play Last.</dd></div>
-          <div><dt>Heavy lifting</dt><dd>The Mac works out tempo and key, and your iPhone and iPad pick the results up.</dd></div>
-          <div><dt>Deeper analysis</dt><dd>On-device AI analysis, off until you turn it on.</dd></div>
-        </dl>
+    <section class="scene chapter wide flow" id="ipad" data-scene="ipad" data-shot="pad" data-span="2.3" data-states='[{"pad":"play"}]' aria-labelledby="ipad-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="ipad-h">iPad.</h2>
+          <p class="sub ink">Same app as the iPhone, laid out for the bigger screen.</p>
+          <dl class="fl">
+            <div><dt class="ink">The bar along the bottom</dt><dd class="ink">Shuffle, transport, repeat, Lyrics and Up Next, like Music on iPad.</dd></div>
+            <div><dt class="ink">Sidebar</dt><dd class="ink">Home, Search and Decks, then your Library and every playlist.</dd></div>
+            <div><dt class="ink">Now Playing in two columns</dt><dd class="ink">The player on the left; comments, lyrics or Up Next on the right.</dd></div>
+            <div><dt class="ink">Drag and drop</dt><dd class="ink">Tracks, albums and playlists into Up Next or onto a playlist.</dd></div>
+            <div><dt class="ink">Keyboard</dt><dd class="ink">Space to play, ⌘L to like, ⌘1 to ⌘9 to get around.</dd></div>
+            <div><dt class="ink">More windows</dt><dd class="ink">Open an artist or a playlist in a new window.</dd></div>
+            <div><dt class="ink">And most of the iPhone list</dt><dd class="ink">Widgets, controls, Wake to This, Scout, Spotlight and Share to the Apple TV.</dd></div>
+          </dl>
+        </div>
       </div>
     </section>
 
-    <section class="pg-sec" id="tv" aria-labelledby="tv-h">
-      <div class="pg-sh">
-        <h2 id="tv-h">Apple&nbsp;TV.</h2>
-        <p class="sub">The loud one. More on the <a href="../tv/">TV page</a>.</p>
-      </div>
-      <div class="pg-sb">
-        <dl class="fl">
-          <div><dt>Signs in by ear</dt><dd>Your iPhone hears its chime and signs it in. QR code if the room’s loud.</dd></div>
-          <div><dt>Now Playing</dt><dd>The artwork as the background, laid out like a tape deck, the next two tracks beside it.</dd></div>
-          <div><dt>Auto Mix and Decks</dt><dd>Watch the mix happen, and a Decks tab for the room.</dd></div>
-          <div><dt>Top Shelf</dt><dd>Continue Listening, Recently Played, Your Likes and Mixes For You. Select one and it plays.</dd></div>
-          <div><dt>Lyrics, full screen</dt><dd>Over the artwork, off until you say yes.</dd></div>
-          <div><dt>Ambient</dt><dd>Leave it alone and it’s just the artwork, big.</dd></div>
-          <div><dt>Output</dt><dd>Send it on to AirPlay or Bluetooth speakers, or a Sonos.</dd></div>
-        </dl>
-      </div>
-    </section>
-
-    <section class="pg-sec" id="watch" aria-labelledby="watch-h">
-      <div class="pg-sh">
-        <h2 id="watch-h">Apple&nbsp;Watch.</h2>
-        <p class="sub">A remote for your iPhone, and for the TV when that’s playing.</p>
-      </div>
-      <div class="pg-sb">
-        <dl class="fl">
-          <div><dt>A remote with a crown</dt><dd>Play and skip. The crown sets the volume when the TV’s playing, and scrubs when the iPhone is.</dd></div>
-          <div><dt>Output</dt><dd>The iPhone or an Apple TV, with a volume slider.</dd></div>
-          <div><dt>Up Next</dt><dd>The iPhone’s real queue. Tap a track to jump to it.</dd></div>
-          <div><dt>Auto Mix</dt><dd>Turn it on, Mix Now, from your wrist.</dd></div>
-          <div><dt>Match My Workout</dt><dd>Start a workout and Auto Mix follows your heart rate.</dd></div>
-          <div><dt>Identify Song</dt><dd>Listens on the Watch’s own microphone.</dd></div>
-          <div><dt>Complication</dt><dd>Now Playing on the watch face and in the Smart Stack, with play and pause.</dd></div>
-          <div><dt>Siri</dt><dd>Play, Pause, Next Track, Play Likes, Shuffle Likes and Like Track.</dd></div>
-        </dl>
+    <section class="scene chapter wide flow" id="mac" data-scene="mac" data-shot="mac" data-span="2.8" data-states='[{"mac":"play"}]' aria-labelledby="mac-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="mac-h">Mac.</h2>
+          <p class="sub ink">The DJ side lives here. It’s all on the <a href="../dj/">DJ page</a>.</p>
+          <h3 class="ink">The DJ side</h3>
+          <dl class="fl">
+            <div><dt class="ink">Decks</dt><dd class="ink">Two decks and a mixer: EQ, filter, sync, key lock, Audio Unit effects, cue in your headphones.</dd></div>
+            <div><dt class="ink">Prep</dt><dd class="ink">Beat grids, keys, hot cues A to H, memory cues and loops (⌥⌘P).</dd></div>
+            <div><dt class="ink">rekordbox in and out</dt><dd class="ink">Import a rekordbox.xml, folder or USB stick. Export a new XML with your prep.</dd></div>
+            <div><dt class="ink">Export to USB</dt><dd class="ink">A stick the CDJ-2000NXS2 and CDJ-3000 can read (⇧⌘E). Not tried on a real CDJ yet.</dd></div>
+            <div><dt class="ink">DDJ-400</dt><dd class="ink">Mapped, jogs to pads. Controllers play your own music only.</dd></div>
+            <div><dt class="ink">DJ Players</dt><dd class="ink">Sees CDJs on the network, writes your setlist, joins as a virtual deck. Only met a fake CDJ so far.</dd></div>
+          </dl>
+          <h3 class="ink">The rest</h3>
+          <dl class="fl">
+            <div><dt class="ink">Menu bar player</dt><dd class="ink">Play, skip and see what’s on without opening the window.</dd></div>
+            <div><dt class="ink">Now Playing window</dt><dd class="ink">Full window, or the player in the toolbar (⇧⌘N).</dd></div>
+            <div><dt class="ink">Menus and shortcuts</dt><dd class="ink">Playback, Library, Decks and Prep all have them.</dd></div>
+            <div><dt class="ink">Mac-only sidebar</dt><dd class="ink">Your Tracks, Private Shares and Messages.</dd></div>
+            <div><dt class="ink">Share extension</dt><dd class="ink">Share a SoundCloud link to Sounding: Play Now, Play Next or Play Last.</dd></div>
+            <div><dt class="ink">Heavy lifting</dt><dd class="ink">The Mac works out tempo and key, and your iPhone and iPad pick the results up.</dd></div>
+            <div><dt class="ink">Deeper analysis</dt><dd class="ink">On-device AI analysis, off until you turn it on.</dd></div>
+          </dl>
+        </div>
       </div>
     </section>
 
-    <section class="pg-sec" id="extras" aria-labelledby="extras-h">
-      <div class="pg-sh">
-        <h2 id="extras-h">Widgets, extensions and notifications.</h2>
-      </div>
-      <div class="pg-sb">
-        <dl class="fl">
-          <div><dt>Widgets</dt><dd>Now Playing and Recently Played, small, medium and Lock Screen. iPhone and iPad.</dd></div>
-          <div><dt>Live Activity</dt><dd>Now Playing and TV sign-in. iPhone.</dd></div>
-          <div><dt>Controls</dt><dd>Play or Pause, Resume and Identify Song. iPhone and iPad; Play or Pause on the Watch.</dd></div>
-          <div><dt>Complication</dt><dd>Now Playing on the watch face. Apple Watch.</dd></div>
-          <div><dt>Top Shelf</dt><dd>Four shelves of what you’re listening to. Apple TV.</dd></div>
-          <div><dt>Share extension</dt><dd>Send a SoundCloud link to the Apple TV from an iPhone or iPad, or to Sounding on the Mac.</dd></div>
-          <div><dt>Notifications</dt><dd>An Apple TV asking to sign in, a new sign-in on your account, and Scout. iPhone, iPad and Mac.</dd></div>
-        </dl>
-      </div>
-    </section>
-
-    <section class="pg-sec" id="privacy" aria-labelledby="privacy-h">
-      <div class="pg-sh">
-        <h2 id="privacy-h">Privacy.</h2>
-        <p class="sub">All on device. The <a href="../privacy/">privacy policy</a> has the detail.</p>
-      </div>
-      <div class="pg-sb">
-        <dl class="fl">
-          <div><dt>No Sounding servers</dt><dd>No Sounding account, no analytics, no tracking SDKs, no ads of mine.</dd></div>
-          <div><dt>Your sign-in stays yours</dt><dd>In the Keychain and your private iCloud. It only ever goes to SoundCloud.</dd></div>
-          <div><dt>Sync through your own iCloud</dt><dd>Cue points, settings, Recently Played and analysis. I can’t read any of it.</dd></div>
-          <div><dt>Off until you say</dt><dd>Lyrics, heart rate, home lights and the Mac’s AI models.</dd></div>
-          <div><dt>See for yourself</dt><dd>Settings, Network Activity, lists every request the app makes.</dd></div>
-        </dl>
+    <section class="scene chapter wide flow" id="tv" data-scene="tv" data-shot="tv1" data-span="2.3" data-states='[{"tv":"play","ph":"out","phone":"tv"}]' aria-labelledby="tv-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="tv-h">Apple&nbsp;TV.</h2>
+          <p class="sub ink">The loud one. More on the <a href="../tv/">TV page</a>.</p>
+          <dl class="fl">
+            <div><dt class="ink">Signs in by ear</dt><dd class="ink">Your iPhone hears its chime and signs it in. QR code if the room’s loud.</dd></div>
+            <div><dt class="ink">Now Playing</dt><dd class="ink">The artwork as the background, laid out like a tape deck, the next two tracks beside it.</dd></div>
+            <div><dt class="ink">Auto Mix and Decks</dt><dd class="ink">Watch the mix happen, and a Decks tab for the room.</dd></div>
+            <div><dt class="ink">Top Shelf</dt><dd class="ink">Continue Listening, Recently Played, Your Likes and Mixes For You. Select one and it plays.</dd></div>
+            <div><dt class="ink">Lyrics, full screen</dt><dd class="ink">Over the artwork, off until you say yes.</dd></div>
+            <div><dt class="ink">Ambient</dt><dd class="ink">Leave it alone and it’s just the artwork, big.</dd></div>
+            <div><dt class="ink">Output</dt><dd class="ink">Send it on to AirPlay or Bluetooth speakers, or a Sonos.</dd></div>
+          </dl>
+        </div>
       </div>
     </section>
 
-    <section class="pg-warn" id="join" aria-labelledby="join-h">
+    <section class="scene chapter wide flow" id="watch" data-scene="watch" data-shot="watch" data-span="2.3" data-states='[{"tv":"play","ph":"out","phone":"tv","w":"remote"}]' aria-labelledby="watch-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="watch-h">Apple&nbsp;Watch.</h2>
+          <p class="sub ink">A remote for your iPhone, and for the TV when that’s playing.</p>
+          <dl class="fl">
+            <div><dt class="ink">A remote with a crown</dt><dd class="ink">Play and skip. The crown sets the volume when the TV’s playing, and scrubs when the iPhone is.</dd></div>
+            <div><dt class="ink">Output</dt><dd class="ink">The iPhone or an Apple TV, with a volume slider.</dd></div>
+            <div><dt class="ink">Up Next</dt><dd class="ink">The iPhone’s real queue. Tap a track to jump to it.</dd></div>
+            <div><dt class="ink">Auto Mix</dt><dd class="ink">Turn it on, Mix Now, from your wrist.</dd></div>
+            <div><dt class="ink">Match My Workout</dt><dd class="ink">Start a workout and Auto Mix follows your heart rate.</dd></div>
+            <div><dt class="ink">Identify Song</dt><dd class="ink">Listens on the Watch’s own microphone.</dd></div>
+            <div><dt class="ink">Complication</dt><dd class="ink">Now Playing on the watch face and in the Smart Stack, with play and pause.</dd></div>
+            <div><dt class="ink">Siri</dt><dd class="ink">Play, Pause, Next Track, Play Likes, Shuffle Likes and Like Track.</dd></div>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene chapter wide flow" id="extras" data-scene="extras" data-shot="rigA" data-span="2.3" aria-labelledby="extras-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="extras-h">Widgets, extensions and notifications.</h2>
+          <dl class="fl">
+            <div><dt class="ink">Widgets</dt><dd class="ink">Now Playing and Recently Played, small, medium and Lock Screen. iPhone and iPad.</dd></div>
+            <div><dt class="ink">Live Activity</dt><dd class="ink">Now Playing and TV sign-in. iPhone.</dd></div>
+            <div><dt class="ink">Controls</dt><dd class="ink">Play or Pause, Resume and Identify Song. iPhone and iPad; Play or Pause on the Watch.</dd></div>
+            <div><dt class="ink">Complication</dt><dd class="ink">Now Playing on the watch face. Apple Watch.</dd></div>
+            <div><dt class="ink">Top Shelf</dt><dd class="ink">Four shelves of what you’re listening to. Apple TV.</dd></div>
+            <div><dt class="ink">Share extension</dt><dd class="ink">Send a SoundCloud link to the Apple TV from an iPhone or iPad, or to Sounding on the Mac.</dd></div>
+            <div><dt class="ink">Notifications</dt><dd class="ink">An Apple TV asking to sign in, a new sign-in on your account, and Scout. iPhone, iPad and Mac.</dd></div>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene chapter wide flow" id="privacy" data-scene="privacy" data-shot="out" data-span="2.2" aria-labelledby="privacy-h">
+      <div class="pin">
+        <div class="side a">
+          <h2 class="ink" id="privacy-h">Privacy.</h2>
+          <p class="sub ink">All on device. The <a href="../privacy/">privacy policy</a> has the detail.</p>
+          <dl class="fl">
+            <div><dt class="ink">No Sounding servers</dt><dd class="ink">No Sounding account, no analytics, no tracking SDKs, no ads of mine.</dd></div>
+            <div><dt class="ink">Your sign-in stays yours</dt><dd class="ink">In the Keychain and your private iCloud. It only ever goes to SoundCloud.</dd></div>
+            <div><dt class="ink">Sync through your own iCloud</dt><dd class="ink">Cue points, settings, Recently Played and analysis. I can’t read any of it.</dd></div>
+            <div><dt class="ink">Off until you say</dt><dd class="ink">Lyrics, heart rate, home lights and the Mac’s AI models.</dd></div>
+            <div><dt class="ink">See for yourself</dt><dd class="ink">Settings, Network Activity, lists every request the app makes.</dd></div>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <section class="pg-warn flowing tail" id="join" aria-labelledby="join-h">
       <h2 id="join-h">Fair warning.</h2>
       <p class="first">It’s a beta, made by one person in the evenings. Some of this will be rough round the edges, and some of it will change under you.</p>
       <p class="needs">Needs iOS or iPadOS 26.5 or later, or macOS, tvOS or watchOS 27.</p>
