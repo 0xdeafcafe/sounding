@@ -61,6 +61,7 @@ struct SoundingTVWatchApp: App {
 
 enum WatchRootRoute: Hashable {
     case onThisWatch
+    case identify
 }
 
 struct WatchRootView: View {
@@ -69,6 +70,7 @@ struct WatchRootView: View {
     @ObservedObject private var identifiedHistory = IdentifiedSongHistory.shared
     @ObservedObject private var store = WatchOfflineStore.shared
     @ObservedObject private var playback = WatchPlayback.shared
+    @ObservedObject private var identifyRequests = IdentifySongRequests.shared
 
     @State private var path: [WatchRootRoute] = []
     @State private var didOfferOffline = false
@@ -116,10 +118,15 @@ struct WatchRootView: View {
                 .navigationDestination(for: WatchRootRoute.self) { route in
                     switch route {
                     case .onThisWatch: WatchOnThisWatchView()
+                    case .identify: WatchIdentifyView()
                     }
                 }
         }
         .task { await openOnThisWatchIfOffline() }
+        .onReceive(identifyRequests.$pendingListen) { pending in
+            guard pending, identifyRequests.consume() else { return }
+            if path.last != .identify { path.append(.identify) }
+        }
     }
 
     private func openOnThisWatchIfOffline() async {

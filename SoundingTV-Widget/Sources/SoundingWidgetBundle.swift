@@ -6,7 +6,9 @@ struct SoundingWidgetBundle: WidgetBundle {
     var body: some Widget {
         NowPlayingWidget()
         RecentlyPlayedWidget()
+        CollectionWidget()
         PlayPauseControl()
+        SkipControl()
         ResumeControl()
         #if os(iOS)
         IdentifySongControl()

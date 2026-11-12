@@ -57,6 +57,10 @@ final class SoundingSnapshotPublisher {
         player.clock.$currentTime
             .sink { [weak self] time in self?.noteClock(time) }
             .store(in: &cancellables)
+
+        #if os(iOS) || os(macOS)
+        WidgetCollectionPublisher.shared.start()
+        #endif
     }
 
     func clear() {
@@ -66,6 +70,7 @@ final class SoundingSnapshotPublisher {
         SoundingSnapshotStore.remove(at: fileURL)
         #if os(iOS) || os(macOS)
         WidgetArtworkWriter.shared.reset()
+        WidgetCollectionPublisher.shared.clear()
         #endif
         reloadSurfaces(force: true)
     }
@@ -212,6 +217,7 @@ final class SoundingSnapshotPublisher {
         #if canImport(WidgetKit) && (os(iOS) || os(macOS))
         WidgetCenter.shared.reloadTimelines(ofKind: SoundingSurfaceKind.nowPlayingWidget)
         WidgetCenter.shared.reloadTimelines(ofKind: SoundingSurfaceKind.recentlyPlayedWidget)
+        WidgetCenter.shared.reloadTimelines(ofKind: SoundingSurfaceKind.collectionWidget)
         ControlCenter.shared.reloadControls(ofKind: SoundingSurfaceKind.playPauseControl)
         #endif
     }

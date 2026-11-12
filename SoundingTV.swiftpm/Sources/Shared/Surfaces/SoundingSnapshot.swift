@@ -39,8 +39,11 @@ enum SoundingAppGroup {
 enum SoundingSurfaceKind {
     static let nowPlayingWidget = "red.forbes.sounding.widget.now-playing"
     static let watchNowPlayingWidget = "red.forbes.sounding.widget.watch-now-playing"
+    static let watchListeningWidget = "red.forbes.sounding.widget.watch-listening"
+    static let collectionWidget = "red.forbes.sounding.widget.collection"
     static let playPauseControl = "red.forbes.sounding.control.play-pause"
     static let resumeControl = "red.forbes.sounding.control.resume"
+    static let skipControl = "red.forbes.sounding.control.skip"
     static let identifySongControl = "red.forbes.sounding.control.identify-song"
     static let recentlyPlayedWidget = "red.forbes.sounding.widget.recently-played"
 }

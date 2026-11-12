@@ -17,7 +17,8 @@ struct RecentlyPlayedEntry: TimelineEntry {
     let date: Date
     let rows: [RecentlyPlayedRow]
 
-    static let limit = 4
+    static let limit = 6
+    static let mediumLimit = 4
 
     init(date: Date, rows: [RecentlyPlayedRow]) {
         self.date = date
@@ -74,9 +75,9 @@ struct RecentlyPlayedWidget: Widget {
         .configurationDisplayName("Recently Played")
         .description("Pick up where you left off.")
         #if os(macOS)
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge])
         #else
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge, .accessoryRectangular, .accessoryCircular])
         #endif
     }
 }
@@ -96,6 +97,10 @@ struct RecentlyPlayedWidgetView: View {
             #endif
             case .systemMedium:
                 medium
+            case .systemLarge:
+                list(columns: 1)
+            case .systemExtraLarge:
+                list(columns: 2)
             default:
                 small(first)
             }
@@ -194,7 +199,7 @@ struct RecentlyPlayedWidgetView: View {
 
     private var medium: some View {
         HStack(alignment: .top, spacing: 10) {
-            ForEach(entry.rows) { row in
+            ForEach(entry.rows.prefix(RecentlyPlayedEntry.mediumLimit)) { row in
                 Link(destination: row.url) {
                     VStack(alignment: .leading, spacing: 4) {
                         WidgetArtworkView(item: row.item)
@@ -210,11 +215,50 @@ struct RecentlyPlayedWidgetView: View {
                 }
                 .accessibilityLabel(label(for: row))
             }
-            ForEach(0..<max(0, RecentlyPlayedEntry.limit - entry.rows.count), id: \.self) { _ in
+            ForEach(0..<max(0, RecentlyPlayedEntry.mediumLimit - entry.rows.count), id: \.self) { _ in
                 Color.clear
                     .frame(maxWidth: .infinity)
             }
         }
+    }
+
+    private func list(columns: Int) -> some View {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 20, alignment: .top), count: columns),
+            alignment: .leading,
+            spacing: 10
+        ) {
+            ForEach(entry.rows) { row in
+                Link(destination: row.url) {
+                    HStack(spacing: 10) {
+                        WidgetArtworkView(item: row.item, radius: 8)
+                            .frame(width: 48, height: 48)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(row.isContinue ? "Continue" : "Recently Played")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .widgetAccentable()
+                            Text(row.item.title)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            Text(row.item.subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "play.fill")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .widgetAccentable()
+                            .accessibilityHidden(true)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel(label(for: row))
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private func label(for row: RecentlyPlayedRow) -> String {

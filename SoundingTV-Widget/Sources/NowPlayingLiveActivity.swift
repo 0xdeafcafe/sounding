@@ -8,7 +8,7 @@ typealias NowPlayingActivityState = NowPlayingActivityAttributes.ContentState
 struct NowPlayingLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: NowPlayingActivityAttributes.self) { context in
-            NowPlayingLockScreenView(state: context.state, isStale: context.isStale)
+            NowPlayingActivityContent(state: context.state, isStale: context.isStale)
                 .activityBackgroundTint(context.state.backgroundColor)
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
@@ -41,10 +41,81 @@ struct NowPlayingLiveActivity: Widget {
             }
             .keylineTint(state.tintColor)
         }
+        .supplementalActivityFamilies([.small, .medium])
     }
 }
 
 // MARK: - Lock Screen
+
+struct NowPlayingActivityContent: View {
+    @Environment(\.activityFamily) private var family
+
+    let state: NowPlayingActivityState
+    let isStale: Bool
+
+    var body: some View {
+        switch family {
+        case .small:
+            NowPlayingCompactActivityView(state: state, isStale: isStale)
+        default:
+            NowPlayingLockScreenView(state: state, isStale: isStale)
+        }
+    }
+}
+
+struct NowPlayingCompactActivityView: View {
+    let state: NowPlayingActivityState
+    let isStale: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ActivityArtwork(file: state.artworkFile, side: 44, radius: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(state.tintColor)
+                    .lineLimit(1)
+                progress
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: state.isPlaying && !isStale ? "waveform" : "pause.fill")
+                .font(.title3)
+                .foregroundStyle(state.tintColor)
+                .accessibilityHidden(true)
+        }
+        .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(state.title), \(state.artist), \(state.isPlaying && !isStale ? "playing" : "paused")")
+    }
+
+    private var subtitle: String {
+        if state.focus == .autoMix, let next = state.nextTitle {
+            return "Next: \(next)"
+        }
+        return state.artist
+    }
+
+    @ViewBuilder
+    private var progress: some View {
+        if state.isPlaying, !isStale, let range = state.timerRange, range.upperBound > .now {
+            ProgressView(timerInterval: range, countsDown: false) {
+                EmptyView()
+            } currentValueLabel: {
+                EmptyView()
+            }
+            .tint(state.tintColor)
+        } else {
+            ProgressView(value: state.pausedProgress)
+                .tint(state.tintColor)
+        }
+    }
+}
 
 struct NowPlayingLockScreenView: View {
     let state: NowPlayingActivityState
