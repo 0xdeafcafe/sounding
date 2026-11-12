@@ -1319,6 +1319,9 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
   const imgs = new Map();
   const S = { sec: 0, whole: -1, p: 0, idx: 0, row: 0, el: '0:00', left: `-${fmt(D)}`, now: `${T[0][2]} - ${T[0][1]}` };
   const all = {};
+  const scratchCanvas = document.createElement('canvas');
+  scratchCanvas.width = 960; scratchCanvas.height = 600;
+  const scratch = scratchCanvas.getContext('2d');
   const load = file => {
     const r = { im: new Image(), ok: false, users: new Set() };
     r.im.decoding = 'async';
@@ -1445,7 +1448,7 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
       Object.assign(sc.st, state);
       targets(sc);
     },
-    preload(files) { for (const f of files) if (!imgs.has(f)) load(f); },
+    preload(files) { for (const f of files) if (!imgs.has(f)) { load(f); imgs.get(f).p.then(() => { const r = imgs.get(f); if (r.ok) cover(scratch, r.im, 0, 0, 960, 600); }); } },
     time(sec) {
       sec = clamp(sec, 0, D - 1);
       S.sec = sec;

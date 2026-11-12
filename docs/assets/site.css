@@ -72,6 +72,8 @@ html[data-side="b"] .plate .pb { display: block; }
 .plate img { max-height: 78vh; }
 .side.b, html[data-side="b"] .side.a { display: none; }
 html[data-side="b"] .side.b, html[data-side="b"] .join .side.a { display: grid; }
+.scene.only-b { display: none; }
+html[data-side="b"] .scene.only-b, html.live .scene.only-b { display: block; }
 .caps { display: grid; gap: .9rem; }
 .live-only { display: none; }
 .try { display: none; }
@@ -111,8 +113,12 @@ html.live[data-side] .side { display: grid; }
 .live .side > :is(h1, h2, .h2, p), .live .caps > .cap, .live .try > p, .live .foot p { width: fit-content; max-width: 100%; }
 .live .hero .side { top: clamp(72px, 10.5vh, 128px); transform: none; width: min(41vw, 39rem); gap: .8rem; }
 .live .listen .side { width: min(28vw, 27rem); }
+.live .listen .side.b { top: 37%; }
 .live .output .side { width: min(26vw, 25rem); }
-.live .decks .side { top: auto; bottom: clamp(28px, 7vh, 72px); transform: none; width: min(43vw, 40rem); }
+.live .decks .side.a { top: auto; bottom: clamp(28px, 7vh, 72px); transform: none; width: min(43vw, 40rem); }
+.live .decks .side.b { width: min(26vw, 25rem); }
+.live .booth .side, .live .rekordbox .side { width: min(29vw, 28rem); }
+.live .booth .fine { font-size: .8125rem; }
 .live .hero .side.b { justify-items: end; text-align: right; }
 .live .caps { gap: 0; }
 .live .cap { grid-area: 1 / 1; opacity: 0; transform: translateY(.4rem); transition: opacity .45s var(--ease), transform .6s var(--ease); pointer-events: none; }
@@ -191,7 +197,7 @@ html[data-plug="0"] .try .played, html[data-plug="1"] .try .hint { opacity: 0; v
 
 /* Mid-size desktops (e.g. 1440x900): the TV stop's iPad and Mac sit close to the copy, so the column is narrower and lower there. */
 @media (min-width: 861px) and (max-width: 1600px) {
-  .live .output .side { width: min(22vw, 21rem); top: 60%; }
+  .live .output .side.a { width: min(22vw, 21rem); top: 60%; }
 }
 @media (max-width: 860px), (max-aspect-ratio: 1/1) {
   .top { grid-template-columns: 1fr auto; padding-bottom: 6px; }
@@ -200,7 +206,7 @@ html[data-plug="0"] .try .played, html[data-plug="1"] .try .hint { opacity: 0; v
   main { padding-top: 104px; }
   .live .side { left: var(--pad); right: var(--pad); width: auto; top: auto; bottom: max(26px, env(safe-area-inset-bottom)); transform: none; gap: .8rem; }
   .live .hero .side { top: 112px; bottom: auto; width: auto; gap: .8rem; }
-  .live .listen .side, .live .output .side, .live .decks .side { width: auto; bottom: max(26px, env(safe-area-inset-bottom)); }
+  .live .listen .side, .live .output .side, .live .decks .side.a, .live .decks .side.b, .live .booth .side, .live .rekordbox .side { width: auto; top: auto; bottom: max(26px, env(safe-area-inset-bottom)); transform: none; }
   .live .hero .side.b { justify-items: start; text-align: left; }
   .live .cap { font-size: 1rem; line-height: 1.45; }
   .live .try { font-size: .9375rem; }

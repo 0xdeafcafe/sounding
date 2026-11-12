@@ -32,6 +32,7 @@ export const L = {
   phone: { w: 0.0716, d: 0.1496, h: 0.0082, sw: 0.0664, sh: 0.1444 },
   ipad: { x: 1.27, z: 0.20, a: -0.12, w: 0.2476, d: 0.1785, h: 0.0061, sw: 0.235, sh: 0.166 },
   mac: { x: 1.56, z: 0.75, a: -0.12, w: 0.304, d: 0.215, h: 0.0113, sw: 0.286, sh: 0.179 },
+  macB: { x: 0.52, z: -0.47, a: 0.1 }, ipadB: { x: 2.3, z: -0.35 }, crateB: [-1.25, 0.45],
   watch: { w: 0.038, d: 0.04634, h: 0.0105, sw: 0.0312, sh: 0.0382 },
   tv: { x: 2.15, z: 1.33, w: 0.82, hgt: 0.46125, t: 0.02, lift: 0.055, sw: 0.8036, sh: 0.44485 },
   phoneHome: [0.42, 1.0, 0], phoneTV: [1.9, 1.775, -0.14], watchPos: [2.17, 1.8, 0.16], friendPos: [2.36, 1.81, 0.2], friendOff: [3.5, 2.05, 0.9],
@@ -150,7 +151,7 @@ export function buildWorld(R, base) {
     fade: 0, xf: 0, angle: [0, 0], pitch: [0, 0], knob: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], knobShown: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], chan: [1, 1], plug: 0, level: [0, 0], beat: 0,
     phone: [...L.phoneHome, 0, 0], friend: [...L.friendOff, 0, 0], motor: [1, 1], tvGlow: [0, 0, 0], phoneGlow: 0, time: 0,
     arm: [0, 0], w: [3.49, 3.49], dt: 0.016, crown: 0, beats: 0, live: 0,
-    power: 1, glow: 1, front: 1e6, jack: { tip: [L.socket[0], L.jack.rim - L.jack.depth, L.socket[2]], axis: [0, 1, 0] },
+    room: 0, power: 1, glow: 1, front: 1e6, jack: { tip: [L.socket[0], L.jack.rim - L.jack.depth, L.socket[2]], axis: [0, 1, 0] },
   };
   const details = [];
   const detail = (parent, geo, local, mat) => { const it = add(geo, M.chain(parent.model, local), mat); details.push([it, parent, local]); return it; };
@@ -410,8 +411,7 @@ export function buildWorld(R, base) {
     spots.push({ x, z, a, layer });
     const tex = { t: null };
     const it = add(sleeveG, M.chain(M.t(x, 0.0002 + layer * 0.0035, z), M.ry(a)), { kind: 3, baseA: PAL.cream, rough: 0.5, tex: null, p: [0, 0.05, 0.8, 0] });
-    sleeves.push({ it, x, z, a, layer, name: SLEEVES[k] });
-    OC(x, z, 0.155, 0.155, 0.003, 0.0036 + layer * 0.0035, a, 0.75);
+    sleeves.push({ it, x, z, a, layer, name: SLEEVES[k], o: OC(x, z, 0.155, 0.155, 0.003, 0.0036 + layer * 0.0035, a, 0.75) });
   }
   let sleevesLoaded = false;
   function loadSleeves() {
@@ -464,14 +464,19 @@ export function buildWorld(R, base) {
   add(rbox(0.025, 0.0034, 0.007, 0.002, 0.0008, 5, 3), M.chain(wm, M.t(0, 0.0023, -0.065)), { baseA: PAL.titan, metal: 0.9, rough: 0.32 });
   add(rbox(0.002, 0.0025, 0.01, 0.0008, 0.0004, 4, 2), M.chain(wm, M.t(Wt.w / 2, 0.003, 0.009)), { baseA: PAL.titan, metal: 0.9, rough: 0.32 });
 
-  const IP = L.ipad, MC = L.mac;
-  const ipm = M.chain(M.t(IP.x, 0, IP.z), M.ry(IP.a));
-  add(rbox(IP.w, IP.h, IP.d, 0.012, 0.0016, 10, 4), ipm, { baseA: PAL.titan, metal: 0.9, rough: 0.32 });
-  add(rbox(IP.w - 0.0014, 0.0005, IP.d - 0.0014, 0.0113, 0.0002, 10, 2), M.chain(ipm, M.t(0, IP.h, 0)), { baseA: [0.004, 0.005, 0.006], rough: 0.09 });
-  OC(IP.x, IP.z, IP.w / 2, IP.d / 2, 0.012, IP.h, IP.a, 0.85);
-  const mcm = M.chain(M.t(MC.x, 0.002, MC.z), M.ry(MC.a));
-  add(rbox(MC.w, MC.h, MC.d, 0.009, 0.0025, 8, 4), mcm, { baseA: PAL.alu, metal: 0.9, rough: 0.38 });
-  add(rbox(0.272, 0.0007, 0.088, 0.004, 0.0003, 6, 2), M.chain(mcm, M.t(0, MC.h, -0.025)), { baseA: [0.009, 0.009, 0.009], rough: 0.7 });
+  const IP = L.ipad, MC = L.mac, MB = L.macB, IB = L.ipadB;
+  const roomMix = (a, b, r) => a + (b - a) * r;
+  const ipadAt = r => M.chain(M.t(roomMix(IP.x, IB.x, r), 0, roomMix(IP.z, IB.z, r)), M.ry(IP.a + 0.5 * r));
+  const macAt = r => M.chain(M.t(roomMix(MC.x, MB.x, r), 0.002 + 0.03 * Math.sin(Math.PI * r), roomMix(MC.z, MB.z, r)), M.ry(roomMix(MC.a, MB.a, r)));
+  let ipm = ipadAt(0), mcm = macAt(0);
+  const ipadParts = [], macParts = [];
+  const ipadPart = (geo, local, mat) => { const it = add(geo, M.chain(ipm, local), mat); ipadParts.push([it, local]); return it; };
+  const macPart = (geo, local, mat) => { const it = add(geo, M.chain(mcm, local), mat); macParts.push([it, local]); return it; };
+  ipadPart(rbox(IP.w, IP.h, IP.d, 0.012, 0.0016, 10, 4), M.id(), { baseA: PAL.titan, metal: 0.9, rough: 0.32 });
+  ipadPart(rbox(IP.w - 0.0014, 0.0005, IP.d - 0.0014, 0.0113, 0.0002, 10, 2), M.t(0, IP.h, 0), { baseA: [0.004, 0.005, 0.006], rough: 0.09 });
+  const ipadOcc = OC(IP.x, IP.z, IP.w / 2, IP.d / 2, 0.012, IP.h, IP.a, 0.85);
+  macPart(rbox(MC.w, MC.h, MC.d, 0.009, 0.0025, 8, 4), M.id(), { baseA: PAL.alu, metal: 0.9, rough: 0.38 });
+  macPart(rbox(0.272, 0.0007, 0.088, 0.004, 0.0003, 6, 2), M.t(0, MC.h, -0.025), { baseA: [0.009, 0.009, 0.009], rough: 0.7 });
   const keys = [];
   for (let row = 0; row < 4; row++) for (let col = 0; col < 14; col++) keys.push([rbox(0.016, 0.0009, 0.012, 0.0018, 0.0004, 3, 2), M.t((col - 6.5) * 0.0187, MC.h + 0.0007, -0.057 + row * 0.0155)]);
   keys.push([rbox(0.11, 0.0009, 0.012, 0.0018, 0.0004, 3, 2), M.t(0, MC.h + 0.0007, 0.005)]);
@@ -485,13 +490,30 @@ export function buildWorld(R, base) {
   for (let row = 0; row < 4; row++) for (let col = 0; col < 14; col++) keyPaint.fillText(keyLabels[row][col], ((col - 6.5) * 0.0187 + 0.14) / 0.28 * 768, (-0.057 + row * 0.0155 + 0.08) / 0.1 * 320);
   for (let col = 0; col < 14; col++) keyPaint.fillText(col === 0 ? 'esc' : col === 13 ? '●' : 'F' + col, ((col - 6.5) * 0.0187 + 0.14) / 0.28 * 768, 0.007 / 0.1 * 320);
   for (let i = 0; i < keyMesh.p.length / 3; i++) { keyMesh.u[i * 2] = (keyMesh.p[i * 3] + 0.14) / 0.28; keyMesh.u[i * 2 + 1] = (keyMesh.p[i * 3 + 2] + 0.08) / 0.1; }
-  add(keyMesh, mcm, { kind: 3, tex: R.texture(keyCanvas), baseA: [0.021, 0.021, 0.022], rough: 0.62 });
-  add(tube([[-0.11, MC.h + 0.001, -MC.d / 2 + 0.004], [0.11, MC.h + 0.001, -MC.d / 2 + 0.004]], 0.0032, 12), mcm, { baseA: [0.015, 0.015, 0.015], rough: 0.4 });
-  add(rbox(0.12, 0.0004, 0.066, 0.005, 0.0002, 6, 2), M.chain(mcm, M.t(0, MC.h, 0.063)), { baseA: [0.48, 0.48, 0.48], metal: 0.8, rough: 0.45, cast: false });
-  const lidm = M.chain(mcm, M.t(0, MC.h, -MC.d / 2 + 0.004), M.rx(1.27), M.t(0, 0, -0.098));
-  add(rbox(MC.w, 0.004, 0.196, 0.009, 0.0015, 8, 4), lidm, { baseA: PAL.alu, metal: 0.9, rough: 0.36 });
-  add(rbox(MC.w - 0.004, 0.0005, 0.192, 0.007, 0.0002, 8, 2), M.chain(lidm, M.t(0, 0.004, 0)), { baseA: [0.004, 0.004, 0.004], rough: 0.09 });
-  OC(MC.x, MC.z, MC.w / 2, MC.d / 2, 0.009, 0.014, MC.a, 0.9);
+  macPart(keyMesh, M.id(), { kind: 3, tex: R.texture(keyCanvas), baseA: [0.021, 0.021, 0.022], rough: 0.62 });
+  macPart(tube([[-0.11, MC.h + 0.001, -MC.d / 2 + 0.004], [0.11, MC.h + 0.001, -MC.d / 2 + 0.004]], 0.0032, 12), M.id(), { baseA: [0.015, 0.015, 0.015], rough: 0.4 });
+  macPart(rbox(0.12, 0.0004, 0.066, 0.005, 0.0002, 6, 2), M.t(0, MC.h, 0.063), { baseA: [0.48, 0.48, 0.48], metal: 0.8, rough: 0.45, cast: false });
+  const lidLocal = M.chain(M.t(0, MC.h, -MC.d / 2 + 0.004), M.rx(1.27), M.t(0, 0, -0.098));
+  let lidm = M.chain(mcm, lidLocal);
+  macPart(rbox(MC.w, 0.004, 0.196, 0.009, 0.0015, 8, 4), lidLocal, { baseA: PAL.alu, metal: 0.9, rough: 0.36 });
+  macPart(rbox(MC.w - 0.004, 0.0005, 0.192, 0.007, 0.0002, 8, 2), M.chain(lidLocal, M.t(0, 0.004, 0)), { baseA: [0.004, 0.004, 0.004], rough: 0.09 });
+  const macOcc = OC(MC.x, MC.z, MC.w / 2, MC.d / 2, 0.009, 0.014, MC.a, 0.9);
+  function room() {
+    const r = S.room;
+    const e = r * r * r * (r * (r * 6 - 15) + 10);
+    ipm = ipadAt(e); mcm = macAt(e); lidm = M.chain(mcm, lidLocal);
+    for (const [it, local] of ipadParts) it.model = M.chain(ipm, local);
+    for (const [it, local] of macParts) it.model = M.chain(mcm, local);
+    ipadOcc.x = roomMix(IP.x, IB.x, e); ipadOcc.z = roomMix(IP.z, IB.z, e); ipadOcc.a = IP.a + 0.5 * e;
+    macOcc.x = roomMix(MC.x, MB.x, e); macOcc.z = roomMix(MC.z, MB.z, e); macOcc.a = roomMix(MC.a, MB.a, e); macOcc.s = 0.9 * (1 - 0.6 * Math.sin(Math.PI * e));
+    const [cx, cz] = L.crateB;
+    for (const sl of sleeves) {
+      const k = 1 - 0.18 * sl.layer;
+      const x = sl.x + cx * e * k, z = sl.z + cz * e * k, a = sl.a + 0.35 * e;
+      sl.it.model = M.chain(M.t(x, 0.0002 + sl.layer * 0.0035, z), M.ry(a));
+      sl.o.x = x; sl.o.z = z; sl.o.a = a;
+    }
+  }
 
   const TV = L.tv;
   const tvm = M.t(TV.x, padAt(TV.x, TV.z), TV.z);
@@ -576,6 +598,7 @@ export function buildWorld(R, base) {
     const jm = new Float32Array([side[0], side[1], side[2], 0, axis[0], axis[1], axis[2], 0, fwd[0], fwd[1], fwd[2], 0, tip[0], tip[1], tip[2], 1]);
     jack.forEach(it => { it.model = jm; });
     well.p[0] = S.glow;
+    room();
     layLead();
     place(phone, S.phone);
     place(friend, S.friend);
@@ -587,7 +610,8 @@ export function buildWorld(R, base) {
     lamps.set([L.socket[0], L.socket[1] + 0.012, L.socket[2], 0.05], 0);
     const g = S.glow * 0.62;
     lampC.set([3.0 * g, 0.78 * g, 0.13 * g], 0);
-    for (let i = 0; i < 2; i++) { lamps.set([...decks[i].lamp, 0.03], 4 + i * 4); lampC.set([0.5 * S.power, 0.06 * S.power, 0.015 * S.power], 3 + i * 3); }
+    const rm = S.room, pw = S.power * (1 + 1.8 * rm);
+    for (let i = 0; i < 2; i++) { lamps.set([...decks[i].lamp, 0.03 + 0.07 * rm], 4 + i * 4); lampC.set([roomMix(0.5, 0.34, rm) * pw, roomMix(0.06, 0.5, rm) * pw, roomMix(0.015, 0.95, rm) * pw], 3 + i * 3); }
     lamps.set([TV.x, TV.lift + TV.hgt / 2, TV.z + 0.12, 0.4], 12);
     lampC.set(S.tvGlow, 9);
     const list = occ.map(o => ({ o, d: Math.hypot(o.x - focus[0], o.z - focus[2]) - Math.max(o.hx, o.hz) })).sort((a, b) => a.d - b.d).slice(0, 24);

@@ -5,157 +5,22 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="Sounding’s DJ side on the Mac: two decks and a mixer, Prep for beat grids and cue points, cues on every device, rekordbox in and out, and CDJs.">
+  <meta name="description" content="Sounding’s DJ side on the Mac: two decks and a mixer, a Prep panel on every track for beat grids and cue points, cues on every device, rekordbox in and out, and CDJs.">
   <meta name="theme-color" content="#110e0c">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Sounding for DJs. Drop it on the one.">
-  <meta property="og:description" content="Two decks on the Mac, Prep for grids and cues, cues on every device, rekordbox and CDJs.">
+  <meta property="og:description" content="Two decks on the Mac, a Prep panel for grids and cues, cues on every device, rekordbox and CDJs.">
   <meta property="og:url" content="https://sounding.forbes.red/dj/">
   <meta property="og:image" content="https://sounding.forbes.red/assets/share.jpg">
+  <meta http-equiv="refresh" content="0; url=../?side=dj">
+  <link rel="canonical" href="https://sounding.forbes.red/?side=dj">
   <title>DJ · Sounding</title>
   <link rel="icon" type="image/webp" href="../assets/app-icon.webp">
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
-  <script>(function(c){c.add('js');if(matchMedia('(prefers-reduced-motion: reduce)').matches||/[?&]still/.test(location.search))c.add('still');setTimeout(function(){if(!c.contains('live'))c.add('still')},6000)})(document.documentElement.classList)</script>
-  <style>html.js:not(.still):not(.live){background:#0b0908}html.js:not(.still):not(.live) body{visibility:hidden}</style>
-  <link rel="stylesheet" href="../assets/site.css">
-  <link rel="stylesheet" href="../assets/dj.css">
-  <link rel="modulepreload" href="../assets/stage.js">
-  <link rel="modulepreload" href="../assets/world.js">
-  <link rel="modulepreload" href="../assets/gl.js">
-  <link rel="modulepreload" href="../assets/shaders.js">
-  <script type="module" src="../assets/app.js"></script>
+  <script>location.replace('../?side=dj' + location.hash)</script>
+  <style>html { background: #110e0c; color: #f2ece3; font: 400 1.0625rem/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif; } body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; } a { color: inherit; text-decoration-color: #d9560f; }</style>
 </head>
 <body data-page="dj">
-  <a class="skip" href="#main">Skip to content</a>
-  <canvas id="gl" aria-hidden="true"></canvas>
-
-  <header class="top">
-    <a class="brand ink" href="../"><img src="../assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
-    <div class="xf" role="group" aria-label="Crossfader">
-      <button type="button" class="ink" data-xf="0" aria-pressed="false">Listening</button>
-      <input type="range" min="0" max="1000" value="1000" step="1" aria-label="Crossfade from listening to DJing" data-xf-range>
-      <button type="button" class="ink" data-xf="1" aria-pressed="true">DJing</button>
-    </div>
-    <nav aria-label="Main"><button type="button" class="snd ink" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Sound off</span></button><a class="ink" href="../support/">Support</a></nav>
-  </header>
-
-  <main id="main">
-    <section class="scene chapter hero right up" id="top" data-scene="hero" data-shot="dj" data-span="1.5" aria-labelledby="hero-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img src="../assets/still/hero-b.webp" alt="" width="1440" height="900" decoding="async"></figure>
-        <div class="side a">
-          <h1 class="ink" id="hero-h">Drop it on the&nbsp;one.</h1>
-          <p class="lede ink">Sounding’s Mac app has a proper DJ side: two decks and a mixer, a Prep panel on every track for beat grids and cue points, rekordbox in and out, and a line to the CDJs. Your cue points follow you to every device, and Auto Mix reads them too.</p>
-          <p class="note ink">Invite only. I made this for me, and for a few people who now owe me a favour. The decks are on the Mac.</p>
-          <p class="try live-only"><button type="button" class="plug" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Plug in</span></button><span class="ink">Then drag a record, or turn a knob. They all work. The beat’s one I made up for this page.</span></p>
-        </div>
-      </div>
-    </section>
-
-    <section class="scene chapter screen" id="decks" data-scene="decks" data-shot="macc" data-states='[{"mac":"play","macShot":"shots/mac-decks.webp"}]' aria-labelledby="decks-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img src="../assets/shots/mac-decks.webp" alt="" width="1920" height="1200" loading="lazy" decoding="async"></figure>
-        <div class="side a">
-          <h2 class="ink" id="decks-h">Two decks on your Mac.</h2>
-          <div class="caps">
-            <p class="cap ink"><b>These are the Decks.</b> Two of them, with a crossfader in the middle. Drag a track from your Likes onto either one, and your Mac works out its tempo and key, so you can see what’ll fit.</p>
-            <p class="cap ink"><b>Three-band EQ and a filter on each side.</b> Swap the basslines, sweep the filter, ride the crossfader. Sync and key lock are there for when your ears need a hand. Each deck takes an Audio Unit effect, and so does the send.</p>
-            <p class="cap ink"><b>Hot cues and loops.</b> Four pads a deck, loops you can halve and double, and an echo for the lazy exit. Every hot cue you set is saved with the track (more on where it goes in a bit).</p>
-            <p class="cap ink"><b>Plug in a DDJ-400 and it’s mapped.</b> Jogs, tempo, EQs, filters, channel faders, the crossfader, play, cue, loops and all eight pads a side. It’s the only controller with a mapping so far, so anything else gets politely ignored.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="scene chapter screen" id="everywhere" data-scene="everywhere" data-shot="macc,macc,tvc,tvc" data-states='[{"mac":"play","macShot":"shots/mac-cues.webp","tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-cues.webp"},{},{},{"tvShot":"shots/tv-trackmap.webp"}]' aria-labelledby="everywhere-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img class="r169" src="../assets/shots/tv-trackmap.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></figure>
-        <div class="side a">
-          <h2 class="ink" id="everywhere-h">Your cues, on everything.</h2>
-          <div class="caps">
-            <p class="cap ink"><b>Set a cue once.</b> Select any track and press ⌘I for its Prep panel, or set it straight on the deck’s waveform: a hot cue called Drop on pad A, Break on B, named and coloured. Sounding works the beat grid out itself, and it’s usually right. When it isn’t, put the cursor on the first kick, hit Set Downbeat and lock it.</p>
-            <p class="cap ink"><b>Cue points that learn.</b> Keep jumping back to the same bit (three times, over at least two listens, on any of your devices) and Sounding suggests a memory cue there called Often replayed. Accept it or dismiss it. It never takes a pad on its own.</p>
-            <p class="cap ink"><b>And on the Apple&nbsp;TV.</b> Cue points sync through your own iCloud, so they’re on your iPhone and iPad too. On the TV, More, then Cue Points, lists them on Now Playing with their times, which is handy when the TV’s the one playing the party. It also suggests a Mix Out where Auto Mix would leave.</p>
-            <p class="cap ink"><b>Auto Mix reads them.</b> A hot cue called Drop or Break is somewhere it can bring a track in, a memory cue on a phrase is somewhere it can leave, and Mix In and Mix Out come first. Suggestions count too, at half the weight.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="scene chapter flip screen" id="tv-automix" data-scene="tv-automix" data-shot="tvc" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-mixup.webp"},{"tvShot":"shots/tv-mixblend.webp"}]' aria-labelledby="tv-automix-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img class="r169" src="../assets/shots/tv-mixblend.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></figure>
-        <div class="side a">
-          <h2 class="ink" id="tv-automix-h">Auto Mix, on the TV.</h2>
-          <div class="caps">
-            <p class="cap ink"><b>The same Auto Mix runs on the Apple&nbsp;TV.</b> Turn it on and Now Playing says what’s coming and when: Mix into Harbour Lights, loop then drop, in five bars. Mix Now if you can’t wait, Extend if the room isn’t ready.</p>
-            <p class="cap ink"><b>You can watch it happen.</b> Both waveforms on the screen, the fade in, the swap and the fade out marked on the bar, and the crossfader sliding from A to B, readable from across the room.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="scene chapter screen" id="booth" data-scene="booth" data-shot="macc" data-states='[{"mac":"play","macShot":"shots/mac-players.webp"}]' aria-labelledby="booth-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img src="../assets/shots/mac-players.webp" alt="" width="1760" height="1100" loading="lazy" decoding="async"></figure>
-        <div class="side a">
-          <h2 class="ink" id="booth-h">Next to the CDJs.</h2>
-          <div class="caps">
-            <p class="cap ink"><b>Put the Mac on the same network as your CDJs</b> and Sounding can see them: what each player’s doing, the tempo, who’s master and which channel’s on air. It calls them DJ Players: connect from Hardware, and the rest is in Settings.</p>
-            <p class="cap ink"><b>It writes the setlist for you.</b> Turn on Record Setlists and every track that’s on air for 16 bars goes into a Setlist called “Recorded at” and the date. With a DJM on the network, a quick listen in the headphones doesn’t count, so you get what you actually played.</p>
-            <p class="cap ink"><b>The Mac can be a deck too.</b> Turn on Use as Virtual Deck and the Mac joins as a player, so the CDJs can sync to whatever’s playing in Decks. Or go the other way: Sync to DJ Players and Decks follows the tempo master. Quit rekordbox first (they don’t share).</p>
-            <p class="cap ink"><b>I built this against a fake CDJ I wrote,</b> not a real booth. I haven’t had it on a club rig yet. If you’ve got one and a spare evening, I’d love to hear how it goes.</p>
-          </div>
-          <p class="small fine ink">Uses Pro DJ Link. Not affiliated with AlphaTheta.</p>
-        </div>
-      </div>
-    </section>
-
-    <section class="read flowing" id="rekordbox" aria-labelledby="rekordbox-h">
-      <h2 id="rekordbox-h">rekordbox, both ways.</h2>
-      <p class="sub">Do your prep in Sounding, in rekordbox, or both. They swap notes.</p>
-      <div class="cols">
-        <p><b>Import your rekordbox.xml</b> and Sounding matches each track to your SoundCloud library, by ISRC or by title, artist and length. If it’s not sure, it asks. If you’ve already prepped a track differently, you choose per row: Keep Sounding or Use Imported. It never deletes anything you’ve made.</p>
-        <p><b>Export makes a new XML file</b> with your grids, hot cues, memory cues and loops. Sounding never touches your own rekordbox library. Only tracks you’ve linked to a file on your Mac go across, because rekordbox needs the audio. Tracks that only live on SoundCloud stay in Sounding, cues and all.</p>
-        <p><b>USB sticks, straight from Sounding.</b> Export to USB, in the File menu (⇧⌘E), writes a stick the CDJ-2000NXS2 and CDJ-3000 can read: your own files with their grids, hot cues, memory cues and waveforms, three-band on the 3000. Everything goes into a hidden folder first, gets checked and flushed, and only then swaps into place, so pulling the stick out halfway leaves it how it was. No auto-eject, no faff. It’s checked against real rekordbox exports, but it hasn’t met a real CDJ yet.</p>
-      </div>
-      <div class="sheets">
-        <figure><img src="../assets/shots/sheet-review.webp" alt="The Review Changes sheet: six differences between Sounding and the imported rekordbox prep, each row set to Keep Sounding or Use Imported." width="1440" height="1104" loading="lazy" decoding="async"><figcaption>Import review. Where you’ve prepped a track differently, pick per row.</figcaption></figure>
-        <figure><img src="../assets/shots/sheet-usb.webp" alt="The Export to USB sheet after a finished export: eight tracks on DJ STICK, four left out, Show in Finder and Eject buttons." width="1040" height="784" loading="lazy" decoding="async"><figcaption>Export to USB, done. It tells you what stayed behind.</figcaption></figure>
-      </div>
-    </section>
-
-    <section class="read flowing tail" id="automix" aria-labelledby="automix-h">
-      <h2 id="automix-h">Auto Mix, honestly.</h2>
-      <p class="sub">Auto Mix plays each track out and blends the next one in over 16 to 32 bars, on the phrase.</p>
-      <div class="withfig">
-        <div class="cols">
-          <p>It only beat-matches when it’s measured where the bars are on both tracks. When it hasn’t, it doesn’t fake it: it cuts cleanly on the bar instead. Your cues steer it, and a Mix Out cue decides where it leaves.</p>
-          <p><b>Playing like a DJ.</b> Wedding DJ blends, echoes out and cuts. Auto Mix adds breakdown exits and drop-ins. Junkie adds loop builds, tempo ramps and jumps through a long set. Every move lands on a measured downbeat, and Skip and Pause always win.</p>
-          <p><b>Energy.</b> Follow the Night warms up, peaks around midnight and cools down, or set Chill to Peak yourself. Match My Workout reads your heart rate from Apple Watch. Now Playing names the next move, with Mix Now and Extend This.</p>
-          <p><b>It shows its working.</b> On the Mac, the Decks panel says what it’s doing and why: the move, the bar it’s on, where it leaves and enters, why it picked the track, and what’s next. Change, Extend 8 Bars or Skip, or Take Over All and it hands you the controls on the beat.</p>
-          <p class="honest">I’ve measured every move against test tracks, but not yet on a full night of real music. If one sounds wrong, tell me which.</p>
-        </div>
-        <figure class="fig"><img src="../assets/shots/mac-plan.webp" alt="The Auto Mix panel in Decks on the Mac: Auto Mix has the controls, mixing bar 6 of 16, bringing in Low Sun, the plan from outro to intro, why this track, and what’s next in the plan." width="610" height="1630" loading="lazy" decoding="async"><figcaption>The Decks panel while Auto Mix has the controls.</figcaption></figure>
-      </div>
-    </section>
-
-    <section class="warn flowing tail" id="join" aria-labelledby="join-h">
-      <h2 id="join-h">Fair warning.</h2>
-      <p class="first">This is the newest and least-tested corner of Sounding. Decks, Prep, rekordbox and cue sync are in the beta on the Mac now. DJ Players and USB sticks are in too, but they’ve only ever met a fake CDJ. The DJ-style Auto Mix is in too, but only checked against test tracks so far.</p>
-      <p>It’s me, in Amsterdam, mostly in the evenings. No support team, no promises. Tell me what breaks, and what you’d want next.</p>
-      <p class="needs">The DJ side needs macOS 27. Cue points also show up on iOS and iPadOS 26.5 or later, and tvOS 27.</p>
-      <p class="invite">Invite only. I made this for me, and for a few people who now owe me a favour.</p>
-      <p class="small">Found a bug? Email <a href="mailto:sounding@alex.forbes.red">sounding@alex.forbes.red</a>. <a href="../">Back to the homepage</a></p>
-    </section>
-  </main>
-
-  <footer class="foot">
-    <div>
-      <p>Mused lovingly in Amsterdam, 🇳🇱.</p>
-      <p>Despite their many attempts, SoundCloud is not affiliated with or endorsed by Me.</p>
-    </div>
-    <nav aria-label="Footer"><a href="../">Home</a><a href="../tv/">TV</a><a href="../features/">Features</a><a href="../privacy/">Privacy</a><a href="../support/">Support</a></nav>
-  </footer>
+  <p>The DJ side now lives on the homepage. <a href="../?side=dj">Drop it on the one.</a></p>
 </body>
 </html>
