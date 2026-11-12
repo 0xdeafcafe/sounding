@@ -649,8 +649,6 @@
 		09859CE5A0405EFFB6B90B16 /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DCD573D91255B5F29C40C7C /* User.swift */; };
 		09973D6D401E327C65DCCAD4 /* DJTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54086371492D237ABC216414 /* DJTypes.swift */; };
 		0A49B0266435F3E98D4B907D /* ArtworkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FECCF6ADFC2EAD66B117EB5 /* ArtworkResolver.swift */; };
-		A1A7C5E50000000000000002 /* ArtworkImageSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A7C5E50000000000000001 /* ArtworkImageSession.swift */; };
-		A1A7C5E50000000000000003 /* ArtworkImageSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A7C5E50000000000000001 /* ArtworkImageSession.swift */; };
 		0ACA0CA8D5811CB7267426D3 /* AnalysisBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80FEFA4DB1074B8B1FDF7FB7 /* AnalysisBadge.swift */; };
 		0C21D63ADC668AFD000E8041 /* GenreSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 390C0FBC8F363037AEE7F943 /* GenreSelfTest.swift */; };
 		0C488026C43DA1F3E307D697 /* PulseTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E589F94C88C4B0D5CF906AE7 /* PulseTimeline.swift */; };
@@ -2758,7 +2756,6 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 		E589F94C88C4B0D5CF906AE7 /* PulseTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTimeline.swift; sourceTree = "<group>"; };
 		E5F60718293A4B5C6D7E8F90 /* NowPlayingScrubber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingScrubber.swift; sourceTree = "<group>"; };
 		E60C965B79C0B071CFF2009C /* ArtworkColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkColors.swift; sourceTree = "<group>"; };
-		A1A7C5E50000000000000001 /* ArtworkImageSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkImageSession.swift; sourceTree = "<group>"; };
 		E6FB13004A4D64D4779A1CC8 /* PhoneWatchLinkServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneWatchLinkServer.swift; sourceTree = "<group>"; };
 		E765CDD97C9FE402EBEA5156 /* ArtworkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkStore.swift; sourceTree = "<group>"; };
 		E77A966A73840435EA063A0B /* SoundingTVWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundingTVWatchApp.swift; sourceTree = "<group>"; };
@@ -3390,7 +3387,6 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				0F7B94BD2FFC02224EF97DFC /* AmbientArtworkBackdrop.swift */,
 				80FEFA4DB1074B8B1FDF7FB7 /* AnalysisBadge.swift */,
 				E60C965B79C0B071CFF2009C /* ArtworkColors.swift */,
-				A1A7C5E50000000000000001 /* ArtworkImageSession.swift */,
 				AE4C00000000000000000100 /* CollectionAccent.swift */,
 				AE4C00000000000000000150 /* CollectionBackdrop.swift */,
 				DEC500000000000000000030 /* DecksBackdrop.swift */,
@@ -5561,7 +5557,6 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1A7C5E50000000000000003 /* ArtworkImageSession.swift in Sources */,
 				F0E1A9C3B7D24E6A8C5B7003 /* OutputVolume.swift in Sources */,
 				5ECC4A100000000000000011 /* SoundingKeychain.swift in Sources */,
 				1A570000000000000000000C /* MacHistoryView.swift in Sources */,
@@ -6728,7 +6723,6 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1A7C5E50000000000000002 /* ArtworkImageSession.swift in Sources */,
 				F0E1A9C3B7D24E6A8C5B7002 /* OutputVolume.swift in Sources */,
 				F0E1A9C3B7D24E6A8C5B7006 /* PhoneVolumeButtons.swift in Sources */,
 				5ECC4A100000000000000012 /* SoundingKeychain.swift in Sources */,

@@ -178,10 +178,6 @@ struct SoundingMacApp: App {
                     _ = WidgetLinkRouter.handle(url)
                 }
                 .playlistFolderPrompts()
-                .artworkImageCaching()
-                .onChange(of: credentials.isSignedOut) { _, isSignedOut in
-                    if isSignedOut { ArtworkImageSession.clear() }
-                }
                 .task {
                     #if DEBUG
                     if VisualFixtures.isEnabled { return }
@@ -263,7 +259,6 @@ struct SoundingMacApp: App {
 
         Settings {
             MacSettingsView()
-                .artworkImageCaching()
                 .environmentObject(credentials)
                 .environmentObject(runtime)
                 .environmentObject(midi)
@@ -279,7 +274,6 @@ struct SoundingMacApp: App {
         Window("Prep", id: MacPrepCommands.windowID) {
             MacPrepView()
                 .tint(Color.scAccent)
-                .artworkImageCaching()
                 #if DEBUG
                 .modifier(MacDebugColorScheme())
                 #endif
@@ -290,7 +284,6 @@ struct SoundingMacApp: App {
             MacMenuBarPlayerView()
                 .environmentObject(runtime)
                 .tint(Color.scAccent)
-                .artworkImageCaching()
         }
         .menuBarExtraStyle(.window)
     }

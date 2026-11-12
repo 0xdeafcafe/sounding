@@ -174,14 +174,12 @@ struct PhoneRootView: View {
                     }
                 }
             }
-            .artworkImageCaching()
             .task { await credentials.prepareStoreAtLaunch() }
             .onChange(of: credentials.isSignedOut) { _, isSignedOut in
                 refreshState()
                 if !isSignedOut { didLeaveWelcome = false }
                 if isSignedOut {
                     isNowPlayingExpanded = false
-                    ArtworkImageSession.clear()
                     ArtworkColors.shared.lockAccount()
                     NowPlayingPalette.shared.lockAccount()
                 }
