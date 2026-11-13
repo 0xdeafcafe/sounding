@@ -43,6 +43,9 @@ struct MacCollectionDetailView: View {
                 hero
                     .macReportsScrolledAway($backdropGone)
 
+                MissingAnalysisProgressLine()
+                    .padding(.horizontal, SCContentStyle.mac.spaceGutter)
+
                 if case .loaded = state {
                     trackTable
                     if filterText.isEmpty, !viewModel.pager.hasMore {

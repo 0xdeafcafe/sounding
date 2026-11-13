@@ -657,7 +657,7 @@ struct LibraryCommands: Commands {
             }
             Divider()
             Button {
-                MissingAnalysisRun.shared.startLibrary()
+                MacAnalyseMissing.startLibrary()
             } label: {
                 Label("Analyse Missing Tracks…", systemImage: "waveform.badge.magnifyingglass")
             }

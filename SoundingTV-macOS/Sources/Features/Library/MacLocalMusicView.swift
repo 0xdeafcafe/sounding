@@ -72,7 +72,7 @@ struct MacSongsView: View {
                     .macFillsPane()
             } else {
                 VStack(spacing: 0) {
-                    if analysisRun.progress.isActive || analysisRun.isPaused {
+                    if analysisRun.hasStatus {
                         MissingAnalysisProgressLine()
                             .padding(.horizontal, 20)
                             .padding(.vertical, 8)
@@ -86,7 +86,7 @@ struct MacSongsView: View {
                         },
                         onDoubleClick: { play($0, in: rows.map(\.track)) },
                         onShowSetlist: { track in
-                            MacRootSelection.shared.request(setlist: track)
+                            MacRootSelection.shared.request(setlistPage: track)
                         },
                         onAnalysisChanged: { Task { await refreshAnalysis(rereadStore: false) } },
                         onNearEnd: { if hasSoundCloud { likesModel.loadMore() } },

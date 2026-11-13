@@ -117,24 +117,9 @@ struct TrackListView: View {
         .onChange(of: ascending) { _, _ in recomputeVisibleTracks() }
         .onReceive(analysisStore.$summaries) { _ in recomputeVisibleTracks() }
         .fullScreenCover(item: $setlistTrack) { track in
-            SetlistEditorView(
-                track: track,
-                currentPosition: playerService.currentTrack?.id == track.id ? playerService.currentTime : 0,
-                comments: [],
-                localFileURL: playerService.localAudioURL(for: track),
-                onSeek: { position in
-                    Task {
-                        if playerService.currentTrack?.id != track.id {
-                            await playerService.play(track, in: [track])
-                        }
-                        playerService.seek(to: position)
-                    }
-                },
-                onDownload: { DownloadManager.shared.download(track: track, confirmed: true) },
-                onPlaySearchResult: { result in
-                    Task { await playerService.play(result, in: [result]) }
-                }
-            )
+            NavigationStack {
+                SetlistPage(route: SetlistRoute(track: track))
+            }
         }
     }
 

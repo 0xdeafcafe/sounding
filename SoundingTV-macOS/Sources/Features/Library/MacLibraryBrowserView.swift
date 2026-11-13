@@ -1366,21 +1366,6 @@ struct MacLibraryTable: View {
                 .customizationID("load")
             }
 
-            if let onShowSetlist {
-                TableColumn("Setlist") { row in
-                    Button {
-                        onShowSetlist(row.track)
-                    } label: {
-                        Label("View", systemImage: "list.number")
-                    }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                    .help("View the identified setlist for \(row.track.title)")
-                }
-                .width(min: 66, ideal: 74, max: 88)
-                .customizationID("setlist")
-            }
-
             TableColumnForEach(tableColumns) { column in
                 TableColumn(column.title(), sortUsing: LibraryRowComparator(key: column.sortKey)) { row in
                     cell(column, row)
@@ -1519,7 +1504,7 @@ struct MacLibraryTable: View {
                 Text(row.track.user.displayName)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .foregroundStyle(MacSecondaryStyle())
+                    .foregroundStyle(.secondary)
             }
         case .bpm, .key, .genre:
             MacLibraryAnalysisCell(
@@ -1531,30 +1516,30 @@ struct MacLibraryTable: View {
             )
         case .time:
             TrackDurationLabel(track: row.track)
-                .foregroundStyle(MacSecondaryStyle())
+                .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .frame(maxWidth: .infinity, alignment: .trailing)
         case .source:
             Label(TrackValueFormat.sourceLabel(row.track), systemImage: TrackValueFormat.sourceSymbol(row.track))
-                .foregroundStyle(MacSecondaryStyle())
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
         case .added:
             Text(TrackValueFormat.added(row.dateAdded))
-                .foregroundStyle(MacSecondaryStyle())
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
         case .cues:
             Text(TrackValueFormat.cues(row.cueCount))
-                .foregroundStyle(MacSecondaryStyle())
+                .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         case .grid:
             Text(row.gridLabel ?? TrackValueFormat.missing)
-                .foregroundStyle(MacSecondaryStyle())
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
         default:
             Text(TrackValueFormat.value(column, track: row.track, analysis: row.analysis?.summary, dateAdded: row.dateAdded))
-                .foregroundStyle(MacSecondaryStyle())
+                .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: column.isNumeric ? .trailing : .leading)
@@ -1585,6 +1570,13 @@ struct MacLibraryTable: View {
                 .truncationMode(.tail)
                 .layoutPriority(1)
             Spacer(minLength: 8)
+            MacSetlistMark(track: row.track) {
+                if let onShowSetlist {
+                    onShowSetlist(row.track)
+                } else {
+                    MacRootSelection.shared.request(setlistPage: row.track)
+                }
+            }
         }
         .accessibilityElement(children: .combine)
         .macTrackAccessibility(track: row.track, bpm: row.analysis?.bpm)
@@ -1656,9 +1648,8 @@ struct MacLibraryTable: View {
             Button(action: action) {
                 Image(systemName: "play.fill")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(isHovering && isAvailable ? Color.primary : Color.secondary.opacity(0.58))
+                    .foregroundStyle(isHovering && isAvailable ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
                     .frame(width: 22, height: 22)
-                    .background(isHovering && isAvailable ? Color.primary.opacity(0.10) : .clear, in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(!isAvailable)
@@ -1671,6 +1662,28 @@ struct MacLibraryTable: View {
         }
     }
 
+}
+
+private struct MacSetlistMark: View {
+    let track: Track
+    let action: () -> Void
+
+    @ObservedObject private var store = SetlistIntelligenceStore.shared
+
+    var body: some View {
+        if let count = store.setlist(for: track.id)?.segments.filter({ !$0.isDeleted }).count, count > 0 {
+            Button(action: action) {
+                Image(systemName: "list.number")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help("View Setlist (\(count == 1 ? "1 track" : "\(count) tracks"))")
+            .accessibilityLabel("View Setlist")
+        }
+    }
 }
 
 private enum MacLibraryAnalysisColumnKind {
@@ -2100,6 +2113,8 @@ struct MacLibraryPaneView: View {
                 .macFillsPane()
         } else {
             VStack(spacing: 0) {
+                MissingAnalysisProgressLine()
+                    .padding(.horizontal, 20)
                 MacLibraryTable(
                     rows: model.filteredRows,
                     showsArtwork: showsArtwork,

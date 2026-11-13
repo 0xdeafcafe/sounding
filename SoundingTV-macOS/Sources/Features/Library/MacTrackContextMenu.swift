@@ -148,9 +148,9 @@ struct MacTrackContextMenu: View {
         if DeckIdentityResolver.isLikelyMix(track) || setlists.setlist(for: track.id) != nil {
             Divider()
             Button {
-                MacRootSelection.shared.request(setlist: track)
+                MacRootSelection.shared.request(setlistPage: track)
             } label: {
-                Label("View Setlist…", systemImage: "list.number")
+                Label("View Setlist", systemImage: "list.number")
             }
             if let setlist = setlists.setlist(for: track.id), setlist.segments.contains(where: { $0.soundCloudTrackId != nil }) {
                 Button {

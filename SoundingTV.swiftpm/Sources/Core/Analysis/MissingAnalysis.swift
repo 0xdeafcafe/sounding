@@ -42,22 +42,35 @@ final class MissingAnalysisRun: ObservableObject {
 
     @Published private(set) var progress = HeavyWorkProgress()
     @Published private(set) var isPaused = false
+    @Published private(set) var isPreparing = false
     @Published private(set) var message: String?
     @Published private(set) var cannotAnalyse: Set<String> = []
+
+    private struct Outcome {
+        var analysed = 0
+        var failed = 0
+        var notDownloaded = 0
+    }
 
     private var queue: [Track] = []
     private var queuedIds: Set<String> = []
     private var attempted: Set<String> = []
     private var runner: Task<Void, Never>?
+    private var outcome = Outcome()
+    private var preparations = 0
 
     private init() {}
 
     var statusLine: String? {
-        guard let base = progress.label(verb: "Analysing") else { return nil }
+        guard let base = progress.label(verb: "Analysing") else {
+            return isPreparing ? "Finding tracks to analyse…" : nil
+        }
         return isPaused ? base + " · Paused" : base
     }
 
     var isActive: Bool { progress.isActive }
+
+    var hasStatus: Bool { statusLine != nil || message != nil }
 
     func isSettled(_ trackId: String) -> Bool {
         cannotAnalyse.contains(trackId) || attempted.contains(trackId) || queuedIds.contains(trackId)
@@ -79,23 +92,18 @@ final class MissingAnalysisRun: ObservableObject {
 
     func start(_ tracks: [Track]) {
         guard admitsWork() else { return }
-        message = nil
         let requested = MissingAnalysis.deduplicated(tracks)
-        Task { [weak self] in
-            let missing = await MissingAnalysis.missingTracks(in: requested)
-            self?.enqueue(missing)
+        prepare {
+            await MissingAnalysis.missingTracks(in: requested)
         }
     }
 
     func startLibrary() {
         guard admitsWork() else { return }
-        message = nil
-        Task { [weak self] in
+        prepare {
             var tracks = AnalysisLibraryProgress.candidates()
-            let likes = await LikesSyncEngine.shared.indexedLikes().tracks
-            tracks += likes.filter { DownloadManager.shared.isLocallyAvailable($0) }
-            let missing = await MissingAnalysis.missingTracks(in: tracks)
-            self?.enqueue(missing)
+            tracks += await LikesSyncEngine.shared.indexedLikes().tracks
+            return await MissingAnalysis.missingTracks(in: tracks)
         }
     }
 
@@ -119,10 +127,24 @@ final class MissingAnalysisRun: ObservableObject {
     }
 
     private func admitsWork() -> Bool {
+        message = nil
         let gate = AnalysisGateInputs.current().gate
         guard gate == .off || gate == .unsupported else { return true }
         message = AnalysisStatusCopy.gate(gate, device: .current)
+            ?? "BPM and key come from your iPhone, iPad or Mac."
         return false
+    }
+
+    private func prepare(_ find: @escaping @MainActor () async -> [Track]) {
+        preparations += 1
+        isPreparing = true
+        Task { [weak self] in
+            let missing = await find()
+            guard let self else { return }
+            self.preparations -= 1
+            self.isPreparing = self.preparations > 0
+            self.enqueue(missing)
+        }
     }
 
     private func enqueue(_ missing: [Track]) {
@@ -130,15 +152,17 @@ final class MissingAnalysisRun: ObservableObject {
         if !protected.isEmpty { cannotAnalyse.formUnion(protected) }
         let fresh = missing.filter { !isSettled($0.id) && !$0.needsFairPlay }
         let ready = fresh.filter(MissingAnalysis.isAnalysableHere)
+        let notDownloaded = fresh.count - ready.count
+        if !progress.isActive { outcome = Outcome() }
         guard !ready.isEmpty else {
-            if progress.isActive { return }
-            if !fresh.isEmpty {
-                message = "BPM and key are found when a track is downloaded."
-            } else if !protected.isEmpty, protected.count == missing.count {
-                message = PlaybackSourceResolutionError.protectedAudioStatus
+            if progress.isActive {
+                outcome.notDownloaded += notDownloaded
+                return
             }
+            message = Self.idleMessage(missing: missing.count, protected: protected.count, notDownloaded: notDownloaded)
             return
         }
+        outcome.notDownloaded += notDownloaded
         if !progress.isActive { progress = HeavyWorkProgress() }
         queue += ready
         queuedIds.formUnion(ready.map(\.id))
@@ -162,7 +186,7 @@ final class MissingAnalysisRun: ObservableObject {
             }
             guard !queue.isEmpty else {
                 runner = nil
-                finish(message: nil)
+                finish(message: completionMessage)
                 return
             }
             if Self.isRateLimited {
@@ -183,14 +207,51 @@ final class MissingAnalysisRun: ObservableObject {
             if Task.isCancelled { return }
             for track in chunk {
                 queuedIds.remove(track.id)
-                if case .notEligible(let reason) = states[track.id], reason == PlaybackSourceResolutionError.protectedAudioStatus {
+                switch states[track.id] {
+                case .complete?:
+                    outcome.analysed += 1
+                    attempted.insert(track.id)
+                case .notEligible(let reason)? where reason == PlaybackSourceResolutionError.protectedAudioStatus:
+                    outcome.failed += 1
                     cannotAnalyse.insert(track.id)
-                } else {
+                default:
+                    outcome.failed += 1
                     attempted.insert(track.id)
                 }
             }
             progress.done = min(progress.total, progress.done + chunk.count)
         }
+    }
+
+    private var completionMessage: String {
+        var parts: [String] = []
+        if outcome.analysed > 0 {
+            parts.append("Analysed \(AnalysisStatusCopy.tracks(outcome.analysed)).")
+        }
+        if outcome.failed > 0 {
+            parts.append(outcome.analysed > 0
+                ? "\(AnalysisStatusCopy.tracks(outcome.failed)) couldn’t be analysed."
+                : "Couldn’t analyse \(AnalysisStatusCopy.tracks(outcome.failed)).")
+        }
+        if outcome.notDownloaded > 0 {
+            parts.append(Self.notDownloadedLine(outcome.notDownloaded))
+        }
+        return parts.isEmpty ? "All tracks are analysed." : parts.joined(separator: " ")
+    }
+
+    private static func idleMessage(missing: Int, protected: Int, notDownloaded: Int) -> String {
+        if missing == 0 { return "All tracks are analysed." }
+        if notDownloaded > 0 {
+            return notDownloadedLine(notDownloaded) + " BPM and key are found when a track is downloaded."
+        }
+        if protected > 0, protected == missing { return PlaybackSourceResolutionError.protectedAudioStatus }
+        return "Nothing new to analyse."
+    }
+
+    private static func notDownloadedLine(_ count: Int) -> String {
+        count == 1
+            ? "1 track isn’t downloaded yet."
+            : "\(AnalysisStatusCopy.tracks(count)) aren’t downloaded yet."
     }
 
     private func finish(message: String?) {
@@ -200,6 +261,7 @@ final class MissingAnalysisRun: ObservableObject {
         queuedIds.removeAll()
         isPaused = false
         progress = HeavyWorkProgress()
+        outcome = Outcome()
         if let message { self.message = message }
     }
 

@@ -107,6 +107,9 @@ struct SetlistEditorView: View {
     var body: some View {
         NavigationStack {
             container
+                .navigationDestination(for: SetlistRoute.self) { route in
+                    SetlistPage(route: route)
+                }
                 .navigationTitle("Setlist")
                 #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
@@ -655,18 +658,13 @@ struct SavedSetlistsLabel: View {
 
 struct SavedSetlistsLibraryView: View {
     @ObservedObject private var store = SetlistIntelligenceStore.shared
+    @State private var tracks: [String: Track] = [:]
 
     var body: some View {
         List {
             ForEach(store.savedSetlists, id: \.trackId) { setlist in
-                NavigationLink {
-                    SavedSetlistDetailView(setlist: setlist)
-                } label: {
-                    LabeledContent {
-                        Text("\(setlist.activeSegments.count)")
-                    } label: {
-                        Text(setlist.trackTitle)
-                    }
+                NavigationLink(value: SetlistRoute(trackId: setlist.trackId, track: tracks[setlist.trackId])) {
+                    SavedSetlistRow(setlist: setlist, track: tracks[setlist.trackId])
                 }
                 #if !os(tvOS)
                 .swipeActions(edge: .trailing) {
@@ -677,11 +675,26 @@ struct SavedSetlistsLibraryView: View {
                     }
                 }
                 #endif
+                .contextMenu {
+                    Button(role: .destructive) {
+                        store.setSaved(false, trackId: setlist.trackId)
+                    } label: {
+                        Label("Remove from Setlists", systemImage: "bookmark.slash")
+                    }
+                }
             }
         }
         .navigationTitle("Setlists")
         .overlay {
-            if store.savedSetlists.isEmpty {
+            if !store.isLoaded {
+                ContentUnavailableView {
+                    Label {
+                        Text("Loading Setlists")
+                    } icon: {
+                        ProgressView()
+                    }
+                }
+            } else if store.savedSetlists.isEmpty {
                 ContentUnavailableView {
                     SoundingArtEmptyLabel(title: "No Saved Setlists", identity: "empty.setlists", motif: .crossfader)
                 } description: {
@@ -689,31 +702,542 @@ struct SavedSetlistsLibraryView: View {
                 }
             }
         }
+        .task(id: store.savedSetlists.map(\.trackId)) {
+            let ids = store.savedSetlists.map(\.trackId).filter { tracks[$0] == nil }
+            guard !ids.isEmpty else { return }
+            let found = await SetlistTrackLookup.tracks(ids: ids)
+            tracks.merge(found) { _, new in new }
+        }
     }
 }
 
-private struct SavedSetlistDetailView: View {
+private struct SavedSetlistRow: View {
     let setlist: GeneratedSetlist
-    @ObservedObject private var store = SetlistIntelligenceStore.shared
+    let track: Track?
 
     var body: some View {
-        List {
-            ForEach(setlist.activeSegments) { segment in
-                LabeledContent {
-                    Text("\(SetlistViewFormat.clock(segment.startSeconds))–\(SetlistViewFormat.clock(setlist.endSeconds(for: segment)))")
-                        .monospacedDigit()
-                } label: {
-                    Text(segment.displayLabel)
+        HStack(spacing: 12) {
+            SetlistArtwork(url: track?.artworkURL, identity: setlist.trackId, size: SetlistMetrics.rowArtwork)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(SetlistText.normalized(setlist.trackTitle))
+                    .lineLimit(2)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var subtitle: String {
+        var parts: [String] = []
+        if let artist = track?.user.displayName, !artist.isEmpty { parts.append(artist) }
+        parts.append(SetlistViewFormat.trackCount(setlist.activeSegments.count))
+        if setlist.duration > 0 { parts.append(SetlistViewFormat.length(setlist.duration)) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+struct SetlistRoute: Hashable {
+    let trackId: String
+    var track: Track?
+
+    init(trackId: String, track: Track? = nil) {
+        self.trackId = trackId
+        self.track = track
+    }
+
+    init(track: Track) {
+        self.init(trackId: track.id, track: track)
+    }
+
+    static func == (lhs: SetlistRoute, rhs: SetlistRoute) -> Bool { lhs.trackId == rhs.trackId }
+
+    func hash(into hasher: inout Hasher) { hasher.combine(trackId) }
+}
+
+struct SetlistPlaybackActions {
+    var play: @MainActor (Track, [Track]) -> Void = { track, context in
+        Task { await PlayerService.shared.play(track, in: context) }
+    }
+    var playSet: @MainActor (Track, TimeInterval) -> Void = { track, position in
+        Task {
+            if PlayerService.shared.currentTrack?.id != track.id {
+                await PlayerService.shared.play(track, in: [track])
+            }
+            PlayerService.shared.seek(to: position)
+        }
+    }
+    var position: @MainActor (Track) -> TimeInterval? = { track in
+        PlayerService.shared.currentTrack?.id == track.id ? PlayerService.shared.currentTime : nil
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var setlistPlaybackActions = SetlistPlaybackActions()
+}
+
+@MainActor
+enum SetlistTrackLookup {
+    static func tracks(ids: [String]) async -> [String: Track] {
+        var seen = Set<String>()
+        let wanted = ids.filter { !$0.isEmpty && seen.insert($0).inserted }
+        guard !wanted.isEmpty else { return [:] }
+        var found: [String: Track] = [:]
+        for id in wanted {
+            if let track = DownloadManager.shared.cachedTrack(forTrackId: id) { found[id] = track }
+        }
+        let local = Set(wanted.filter { found[$0] == nil && LocalTrackFile.isLocalTrackID($0) })
+        if !local.isEmpty {
+            for track in LocalMusicLibrary.shared.allTracks where local.contains(track.id) {
+                found[track.id] = track
+            }
+        }
+        let remote = wanted.filter { found[$0] == nil && !LocalTrackFile.isLocalTrackID($0) }
+        guard !remote.isEmpty else { return found }
+        let cached = await LibraryDB.cachedTracks(ids: remote)
+        found.merge(cached) { current, _ in current }
+        let missing = remote.filter { found[$0] == nil }
+        guard !missing.isEmpty, let fetched = try? await SoundCloudAPI.shared.getTracks(ids: missing) else { return found }
+        for track in fetched { found[track.id] = track }
+        return found
+    }
+}
+
+struct SetlistPage: View {
+    let route: SetlistRoute
+
+    @Environment(\.setlistPlaybackActions) private var actions
+    @ObservedObject private var store = SetlistIntelligenceStore.shared
+    @State private var resolved: Track?
+    @State private var linked: [String: Track] = [:]
+    @State private var isResolving = true
+    @State private var isEditing = false
+    @State private var editingPosition: TimeInterval = 0
+
+    init(route: SetlistRoute) {
+        self.route = route
+        _resolved = State(initialValue: route.track)
+    }
+
+    private var setlist: GeneratedSetlist? { store.setlist(for: route.trackId) }
+    private var entries: [TracklistEntry] { setlist?.tracklist.entries ?? [] }
+    private var setTrack: Track? { resolved ?? route.track }
+
+    private var title: String {
+        if let setlist { return SetlistText.normalized(setlist.trackTitle) }
+        return setTrack?.title ?? "Setlist"
+    }
+
+    private var duration: TimeInterval {
+        max(setlist?.duration ?? 0, setTrack?.duration ?? 0)
+    }
+
+    var body: some View {
+        content
+            .navigationTitle(title)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            #if !os(tvOS)
+            .toolbar {
+                if let setlist, !entries.isEmpty {
+                    ToolbarItem(placement: .primaryAction) {
+                        ShareLink(item: store.exportText(for: setlist))
+                    }
+                }
+            }
+            #endif
+            .task(id: route.trackId) { await resolve() }
+            #if os(tvOS)
+            .fullScreenCover(isPresented: $isEditing) { editor }
+            #else
+            .sheet(isPresented: $isEditing) { editor }
+            #endif
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if !store.isLoaded || (setlist == nil && setTrack == nil && isResolving) {
+            ContentUnavailableView {
+                Label {
+                    Text("Loading Setlist")
+                } icon: {
+                    ProgressView()
+                }
+            }
+        } else if setlist == nil, setTrack == nil {
+            ContentUnavailableView(
+                "Setlist Not Available",
+                systemImage: "list.number",
+                description: Text("This setlist isn’t in your library any more.")
+            )
+        } else {
+            List {
+                Section {
+                    header
+                        #if !os(tvOS)
+                        .listRowSeparator(.hidden)
+                        #endif
+                        .listRowBackground(Color.clear)
+                }
+                Section {
+                    if entries.isEmpty {
+                        emptyTracklist
+                    } else {
+                        ForEach(entries) { entry in
+                            SetlistEntryRow(
+                                entry: entry,
+                                linkedTrack: entry.segment.soundCloudTrackId.flatMap { linked[$0] },
+                                canPlayHere: setTrack != nil,
+                                onPlayHere: { play(from: entry) },
+                                onPlayTrack: { track in actions.play(track, [track]) }
+                            )
+                        }
+                    }
+                } header: {
+                    if !entries.isEmpty {
+                        Text("Tracklist")
+                    }
+                } footer: {
+                    if !entries.isEmpty, !footer.isEmpty {
+                        Text(footer)
+                    }
                 }
             }
         }
-        .navigationTitle(setlist.trackTitle)
-        #if !os(tvOS)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                ShareLink(item: store.exportText(for: setlist))
+    }
+
+    private var header: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: SetlistMetrics.headerSpacing) {
+                SetlistArtwork(url: heroArtworkURL, identity: route.trackId, size: SetlistMetrics.heroArtwork, variant: .hero)
+                headerDetails(alignment: .leading)
+                    .frame(minWidth: SetlistMetrics.headerTextMinimum, alignment: .leading)
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .center, spacing: 16) {
+                SetlistArtwork(url: heroArtworkURL, identity: route.trackId, size: SetlistMetrics.compactHeroArtwork, variant: .hero)
+                headerDetails(alignment: .center)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.vertical, 12)
+    }
+
+    private var heroArtworkURL: URL? {
+        setTrack?.largeArtworkURL ?? setTrack?.artworkURL
+    }
+
+    private func headerDetails(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 6) {
+            Text(title)
+                .font(.title2.weight(.bold))
+                .lineLimit(3)
+                .multilineTextAlignment(alignment == .center ? .center : .leading)
+            if let artist = setTrack?.user.displayName, !artist.isEmpty {
+                Text(artist)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if !summary.isEmpty {
+                Text(summary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            HStack(spacing: 12) {
+                Button {
+                    if let setTrack { actions.play(setTrack, [setTrack]) }
+                } label: {
+                    Label("Play", systemImage: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(setTrack == nil)
+                if setTrack != nil {
+                    Button {
+                        openEditor()
+                    } label: {
+                        Label(
+                            entries.isEmpty ? "Identify Tracks" : "Edit",
+                            systemImage: entries.isEmpty ? "waveform.badge.magnifyingglass" : "pencil"
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    @ViewBuilder
+    private var emptyTracklist: some View {
+        if isResolving, setlist == nil {
+            ContentUnavailableView {
+                Label {
+                    Text("Loading Tracklist")
+                } icon: {
+                    ProgressView()
+                }
+            }
+        } else {
+            ContentUnavailableView {
+                Label("No Tracks Identified", systemImage: "waveform.badge.magnifyingglass")
+            } description: {
+                Text(setTrack == nil
+                    ? "Open this mix while it plays to identify its tracks."
+                    : "Identify Tracks finds what’s playing with Shazam, helped by timestamps from the uploader and listeners.")
+            } actions: {
+                if setTrack != nil {
+                    Button("Identify Tracks") { openEditor() }
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private var editor: some View {
+        if let setTrack {
+            SetlistEditorView(
+                track: setTrack,
+                currentPosition: editingPosition,
+                comments: [],
+                localFileURL: PlayerService.shared.localAudioURL(for: setTrack),
+                onSeek: { position in actions.playSet(setTrack, position) },
+                onDownload: { _ = DownloadManager.shared.download(track: setTrack, confirmed: true) },
+                onPlaySearchResult: { result in actions.play(result, [result]) }
+            )
+            #if os(macOS)
+            .frame(minWidth: 720, minHeight: 680)
+            #endif
+        }
+    }
+
+    private var summary: String {
+        var parts: [String] = []
+        if !entries.isEmpty {
+            let unidentified = entries.filter { SetlistViewFormat.isUnidentified($0.segment) }.count
+            parts.append(SetlistViewFormat.trackCount(entries.count))
+            if unidentified > 0 { parts.append("\(unidentified) unidentified") }
+        }
+        if duration > 0 { parts.append(SetlistViewFormat.length(duration)) }
+        return parts.joined(separator: " · ")
+    }
+
+    private var footer: String {
+        let sources = Set(entries.map(\.segment.source))
+        let ordered: [(SetlistSegmentSource, String)] = [
+            (.shazam, "Shazam"),
+            (.uploaderTracklist, "the uploader’s track list"),
+            (.listenerComment, "listener comments"),
+            (.user, "your edits"),
+        ]
+        let names = ordered.filter { sources.contains($0.0) }.map { $0.1 }
+        guard let last = names.last else { return "" }
+        let list = names.count == 1 ? last : names.dropLast().joined(separator: ", ") + " and " + last
+        return "From \(list). Choose a track to play the set from there."
+    }
+
+    private func openEditor() {
+        editingPosition = setTrack.flatMap { actions.position($0) } ?? 0
+        isEditing = true
+    }
+
+    private func play(from entry: TracklistEntry) {
+        guard let setTrack else { return }
+        actions.playSet(setTrack, entry.startSeconds)
+    }
+
+    private func resolve() async {
+        await store.waitUntilLoaded()
+        let linkedIDs = (setlist?.activeSegments ?? []).compactMap(\.soundCloudTrackId)
+        let ids = (resolved == nil ? [route.trackId] : []) + linkedIDs.filter { linked[$0] == nil }
+        guard !ids.isEmpty else {
+            isResolving = false
+            return
+        }
+        let found = await SetlistTrackLookup.tracks(ids: ids)
+        if resolved == nil { resolved = found[route.trackId] }
+        for id in linkedIDs {
+            if let track = found[id] { linked[id] = track }
+        }
+        isResolving = false
+    }
+}
+
+private struct SetlistEntryRow: View {
+    let entry: TracklistEntry
+    let linkedTrack: Track?
+    let canPlayHere: Bool
+    let onPlayHere: () -> Void
+    let onPlayTrack: (Track) -> Void
+
+    private var isUnidentified: Bool { SetlistViewFormat.isUnidentified(entry.segment) }
+
+    private var title: String {
+        guard !isUnidentified else { return "ID" }
+        let base = SetlistText.normalized(entry.segment.title)
+        guard let version = SetlistText.normalized(entry.segment.version) else { return base }
+        return "\(base) (\(version))"
+    }
+
+    private var subtitle: String {
+        if let artist = SetlistText.normalized(entry.segment.artist), !artist.isEmpty {
+            return isUnidentified ? "\(artist) · Not identified" : artist
+        }
+        return isUnidentified ? "Not identified" : (linkedTrack?.user.displayName ?? "")
+    }
+
+    var body: some View {
+        Button {
+            if canPlayHere {
+                onPlayHere()
+            } else if let linkedTrack {
+                onPlayTrack(linkedTrack)
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Text(SetlistViewFormat.clock(entry.startSeconds))
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: SetlistMetrics.timeColumn, alignment: .trailing)
+                SetlistArtwork(
+                    url: linkedTrack?.artworkURL,
+                    identity: entry.id,
+                    size: SetlistMetrics.rowArtwork,
+                    isUnidentified: isUnidentified
+                )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .foregroundStyle(isUnidentified ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                        .lineLimit(1)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                if entry.durationSeconds > 0 {
+                    Text(SetlistViewFormat.clock(entry.durationSeconds))
+                        .font(.callout)
+                        .monospacedDigit()
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        #if !os(tvOS)
+        .buttonStyle(.plain)
+        #endif
+        .disabled(!canPlayHere && linkedTrack == nil)
+        .contextMenu {
+            if canPlayHere {
+                Button(action: onPlayHere) {
+                    Label("Play Set from Here", systemImage: "play")
+                }
+            }
+            if let linkedTrack {
+                Button {
+                    onPlayTrack(linkedTrack)
+                } label: {
+                    Label("Play Track", systemImage: "music.note")
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(SetlistViewFormat.clock(entry.startSeconds)), \(title), \(subtitle)")
+        .accessibilityHint(canPlayHere ? "Plays the set from this track" : "")
+    }
+}
+
+private struct SetlistArtwork: View {
+    let url: URL?
+    let identity: String
+    let size: CGFloat
+    var variant: ArtworkVariant = .thumbnail
+    var isUnidentified = false
+
+    var body: some View {
+        SCArtworkResolver(url: url, variant: variant) { image in
+            SCArtwork(image: image, identity: identity, style: SetlistMetrics.style)
+        }
+        .overlay {
+            if isUnidentified, url == nil {
+                Image(systemName: "questionmark")
+                    .font(.system(size: size * 0.36, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+private enum SetlistMetrics {
+    static var style: SCContentStyle {
+        #if os(macOS)
+        .mac
+        #elseif os(tvOS)
+        .tv
+        #else
+        .phone
+        #endif
+    }
+
+    static var heroArtwork: CGFloat {
+        #if os(tvOS)
+        300
+        #elseif os(macOS)
+        180
+        #else
+        160
+        #endif
+    }
+
+    static var compactHeroArtwork: CGFloat {
+        #if os(tvOS)
+        300
+        #else
+        220
+        #endif
+    }
+
+    static var rowArtwork: CGFloat {
+        #if os(tvOS)
+        80
+        #elseif os(macOS)
+        36
+        #else
+        44
+        #endif
+    }
+
+    static var timeColumn: CGFloat {
+        #if os(tvOS)
+        110
+        #else
+        56
+        #endif
+    }
+
+    static var headerSpacing: CGFloat {
+        #if os(tvOS)
+        48
+        #else
+        20
+        #endif
+    }
+
+    static var headerTextMinimum: CGFloat {
+        #if os(tvOS)
+        600
+        #else
+        220
         #endif
     }
 }
@@ -994,6 +1518,24 @@ private struct SetlistPlaylistPickerView: View {
 }
 
 private enum SetlistViewFormat {
+    static func trackCount(_ count: Int) -> String {
+        count == 1 ? "1 track" : "\(count) tracks"
+    }
+
+    static func length(_ seconds: TimeInterval) -> String {
+        let units: Set<Duration.UnitsFormatStyle.Unit> = seconds >= 3600 ? [.hours, .minutes] : [.minutes]
+        return Duration.seconds(seconds).formatted(.units(allowed: units, width: .abbreviated))
+    }
+
+    static func isUnidentified(_ segment: SetlistSegment) -> Bool {
+        let title = SetlistText.normalized(segment.title)
+        guard !title.isEmpty else { return true }
+        return title.range(
+            of: #"(?i)^(unknown|unreleased|track\s*id|tune\s*id|song\s*id|id|i\.d\.|n/?a|\?+)(\s*[-–—]\s*(id|unknown|\?+))?$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
     static func clock(_ seconds: TimeInterval) -> String {
         let value = max(0, Int(seconds.rounded()))
         let hours = value / 3600
