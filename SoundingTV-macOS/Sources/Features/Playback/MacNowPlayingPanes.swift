@@ -65,9 +65,19 @@ struct MacGlassTabs<Option: Hashable>: View {
             ForEach(Density.allCases, id: \.self) { density in
                 row(density)
             }
+            ForEach(overflowCounts, id: \.self) { kept in
+                overflowRow(keeping: kept)
+            }
+            moreMenu(Array(options))
+                .frame(maxWidth: .infinity)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)
+    }
+
+    private var overflowCounts: [Int] {
+        guard options.count > 1 else { return [] }
+        return Array((1..<options.count).reversed())
     }
 
     private func row(_ density: Density) -> some View {
@@ -79,6 +89,42 @@ struct MacGlassTabs<Option: Hashable>: View {
             }
         }
         .fixedSize()
+    }
+
+    private func overflowRow(keeping kept: Int) -> some View {
+        GlassEffectContainer(spacing: Density.tight.spacing) {
+            HStack(spacing: Density.tight.spacing) {
+                ForEach(options.prefix(kept), id: \.self) { option in
+                    tab(option, density: .tight)
+                }
+                moreMenu(Array(options.dropFirst(kept)))
+            }
+        }
+        .fixedSize()
+    }
+
+    private func moreMenu(_ rest: [Option]) -> some View {
+        let isSmall = compact || controlSize == .small || controlSize == .mini
+        let selectedInside = rest.contains(selection)
+        return Menu {
+            Picker(label, selection: Binding(get: { selection }, set: { value in withAnimation(.snappy) { selection = value } })) {
+                ForEach(rest, id: \.self) { option in
+                    Text(title(option)).tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Text(selectedInside ? title(selection) : "More")
+                .font(isSmall ? .callout : .body)
+                .fontWeight(selectedInside ? .semibold : .regular)
+                .lineLimit(1)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .help(selectedInside ? "\(title(selection)) and more" : "More")
+        .accessibilityLabel(selectedInside ? "\(title(selection)), more \(label)" : "More \(label)")
     }
 
     private func tab(_ option: Option, density: Density) -> some View {
@@ -114,7 +160,7 @@ struct MacGlassTabs<Option: Hashable>: View {
 struct MacNowPlayingPanes: View {
     @Binding var pane: MacNowPlayingPane
     let surface: MacNowPlayingSurface
-    @ObservedObject private var setlists = SetlistIntelligenceStore.shared
+    @State private var hidesLyrics = false
 
     private var model: MacNowPlayingModel { .shared }
 
@@ -148,13 +194,25 @@ struct MacNowPlayingPanes: View {
             }
         }
         .task(id: model.track?.id) { model.ensureComments() }
+        .background { MacMixReader(track: model.track) { hidesLyrics = $0 } }
         .onChange(of: hidesLyrics, initial: true) { _, hides in
             if hides && pane == .lyrics { pane = .tracklist }
         }
     }
+}
 
-    private var hidesLyrics: Bool {
-        model.track.map { setlists.isMix($0) } ?? false
+private struct MacMixReader: View {
+    let track: Track?
+    let report: (Bool) -> Void
+
+    @ObservedObject private var setlists = SetlistIntelligenceStore.shared
+
+    var body: some View {
+        let isMix = track.map { setlists.isMix($0) } ?? false
+        Color.clear
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: isMix, initial: true) { _, value in report(value) }
     }
 }
 

@@ -785,7 +785,7 @@ struct TapeScrubber<Avatar: View>: View {
             guard !group.isEmpty else { return }
             let centre = (Double(key) + 0.5) * bucket
             let mean = group.reduce(0) { $0 + $1.time } / Double(group.count)
-            let time = min(max(mean, centre - bucket * 0.25), centre + bucket * 0.25)
+            let time = min(max(mean, centre - bucket * 0.1), centre + bucket * 0.1)
             markers.append(CommentMarker(comments: group, x: f.x(time)))
             group = []
         }
@@ -856,19 +856,21 @@ struct TapeScrubber<Avatar: View>: View {
     @ViewBuilder
     private func markerView(_ marker: CommentMarker) -> some View {
         let size = style.markerSize
+        let strong = contrast == .increased
         if marker.comments.count == 1 {
             avatar(marker.comments[0], size)
                 .frame(width: size, height: size)
                 .clipShape(Circle())
-                .overlay(Circle().strokeBorder(.white.opacity(contrast == .increased ? 0.6 : 0.3), lineWidth: 0.5))
+                .overlay(Circle().strokeBorder(.white.opacity(strong ? 0.6 : 0.18), lineWidth: 0.5))
+                .opacity(strong ? 1 : 0.85)
         } else {
             Text(marker.comments.count > 99 ? "99+" : "\(marker.comments.count)")
-                .font(.system(size: max(7, size * 0.7), weight: .semibold).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.9))
+                .font(.system(size: max(7, size * 0.62), weight: .medium).monospacedDigit())
+                .foregroundStyle(.white.opacity(strong ? 0.9 : 0.62))
                 .lineLimit(1)
-                .padding(.horizontal, size * 0.28)
-                .frame(minWidth: size + 1, minHeight: size + 1)
-                .background(.white.opacity(contrast == .increased ? 0.38 : 0.2), in: Capsule())
+                .padding(.horizontal, size * 0.22)
+                .frame(minWidth: size, minHeight: size)
+                .background(.white.opacity(strong ? 0.3 : 0.1), in: Capsule())
                 .fixedSize()
         }
     }
