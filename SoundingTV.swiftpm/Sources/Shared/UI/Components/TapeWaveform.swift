@@ -958,7 +958,7 @@ struct TapeScrubber<Avatar: View>: View {
         HStack(spacing: 12) {
             Text(TapeTime.string(trim.elapsed(at: f.position)))
                 .frame(minWidth: style.timeMinWidth, alignment: .leading)
-            if f.fits {
+            if f.fits || peaks == nil {
                 Spacer(minLength: 0)
             } else {
                 miniMap(f, audio: audio)
