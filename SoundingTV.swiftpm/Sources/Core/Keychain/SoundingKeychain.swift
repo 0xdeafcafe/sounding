@@ -36,7 +36,7 @@ enum SoundingKeychain {
     static var isDurable: Bool { !(backend is MemoryKeychainBackend) }
 
     static func copyMatching(_ query: [String: Any], _ result: inout CFTypeRef?) -> OSStatus {
-        switch backend.copyData(query) {
+        switch backend.copyData(BuildFlavor.current.keychainQuery(query)) {
         case .present(let data):
             result = data as CFData
             return errSecSuccess
@@ -50,20 +50,20 @@ enum SoundingKeychain {
     }
 
     static func copyData(_ query: [String: Any]) -> KeychainLookup {
-        backend.copyData(query)
+        backend.copyData(BuildFlavor.current.keychainQuery(query))
     }
 
     static func add(_ attributes: [String: Any]) -> OSStatus {
-        backend.add(attributes)
+        backend.add(BuildFlavor.current.keychainQuery(attributes))
     }
 
     static func update(_ query: [String: Any], _ changes: [String: Any]) -> OSStatus {
-        backend.update(query, changes)
+        backend.update(BuildFlavor.current.keychainQuery(query), BuildFlavor.current.keychainQuery(changes))
     }
 
     @discardableResult
     static func delete(_ query: [String: Any]) -> OSStatus {
-        backend.delete(query)
+        backend.delete(BuildFlavor.current.keychainQuery(query))
     }
 }
 
@@ -291,7 +291,7 @@ struct DefaultsKeychainMigrationLedger: KeychainMigrationLedger {
     private static let pendingKey = "red.forbes.sounding.keychain.legacyPending"
 
     private func list(_ name: String) -> [String] {
-        UserDefaults.standard.stringArray(forKey: name) ?? []
+        UserDefaults.sounding.stringArray(forKey: name) ?? []
     }
 
     func isSettled(_ key: KeychainItemKey) -> Bool {
@@ -302,17 +302,17 @@ struct DefaultsKeychainMigrationLedger: KeychainMigrationLedger {
         var settled = list(Self.settledKey)
         if !settled.contains(key.ledgerKey) {
             settled.append(key.ledgerKey)
-            UserDefaults.standard.set(settled, forKey: Self.settledKey)
+            UserDefaults.sounding.set(settled, forKey: Self.settledKey)
         }
         let pending = list(Self.pendingKey).filter { $0 != key.ledgerKey }
-        UserDefaults.standard.set(pending, forKey: Self.pendingKey)
+        UserDefaults.sounding.set(pending, forKey: Self.pendingKey)
     }
 
     func markPending(_ key: KeychainItemKey) {
         var pending = list(Self.pendingKey)
         guard !pending.contains(key.ledgerKey) else { return }
         pending.append(key.ledgerKey)
-        UserDefaults.standard.set(pending, forKey: Self.pendingKey)
+        UserDefaults.sounding.set(pending, forKey: Self.pendingKey)
     }
 
     func isPending(_ key: KeychainItemKey) -> Bool {

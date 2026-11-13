@@ -245,7 +245,7 @@ final class MacUSBExportModel: ObservableObject {
         store: CueStore = .shared,
         selectionIds: [String] = [],
         sources extraSources: [MacUSBExportSource] = [],
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = .sounding,
         volumes: @escaping @MainActor () -> [MacUSBVolume] = MacUSBExportModel.mountedVolumes,
         candidates: (@MainActor () async -> [MacUSBCandidate])? = nil,
         runner: @escaping MacUSBExportRunner = MacUSBExportModel.liveRunner

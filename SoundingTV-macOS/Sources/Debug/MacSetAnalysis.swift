@@ -122,10 +122,10 @@ enum MacSetAnalysis {
     }
 
     private static func loadIndex() throws -> (String, URL, [String: DownloadEntry]) {
-        guard let accountID = UserDefaults.standard.string(forKey: accountKey), !accountID.isEmpty else {
+        guard let accountID = UserDefaults.sounding.string(forKey: accountKey), !accountID.isEmpty else {
             throw Failure.noAccount
         }
-        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+        guard let support = FileManager.default.soundingDirectory(.applicationSupportDirectory) else {
             throw Failure.noIndex
         }
         let directory = DownloadStoragePolicy.accountDirectory(
@@ -181,7 +181,7 @@ enum MacSetAnalysis {
     }
 
     private static func setlistCues(trackID: String) -> [Cue] {
-        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return [] }
+        guard let support = FileManager.default.soundingDirectory(.applicationSupportDirectory) else { return [] }
         let safe = trackID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? trackID
         let url = support.appendingPathComponent("Setlists", isDirectory: true).appendingPathComponent("\(safe).json")
         guard let data = try? Data(contentsOf: url),

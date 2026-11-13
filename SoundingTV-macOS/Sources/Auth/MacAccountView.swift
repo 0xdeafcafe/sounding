@@ -22,7 +22,7 @@ enum MacSoundCloudWebsiteData {
     private static let persistentStoreIdentifierKey = "red.forbes.sounding.mac.soundcloudWebStoreID"
 
     private static var persistentStoreIdentifier: UUID {
-        let defaults = UserDefaults.standard
+        let defaults = UserDefaults.sounding
         if let raw = defaults.string(forKey: persistentStoreIdentifierKey), let id = UUID(uuidString: raw) {
             return id
         }
@@ -819,7 +819,7 @@ private enum DownloadsSettingsRoute: Hashable {
 
 struct MacSettingsAnalysisTab: View {
     @ObservedObject private var store = SettingsStore.shared
-    @AppStorage(GeneratedInsightsService.visibilityKey) private var showsGeneratedInsights = true
+    @AppStorage(GeneratedInsightsService.visibilityKey, store: .sounding) private var showsGeneratedInsights = true
     @State private var storageUsedBytes: Int64?
     @State private var showingClearConfirmation = false
 

@@ -148,7 +148,7 @@ final class DJMixerModel: ObservableObject {
         get { engine.mixer.splitCue }
         set {
             engine.setSplitCue(newValue)
-            UserDefaults.standard.set(newValue, forKey: Keys.split)
+            UserDefaults.sounding.set(newValue, forKey: Keys.split)
         }
     }
 
@@ -156,7 +156,7 @@ final class DJMixerModel: ObservableObject {
         get { engine.mixer.crossfaderCurve }
         set {
             engine.setCrossfaderCurve(newValue)
-            UserDefaults.standard.set(newValue.rawValue, forKey: Keys.crossfader)
+            UserDefaults.sounding.set(newValue.rawValue, forKey: Keys.crossfader)
         }
     }
 
@@ -164,17 +164,17 @@ final class DJMixerModel: ObservableObject {
         get { engine.mixer.faderCurve }
         set {
             engine.setChannelFaderCurve(newValue)
-            UserDefaults.standard.set(newValue.rawValue, forKey: Keys.fader)
+            UserDefaults.sounding.set(newValue.rawValue, forKey: Keys.fader)
         }
     }
 
     func persistLevels() {
-        UserDefaults.standard.set(engine.mixer.cueMix, forKey: Keys.cueMix)
-        UserDefaults.standard.set(engine.mixer.phonesLevel, forKey: Keys.phones)
+        UserDefaults.sounding.set(engine.mixer.cueMix, forKey: Keys.cueMix)
+        UserDefaults.sounding.set(engine.mixer.phonesLevel, forKey: Keys.phones)
     }
 
     private func restorePreferences() {
-        let defaults = UserDefaults.standard
+        let defaults = UserDefaults.sounding
         if defaults.object(forKey: Keys.cueMix) != nil { engine.setCueMix(defaults.double(forKey: Keys.cueMix)) }
         if defaults.object(forKey: Keys.phones) != nil { engine.setPhonesLevel(defaults.double(forKey: Keys.phones)) }
         if defaults.bool(forKey: Keys.split) { engine.setSplitCue(true) }

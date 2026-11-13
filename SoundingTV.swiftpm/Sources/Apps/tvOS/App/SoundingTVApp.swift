@@ -295,7 +295,7 @@ class NavigationState: ObservableObject {
             .first { $0.hasPrefix("--tab=") }?
             .replacingOccurrences(of: "--tab=", with: "")
         let raw = argumentTab
-            ?? UserDefaults.standard.string(forKey: "SOUNDING_TV_TAB")
+            ?? UserDefaults.sounding.string(forKey: "SOUNDING_TV_TAB")
             ?? ProcessInfo.processInfo.environment["SOUNDING_TV_TAB"]
         if let raw, let tab = Tab.allCases.first(where: { $0.rawValue.caseInsensitiveCompare(raw) == .orderedSame }) {
             self.selectedTab = tab
@@ -362,8 +362,8 @@ enum CrashRecorder {
     private static let fileName = "last-crash.txt"
 
     static var fileURL: URL {
-        FileManager.default
-            .urls(for: .documentDirectory, in: .userDomainMask)[0]
+        (FileManager.default
+            .soundingDirectory(.documentDirectory) ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true))
             .appendingPathComponent(fileName)
     }
 

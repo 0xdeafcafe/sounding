@@ -199,7 +199,7 @@ enum AnalysisSyncSelfTest {
         }
 
         let candidates = await cache.exportCandidates(limit: 10)
-        let localDeviceId = AnalysisSyncIdentity.producerId(defaults: .standard)
+        let localDeviceId = AnalysisSyncIdentity.producerId(defaults: .sounding)
         report.expect(
             "a locally-computed row exports with this device as producer and a matching digest",
             candidates.count == 1

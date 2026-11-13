@@ -425,11 +425,11 @@ final class SoundCloudActivityPoller: ObservableObject {
         guard let accountID = activeAccountID,
               let data = try? JSONEncoder().encode(snapshot),
               let sealed = AccountDataVault.seal(data, accountID: accountID, purpose: Self.purpose) else { return }
-        UserDefaults.standard.set(sealed, forKey: Self.storageKey(accountID: accountID))
+        UserDefaults.sounding.set(sealed, forKey: Self.storageKey(accountID: accountID))
     }
 
     private static func load(accountID: String) -> Snapshot? {
-        guard let sealed = UserDefaults.standard.data(forKey: storageKey(accountID: accountID)),
+        guard let sealed = UserDefaults.sounding.data(forKey: storageKey(accountID: accountID)),
               let data = AccountDataVault.open(sealed, accountID: accountID, purpose: purpose) else { return nil }
         return try? JSONDecoder().decode(Snapshot.self, from: data)
     }

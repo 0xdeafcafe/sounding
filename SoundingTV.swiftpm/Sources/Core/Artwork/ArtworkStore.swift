@@ -126,7 +126,7 @@ actor SCArtworkStore {
     private var prefetchQueue: [PrefetchJob] = []
 
     init(directory: URL? = nil) {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        let base = FileManager.default.soundingDirectory(.cachesDirectory)
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         let resolved = directory ?? base.appendingPathComponent("Artwork", isDirectory: true)
         self.directory = resolved
@@ -438,7 +438,7 @@ actor SCArtworkStore {
 
     private func sweepFinished() {
         sweepRunning = false
-        UserDefaults.standard.set(Date(), forKey: Self.sweepDefaultsKey(for: directory))
+        UserDefaults.sounding.set(Date(), forKey: Self.sweepDefaultsKey(for: directory))
     }
 
     private static let initialSweepInterval: TimeInterval = 24 * 60 * 60
@@ -448,7 +448,7 @@ actor SCArtworkStore {
     }
 
     private static func initialSweepIsDue(for directory: URL) -> Bool {
-        guard let last = UserDefaults.standard.object(forKey: sweepDefaultsKey(for: directory)) as? Date else {
+        guard let last = UserDefaults.sounding.object(forKey: sweepDefaultsKey(for: directory)) as? Date else {
             return true
         }
         return Date().timeIntervalSince(last) >= initialSweepInterval

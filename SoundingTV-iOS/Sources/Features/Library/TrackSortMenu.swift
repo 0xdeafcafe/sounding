@@ -23,7 +23,7 @@ extension EnvironmentValues {
 extension AppStorage where Value == Bool {
     @MainActor init(trackListColumns list: String) {
         TrackListColumnsPreference.migrate(list)
-        self.init(wrappedValue: false, TrackListColumnsPreference.storageKey(list))
+        self.init(wrappedValue: false, TrackListColumnsPreference.storageKey(list), store: .sounding)
     }
 }
 
@@ -267,7 +267,7 @@ struct TrackColumnsRowLabel: View {
     var number: Int?
     let activity: SCTrackActivity
 
-    @AppStorage(TrackColumnLayout.storageKey) private var layout = TrackColumnLayout.standard
+    @AppStorage(TrackColumnLayout.storageKey, store: .sounding) private var layout = TrackColumnLayout.standard
 
     private var isCurrent: Bool { activity != .none }
 
@@ -345,7 +345,7 @@ struct TrackColumnsHeader: View {
     var numbered = false
     var dateLabel = "Added"
 
-    @AppStorage(TrackColumnLayout.storageKey) private var layout = TrackColumnLayout.standard
+    @AppStorage(TrackColumnLayout.storageKey, store: .sounding) private var layout = TrackColumnLayout.standard
 
     var body: some View {
         HStack(spacing: TrackColumnsMetrics.spacing) {

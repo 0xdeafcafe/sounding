@@ -81,7 +81,7 @@ final class WakeAlarmStore: ObservableObject {
     private var updatesTask: Task<Void, Never>?
 
     private init() {
-        if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
+        if let data = UserDefaults.sounding.data(forKey: Self.defaultsKey),
            let saved = try? JSONDecoder().decode([WakeAlarm].self, from: data) {
             alarms = saved.sorted(by: Self.order)
         }
@@ -159,7 +159,7 @@ final class WakeAlarmStore: ObservableObject {
 
     private func persist() {
         guard let data = try? JSONEncoder().encode(alarms) else { return }
-        UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+        UserDefaults.sounding.set(data, forKey: Self.defaultsKey)
     }
 
     private static func order(_ a: WakeAlarm, _ b: WakeAlarm) -> Bool {

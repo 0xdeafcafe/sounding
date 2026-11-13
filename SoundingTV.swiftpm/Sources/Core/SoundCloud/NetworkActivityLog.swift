@@ -320,7 +320,7 @@ final class NetworkActivityLog: Sendable {
             sessionFileURL = sessionDirectory.appendingPathComponent("network-\(stamp).log")
             let legacy = sessionDirectory.deletingLastPathComponent().appendingPathComponent("SoundCloudNetworkActivity.json")
             writeQueue.async { Self.prune(sessionDirectory, legacy: legacy) }
-            let saves = UserDefaults.standard.bool(forKey: Self.sessionFileDefaultsKey)
+            let saves = UserDefaults.sounding.bool(forKey: Self.sessionFileDefaultsKey)
             state.withLock { $0.savesSession = saves }
             observeApplicationState()
         } else {
@@ -346,7 +346,7 @@ final class NetworkActivityLog: Sendable {
     var savesSessionFile: Bool {
         get { sessionFileURL != nil && state.withLock { $0.savesSession } }
         set {
-            UserDefaults.standard.set(newValue, forKey: Self.sessionFileDefaultsKey)
+            UserDefaults.sounding.set(newValue, forKey: Self.sessionFileDefaultsKey)
             state.withLock {
                 $0.savesSession = newValue
                 $0.version += 1
@@ -573,7 +573,7 @@ final class NetworkActivityLog: Sendable {
     }
 
     private static var defaultSessionDirectory: URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+        FileManager.default.soundingDirectory(.cachesDirectory)?
             .appendingPathComponent("NetworkActivity", isDirectory: true)
     }
 

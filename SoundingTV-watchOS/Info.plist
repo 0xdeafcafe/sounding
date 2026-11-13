@@ -25,6 +25,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_soundingtv._tcp</string>
+		<string>_soundingtv-dev._tcp</string>
 	</array>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Auto Mix reads your heart rate during a workout to set the energy of the music.</string>

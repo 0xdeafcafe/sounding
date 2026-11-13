@@ -46,7 +46,7 @@ final class MacRekordboxLibrary: ObservableObject {
 
     init(
         store: CueStore = .shared,
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = .sounding,
         candidates: @escaping @MainActor () async -> [MatchCandidate] = MacRekordboxLibrary.liveCandidates
     ) {
         self.store = store

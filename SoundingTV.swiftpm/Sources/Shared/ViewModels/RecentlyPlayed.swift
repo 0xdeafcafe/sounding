@@ -44,7 +44,7 @@ final class RecentlyPlayed: ObservableObject {
         settings: SettingsStore = .shared,
         api: SoundCloudAPI = .shared,
         cache: LibraryCache = .shared,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .sounding
     ) {
         self.settings = settings
         self.api = api

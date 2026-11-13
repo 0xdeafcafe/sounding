@@ -4,7 +4,7 @@ import CoreSpotlight
 import Foundation
 
 private struct SearchableIndexHandle: @unchecked Sendable {
-    private let index = CSSearchableIndex.default()
+    private let index = BuildFlavor.current.isDebug ? CSSearchableIndex(name: BuildFlavor.current.identifier("red.forbes.sounding.spotlight")) : CSSearchableIndex.default()
 
     func index(_ track: Track) async throws {
         try await index.indexAppEntities([TrackEntity(track)])

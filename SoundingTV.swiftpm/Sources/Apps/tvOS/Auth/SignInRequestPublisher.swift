@@ -66,8 +66,8 @@ final class SignInRequestPublisher {
     }
 
     private static var lastPublishedAt: Date? {
-        get { UserDefaults.standard.object(forKey: lastPublishedKey) as? Date }
-        set { UserDefaults.standard.set(newValue, forKey: lastPublishedKey) }
+        get { UserDefaults.sounding.object(forKey: lastPublishedKey) as? Date }
+        set { UserDefaults.sounding.set(newValue, forKey: lastPublishedKey) }
     }
 
     func publish(tvName: String = UIDevice.current.name, userStarted: Bool = false, now: Date = .now) {
@@ -80,7 +80,7 @@ final class SignInRequestPublisher {
             rendezvous: rendezvous,
             tvName: tvName,
             tvKind: .current,
-            tvTag: SignInRequest.tvTag(deviceId: LinkPeerIdentity.localDeviceId()),
+            tvTag: SignInRequest.tvTag(deviceId: LinkPeerIdentity.localDeviceId(defaults: .sounding)),
             createdAt: now
         ) else { return }
         phase = .saving

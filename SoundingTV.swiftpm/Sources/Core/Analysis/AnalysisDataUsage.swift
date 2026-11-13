@@ -20,7 +20,7 @@ enum AnalysisDataUsage {
         var snapshot = AnalysisDataSnapshot()
         let cache = AnalysisCache.shared
         let rows = await cache.allRecallRows(limit: rowScanLimit)
-        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .standard)
+        let localProducerId = AnalysisSyncIdentity.producerId(defaults: .sounding)
         let tempoKeyEngines: Set<String> = [
             AnalysisEngineIdentity.musicUnderstanding().name,
             AnalysisEngineIdentity.userCorrection().name,

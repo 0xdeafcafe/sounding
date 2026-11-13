@@ -98,7 +98,7 @@ struct LibraryTrackGrid: View {
     @Environment(\.libraryGridColumns) private var columns
     @AppStorage private var query: TrackCollectionQuery
     @AppStorage private var showsColumns: Bool
-    @AppStorage(TrackColumnLayout.storageKey) private var layout = TrackColumnLayout.standard
+    @AppStorage(TrackColumnLayout.storageKey, store: .sounding) private var layout = TrackColumnLayout.standard
     @StateObject private var analysis = TrackAnalysisStore()
     @State private var visible: [Track] = []
     @State private var hasComputed = false
@@ -123,9 +123,9 @@ struct LibraryTrackGrid: View {
         self.dateAdded = dateAdded
         self.loadAll = loadAll
         self.retry = retry
-        _query = AppStorage(wrappedValue: filter.naturalQuery, filter.queryStorageKey)
+        _query = AppStorage(wrappedValue: filter.naturalQuery, filter.queryStorageKey, store: .sounding)
         TrackListColumnsPreference.migrate(filter.rawValue)
-        _showsColumns = AppStorage(wrappedValue: false, TrackListColumnsPreference.storageKey(filter.rawValue))
+        _showsColumns = AppStorage(wrappedValue: false, TrackListColumnsPreference.storageKey(filter.rawValue), store: .sounding)
     }
 
     private var isReordered: Bool {

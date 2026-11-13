@@ -348,14 +348,14 @@ private enum StreamResolutionDiskCache {
         lock.lock()
         defer { lock.unlock() }
         memory = ResolvedStreamURLCache()
-        UserDefaults.standard.removeObject(forKey: defaultsKey)
-        UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+        UserDefaults.sounding.removeObject(forKey: defaultsKey)
+        UserDefaults.sounding.removeObject(forKey: legacyDefaultsKey)
     }
 
     private static func current() -> ResolvedStreamURLCache {
         if let memory { return memory }
-        UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+        UserDefaults.sounding.removeObject(forKey: legacyDefaultsKey)
+        guard let data = UserDefaults.sounding.data(forKey: defaultsKey),
               let loaded = try? JSONDecoder().decode(ResolvedStreamURLCache.self, from: data) else {
             return ResolvedStreamURLCache()
         }
@@ -364,7 +364,7 @@ private enum StreamResolutionDiskCache {
 
     private static func persist(_ cache: ResolvedStreamURLCache) {
         guard let data = try? JSONEncoder().encode(cache) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        UserDefaults.sounding.set(data, forKey: defaultsKey)
     }
 }
 

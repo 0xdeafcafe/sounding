@@ -3081,7 +3081,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
 
     static let volumeDefaultsKey = "playback.appVolume"
 
-    static func storedVolume(_ defaults: UserDefaults = .standard) -> Double {
+    static func storedVolume(_ defaults: UserDefaults = .sounding) -> Double {
         guard defaults.object(forKey: volumeDefaultsKey) != nil else { return 1 }
         return clampedVolume(defaults.double(forKey: volumeDefaultsKey))
     }
@@ -3106,7 +3106,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         return 1
     }
 
-    static func launchVolume(_ defaults: UserDefaults = .standard) -> Double {
+    static func launchVolume(_ defaults: UserDefaults = .sounding) -> Double {
         launchVolume(stored: storedVolume(defaults), hasLocalVolumeControl: hasLocalVolumeControl)
     }
 
@@ -3114,7 +3114,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         let clamped = Self.clampedVolume(value)
         guard abs(clamped - volume) > 0.0001 else { return }
         volume = clamped
-        UserDefaults.standard.set(clamped, forKey: Self.volumeDefaultsKey)
+        UserDefaults.sounding.set(clamped, forKey: Self.volumeDefaultsKey)
         player?.volume = Float(loudnessGain * clamped * sleepFadeGain)
         MixEngine.shared.setOutputVolume(clamped * sleepFadeGain)
     }
@@ -3299,7 +3299,7 @@ final class PlayedTrackLog {
 
     private var forgetObserver: NSObjectProtocol?
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .sounding) {
         self.defaults = defaults
         order = defaults.stringArray(forKey: Self.storageKey) ?? []
         ids = Set(order)

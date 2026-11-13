@@ -80,7 +80,7 @@ final class MacEffectPresetStore: ObservableObject {
     }
 
     static func defaultDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let base = FileManager.default.soundingDirectory(.applicationSupportDirectory)
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return base.appendingPathComponent("DeckEffects", isDirectory: true)
     }

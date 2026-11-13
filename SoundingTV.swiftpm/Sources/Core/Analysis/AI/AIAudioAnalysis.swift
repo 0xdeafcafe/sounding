@@ -249,7 +249,7 @@ enum AIAudioSettings {
     }
 
     static var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: enabledKey)
+        UserDefaults.sounding.bool(forKey: enabledKey)
     }
 
     static var isActive: Bool {

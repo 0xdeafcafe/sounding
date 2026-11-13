@@ -675,7 +675,7 @@ struct MacPrepTrackSource {
 }
 
 final class DJPrepExportLedger: @unchecked Sendable {
-    static let shared = DJPrepExportLedger(defaults: .standard)
+    static let shared = DJPrepExportLedger(defaults: .sounding)
 
     private let defaults: UserDefaults
     private static let millisKey = "djPrep.lastExportMillis"

@@ -63,7 +63,7 @@ final class CompanionRegistry: ObservableObject {
 
     func forgetAll() {
         devices = []
-        UserDefaults.standard.removeObject(forKey: Self.defaultsKey)
+        UserDefaults.sounding.removeObject(forKey: Self.defaultsKey)
     }
 
     @discardableResult
@@ -99,11 +99,11 @@ final class CompanionRegistry: ObservableObject {
 
     private func persist() {
         guard let data = try? JSONEncoder().encode(devices) else { return }
-        UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+        UserDefaults.sounding.set(data, forKey: Self.defaultsKey)
     }
 
     private static func loadPersisted() -> [CompanionDeviceRecord] {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+        guard let data = UserDefaults.sounding.data(forKey: defaultsKey),
               let records = try? JSONDecoder().decode([CompanionDeviceRecord].self, from: data) else {
             return []
         }

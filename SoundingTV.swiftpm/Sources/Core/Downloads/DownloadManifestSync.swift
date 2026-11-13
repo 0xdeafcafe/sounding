@@ -3,7 +3,7 @@ import Foundation
 enum DownloadManifestDeviceIdentity {
     static let defaultsKey = "red.forbes.sounding.downloadmanifestsync.deviceId"
 
-    static func deviceId(defaults: UserDefaults = .standard) -> String {
+    static func deviceId(defaults: UserDefaults = .sounding) -> String {
         if let existing = defaults.string(forKey: defaultsKey), !existing.isEmpty { return existing }
         let generated = UUID().uuidString
         defaults.set(generated, forKey: defaultsKey)

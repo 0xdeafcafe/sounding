@@ -525,7 +525,7 @@ final class GeneratedInsightsService: ObservableObject {
     var isAvailable: Bool { model.isAvailable }
 
     var isVisible: Bool {
-        UserDefaults.standard.object(forKey: Self.visibilityKey) as? Bool ?? true
+        UserDefaults.sounding.object(forKey: Self.visibilityKey) as? Bool ?? true
     }
 
     var isEnabled: Bool { isAvailable && isVisible }

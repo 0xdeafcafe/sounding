@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MacAIAnalysisSettingsSection: View {
-    @AppStorage(AIAudioSettings.enabledKey) private var enabled = false
+    @AppStorage(AIAudioSettings.enabledKey, store: .sounding) private var enabled = false
     @ObservedObject private var installer = AIModelInstaller.shared
 
     var body: some View {

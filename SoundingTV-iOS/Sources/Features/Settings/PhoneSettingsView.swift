@@ -1512,7 +1512,7 @@ private struct PlaybackSettingsDetail: View {
 }
 
 private struct LibrarySettingsDetail: View {
-    @AppStorage(TrackColumnLayout.storageKey) private var layout = TrackColumnLayout.standard
+    @AppStorage(TrackColumnLayout.storageKey, store: .sounding) private var layout = TrackColumnLayout.standard
 
     var body: some View {
         List {
@@ -1661,7 +1661,7 @@ private struct DownloadsSettingsDetail: View {
 
 private struct MusicAnalysisSettingsDetail: View {
     @ObservedObject private var store = SettingsStore.shared
-    @AppStorage(GeneratedInsightsService.visibilityKey) private var showsGeneratedInsights = true
+    @AppStorage(GeneratedInsightsService.visibilityKey, store: .sounding) private var showsGeneratedInsights = true
 
     @State private var storageUsedBytes: Int64?
     @State private var showingClearConfirmation = false

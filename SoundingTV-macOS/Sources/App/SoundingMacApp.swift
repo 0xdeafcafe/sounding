@@ -49,7 +49,7 @@ struct SoundingMacApp: App {
         SoundingTips.configure()
         #if DEBUG
         if ProcessInfo.processInfo.environment["SOUNDING_TV_MAC_WINDOW_SIZE"] != nil {
-            let defaults = UserDefaults.standard
+            let defaults = UserDefaults.sounding
             let staleKeys = defaults.dictionaryRepresentation().keys.filter {
                 $0.hasPrefix("NSWindow Frame SwiftUI.WindowGroup")
                     || $0.hasPrefix("NSSplitView Subview Frames SwiftUI.WindowGroup")
@@ -619,11 +619,11 @@ private enum MacLibraryCommandPreferences {
     private static let artworkKey = "mac.library.showsArtwork"
     private static let compactRowsKey = "mac.library.compactRows"
 
-    static func toggleArtwork(defaults: UserDefaults = .standard) {
+    static func toggleArtwork(defaults: UserDefaults = .sounding) {
         defaults.set(!value(for: artworkKey, defaultValue: true, defaults: defaults), forKey: artworkKey)
     }
 
-    static func toggleCompactRows(defaults: UserDefaults = .standard) {
+    static func toggleCompactRows(defaults: UserDefaults = .sounding) {
         defaults.set(!value(for: compactRowsKey, defaultValue: true, defaults: defaults), forKey: compactRowsKey)
     }
 
@@ -934,7 +934,7 @@ private actor MacMessageCache {
 
     func load(accountID: String) -> [SoundCloudConversation]? {
         let key = storageKey(accountID)
-        guard let sealed = UserDefaults.standard.data(forKey: key),
+        guard let sealed = UserDefaults.sounding.data(forKey: key),
               let data = AccountDataVault.open(sealed, accountID: accountID, purpose: key),
               let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
               Date().timeIntervalSince(snapshot.savedAt) <= ttl else { return nil }
@@ -945,7 +945,7 @@ private actor MacMessageCache {
         let key = storageKey(accountID)
         guard let data = try? JSONEncoder().encode(Snapshot(savedAt: Date(), conversations: conversations)),
               let sealed = AccountDataVault.seal(data, accountID: accountID, purpose: key) else { return }
-        UserDefaults.standard.set(sealed, forKey: key)
+        UserDefaults.sounding.set(sealed, forKey: key)
     }
 
     private func storageKey(_ accountID: String) -> String {

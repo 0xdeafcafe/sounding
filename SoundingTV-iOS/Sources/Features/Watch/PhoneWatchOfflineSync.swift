@@ -68,11 +68,11 @@ final class PhoneWatchOfflineSync: ObservableObject {
     private static let retryDelay: TimeInterval = 10 * 60
 
     nonisolated static var stagingDirectory: URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        (FileManager.default.soundingDirectory(.cachesDirectory) ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true))
             .appendingPathComponent("WatchTransfers", isDirectory: true)
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .sounding) {
         self.defaults = defaults
         selections = defaults.data(forKey: Self.selectionsKey)
             .flatMap { try? JSONDecoder().decode([WatchSendSelection].self, from: $0) } ?? []

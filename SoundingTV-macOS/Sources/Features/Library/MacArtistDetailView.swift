@@ -1151,7 +1151,7 @@ private final class MacLocalProfileActivity: ObservableObject {
     private var forgetObserver: NSObjectProtocol?
 
     private init() {
-        events = UserDefaults.standard.data(forKey: Self.defaultsKey)
+        events = UserDefaults.sounding.data(forKey: Self.defaultsKey)
             .flatMap { try? JSONDecoder().decode([Event].self, from: $0) } ?? []
         forgetObserver = NotificationCenter.default.addObserver(
             forName: AccountDataVault.didForgetAccountData,
@@ -1160,7 +1160,7 @@ private final class MacLocalProfileActivity: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.events = []
-                UserDefaults.standard.removeObject(forKey: MacLocalProfileActivity.defaultsKey)
+                UserDefaults.sounding.removeObject(forKey: MacLocalProfileActivity.defaultsKey)
             }
         }
     }
@@ -1169,7 +1169,7 @@ private final class MacLocalProfileActivity: ObservableObject {
         events.insert(Event(id: UUID().uuidString, date: Date(), user: user, followed: followed), at: 0)
         events = Array(events.prefix(200))
         if let data = try? JSONEncoder().encode(events) {
-            UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+            UserDefaults.sounding.set(data, forKey: Self.defaultsKey)
         }
     }
 }

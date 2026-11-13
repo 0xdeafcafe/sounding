@@ -904,7 +904,7 @@ enum SetlistAudioSources {
     }
 
     static var windowDirectory: URL {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        let base = FileManager.default.soundingDirectory(.cachesDirectory)
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return base.appendingPathComponent("SetlistWindows", isDirectory: true)
     }

@@ -416,7 +416,7 @@ final class RemoteLocalMusic: ObservableObject {
     }
 
     nonisolated static var directory: URL {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        let base = FileManager.default.soundingDirectory(.cachesDirectory)
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return base.appendingPathComponent("RemoteMusic", isDirectory: true)
     }

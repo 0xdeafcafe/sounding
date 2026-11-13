@@ -16,9 +16,9 @@ struct MacRootView: View {
     #endif
 
     @State private var sidebarPlayerPane: MacNowPlayingPane?
-    @AppStorage("red.forbes.sounding.mac.didLeaveWelcome") private var didLeaveWelcome = false
-    @AppStorage(MusicStep.answeredKey) private var didAnswerMusicStep = false
-    @AppStorage(MusicStep.pendingKey) private var isMusicStepPending = false
+    @AppStorage("red.forbes.sounding.mac.didLeaveWelcome", store: .sounding) private var didLeaveWelcome = false
+    @AppStorage(MusicStep.answeredKey, store: .sounding) private var didAnswerMusicStep = false
+    @AppStorage(MusicStep.pendingKey, store: .sounding) private var isMusicStepPending = false
     @State private var forcesMusicStep = MusicStep.isForced
 
     @State private var isShowingNowPlaying = false
@@ -1524,16 +1524,16 @@ private struct MacSidebar: View {
 
     @State private var isShowingAuthentication = false
     @State private var isReauthentication = false
-    @AppStorage("mac.sidebar.section.library") private var isLibraryExpanded = true
-    @AppStorage("mac.sidebar.section.playlists") private var arePlaylistsExpanded = true
-    @AppStorage("mac.sidebar.section.pinned") private var arePinsExpanded = true
-    @AppStorage("mac.sidebar.library.recentlyAdded") private var showsRecentlyAdded = true
-    @AppStorage("mac.sidebar.library.albums") private var showsAlbums = true
-    @AppStorage("mac.sidebar.library.artists") private var showsArtists = true
-    @AppStorage("mac.sidebar.library.sets") private var showsSets = true
-    @AppStorage("mac.sidebar.library.downloads") private var showsDownloads = true
-    @AppStorage("mac.sidebar.library.history") private var showsHistory = true
-    @AppStorage("mac.sidebar.library.privateShares") private var showsPrivateShares = true
+    @AppStorage("mac.sidebar.section.library", store: .sounding) private var isLibraryExpanded = true
+    @AppStorage("mac.sidebar.section.playlists", store: .sounding) private var arePlaylistsExpanded = true
+    @AppStorage("mac.sidebar.section.pinned", store: .sounding) private var arePinsExpanded = true
+    @AppStorage("mac.sidebar.library.recentlyAdded", store: .sounding) private var showsRecentlyAdded = true
+    @AppStorage("mac.sidebar.library.albums", store: .sounding) private var showsAlbums = true
+    @AppStorage("mac.sidebar.library.artists", store: .sounding) private var showsArtists = true
+    @AppStorage("mac.sidebar.library.sets", store: .sounding) private var showsSets = true
+    @AppStorage("mac.sidebar.library.downloads", store: .sounding) private var showsDownloads = true
+    @AppStorage("mac.sidebar.library.history", store: .sounding) private var showsHistory = true
+    @AppStorage("mac.sidebar.library.privateShares", store: .sounding) private var showsPrivateShares = true
 
     var body: some View {
         sourceList
@@ -1858,7 +1858,7 @@ private struct MacPinnedFolderRow<PlaylistRow: View>: View {
         self.folder = folder
         self._selection = selection
         self.playlistRow = playlistRow
-        _isExpanded = AppStorage(wrappedValue: true, "mac.sidebar.pinnedFolder.\(folder.id).expanded")
+        _isExpanded = AppStorage(wrappedValue: true, "mac.sidebar.pinnedFolder.\(folder.id).expanded", store: .sounding)
     }
 
     var body: some View {

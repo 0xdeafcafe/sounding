@@ -7,24 +7,32 @@ enum SoundingAppGroup {
     static let identifier = "group.red.forbes.sounding"
 
     static var containerURL: URL? {
+        sharedContainerURL.map { BuildFlavor.current.directory(in: $0) }
+    }
+
+    static var writableURL: URL? {
+        guard let root = sharedContainerURL else { return nil }
+        #if os(tvOS)
+        let base = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Caches", isDirectory: true)
+        #else
+        let base = root
+        #endif
+        let writable = BuildFlavor.current.directory(in: base)
+        if !FileManager.default.fileExists(atPath: writable.path) {
+            try? FileManager.default.createDirectory(at: writable, withIntermediateDirectories: true)
+        }
+        return writable
+    }
+
+    private static var sharedContainerURL: URL? {
         #if os(macOS)
         guard isEntitled else { return nil }
         #endif
         return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)
     }
 
-    static var writableURL: URL? {
-        guard let root = containerURL else { return nil }
-        #if os(tvOS)
-        let caches = root
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Caches", isDirectory: true)
-        try? FileManager.default.createDirectory(at: caches, withIntermediateDirectories: true)
-        return caches
-        #else
-        return root
-        #endif
-    }
     #if os(macOS)
     static let isEntitled: Bool = {
         guard let task = SecTaskCreateFromSelf(nil),

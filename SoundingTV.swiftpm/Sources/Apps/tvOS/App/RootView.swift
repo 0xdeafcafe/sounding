@@ -8,10 +8,10 @@ struct RootView: View {
     @EnvironmentObject var playerService: PlayerService
     @EnvironmentObject var navigationState: NavigationState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("red.forbes.sounding.didSeeTVWelcome") private var didSeeWelcome = false
-    @AppStorage("red.forbes.sounding.tv.usesDeviceMusic") private var usesDeviceMusic = false
+    @AppStorage("red.forbes.sounding.didSeeTVWelcome", store: .sounding) private var didSeeWelcome = false
+    @AppStorage("red.forbes.sounding.tv.usesDeviceMusic", store: .sounding) private var usesDeviceMusic = false
     @ObservedObject private var remoteMusic = RemoteLocalMusic.shared
-    @AppStorage("red.forbes.sounding.tv.didAnswerMusicStep") private var didAnswerMusicStep = false
+    @AppStorage("red.forbes.sounding.tv.didAnswerMusicStep", store: .sounding) private var didAnswerMusicStep = false
     @State private var forcesStartScreen = RootView.debugForcesStartScreen
     @State private var showsMusicStep = RootView.debugForcesMusicStep
 

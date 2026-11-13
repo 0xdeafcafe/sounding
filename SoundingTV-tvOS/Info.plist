@@ -55,6 +55,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_soundingtv._tcp</string>
+		<string>_soundingtv-dev._tcp</string>
 		<string>_sonos._tcp</string>
 	</array>
 	<key>NSHomeKitUsageDescription</key>

@@ -93,12 +93,12 @@ struct RejectedLineageLedger: Sendable {
     private static let capacity = 32
 
     static let defaults = RejectedLineageLedger(
-        contains: { (UserDefaults.standard.stringArray(forKey: defaultsKey) ?? []).contains($0) },
+        contains: { (UserDefaults.sounding.stringArray(forKey: defaultsKey) ?? []).contains($0) },
         insert: { lineage in
-            var stored = UserDefaults.standard.stringArray(forKey: defaultsKey) ?? []
+            var stored = UserDefaults.sounding.stringArray(forKey: defaultsKey) ?? []
             guard !stored.contains(lineage) else { return }
             stored.append(lineage)
-            UserDefaults.standard.set(Array(stored.suffix(capacity)), forKey: defaultsKey)
+            UserDefaults.sounding.set(Array(stored.suffix(capacity)), forKey: defaultsKey)
         }
     )
 
@@ -191,7 +191,7 @@ enum DeviceSessionStore {
         do {
             try saveSession(session)
             cachedSession.withLock { $0 = .loaded(session) }
-            UserDefaults.standard.removeObject(forKey: sessionSyncLocalSignOutKey)
+            UserDefaults.sounding.removeObject(forKey: sessionSyncLocalSignOutKey)
         } catch {
             Log.auth.error("[DeviceSessionStore] save failed: \(String(describing: error), privacy: .public)")
         }
@@ -219,18 +219,18 @@ enum DeviceSessionStore {
         } catch {
             Log.auth.error("[DeviceSessionStore] forget failed: \(error.localizedDescription, privacy: .public)")
         }
-        UserDefaults.standard.set(
+        UserDefaults.sounding.set(
             NSNumber(value: Int64(now.timeIntervalSince1970 * 1000)),
             forKey: sessionSyncLocalSignOutKey
         )
     }
 
     static var hasLocalSignOut: Bool {
-        UserDefaults.standard.object(forKey: sessionSyncLocalSignOutKey) != nil
+        UserDefaults.sounding.object(forKey: sessionSyncLocalSignOutKey) != nil
     }
 
     static func clearLocalSignOut() {
-        UserDefaults.standard.removeObject(forKey: sessionSyncLocalSignOutKey)
+        UserDefaults.sounding.removeObject(forKey: sessionSyncLocalSignOutKey)
     }
 
     private static func loadSession() throws -> StoredSession? {

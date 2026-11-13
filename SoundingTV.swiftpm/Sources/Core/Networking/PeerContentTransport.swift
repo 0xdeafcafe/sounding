@@ -363,7 +363,7 @@ final class PeerContentServer {
         let serviceName = Self.serviceName(sessionId: sessionId, deviceId: deviceId)
         newListener.service = NWListener.Service(
             name: serviceName,
-            type: BonjourConstants.serviceType
+            type: BuildFlavor.current.bonjourServiceType
         )
         newListener.newConnectionHandler = { [weak self] connection in
             Task { @MainActor in self?.accept(connection) }

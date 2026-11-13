@@ -120,7 +120,7 @@ final class MacRekordboxShareImport: ObservableObject {
 
     private static let bookmarkKey = "red.forbes.sounding.rekordbox.shareBookmark"
 
-    init(library: MacRekordboxLibrary = .shared, defaults: UserDefaults = .standard, sources: MacRekordboxShareSources? = nil, root: String? = nil) {
+    init(library: MacRekordboxLibrary = .shared, defaults: UserDefaults = .sounding, sources: MacRekordboxShareSources? = nil, root: String? = nil) {
         self.library = library
         self.defaults = defaults
         self.sources = sources ?? .live(library: library)

@@ -56,21 +56,21 @@ enum SessionSyncBookkeeping {
 
     private static let localSignOutMillisKey = "red.forbes.sounding.sessionsync.localSignOutMillis"
 
-    static func writerId(defaults: UserDefaults = .standard) -> String {
+    static func writerId(defaults: UserDefaults = .sounding) -> String {
         if let existing = defaults.string(forKey: writerIdKey), !existing.isEmpty { return existing }
         let generated = UUID().uuidString
         defaults.set(generated, forKey: writerIdKey)
         return generated
     }
 
-    static func lastUpdatedAtMillis(defaults: UserDefaults = .standard) -> Int64 {
+    static func lastUpdatedAtMillis(defaults: UserDefaults = .sounding) -> Int64 {
         (defaults.object(forKey: updatedAtMillisKey) as? NSNumber)?.int64Value ?? 0
     }
 
     static func adoptForeignProvenance(
         updatedAtMillis: Int64,
         digest: String? = nil,
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = .sounding,
         store: ObservedDigestStore = .defaults
     ) {
         defaults.set(NSNumber(value: updatedAtMillis), forKey: updatedAtMillisKey)
@@ -80,7 +80,7 @@ enum SessionSyncBookkeeping {
     @discardableResult
     static func recordIfChanged(
         digest: String,
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = .sounding,
         now: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
         store: ObservedDigestStore = .defaults
     ) -> Int64 {
@@ -102,15 +102,15 @@ enum SessionSyncBookkeeping {
         return Data(SHA256.hash(data: Data("lineage|\(refreshToken)".utf8))).base64EncodedString()
     }
 
-    static func localSignOutMillis(defaults: UserDefaults = .standard) -> Int64? {
+    static func localSignOutMillis(defaults: UserDefaults = .sounding) -> Int64? {
         (defaults.object(forKey: localSignOutMillisKey) as? NSNumber)?.int64Value
     }
 
-    static func recordLocalSignOut(now: Int64 = Int64(Date().timeIntervalSince1970 * 1000), defaults: UserDefaults = .standard) {
+    static func recordLocalSignOut(now: Int64 = Int64(Date().timeIntervalSince1970 * 1000), defaults: UserDefaults = .sounding) {
         defaults.set(NSNumber(value: now), forKey: localSignOutMillisKey)
     }
 
-    static func clearLocalSignOut(defaults: UserDefaults = .standard) {
+    static func clearLocalSignOut(defaults: UserDefaults = .sounding) {
         defaults.removeObject(forKey: localSignOutMillisKey)
     }
 
@@ -125,9 +125,9 @@ struct ObservedDigestStore: Sendable {
     var delete: @Sendable () -> Void
 
     static let defaults = ObservedDigestStore(
-        read: { UserDefaults.standard.string(forKey: observedDigestDefaultsKey) },
-        write: { UserDefaults.standard.set($0, forKey: observedDigestDefaultsKey) },
-        delete: { UserDefaults.standard.removeObject(forKey: observedDigestDefaultsKey) }
+        read: { UserDefaults.sounding.string(forKey: observedDigestDefaultsKey) },
+        write: { UserDefaults.sounding.set($0, forKey: observedDigestDefaultsKey) },
+        delete: { UserDefaults.sounding.removeObject(forKey: observedDigestDefaultsKey) }
     )
 
     static func memory() -> ObservedDigestStore {
@@ -185,11 +185,11 @@ enum SessionProvenance: String, Codable, Sendable {
 
     static let defaultsKey = "red.forbes.sounding.sessionsync.provenance.v1"
 
-    static func record(_ provenance: SessionProvenance, defaults: UserDefaults = .standard) {
+    static func record(_ provenance: SessionProvenance, defaults: UserDefaults = .sounding) {
         defaults.set(provenance.rawValue, forKey: defaultsKey)
     }
 
-    static func current(defaults: UserDefaults = .standard) -> SessionProvenance {
+    static func current(defaults: UserDefaults = .sounding) -> SessionProvenance {
         defaults.string(forKey: defaultsKey).flatMap(SessionProvenance.init(rawValue:)) ?? .local
     }
 
@@ -221,12 +221,12 @@ struct SessionContinueOffer: Codable, Equatable, Sendable {
 
     var account: PeerAccount { PeerAccount(tag: accountTag, name: accountName, username: "") }
 
-    static func load(defaults: UserDefaults = .standard) -> SessionContinueOffer? {
+    static func load(defaults: UserDefaults = .sounding) -> SessionContinueOffer? {
         guard let data = defaults.data(forKey: defaultsKey) else { return nil }
         return try? JSONDecoder().decode(SessionContinueOffer.self, from: data)
     }
 
-    static func save(_ offer: SessionContinueOffer?, defaults: UserDefaults = .standard) {
+    static func save(_ offer: SessionContinueOffer?, defaults: UserDefaults = .sounding) {
         guard let offer, let data = try? JSONEncoder().encode(offer) else {
             defaults.removeObject(forKey: defaultsKey)
             return

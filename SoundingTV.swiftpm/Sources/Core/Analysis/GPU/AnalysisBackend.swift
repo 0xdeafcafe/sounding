@@ -7,7 +7,7 @@ enum AnalysisBackend: String, Sendable, CaseIterable {
     static let overrideKey = "SOUNDING_ANALYSIS_BACKEND"
 
     static var requested: AnalysisBackend? {
-        let raw = ProcessInfo.processInfo.environment[overrideKey] ?? UserDefaults.standard.string(forKey: overrideKey)
+        let raw = ProcessInfo.processInfo.environment[overrideKey] ?? UserDefaults.sounding.string(forKey: overrideKey)
         return raw.flatMap { AnalysisBackend(rawValue: $0.lowercased()) }
     }
 

@@ -44,7 +44,7 @@ final class SoundCloudPersonalAudioProvider: PersonalAudioProvider {
     }
 
     static func defaultCacheDirectory() -> URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let support = FileManager.default.soundingDirectory(.applicationSupportDirectory)
             ?? FileManager.default.temporaryDirectory
         return support.appending(path: "Personal/DJ Audio", directoryHint: .isDirectory)
     }

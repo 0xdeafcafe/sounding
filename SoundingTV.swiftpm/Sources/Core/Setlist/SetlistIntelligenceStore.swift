@@ -1007,14 +1007,14 @@ private actor SetlistArchive {
             }
         }
 
-        if let legacy = UserDefaults.standard.data(forKey: Self.legacyDefaultsKey) {
+        if let legacy = UserDefaults.sounding.data(forKey: Self.legacyDefaultsKey) {
             if let decoded = try? decoder.decode([String: GeneratedSetlist].self, from: legacy) {
                 for (trackId, setlist) in decoded {
                     let normalized = SetlistMerging.normalized(setlist)
                     result[trackId] = result[trackId].map { SetlistMerging.merge(remote: normalized, into: $0) } ?? normalized
                 }
                 write(Array(result.values))
-                UserDefaults.standard.removeObject(forKey: Self.legacyDefaultsKey)
+                UserDefaults.sounding.removeObject(forKey: Self.legacyDefaultsKey)
             } else {
                 Log.analysis.error("Legacy setlist archive could not be decoded; leaving it in place")
             }

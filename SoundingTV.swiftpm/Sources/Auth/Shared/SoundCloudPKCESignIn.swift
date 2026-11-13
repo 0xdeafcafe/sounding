@@ -29,7 +29,7 @@ struct SoundCloudPKCESignIn {
         #if DEBUG
         if let forced = ProcessInfo.processInfo.environment["SOUNDING_TV_SIGNIN_PKCE"] { return forced == "1" }
         #endif
-        return UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
+        return UserDefaults.sounding.object(forKey: enabledKey) as? Bool ?? true
     }
 
     let verifier: String
@@ -160,7 +160,7 @@ struct SoundCloudPKCESignIn {
     }
 
     private static func installIdentifier(_ key: String) -> String {
-        let defaults = UserDefaults.standard
+        let defaults = UserDefaults.sounding
         if let value = defaults.string(forKey: key), !value.isEmpty { return value }
         let value = UUID().uuidString.lowercased()
         defaults.set(value, forKey: key)

@@ -31,7 +31,7 @@ enum TrackListDensity: String, CaseIterable, Identifiable, Sendable {
 enum TrackListColumnsPreference {
     static func storageKey(_ list: String) -> String { "trackList.showsColumns.\(list)" }
 
-    static func migrate(_ list: String, defaults: UserDefaults = .standard) {
+    static func migrate(_ list: String, defaults: UserDefaults = .sounding) {
         guard defaults.object(forKey: storageKey(list)) == nil,
               let stored = defaults.string(forKey: TrackListDensity.storageKey(list)) else { return }
         defaults.set(stored == TrackListDensity.dense.rawValue, forKey: storageKey(list))

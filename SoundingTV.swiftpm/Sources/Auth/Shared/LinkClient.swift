@@ -105,7 +105,7 @@ final class LinkClient: ObservableObject {
 
         browser = NWBrowser(
             for: .bonjour(
-                type: BonjourConstants.serviceType,
+                type: BuildFlavor.current.bonjourServiceType,
                 domain: BonjourConstants.serviceDomain
             ),
             using: parameters
@@ -168,7 +168,7 @@ final class LinkClient: ObservableObject {
             let message = TokenTransferMessage.linkEstablish(
                 sessionId: self.sessionId,
                 payload: .create(account: mine?.encoded(), sessionId: self.sessionId, secret: self.sessionSecret),
-                peer: LinkPeerIdentity.local(sessionId: self.sessionId, secret: self.sessionSecret)
+                peer: LinkPeerIdentity.local(sessionId: self.sessionId, secret: self.sessionSecret, defaults: .sounding)
             )
             guard let data = try? message.framed() else {
                 self.state = .failed("Couldn't prepare the link. Try again.")
@@ -242,7 +242,7 @@ final class LinkClient: ObservableObject {
             let message = TokenTransferMessage.tokenTransfer(
                 sessionId: self.sessionId,
                 payload: payload,
-                peer: LinkPeerIdentity.local(sessionId: self.sessionId, secret: self.sessionSecret)
+                peer: LinkPeerIdentity.local(sessionId: self.sessionId, secret: self.sessionSecret, defaults: .sounding)
             )
 
             guard let data = try? message.framed() else {
@@ -651,7 +651,7 @@ final class LinkOfferBrowser: ObservableObject {
         parameters.includePeerToPeer = true
 
         let newBrowser = NWBrowser(
-            for: .bonjourWithTXTRecord(type: BonjourConstants.serviceType, domain: BonjourConstants.serviceDomain),
+            for: .bonjourWithTXTRecord(type: BuildFlavor.current.bonjourServiceType, domain: BonjourConstants.serviceDomain),
             using: parameters
         )
         newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
@@ -1220,7 +1220,7 @@ final class SameAccountLinkModel: ObservableObject {
         let candidates = SameAccountLinkOffer.candidates(
             from: offers.map { SameAccountLinkOffer.Advertised(sessionIdPrefix: $0.sessionIdPrefix, name: $0.claimedName, kind: $0.kind, accountHint: $0.accountHint) },
             accountId: Self.accountId,
-            deviceId: LinkPeerIdentity.localDeviceId(),
+            deviceId: LinkPeerIdentity.localDeviceId(defaults: .sounding),
             linked: Self.linkedIdentities()
         )
         let before = offer.suggestion
@@ -1252,7 +1252,7 @@ final class SameAccountLinkModel: ObservableObject {
         presenceKey = wanted
         guard let accountId = wanted,
               let salt = LinkAccountHint.makeSalt(),
-              let advert = LinkAccountHint.advert(accountId: accountId, linkedDeviceIds: [LinkPeerIdentity.localDeviceId()], salt: salt) else { return }
+              let advert = LinkAccountHint.advert(accountId: accountId, linkedDeviceIds: [LinkPeerIdentity.localDeviceId(defaults: .sounding)], salt: salt) else { return }
         do {
             let parameters = NWParameters.tcp
             parameters.includePeerToPeer = true
@@ -1262,7 +1262,7 @@ final class SameAccountLinkModel: ObservableObject {
             let suffix = salt.prefix(4).map { String(format: "%02x", $0) }.joined()
             listener.service = NWListener.Service(
                 name: "\(BonjourConstants.nearbyServiceName)-\(suffix)",
-                type: BonjourConstants.serviceType,
+                type: BuildFlavor.current.bonjourServiceType,
                 txtRecord: NWTXTRecord(entries)
             )
             listener.newConnectionHandler = { $0.cancel() }

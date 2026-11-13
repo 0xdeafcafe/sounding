@@ -136,7 +136,7 @@ final class IdentifiedSongHistory: ObservableObject {
     private var storedData: Data?
     private var observer: NSObjectProtocol?
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .sounding) {
         self.defaults = defaults
         reload()
         observer = NotificationCenter.default.addObserver(

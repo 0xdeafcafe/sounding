@@ -80,7 +80,7 @@ nonisolated enum AutoMixNetExperiment {
         AppDataDirectory.folder("AutoMix").appendingPathComponent("transition-net.json")
     }
 
-    static func model(defaults: UserDefaults = .standard) -> AutoMixNetModel? {
+    static func model(defaults: UserDefaults = .sounding) -> AutoMixNetModel? {
         #if DEBUG
         guard defaults.bool(forKey: enabledKey) else { return nil }
         let url = defaults.string(forKey: weightsPathKey).map { URL(fileURLWithPath: $0) } ?? defaultWeightsURL

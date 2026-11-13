@@ -155,7 +155,7 @@ final class PlayHistoryReporter {
     private var isDisabled = false
     private var isStarted = false
 
-    init(api: SoundCloudAPI = .shared, defaults: UserDefaults = .standard) {
+    init(api: SoundCloudAPI = .shared, defaults: UserDefaults = .sounding) {
         self.api = api
         self.defaults = defaults
     }

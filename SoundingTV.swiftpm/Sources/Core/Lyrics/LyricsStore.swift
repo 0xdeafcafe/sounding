@@ -24,7 +24,7 @@ actor LyricsCache {
     }
 
     static func defaultDirectory() -> URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("Lyrics", isDirectory: true)
+        FileManager.default.soundingDirectory(.cachesDirectory)?.appendingPathComponent("Lyrics", isDirectory: true)
     }
 
     func lookup(for key: String) -> LyricsLookup? {

@@ -12,7 +12,7 @@ struct PlaylistDetailView: View {
     @Environment(\.downloadPrompter) private var prompter
 
     @State private var searchText = ""
-    @AppStorage("playlist.query") private var query = TrackCollectionQuery.collectionOrder
+    @AppStorage("playlist.query", store: .sounding) private var query = TrackCollectionQuery.collectionOrder
     @AppStorage(trackListColumns: "playlist") private var showsColumns: Bool
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize

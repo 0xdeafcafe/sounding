@@ -11,8 +11,8 @@ struct PhoneDecksView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage(DecksOrientationLock.storageKey) private var locksLandscape = false
-    @AppStorage("decks.showsLibrary") private var showsLibrary = true
+    @AppStorage(DecksOrientationLock.storageKey, store: .sounding) private var locksLandscape = false
+    @AppStorage("decks.showsLibrary", store: .sounding) private var showsLibrary = true
     @State private var picking: PhoneDeckPickTarget?
     @State private var showingView = false
     @State private var showingPlayOn = false
@@ -693,8 +693,8 @@ struct PhoneDecksStrip: View {
 struct PhoneDecksViewSettings: View {
     @ObservedObject var model: PhoneDecksModel
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(DecksOrientationLock.storageKey) private var locksLandscape = false
-    @AppStorage("decks.showsLibrary") private var showsLibrary = true
+    @AppStorage(DecksOrientationLock.storageKey, store: .sounding) private var locksLandscape = false
+    @AppStorage("decks.showsLibrary", store: .sounding) private var showsLibrary = true
 
     var body: some View {
         NavigationStack {

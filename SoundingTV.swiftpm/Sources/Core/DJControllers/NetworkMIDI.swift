@@ -35,13 +35,13 @@ final class NetworkMIDI: ObservableObject {
     private init() {}
 
     func restore() {
-        guard Self.managesSession, UserDefaults.standard.bool(forKey: Self.enabledKey) else { return }
+        guard Self.managesSession, UserDefaults.sounding.bool(forKey: Self.enabledKey) else { return }
         setEnabled(true)
     }
 
     func setEnabled(_ enabled: Bool) {
         guard Self.managesSession else { return }
-        UserDefaults.standard.set(enabled, forKey: Self.enabledKey)
+        UserDefaults.sounding.set(enabled, forKey: Self.enabledKey)
         let session = MIDINetworkSession.default()
         if enabled {
             session.isEnabled = true

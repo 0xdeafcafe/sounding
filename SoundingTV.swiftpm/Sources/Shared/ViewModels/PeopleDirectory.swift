@@ -72,7 +72,7 @@ final class PeopleDirectoryModel: ObservableObject {
     @Published private var overrides: [String: Bool] = [:]
     @Published var actionFailure: String?
     @Published var sort: PeopleSort {
-        didSet { UserDefaults.standard.set(sort.rawValue, forKey: Self.sortKey(kind)) }
+        didSet { UserDefaults.sounding.set(sort.rawValue, forKey: Self.sortKey(kind)) }
     }
 
     private var pending: Set<String> = []
@@ -81,7 +81,7 @@ final class PeopleDirectoryModel: ObservableObject {
 
     init(kind: ArtistConnectionKind) {
         self.kind = kind
-        sort = UserDefaults.standard.string(forKey: Self.sortKey(kind)).flatMap(PeopleSort.init(rawValue:)) ?? .recentlyFollowed
+        sort = UserDefaults.sounding.string(forKey: Self.sortKey(kind)).flatMap(PeopleSort.init(rawValue:)) ?? .recentlyFollowed
         observeLibrary()
     }
 

@@ -7,6 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B17DF1A10000000000000001 /* BuildFlavorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17DF1A10000000000000000 /* BuildFlavorTests.swift */; };
+		B17DF1A00000000000000001 /* BuildFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17DF1A00000000000000000 /* BuildFlavor.swift */; };
+		B17DF1A00000000000000002 /* BuildFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17DF1A00000000000000000 /* BuildFlavor.swift */; };
+		B17DF1A00000000000000003 /* BuildFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17DF1A00000000000000000 /* BuildFlavor.swift */; };
+		B17DF1A00000000000000004 /* BuildFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17DF1A00000000000000000 /* BuildFlavor.swift */; };
+		B17DF1A00000000000000005 /* BuildFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17DF1A00000000000000000 /* BuildFlavor.swift */; };
+		B17DF1A00000000000000006 /* BuildFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17DF1A00000000000000000 /* BuildFlavor.swift */; };
+		B17DF1A00000000000000007 /* BuildFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17DF1A00000000000000000 /* BuildFlavor.swift */; };
+		B17DF1A00000000000000008 /* BuildFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17DF1A00000000000000000 /* BuildFlavor.swift */; };
+		B17DF1A00000000000000009 /* BuildFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17DF1A00000000000000000 /* BuildFlavor.swift */; };
+		B17DF1A00000000000000010 /* BuildFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17DF1A00000000000000000 /* BuildFlavor.swift */; };
 		5D1A7E000000000000000002 /* ImageThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A7E000000000000000001 /* ImageThumbnail.swift */; };
 		5D1A7E000000000000000003 /* ImageThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A7E000000000000000001 /* ImageThumbnail.swift */; };
 		5D1A7E000000000000000004 /* ImageThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A7E000000000000000001 /* ImageThumbnail.swift */; };
@@ -2143,6 +2154,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		B17DF1A10000000000000000 /* BuildFlavorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildFlavorTests.swift; sourceTree = "<group>"; };
+		B17DF1A00000000000000000 /* BuildFlavor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildFlavor.swift; sourceTree = "<group>"; };
 		5D1A7E000000000000000001 /* ImageThumbnail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageThumbnail.swift; sourceTree = "<group>"; };
 		5D1A7E000000000000000007 /* ImageThumbnailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageThumbnailTests.swift; sourceTree = "<group>"; };
 		5D1A7E000000000000000009 /* SubscriptionParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionParsingTests.swift; sourceTree = "<group>"; };
@@ -3501,6 +3514,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				01F4CF865829FA45E9297550 /* CommentMentionParser.swift */,
 				F126791EE0D348E39445B051 /* Log.swift */,
 				7B1A00000000000000000000 /* AppDataDirectory.swift */,
+				B17DF1A00000000000000000 /* BuildFlavor.swift */,
 				5D0A7A000000000000000100 /* SoundingDataFormat.swift */,
 				5D0A7A000000000000000200 /* SoundingDataFiles.swift */,
 				5D0A7A000000000000000300 /* SoundingDataLocation.swift */,
@@ -3725,6 +3739,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				843C4A7B83F16938E33685AD /* AnalysisLookupSelfTest.swift */,
 				8AD92CCEB4DE5C2411374CB6 /* AnalysisProducerSelfTest.swift */,
 				D56DC7A7E7A7823CD0092E63 /* AnalysisSyncSelfTest.swift */,
+				B17DF1A10000000000000000 /* BuildFlavorTests.swift */,
 				CA98E6C7CA6E224407C933AD /* CloudSyncSelfTest.swift */,
 				067F40C2598DC55A17E36E30 /* CommentThreadSelfTest.swift */,
 				1A16658897FDE9108D07162C /* CredentialLeakSelfTest.swift */,
@@ -5694,6 +5709,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B17DF1A00000000000000006 /* BuildFlavor.swift in Sources */,
 				04106D949D1AF6F46D43AE21 /* CommentMentionParser.swift in Sources */,
 				CC9B5A89CC2B115790C4589F /* ContentProvider.swift in Sources */,
 				F72B11F7332B10FF51A60598 /* DefaultShelf.swift in Sources */,
@@ -5708,6 +5724,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B17DF1A00000000000000007 /* BuildFlavor.swift in Sources */,
 				EC0A00000000000000000018 /* PlayWidgetCollectionIntent.swift in Sources */,
 				EC0A00000000000000000017 /* WidgetCollections.swift in Sources */,
 				EC0A00000000000000000011 /* WidgetCollectionBridge.swift in Sources */,
@@ -5762,6 +5779,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B17DF1A00000000000000003 /* BuildFlavor.swift in Sources */,
 				EC0A00000000000000000022 /* WidgetCollectionPublisher.swift in Sources */,
 				EC0A00000000000000000021 /* WidgetCollectionBridge.swift in Sources */,
 				EC0A0000000000000000001E /* PlayWidgetCollectionIntent.swift in Sources */,
@@ -6318,6 +6336,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B17DF1A10000000000000001 /* BuildFlavorTests.swift in Sources */,
 				F0E1A9C3B7D24E6A8C5B7008 /* OutputVolumeTests.swift in Sources */,
 				5396CFD52A6EBC309C6A4C8F /* BehindTheTrackTests.swift in Sources */,
 				B983E823B798976CC3954093 /* LyricsTests.swift in Sources */,
@@ -6480,6 +6499,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B17DF1A00000000000000005 /* BuildFlavor.swift in Sources */,
 				5ECC4A100000000000000015 /* SoundingKeychain.swift in Sources */,
 				5D0A7A000000000000000920 /* SoundingDataFormat.swift in Sources */,
 				5D0A7A000000000000000921 /* SoundingDataFiles.swift in Sources */,
@@ -6529,6 +6549,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B17DF1A00000000000000001 /* BuildFlavor.swift in Sources */,
 				F0E1A9C3B7D24E6A8C5B7004 /* OutputVolume.swift in Sources */,
 				5ECC4A100000000000000013 /* SoundingKeychain.swift in Sources */,
 				1A570000000000000000000E /* TVHistoryView.swift in Sources */,
@@ -6988,6 +7009,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B17DF1A00000000000000002 /* BuildFlavor.swift in Sources */,
 				EC0A00000000000000000020 /* WidgetCollectionPublisher.swift in Sources */,
 				EC0A0000000000000000001F /* WidgetCollectionBridge.swift in Sources */,
 				EC0A0000000000000000001C /* PlayWidgetCollectionIntent.swift in Sources */,
@@ -7506,6 +7528,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B17DF1A00000000000000004 /* BuildFlavor.swift in Sources */,
 				EC0A00000000000000000009 /* IdentifySongIntent.swift in Sources */,
 				5ECC4A100000000000000014 /* SoundingKeychain.swift in Sources */,
 				5D0A7A000000000000000900 /* SoundingDataFormat.swift in Sources */,
@@ -7639,6 +7662,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B17DF1A00000000000000008 /* BuildFlavor.swift in Sources */,
 				EC0A00000000000000000008 /* IdentifySongIntent.swift in Sources */,
 				EC0A00000000000000000007 /* IdentifySongControl.swift in Sources */,
 				EC0A00000000000000000006 /* WatchListeningWidget.swift in Sources */,
@@ -7664,6 +7688,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B17DF1A00000000000000009 /* BuildFlavor.swift in Sources */,
 				EC0A0000000000000000001A /* PlayWidgetCollectionIntent.swift in Sources */,
 				EC0A00000000000000000019 /* WidgetCollections.swift in Sources */,
 				EC0A00000000000000000012 /* WidgetCollectionBridge.swift in Sources */,
@@ -7688,6 +7713,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B17DF1A00000000000000010 /* BuildFlavor.swift in Sources */,
 				5ECC4A100000000000000016 /* SoundingKeychain.swift in Sources */,
 				5D0A7A000000000000000910 /* SoundingDataFormat.swift in Sources */,
 				5D0A7A000000000000000911 /* SoundingDataFiles.swift in Sources */,

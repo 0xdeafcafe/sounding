@@ -54,7 +54,7 @@ enum FocusOutputDirectory {
     private static let key = "red.forbes.sounding.focus.outputs.v1"
     private static let limit = 12
 
-    static func all(defaults: UserDefaults = .standard) -> [OutputEntity] {
+    static func all(defaults: UserDefaults = .sounding) -> [OutputEntity] {
         var seen = Set<String>()
         var result: [OutputEntity] = []
         func add(_ entity: OutputEntity) {
@@ -162,7 +162,7 @@ enum SoundingFocus {
 
     private static let key = "red.forbes.sounding.focus.v1"
 
-    static func apply(_ next: Settings, defaults: UserDefaults = .standard) async {
+    static func apply(_ next: Settings, defaults: UserDefaults = .sounding) async {
         var record = load(defaults)
         let previous = record.active
         AutoMixEnergy.shared.setFocus(next.energy)
@@ -176,7 +176,7 @@ enum SoundingFocus {
         save(record, defaults: defaults)
     }
 
-    static func restore(defaults: UserDefaults = .standard) {
+    static func restore(defaults: UserDefaults = .sounding) {
         AutoMixEnergy.shared.setFocus(load(defaults).active.energy)
         Task { @MainActor in
             guard let current = try? await SoundingFocusFilter.current else { return }

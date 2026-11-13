@@ -131,7 +131,7 @@ final class MixPhonesOutput: ObservableObject {
         self.core = core
         refreshDevices()
         observeDevices()
-        if let data = UserDefaults.standard.data(forKey: Self.routeKey),
+        if let data = UserDefaults.sounding.data(forKey: Self.routeKey),
            let saved = try? JSONDecoder().decode(MixPhonesRoute.self, from: data) {
             route = saved
         }
@@ -144,9 +144,9 @@ final class MixPhonesOutput: ObservableObject {
     func select(_ route: MixPhonesRoute?) {
         self.route = route
         if let route, let data = try? JSONEncoder().encode(route) {
-            UserDefaults.standard.set(data, forKey: Self.routeKey)
+            UserDefaults.sounding.set(data, forKey: Self.routeKey)
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.routeKey)
+            UserDefaults.sounding.removeObject(forKey: Self.routeKey)
         }
         if isRunning || route == nil { restart() }
     }

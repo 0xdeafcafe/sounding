@@ -18,7 +18,7 @@ final class WatchOfflineStore: ObservableObject {
     @Published private(set) var confirmedAt: Date?
 
     nonisolated static var rootDirectory: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        (FileManager.default.soundingDirectory(.applicationSupportDirectory) ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true))
             .appendingPathComponent("WatchOffline", isDirectory: true)
     }
 
