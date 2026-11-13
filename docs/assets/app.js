@@ -17,7 +17,7 @@ const ss = (a, b, x) => smooth((x - a) / (b - a));
 const toward = (v, goal, up, down, dt) => (goal > v ? Math.min(goal, v + dt / up) : Math.max(goal, v - dt / down));
 
 
-const range = $('[data-xf-range]');
+const range = $('[data-xf-range]') || document.createElement('input');
 const xfButtons = $$('[data-xf]');
 const soundButtons = $$('[data-sound]');
 const plugButtons = $$('[data-plug]');

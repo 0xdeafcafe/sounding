@@ -24,6 +24,7 @@
   <link rel="modulepreload" href="../assets/gl.js">
   <link rel="modulepreload" href="../assets/shaders.js">
   <script type="module" src="../assets/app.js"></script>
+  <script src="../assets/nav.js" defer></script>
 </head>
 <body data-page="tv">
   <a class="skip" href="#main">Skip to content</a>
@@ -31,12 +32,7 @@
 
   <header class="top">
     <a class="brand ink" href="../"><img src="../assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
-    <div class="xf" role="group" aria-label="Crossfader">
-      <button type="button" class="ink" data-xf="0" aria-pressed="true">Listening</button>
-      <input type="range" min="0" max="1000" value="0" step="1" aria-label="Crossfade from listening to DJing" data-xf-range>
-      <button type="button" class="ink" data-xf="1" aria-pressed="false">DJing</button>
-    </div>
-    <nav aria-label="Main"><button type="button" class="snd ink" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Sound off</span></button><a class="ink" href="../support/">Support</a></nav>
+    <div class="tools"><button type="button" class="snd ink" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Sound off</span></button><nav class="site-nav" aria-label="Main"><button type="button" class="menu-btn ink" aria-expanded="false" aria-controls="site-links">Menu</button><ul class="links" id="site-links"><li><a class="ink" href="../tv/" aria-current="page">Apple&nbsp;TV</a></li><li><a class="ink" href="../?side=dj">DJ</a></li><li><a class="ink" href="../features/">Features</a></li><li><a class="ink" href="../support/">Support</a></li></ul></nav></div>
   </header>
 
   <main id="main">
