@@ -121,8 +121,7 @@ html.live[data-side] .side { display: grid; }
 .live .booth .fine { font-size: .8125rem; }
 .live .hero .side.b { justify-items: end; text-align: right; }
 .live .caps { gap: 0; }
-.live .cap { grid-area: 1 / 1; opacity: 0; transform: translateY(.4rem); transition: opacity .45s var(--ease), transform .6s var(--ease); pointer-events: none; }
-.live .cap.on { opacity: 1; transform: none; transition-delay: .12s; }
+.live .cap { grid-area: 1 / 1; opacity: var(--co, 0); transform: translateY(calc((1 - var(--co, 0)) * .4rem)); pointer-events: none; }
 .live .cap:not(.on), .live .cap:not(.on) a { pointer-events: none !important; }
 .live .try { display: grid; font-size: 1rem; line-height: 1.4; max-width: 30em; margin-top: .35rem; }
 .live .try p { grid-area: 1 / 1; transition: opacity .7s var(--ease) .6s, visibility 0s; }
@@ -214,6 +213,40 @@ html[data-plug="0"] .try .played, html[data-plug="1"] .try .hint { opacity: 0; v
   .live .join p:not(.h2) { font-size: .875rem; line-height: 1.45; }
   .live .join .side { gap: .55rem; }
   .live .join .side { grid-area: 1 / 1; width: auto; align-self: end; }
+}
+
+html.live.snap { scroll-snap-type: y proximity; }
+html.live.snap.glide { scroll-snap-type: none; }
+.live .rest { position: absolute; left: 0; width: 1px; height: 1px; pointer-events: none; scroll-snap-align: start; }
+html.live main > section[id] { scroll-margin-top: var(--head, 64px); }
+
+.live .scene.join { --ink: var(--ib); --ink2: var(--ib2); --c0: var(--ib2); --c1: var(--ib2); --cd: var(--ib2); }
+.live .scene.join :is(h2, .invite) { --ink2: var(--ib); --c0: var(--ib); --c1: var(--ib); --cd: var(--ib); }
+.live .scene.join .ink { -webkit-text-fill-color: currentColor; background-image: none; color: var(--ink2); }
+.live .scene.join::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(90deg, rgb(11 9 8 / .9), rgb(11 9 8 / .9) calc(var(--pad) + min(36vw, 31rem) + 32px), rgb(11 9 8 / 0) calc(var(--pad) + min(36vw, 31rem) + 22vw)); }
+
+html.js:not(.still) main > .scene:first-child .plate { display: block; position: fixed; inset: 0; z-index: 0; margin: 0; pointer-events: none; transition: opacity .6s var(--ease), visibility 0s linear .6s; }
+html.js:not(.still) main > .scene:first-child .plate img { width: 100%; height: 100%; max-height: none; aspect-ratio: auto; object-fit: cover; border-radius: 0; }
+html.drawn main > .scene:first-child .plate { opacity: 0; visibility: hidden; }
+html.js:not(.still):not(.live) main > :not(:first-child), html.js:not(.still):not(.live) .foot { visibility: hidden; }
+html.js:not(.still):not(.live) main > .scene:first-child { position: fixed; inset: 0; padding: 0; }
+html.js:not(.still):not(.live) main > .scene:first-child .pin { position: relative; height: 100svh; }
+html.js:not(.still):not(.live) main > .scene:first-child .side { position: absolute; z-index: 1; margin: 0; padding: 0; max-width: none; width: min(41vw, 39rem); gap: 1.1rem; }
+html.js:not(.still):not(.live) main > .scene:first-child .side > :is(h1, h2, .h2, p) { width: fit-content; max-width: 100%; }
+html.js:not(.still):not(.live) main > .scene:first-child .side.a { left: var(--pad); }
+html.js:not(.still):not(.live) main > .scene:first-child .side.b { right: var(--pad); justify-items: end; text-align: right; }
+html.js:not(.still):not(.live) main > .scene.hero:not(.chapter) .side { top: clamp(72px, 10.5vh, 128px); gap: .8rem; }
+html.js:not(.still):not(.live) main > .scene.chapter.hero .side { top: 50%; transform: translateY(-46%); gap: 1rem; }
+html.js:not(.still):not(.live) main > .scene:first-child h1 .ink { display: inline-block; }
+html.js:not(.still):not(.live) main > .scene:first-child .try { display: grid; visibility: hidden; font-size: 1rem; line-height: 1.4; max-width: 30em; margin-top: .35rem; }
+html.js:not(.still):not(.live) main > .scene:first-child .try p { grid-area: 1 / 1; }
+
+@media (max-width: 860px), (max-aspect-ratio: 1/1) {
+  .live .scene.join::before { background: linear-gradient(rgb(11 9 8 / 0) 38vh, rgb(11 9 8 / .9) 60vh); }
+  html.js:not(.still):not(.live) main > .scene:first-child .side { left: var(--pad); right: var(--pad); width: auto; gap: .8rem; justify-items: start; text-align: left; }
+  html.js:not(.still):not(.live) main > .scene.hero:not(.chapter) .side { top: 112px; }
+  html.js:not(.still):not(.live) main > .scene.chapter.hero .side { top: auto; bottom: max(26px, env(safe-area-inset-bottom)); transform: none; gap: .8rem; }
+  html.js:not(.still):not(.live) main > .scene:first-child .try { font-size: .9375rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

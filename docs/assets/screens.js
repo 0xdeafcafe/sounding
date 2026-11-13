@@ -1283,7 +1283,7 @@ const START = { phone: { ph: 'lib', out: 'idle', pick: false, picked: false, b: 
 function targets(sc) {
   const s = sc.st, go = (k, on, d) => sc.go(k, on ? 1 : 0, d);
   if (s.shot && s.shot !== sc.shot) {
-    if (sc.shot && sc.v('shot') > 0) { sc.prev = sc.shot; sc.snap('swap', 0); sc.go('swap', 1, 0.4); }
+    if (sc.shot && sc.v('shot') > 0) { sc.prev = sc.prev && sc.v('swap') < 0.5 ? sc.prev : sc.shot; sc.snap('swap', 0); sc.go('swap', 1, 0.4); }
     sc.shot = s.shot;
   }
   go('shot', !!s.shot, 0.5);
@@ -1319,6 +1319,7 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
   const imgs = new Map();
   const S = { sec: 0, whole: -1, p: 0, idx: 0, row: 0, el: '0:00', left: `-${fmt(D)}`, now: `${T[0][2]} - ${T[0][1]}` };
   const all = {};
+  let pace = 1;
   const scratchCanvas = document.createElement('canvas');
   scratchCanvas.width = 960; scratchCanvas.height = 600;
   const scratch = scratchCanvas.getContext('2d');
@@ -1469,6 +1470,7 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
       if (mc.v('play') > 0 && mc.vis) mc.go('scroll', row, 0.45); else mc.snap('scroll', row);
       for (const name in all) if (live(all[name])) all[name].dirty = true;
     },
+    pace(k) { pace = k; },
     show(name, visible) { get(name).vis = !!visible; },
     warm() {
       const names = Object.keys(all);
@@ -1485,7 +1487,7 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
         for (const k in sc.a) {
           const a = sc.a[k];
           if (a.t >= 1) continue;
-          a.t = Math.min(1, a.t + dt / a.d);
+          a.t = pace > 0 ? Math.min(1, a.t + dt / (a.d * pace)) : 1;
           a.v = a.f + (a.to - a.f) * ease(a.t);
           sc.dirty = true;
         }

@@ -23,33 +23,7 @@ export function createStage(canvas, base, opts = {}) {
     R.resize(w, h, dpr);
   }
 
-  const rest = { raw: NaN, idle: 0, from: 0, to: 0, elapsed: 0, offset: 0, settling: false, input: false };
   const quint = t => { t = Math.max(0, Math.min(1, t)); return t * t * t * (t * (t * 6 - 15) + 10); };
-  const interrupt = () => { rest.input = true; };
-  for (const event of ['wheel', 'touchstart', 'pointerdown']) addEventListener(event, interrupt, { passive: true });
-  addEventListener('keydown', e => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) interrupt(); });
-  function station(at, raw, dt, { disabled = false, keys = [] } = {}) {
-    const moving = rest.input || !Number.isFinite(rest.raw) || Math.abs(raw - rest.raw) > 0.00005;
-    rest.raw = raw; rest.input = false;
-    if (disabled || at < 0 || at > 17) { rest.offset *= Math.exp(-dt / 0.14); rest.idle = 0; rest.settling = false; return at + rest.offset; }
-    if (moving) { rest.idle = 0; rest.settling = false; }
-    else rest.idle += dt;
-    if (!rest.settling) rest.offset *= Math.exp(-dt / 0.14);
-    if (!moving && rest.idle > 0.18 && !rest.settling) {
-      let target = raw;
-      for (let i = 0; i < keys.length - 1; i++) {
-        const a = keys[i], b = keys[i + 1];
-        if (raw >= a[0] && raw <= b[0] && a[1] !== b[1]) { target = raw - a[0] < b[0] - raw ? a[0] : b[0]; break; }
-      }
-      if (target === raw) return at + rest.offset;
-      rest.from = at + rest.offset; rest.to = target; rest.elapsed = 0; rest.settling = true;
-    }
-    if (rest.settling) {
-      rest.elapsed += dt;
-      rest.offset = rest.from + (rest.to - rest.from) * quint(rest.elapsed / 0.78) - at;
-    }
-    return at + rest.offset;
-  }
 
   function matrices() {
     const aspect = W / H;
@@ -175,5 +149,5 @@ export function createStage(canvas, base, opts = {}) {
     return [r.o[0] + r.d[0] * t, r.o[2] + r.d[2] * t];
   }
 
-  return { R, world, cam, fx, light, station, resize, render, css, project, probe, ray, hitY, L, get size() { return [W, H, dpr]; }, get fresh() { return fresh; }, get frames() { return R.drawn; }, get ticks() { return ticks; } };
+  return { R, world, cam, fx, light, resize, render, css, project, probe, ray, hitY, L, get size() { return [W, H, dpr]; }, get fresh() { return fresh; }, get frames() { return R.drawn; }, get ticks() { return ticks; } };
 }

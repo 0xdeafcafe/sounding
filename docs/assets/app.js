@@ -28,6 +28,7 @@ const SIDE_KEY = 'sounding.side';
 const remember = b => { try { localStorage.setItem(SIDE_KEY, b ? 'b' : 'a'); } catch (e) {} };
 const stored = () => { try { return localStorage.getItem(SIDE_KEY); } catch (e) { return null; } };
 const startB = qs.has('side') ? ['b', 'dj'].includes(qs.get('side')) : HOME ? stored() === 'b' : root.dataset.side === 'b';
+const REST = PAGE === 'tv' ? { 'sign-in': 1, 'play-on': 1, 'now-playing': 0, 'auto-mix': 0 } : {};
 const PAGES = {
   tv: { spots: [['phone', 'phone'], ['tv', 'tv'], ['watch', 'watch']] },
   features: { spots: [['phone', 'phone'], ['tv', 'tv'], ['watch', 'watch'], ['pad', 'ipad'], ['mac', 'mac']] },
@@ -55,7 +56,7 @@ const SHOT = {
   hero: { l: [0, 0.03, 0, 0, 42, 1.63, 0, -0.58], p: [0, 0.05, 0, 0, 58, 0.66, 0, -0.42], yawX: 10, px: 0.44 },
   crate: { l: [-0.33, 0, 1.23, 0, 62, 2.4, 0, 0], p: [-0.4, 0, 1.23, 0, 66, 1.6, 0, 0.34], sx: 0.33, pw: 0.5 },
   phone: { l: [0.42, 0.008, 1.0, 0, 74, 0.3, 0, 0.03], p: [0.42, 0.008, 1.0, 0, 82, 0.115, 0, 0.3], sx: 0.24, pw: 0.35, ww: 1.05 },
-  tv1: { l: [2.15, 0.26, 1.4, 0, 16, 1.6, 0, 0], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36], sx: 0.3, pw: 0.36 },
+  tv1: { l: [2.15, 0.26, 1.4, 0, 16, 1.3, 0, 0], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36], sx: 0.3, pw: 0.36 },
   tv2: { l: [1.9, 0.007, 1.785, -5, 57, 0.4, 0, 0.02], p: [1.9, 0.02, 1.765, -8, 57, 0.165, 0, 0.3], sx: 0.2 },
   tv3: { l: [2.17, 0.012, 1.8, 0, 82, 0.12, 0, 0], p: [2.17, 0.012, 1.8, 0, 82, 0.09, 0, 0.36], sx: 0.32 },
   tv4: { l: [2.15, 0.26, 1.4, 0, 16, 1.6, 0, 0], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36], sx: 0.3 },
@@ -70,29 +71,85 @@ const SHOT = {
   amp: { l: [0.035, 0.158, -0.14, 13, 27, 0.6, 0.5, -0.04], p: [0.026, 0.155, -0.14, 10, 30, 0.215, 0, 0.36], pw: 0.55 },
   watch: { l: [2.17, 0.012, 1.8, 0, 62, 0.34, 0.3, 0.02], pw: 0.3, p: [2.17, 0.012, 1.8, 0, 66, 0.17, 0, 0.3] },
   room: { l: [1.2, 0.05, 0.6, 24, 46, 2.3, 0.3, -0.1], p: [1.2, 0.05, 0.6, 24, 50, 1.2, 0, 0.3] },
-  boothw: { l: [0.3, 0.07, -0.22, 30, 30, 1.55, -0.4, -0.06], p: [0.25, 0.07, -0.2, 24, 40, 0.8, -0.1, 0.3] },
+  boothw: { l: [0.3, 0.07, -0.22, 30, 30, 1.55, -0.4, -0.06], p: [0.25, 0.07, -0.2, 24, 40, 0.8, -0.1, 0.62] },
   boothb: { l: [0.05, 0.06, -0.1, -26, 32, 1.5, -0.46, 0.26], p: [0.1, 0.06, -0.1, -26, 50, 0.7, 0, 0.3] },
   macb: { l: [0.52, 0.11, -0.47, 5, 17, 0.44, -0.28, -0.02], p: [0.52, 0.105, -0.47, 5, 22, 0.3, 0, 0.3] },
-  macb2: { l: [0.52, 0.1, -0.47, 16, 19, 0.5, -0.3, -0.02], p: [0.52, 0.1, -0.47, 16, 24, 0.3, 0, 0.3] },
+  macb2: { l: [0.52, 0.1, -0.47, 16, 19, 0.5, -0.4, -0.02], p: [0.52, 0.1, -0.47, 16, 24, 0.3, 0, 0.3] },
   tvcb: { l: [2.15, 0.27, 1.4, 0, 12, 1.25, -0.3, -0.02], p: [2.15, 0.285, 1.35, 0, 10, 0.88, 0, 0.36] },
   tvd: { l: [2.15, 0.27, 1.4, -9, 15, 1.18, -0.3, -0.02], p: [2.15, 0.285, 1.35, -6, 12, 0.88, 0, 0.36] },
 };
 const OPEN = 1.2;
 const SEAT = 0.9;
-const HYST = 0.14;
-const OUT = 18.1;
-const END = 19.4;
-const KEYS = [[0, 'hero'], [0.4, 'hero'], [1.8, 'crate'], [2.2, 'crate'], [3.6, 'phone'], [5.6, 'phone'], [7.0, 'tv1'], [7.7, 'tv1'], [8.7, 'tv2'], [9.5, 'tv2'], [10.4, 'tv3'], [11.3, 'tv3'], [12.3, 'tv4'], [13.1, 'tv4'], [14.5, 'rigA'], [15.6, 'rigA'], [16.2, 'rigC'], [17.0, 'rigC'], [18.0, 'out'], [99, 'out']];
-const WINDOWS = { hero: [-9, -8, 0.4, 0.7], listen: [1.55, 1.8, 5.55, 5.8], output: [6.75, 7.0, 13.15, 13.4], decks: [14.25, 14.5, 17.0, 17.25], join: [18.55, 18.85, 99, 100] };
-const HOLES = { listen: [2.25, 2.4, 3.45, 3.6], output: [9.5, 9.6, 10.3, 10.4] };
-const CAPS = { listen: [3.9, 4.5, 5.1], output: [8.7, 10.4, 12.3], decks: [14.9, 15.3, 15.9, 16.5] };
-const ANCHOR = { top: -OPEN, listen: 2.0, output: 7.2, decks: 14.6 };
-const KEYS_B = [[0, 'dj'], [0.4, 'dj'], [1.8, 'boothw'], [2.5, 'boothw'], [3.3, 'macb'], [5.9, 'macb'], [6.9, 'macb2'], [7.7, 'macb2'], [8.5, 'tvcb'], [10.5, 'tvcb'], [11.2, 'tvd'], [13.5, 'tvd'], [14.1, 'boothb'], [14.7, 'boothb'], [15.2, 'macb'], [16.3, 'macb'], [16.8, 'macb2'], [17.8, 'macb2'], [18.3, 'out'], [99, 'out']];
-const WINDOWS_B = { hero: [-9, -8, 0.4, 0.7], listen: [1.55, 1.8, 5.55, 5.8], output: [6.75, 7.0, 10.3, 10.5], decks: [10.9, 11.15, 13.3, 13.5], booth: [13.9, 14.15, 16.0, 16.2], rekordbox: [16.5, 16.75, 17.9, 18.1], join: [18.55, 18.85, 99, 100] };
-const CAPS_B = { listen: [2.7, 3.6, 4.5], output: [7.9, 8.7, 9.5], decks: [12.2], booth: [14.6, 15.05, 15.5], rekordbox: [16.95, 17.3, 17.65] };
-const ANCHOR_B = { top: -OPEN, listen: 2.0, output: 7.2, decks: 11.4, booth: 14.4, rekordbox: 17.0 };
-const MAC_B = at => at < 6.4 ? 'shots/mac-decks.webp' : at < 13.7 ? 'shots/mac-cues.webp' : at < 16.55 ? 'shots/mac-players.webp' : 'shots/mac-review.webp';
-const TV_B = at => at < 9.5 ? 'shots/tv-cues.webp' : at < 10.9 ? 'shots/tv-trackmap.webp' : at < 12.2 ? 'shots/tv-mixup.webp' : 'shots/tv-mixblend.webp';
+const LIGHT = 0.3;
+const HERO = 0.3;
+const OUT = 9.55;
+const END = 10.85;
+const HOLD = 0.11;
+const EDGE = 0.045;
+const STOPS_A = [
+  ['hero', HERO, 'hero', 'hero', 1],
+  ['likes', 0.9, 'crate', 'listen', 1],
+  ['set', 1.6, 'phone', 'listen'],
+  ['list', 2.02, 'phone', 'listen', 1],
+  ['tap', 2.44, 'phone', 'listen'],
+  ['sign', 3.25, 'tv1', 'output'],
+  ['playon', 3.95, 'tv2', 'output', 1],
+  ['watch', 4.65, 'tv3', 'output'],
+  ['share', 5.35, 'tv4', 'output'],
+  ['automix', 6.2, 'rigA', 'decks', 1],
+  ['persona', 6.65, 'rigA', 'decks'],
+  ['energy', 7.35, 'rigC', 'decks'],
+  ['honest', 7.85, 'rigC', 'decks'],
+  ['party', 8.35, 'rigC', 'decks'],
+];
+const STOPS_B = [
+  ['hero', HERO, 'dj', 'hero', 1],
+  ['decks', 0.9, 'boothw', 'listen', 1],
+  ['eq', 1.45, 'macb', 'listen'],
+  ['hot', 1.83, 'macb', 'listen'],
+  ['ddj', 2.21, 'macb', 'listen'],
+  ['cue', 2.85, 'macb2', 'output', 1],
+  ['learn', 3.23, 'macb2', 'output'],
+  ['tvcues', 3.8, 'tvcb', 'output'],
+  ['reads', 4.18, 'tvcb', 'output'],
+  ['tvmix', 4.82, 'tvd', 'decks'],
+  ['watchit', 5.2, 'tvd', 'decks'],
+  ['cdjs', 5.9, 'boothb', 'booth', 1],
+  ['setlist', 6.45, 'macb', 'booth'],
+  ['virtual', 6.83, 'macb', 'booth'],
+  ['fake', 7.21, 'macb', 'booth'],
+  ['rb', 7.75, 'macb2', 'rekordbox', 1],
+  ['prep', 8.12, 'macb2', 'rekordbox'],
+  ['export', 8.49, 'macb2', 'rekordbox'],
+  ['usb', 8.86, 'macb2', 'rekordbox'],
+];
+function timeline(rows) {
+  const stops = rows.map(([id, at, shot, scene, rest]) => ({ id, at, shot, scene, rest: !!rest }));
+  const by = Object.fromEntries(stops.map(s => [s.id, s.at]));
+  const keys = [];
+  stops.forEach((s, i) => {
+    const prev = stops[i - 1], next = stops[i + 1];
+    if (!prev || prev.shot !== s.shot) keys.push([i ? s.at - HOLD : 0, s.shot]);
+    if (!next || next.shot !== s.shot) keys.push([s.at + HOLD, s.shot]);
+  });
+  keys.push([stops[stops.length - 1].at + HOLD + 0.55, 'out'], [99, 'out']);
+  const scenes = {};
+  for (const s of stops) (scenes[s.scene] ||= []).push(s.at);
+  const windows = {}, caps = {}, anchor = { top: -OPEN };
+  for (const id in scenes) {
+    const at = scenes[id], a = at[0], b = at[at.length - 1];
+    windows[id] = id === 'hero' ? [-9, -8, b + 0.12, b + 0.28] : [a - 0.28, a - 0.12, b + 0.12, b + 0.28];
+    caps[id] = at.slice(1).map((x, i) => (at[i] + x) / 2);
+    anchor[id] = a;
+  }
+  windows.join = [-9, -8, 99, 100];
+  const mid = (a, b) => (by[a] + by[b]) / 2;
+  return { stops, by, keys, windows, caps, anchor, mid, last: stops[stops.length - 1].at, rests: stops.filter(s => s.rest).map(s => s.at) };
+}
+const TA = timeline(STOPS_A), TB = timeline(STOPS_B);
+const capFade = (marks, n, at, e = EDGE) => Array.from({ length: n }, (_, i) => (i ? ss(marks[i - 1], marks[i - 1] + e, at) : 1) * (i < marks.length ? 1 - ss(marks[i] - e, marks[i], at) : 1));
+const MAC_B = at => at < TB.mid('ddj', 'cue') ? 'shots/mac-decks.webp' : at < TB.mid('watchit', 'cdjs') ? 'shots/mac-cues.webp' : at < TB.mid('fake', 'rb') ? 'shots/mac-players.webp' : 'shots/mac-review.webp';
+const TV_B = at => at < TB.mid('tvcues', 'reads') ? 'shots/tv-cues.webp' : at < TB.mid('reads', 'tvmix') ? 'shots/tv-trackmap.webp' : at < TB.mid('tvmix', 'watchit') ? 'shots/tv-mixup.webp' : 'shots/tv-mixblend.webp';
 const SHOTS_B = ['shots/mac-decks.webp', 'shots/mac-cues.webp', 'shots/mac-players.webp', 'shots/mac-review.webp', 'shots/tv-cues.webp', 'shots/tv-trackmap.webp', 'shots/tv-mixup.webp', 'shots/tv-mixblend.webp'];
 
 // MARK: Live
@@ -145,10 +202,10 @@ function live(stage) {
   let demoAt = -1;
   const arm = [0, 0];
   let liveK = 0, crown = 0;
-  let open = !home, away = false, lit = !home;
+  let open = !home, lit = !home;
   let seatK = home ? 0 : 1, seatV = 0, outT = 0, lightT = home ? 0 : 1, revT = home ? 0 : 1, litAge = 0;
   let soundWanted = home, starting = false, gestured = false;
-  let glide = null, dim = null, themeNow = '', pulled = false, stations = !manual;
+  let glide = null, dim = null, themeNow = '', rests = [], drawn = false, dead = false;
   const LIN = Float32Array.from({ length: 256 }, (_, i) => { const v = i / 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
   const INK = [0.0092, 0.871], PASS = 4.5, GO = [0.13, 0.22];
   const heads = home ? $$('.ink', topBar).map(el => ({ el, inset: el.classList.contains('brand') ? 38 : 0, gated: !!el.closest('.xf, .snd'), box: null, lo: -1, hi: -1, mid: -1, l0: 0, l1: 0, m: 0, light: true, at: -9, since: 0, block: 1.5, home: true })) : [];
@@ -174,6 +231,16 @@ function live(stage) {
     root.style.setProperty('--ih', vh + 'px'); root.style.setProperty('--svh', svh + 'px'); root.style.setProperty('--head', Math.round(topBar.getBoundingClientRect().bottom) + 'px'); root.style.setProperty('--foot', $('.foot').offsetHeight + 'px');
     inks.forEach(k => { k.d0 = null; k.ex = null; });
     heads.forEach(q => { q.box = null; });
+    placeRests();
+  }
+
+  function placeRests(later) {
+    if (dead) return;
+    const fz = 0.12 * vh;
+    const list = home ? (fade > 0.5 ? TB : TA).rests.map(at => [main, (lead + at) * vh]) : chapters.filter(c => c.id in REST && c.n).map(c => { const hold = Math.max(1, c.el.offsetHeight - vh - 2 * fz); return [c.el, fz + (REST[c.id] + 0.5) * hold / c.n]; });
+    rests.forEach(r => r.remove());
+    rests = list.map(([parent, top]) => { const i = document.createElement('i'); i.className = 'rest'; i.setAttribute('aria-hidden', 'true'); i.style.top = Math.round(top) + 'px'; parent.append(i); return i; });
+    if (later) root.classList.remove('snap'); else root.classList.toggle('snap', rests.length > 0);
   }
 
   function shot(name) {
@@ -205,11 +272,10 @@ function live(stage) {
   }
 
   function camera(at) {
-    if (!home && pageKeys.length < 2) { const c = shot(chapters[0] ? chapters[0].shots[0] : 'dj'); if (!coarse) c[3] += Math.sin(clock * 0.16) * 3; c[7] += pe * 2; aim(c); return; }
+    if (!home && pageKeys.length < 2) { const c = shot(chapters[0] ? chapters[0].shots[0] : 'dj'); c[7] += pe * 2; aim(c); return; }
     const on = home ? Math.max(0, at) : at;
-    let c = home ? (fade <= 0 ? along(KEYS, on) : fade >= 1 ? along(KEYS_B, on) : blend(along(KEYS, on), along(KEYS_B, on), smooth(fade))) : along(pageKeys, on);
-    if (home && revT < 1) c = blend(at > 8 ? shot('out') : blend(shot('open0'), shot('open1'), smooth(pe / SEAT)), c, smoother(revT));
-    if (!home && !coarse) c[3] += Math.sin(clock * 0.16) * (mobile ? 1 : 2);
+    let c = home ? (fade <= 0 ? along(TA.keys, on) : fade >= 1 ? along(TB.keys, on) : blend(along(TA.keys, on), along(TB.keys, on), smooth(fade))) : along(pageKeys, on);
+    if (home && revT < 1) c = blend(at > OUT - 1 ? shot('out') : blend(shot('open0'), shot('open1'), smooth(pe / SEAT)), c, smoother(revT));
     aim(c);
   }
 
@@ -243,7 +309,7 @@ function live(stage) {
           if (i === c.n - 1) pageKeys.push([close, sh]);
         }
       }
-      want['cap-' + c.id] = flowing ? c.n - 1 : c.cap;
+      want['cap-' + c.id] = flowing ? Array.from({ length: c.n }, (_, i) => +(i === c.n - 1)) : capFade(Array.from({ length: Math.max(0, c.n - 1) }, (_, i) => fz + (i + 1) * hold / c.n), c.n, s, EDGE * vh);
     }
     const state = { ph: 'play', out: 'idle', tv: 'off', tvb: 'np', w: 'clock', pad: 'home', mac: 'home', pick: false, picked: false, phone: 'home', macShot: null, tvShot: null, phoneShot: null, padShot: null };
     if (best) for (let i = 0; i <= Math.min(best.cap, best.states.length - 1); i++) Object.assign(state, best.states[i]);
@@ -265,26 +331,28 @@ function live(stage) {
   }
 
   function script(at) {
-    S.phone = carry(L.phoneHome, L.phoneTV, (at - 5.65) / 1.3, 0.06, 0.14);
-    S.friend = carry(L.friendOff, L.friendPos, (at - 12.35) / 0.7, 0.04, -0.06);
-    want.ph = at < 3.9 ? 'lib' : at < 4.5 ? 'play' : at < 5.9 ? 'list' : 'out';
-    want.pick = at > 3.62 && at < 3.9;
-    want.out = at < 8.7 ? (at > 7.25 ? 'toast' : 'idle') : at < 9.25 ? 'sheet' : at < 12.3 ? 'tv' : 'share';
-    want.picked = at > 9.0;
-    want.tv = at < 6.95 ? 'off' : at < 9.0 ? 'sign' : 'play';
+    const A = TA.by, m = TA.mid;
+    S.phone = carry(L.phoneHome, L.phoneTV, (at - A.tap - 0.2) / 0.5, 0.06, 0.14);
+    S.friend = carry(L.friendOff, L.friendPos, (at - A.share + 0.42) / 0.3, 0.04, -0.06);
+    want.ph = at < m('likes', 'set') ? 'lib' : at < m('set', 'list') ? 'play' : at < A.tap + 0.2 ? 'list' : 'out';
+    want.pick = at > m('likes', 'set') - 0.14 && at < m('likes', 'set');
+    want.out = at < A.sign - 0.2 ? 'idle' : at < m('sign', 'playon') ? 'toast' : at < m('sign', 'playon') + 0.2 ? 'sheet' : at < m('watch', 'share') ? 'tv' : 'share';
+    want.picked = at > m('sign', 'playon') + 0.1;
+    want.tv = at < A.sign - 0.32 ? 'off' : at < m('sign', 'playon') + 0.1 ? 'sign' : 'play';
     want.tvb = 'np';
-    want.w = at > 10.6 ? 'remote' : at > 9.6 ? 'home' : 'clock';
-    want.pad = want.mac = at < 12.3 ? 'home' : 'play';
-    want.demo = at > 5.1 && at < 5.6;
+    want.w = at > A.watch - 0.16 ? 'remote' : at > m('playon', 'watch') - 0.1 ? 'home' : 'clock';
+    want.pad = want.mac = at < m('watch', 'share') ? 'home' : 'play';
+    want.demo = at > A.tap - 0.12 && at < A.tap + 0.18;
     if (fade > 0.5) {
-      want.mac = at > 1.0 && at < OUT ? 'play' : 'home';
+      const B = TB.by, n = TB.mid;
+      want.mac = at > 0.5 && at < OUT ? 'play' : 'home';
       want.macShot = want.mac === 'play' ? MAC_B(at) : null;
-      want.tv = at > 7.6 && at < 13.9 ? 'play' : 'off';
+      want.tv = at > n('learn', 'tvcues') && at < n('watchit', 'cdjs') ? 'play' : 'off';
       want.tvShot = want.tv === 'play' ? TV_B(at) : null;
       want.demo = false;
     } else want.macShot = want.tvShot = null;
-    for (const id in CAPS) { let n = 0; while (n < CAPS[id].length && at >= CAPS[id][n]) n++; want['cap-' + id] = n; }
-    for (const id in CAPS_B) { let n = 0; while (n < CAPS_B[id].length && at >= CAPS_B[id][n]) n++; want['capb-' + id] = n; }
+    for (const id in TA.caps) want['cap-' + id] = capFade(TA.caps[id], TA.caps[id].length + 1, at);
+    for (const id in TB.caps) want['capb-' + id] = capFade(TB.caps[id], TB.caps[id].length + 1, at);
   }
 
   function commit() {
@@ -295,15 +363,21 @@ function live(stage) {
       if (shown.pad !== want.pad || shown.padShot !== want.padShot) { shown.pad = want.pad; shown.padShot = want.padShot; panes.set('pad', { pad: want.pad, shot: want.padShot || null }); }
       if (shown.mac !== want.mac || shown.macShot !== want.macShot) { shown.mac = want.mac; shown.macShot = want.macShot; panes.set('mac', { mac: want.mac, shot: want.macShot || null }); }
     }
-    if (want.demo && !shown.demo && !np.tapped) demoAt = clock + 1.4;
+    if (want.demo && !shown.demo && !np.tapped) demoAt = clock;
     shown.demo = want.demo;
     for (const id in scenes) {
       const sc = scenes[id];
       for (const [k, list] of [['cap-' + id, sc.capsA], ['capb-' + id, sc.capsB]]) {
-        if (!(k in want) || shown[k] === want[k]) continue;
-        shown[k] = want[k];
-        list.forEach((c, i) => c.classList.toggle('on', i === Math.min(want[k], list.length - 1)));
-        inks.forEach(q => { q.d0 = null; });
+        const os = want[k];
+        if (!os) continue;
+        list.forEach((c, i) => {
+          const o = Math.round((os[i] ?? 0) * 1000) / 1000;
+          if (c._co === o) return;
+          c._co = o;
+          c.style.setProperty('--co', o);
+          const on = o > 0.5;
+          if (on !== c.classList.contains('on')) { c.classList.toggle('on', on); inks.forEach(q => { q.d0 = null; }); }
+        });
       }
     }
   }
@@ -390,10 +464,9 @@ function live(stage) {
     const follow = 1 - Math.exp(-step / 0.1);
     for (const id in scenes) {
       const sc = scenes[id];
-      const w = WINDOWS[id], wB = WINDOWS_B[id];
-      const hole = mobile && id === 'output' ? null : HOLES[id];
+      const w = TA.windows[id], wB = TB.windows[id];
       const ch = home ? null : chapters.find(c => c.id === id);
-      const alpha = ch ? ch.alpha : (w ? ss(w[0], w[1], at) * (1 - ss(w[2], w[3], at)) : 1) * (hole ? 1 - ss(hole[0], hole[1], at) * (1 - ss(hole[2], hole[3], at)) : 1);
+      const alpha = ch ? ch.alpha : (w ? ss(w[0], w[1], at) * (1 - ss(w[2], w[3], at)) : 1);
       const alphaB = ch ? ch.alpha : wB ? ss(wB[0], wB[1], at) * (1 - ss(wB[2], wB[3], at)) : 0;
       [sc.a, sc.b, sc.vis].forEach((el, k) => {
         if (!el) return;
@@ -554,10 +627,11 @@ function live(stage) {
   function togglePlug() {
     gestured = true;
     if (!home) { setSound(!audio.on); return; }
-    if (open) { pulled = true; glideTo(pe - OPEN > 9 ? OPEN + END : 0); return; }
+    const T = fade > 0.5 ? TB : TA, late = pe - OPEN > T.last + 0.3;
+    if (open) { glideTo(late ? OPEN + END : 0); return; }
     soundWanted = true;
     tryStart(true);
-    glideTo(pe - OPEN > 9 ? OPEN + 16.6 : OPEN);
+    glideTo(OPEN + (late ? T.last : HERO));
   }
   plugButtons.forEach(b => b.addEventListener('click', e => { e.preventDefault(); togglePlug(); }));
   if (home) $$('a[href="?side=dj"]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); X.target = 1; glideTo(0); }));
@@ -568,7 +642,7 @@ function live(stage) {
     if (!hit) return;
     if (hit.type === 'jack') { togglePlug(); return; }
     if (hit.type === 'start') { S.motor[hit.i] = S.motor[hit.i] ? 0 : 1; return; }
-    const g = { ...hit, x: e.clientX, y: e.clientY, t: performance.now() };
+    const g = { ...hit, x: e.clientX, y: e.clientY, t: performance.now(), x0: e.clientX, y0: e.clientY, touch: e.pointerType !== 'mouse', armed: e.pointerType === 'mouse', save: { pos: X.pos, chan: [...S.chan], knob: [...S.knob], user: deck.map(d => d.user) } };
     if (hit.type === 'deck') { const dk = deck[hit.i]; dk.held = true; dk.hand = 0; g.phi = deckPhi(hit.i, e.clientX, e.clientY); }
     if (hit.type === 'xf') { X.held = true; X.target = null; g.ax = axis([-L.xfTravel / 2, L.mixerY, L.xfZ], [L.xfTravel / 2, L.mixerY, L.xfZ]); }
     if (hit.type === 'chan') { const cx = (hit.i ? 1 : -1) * L.knobX; g.ax = axis([cx, L.mixerY, L.chanZ], [cx, L.mixerY, L.chanZ - L.chanTravel]); }
@@ -584,6 +658,13 @@ function live(stage) {
     const g = drags.get(e.pointerId);
     if (!g) {
       if (e.pointerType === 'mouse') { const h = pick(e.clientX, e.clientY); canvas.style.cursor = h ? (h.type === 'jack' || h.type === 'start' ? 'pointer' : 'grab') : track(e.clientX, e.clientY) != null ? 'pointer' : ''; }
+      return;
+    }
+    if (!g.armed) {
+      const ax = Math.abs(e.clientX - g.x0), ay = Math.abs(e.clientY - g.y0);
+      if (Math.max(ax, ay) < 8) return;
+      if (ay > ax) { release(e.pointerId, g, true); return; }
+      g.armed = true; g.x = e.clientX; g.y = e.clientY; g.t = performance.now();
       return;
     }
     const dx = e.clientX - g.x, dy = e.clientY - g.y;
@@ -610,13 +691,23 @@ function live(stage) {
     g.x = e.clientX; g.y = e.clientY; g.t = now;
   }
 
+  function release(id, g, cancel) {
+    drags.delete(id);
+    try { canvas.releasePointerCapture(id); } catch (err) {}
+    if (cancel) {
+      X.pos = g.save.pos; X.vel = 0;
+      g.save.chan.forEach((v, i) => { S.chan[i] = v; });
+      g.save.knob.forEach((v, i) => { S.knob[i] = v; });
+      g.save.user.forEach((v, i) => { deck[i].user = v; });
+    }
+    if (g.type === 'deck') { const dk = deck[g.i]; dk.held = false; if (!cancel) dk.w = performance.now() - g.t > 90 ? 0 : dk.hand; }
+    if (g.type === 'xf') { X.held = false; if (cancel || performance.now() - g.t > 90) X.vel = 0; }
+    canvas.style.cursor = '';
+  }
+
   function up(e) {
     const g = drags.get(e.pointerId);
-    if (!g) return;
-    drags.delete(e.pointerId);
-    if (g.type === 'deck') { const dk = deck[g.i]; dk.held = false; dk.w = performance.now() - g.t > 90 ? 0 : dk.hand; }
-    if (g.type === 'xf') { X.held = false; if (performance.now() - g.t > 90) X.vel = 0; }
-    canvas.style.cursor = '';
+    if (g) release(e.pointerId, g, e.type === 'pointercancel');
   }
 
   canvas.addEventListener('pointerdown', down);
@@ -631,33 +722,31 @@ function live(stage) {
 
   // MARK: Plug
   function opening(dt, at) {
-    if (pulled && (!glide || pe < SEAT - HYST || at >= OUT)) pulled = false;
-    const inside = !pulled && (open ? pe > SEAT - HYST && at < OUT : pe >= SEAT && at < OUT - HYST);
+    const inside = pe >= SEAT && at < OUT;
     if (inside !== open) {
       open = inside;
       if (open) tryStart(); else if (audio.on) { audio.stop(); label(); }
     }
-    away = at >= OUT - (away ? HYST : 0);
-    outT = toward(outT, away || pulled ? 1 : 0, 1.2, 1.0, dt);
-    const u = clamp(pe / SEAT) * Math.pow(Math.max(0, 1 - outT), 2.2);
-    const goal = open && outT < 0.02 ? 1 : 0;
+    const rise = (pe - SEAT) / LIGHT, gone = clamp((at - OUT) / 0.3);
+    outT = smooth(gone);
+    const u = clamp(pe / SEAT) * Math.pow(1 - outT, 2.2);
+    const goal = inside ? 1 : 0;
     const w = 30, x = seatK - goal, e = Math.exp(-w * dt), q = (seatV + w * x) * dt;
     seatK = goal + (x + q) * e;
     seatV = (seatV - q * w) * e;
-    const now = seatK > 0.5;
-    if (now !== lit) {
-      lit = now;
+    if (inside !== lit) {
+      lit = inside;
       root.dataset.plug = lit ? '1' : '0';
       if (lit) { if (audio.on) audio.thunk(); if (gestured && navigator.vibrate) navigator.vibrate(10); }
     }
     litAge = lit ? litAge + dt : 0;
-    lightT = toward(lightT, lit ? 1 : 0, 3.8, 2.2, dt);
-    revT = toward(revT, lit && litAge > 0.4 ? 1 : 0, 2.6, 2.0, dt);
+    lightT = pe < SEAT ? 0 : at < OUT ? clamp(rise) : 1 - gone;
+    revT = pe < SEAT ? 0 : at < OUT ? clamp((pe - SEAT - 0.05) / (OPEN + HERO - SEAT - 0.05)) : 1 - gone;
     stage.light.k = lightT;
     S.power += ((lit ? 1 : 0) - S.power) * (1 - Math.exp(-dt / 0.3));
     const glow = lit ? 0.8 : (0.32 + 0.68 * smooth(u)) * (0.95 + 0.05 * Math.sin(clock * 1.3));
     S.glow += (glow - S.glow) * (1 - Math.exp(-dt / 0.25));
-    S.front = lit ? Math.min(60, Math.max(S.front + (lightT >= 1 ? dt * 3 : 0), 0.15 + (0.4 * lightT + 4 * Math.pow(lightT, 3.4) + 12 * Math.pow(lightT, 12)) * 0.9)) : Math.max(-1, Math.min(S.front, 3) - dt * 5);
+    S.front = lit ? 0.15 + (0.4 * lightT + 4 * Math.pow(lightT, 3.4) + 12 * Math.pow(lightT, 12)) * 0.9 + 45 * clamp(rise - 1) : at >= OUT ? lerp(3, -1, gone) : -1;
     world.pose(u, clamp(seatK), clock);
   }
 
@@ -675,7 +764,7 @@ function live(stage) {
     if (Math.abs(fade - X.pos) < 0.0005) fade = X.pos;
     S.fade = fade;
     const side = fade > 0.5 ? 'b' : 'a';
-    if (root.dataset.side !== side) { root.dataset.side = side; xfButtons.forEach(b => b.setAttribute('aria-pressed', String((b.dataset.xf === '1') === (side === 'b')))); remember(side === 'b'); }
+    if (root.dataset.side !== side) { root.dataset.side = side; xfButtons.forEach(b => b.setAttribute('aria-pressed', String((b.dataset.xf === '1') === (side === 'b')))); remember(side === 'b'); if (home) placeRests(true); }
     if (!drags.size || !X.held) { const v = Math.round(X.pos * 1000); if (document.activeElement !== range && +range.value !== v) range.value = v; }
     S.room = home ? fade : 0;
     if (panes && home && !loadedB && fade > 0.02) { loadedB = true; panes.preload(SHOTS_B); }
@@ -748,6 +837,7 @@ function live(stage) {
   }
 
   function tick(now) {
+    if (dead) return;
     if (!manual) {
       requestAnimationFrame(tick);
       if (document.hidden) { last = now; beatAt = now; return; }
@@ -768,6 +858,7 @@ function live(stage) {
       scrollTo(0, lerp(glide.from, glide.to, smoother(glide.t / glide.dur)) * vh);
       if (glide.t >= glide.dur) glide = null;
     }
+    if (!!glide !== root.classList.contains('glide')) root.classList.toggle('glide', !!glide);
     const y = scrollY;
     p = plate ? plateAt + lead : y / vh;
     const v = (y - lastY) / vh / dt;
@@ -775,12 +866,12 @@ function live(stage) {
     bend += (clamp(v / 16, -0.05, 0.05) - bend) * (1 - Math.exp(-dt / 0.4));
     if (plate) { pe = p; pv = 0; }
     else {
-      const goal = home ? stage.station(p - lead, p - lead, dt, { disabled: !stations, keys: fade > 0.5 ? KEYS_B : KEYS }) + lead : p;
-      const w = 7, x = pe - goal, e = Math.exp(-w * dt), q = (pv + w * x) * dt;
-      pe = goal + (x + q) * e;
-      pv = (pv - q * w) * e;
-      if (Math.abs(pe - goal) < 0.0003 && Math.abs(pv) < 0.002) { pe = goal; pv = 0; }
+      const was = pe;
+      pe += (p - pe) * (1 - Math.exp(-dt / 0.075));
+      if (Math.abs(pe - p) < 0.0004) pe = p;
+      pv = (pe - was) / dt;
     }
+    if (panes) panes.pace(Math.abs(pv) > 3 ? 0 : 1);
     const at = pe - lead;
     if (home) opening(dt, at);
     if (home && !manual) {
@@ -793,7 +884,7 @@ function live(stage) {
       commit();
       if (demoAt > 0 && clock >= demoAt) { demoAt = -1; if (!np.tapped && shown.ph === 'list') np.jump(3); }
       if (shown.ph !== 'lib') np.set(np.sec + dt * (1 + bend));
-      if (shown.w === 'remote' && at > 10.4 && at < 11.3 && pv) { crown += pv * dt * 16; np.set(clamp(np.sec + pv * dt * 1500, 0, MIX.duration - 1)); }
+      if (shown.w === 'remote' && Math.abs(at - TA.by.watch) < 0.2 && pv) { crown += pv * dt * 16; np.set(clamp(np.sec + pv * dt * 1500, 0, MIX.duration - 1)); }
       S.crown = crown;
     } else {
       chapterScript(dt);
@@ -811,25 +902,27 @@ function live(stage) {
       camWas = [c.t[0], c.t[1], c.t[2], c.w, c.yaw, c.pitch, c.ox, c.oy];
     }
     if (home || pageSeen) stage.render(clock);
+    if (!drawn && stage.fresh) { drawn = true; root.classList.add('drawn'); }
     screens(dt);
     copy(at);
   }
 
   const act = () => { gestured = true; if (soundWanted) audio.warm(); tryStart(); };
+  const resume = () => { glide = null; if (rests.length && !root.classList.contains('snap')) root.classList.add('snap'); };
   ['pointerdown', 'keydown', 'touchend'].forEach(t => addEventListener(t, act, { passive: true, capture: true }));
-  ['wheel', 'touchstart'].forEach(t => addEventListener(t, () => { glide = null; }, { passive: true, capture: true }));
-  addEventListener('keydown', e => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) glide = null; }, { capture: true });
+  ['wheel', 'touchstart'].forEach(t => addEventListener(t, resume, { passive: true, capture: true }));
+  addEventListener('keydown', e => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) resume(); }, { capture: true });
   addEventListener('resize', () => { const [w, h] = viewport(); if (w !== vw || h !== vh) measure(); });
   mobileQuery.addEventListener('change', measure);
   document.addEventListener('focusin', e => {
     if (!home) return;
     const sc = e.target.closest && e.target.closest('.scene');
     if (!sc || sc.dataset.scene === 'join' || sc.dataset.scene === 'hero') return;
-    const b = fade > 0.5, w = (b ? WINDOWS_B : WINDOWS)[sc.dataset.scene], an = b ? ANCHOR_B : ANCHOR;
+    const T = fade > 0.5 ? TB : TA, w = T.windows[sc.dataset.scene];
     const at = pe - lead;
-    if (w && (at < w[1] || at > w[2])) scrollTo({ top: ((an[sc.id] ?? w[1] + 0.3) + lead) * vh });
+    if (w && (at < w[1] || at > w[2])) scrollTo({ top: (T.anchor[sc.dataset.scene] + lead) * vh });
   });
-  const hash = () => { if (!home) return; const id = location.hash.slice(1); const an = fade > 0.5 ? ANCHOR_B : ANCHOR; if (id in an) scrollTo({ top: (an[id] + lead) * vh }); };
+  const hash = () => { if (!home) return; const id = location.hash.slice(1), T = fade > 0.5 ? TB : TA, key = id === 'top' ? 'top' : id; if (key in T.anchor) scrollTo({ top: (T.anchor[key] + lead) * vh }); };
   addEventListener('hashchange', hash);
 
   measure();
@@ -842,23 +935,20 @@ function live(stage) {
   } else if (qs.has('xf')) X.pos = fade = clamp(+qs.get('xf') || 0);
   else if (startB) X.pos = fade = 1;
   S.room = home ? fade : 0;
+  placeRests();
   hash();
   pe = p = plate ? plateAt + lead : scrollY / vh;
   if (home) {
     const at = pe - OPEN;
-    away = at >= OUT;
-    open = lit = pe >= SEAT && !away;
-    outT = away ? 1 : 0;
-    seatK = lightT = revT = open ? 1 : 0;
+    open = lit = pe >= SEAT && at < OUT;
+    seatK = open ? 1 : 0;
     litAge = open ? 9 : 0;
     arm[0] = arm[1] = open ? 1 : 0;
     deck[0].w = deck[1].w = open ? W0 : 0;
     S.power = open ? 1 : 0;
-    S.front = open ? 60 : -1;
     S.glow = open ? 0.8 : 0.32;
     root.dataset.plug = open ? '1' : '0';
-    script(at); commit();
-    for (const id in scenes) [scenes[id].capsA, scenes[id].capsB].forEach(list => { if (list.length) list[0].classList.add('on'); });
+    opening(0, at); script(at); commit();
   } else if (plate) arm[0] = arm[1] = 1;
   if (!home) {
     if (qs.has('scroll')) scrollTo(0, +qs.get('scroll') * vh);
@@ -870,12 +960,35 @@ function live(stage) {
   if (panes) setTimeout(() => panes.warm(), 1400);
   if (panes && home && !coarse) setTimeout(() => { if (!loadedB) { loadedB = true; panes.preload(SHOTS_B); } }, 3500);
   if (home && !manual) ('requestIdleCallback' in window ? requestIdleCallback : setTimeout)(() => { if (soundWanted && !audio.on) audio.warm(); }, 'requestIdleCallback' in window ? { timeout: 5000 } : 2600);
+  function settle() {
+    if (dead) return;
+    dead = true;
+    glide = null;
+    soundWanted = false;
+    if (audio.on) audio.stop();
+    const at = pe - lead;
+    let id = 'top';
+    if (home) {
+      const T = fade > 0.5 ? TB : TA;
+      const near = T.stops.reduce((a, s) => Math.abs(s.at - at) < Math.abs(a.at - at) ? s : a, T.stops[0]);
+      id = at > OUT ? 'join' : near.scene === 'hero' ? 'top' : near.scene;
+    } else if (chapters.length) id = chapters.reduce((a, c) => c.near < a.near ? c : a, chapters[0]).el.id || 'top';
+    rests.forEach(r => r.remove());
+    rests = [];
+    if (shade.el) shade.el.remove();
+    root.classList.remove('live', 'page', 'coarse', 'hud', 'dim', 'deep', 'snap', 'glide', 'drawn');
+    main.style.paddingTop = '';
+    still();
+    const el = document.getElementById(id);
+    if (el && id !== 'top') el.scrollIntoView(); else scrollTo(0, 0);
+  }
+  matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', e => { if (e.matches) settle(); });
   window.sounding = {
     seek: at => { glide = null; scrollTo(0, (at + lead) * vh); },
     fade: f => { X.target = null; X.vel = 0; X.pos = f; },
     sound: setSound,
     plug: togglePlug,
-    station: on => { stations = !!on; },
+    settle,
     step: (dt = 1 / 60) => { tick(last + dt * 1000); },
     state: () => ({ p: +(pe - lead).toFixed(4), raw: +(p - lead).toFixed(4), sec: +np.sec.toFixed(2), fade, head: { shade: +shade.o.toFixed(3), dark: shade.dark, inks: heads.map(q => q.light ? 1 : 0), drift: +drift.toFixed(3), back: heads.map(q => [+q.l0.toFixed(3), +q.m.toFixed(3), +q.l1.toFixed(3)]) }, quality: +quality.toFixed(3), cost: +stage.R.cost.toFixed(2), every, period: +period.toFixed(2), dt: slow, open, lit, light: +lightT.toFixed(3), rev: +revT.toFixed(3), arm: arm[0], audio: audio.ctx ? audio.ctx.state : null }),
     stage,

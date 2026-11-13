@@ -15,8 +15,8 @@
   <title>Sounding · Plug in. All the way.</title>
   <link rel="icon" type="image/webp" href="assets/app-icon.webp">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <script>(function(r){var c=r.classList,s=null;try{s=localStorage.getItem('sounding.side')}catch(e){}var q=/[?&]side=(b|dj)\b/.test(location.search)?'b':/[?&]side=a\b/.test(location.search)?'a':s==='b'?'b':'a';r.dataset.side=q;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',q==='b'?'#110e0c':'#f6f1e8');})(document.documentElement)</script>
   <script>(function(c){c.add('js');if(matchMedia('(prefers-reduced-motion: reduce)').matches||/[?&]still/.test(location.search))c.add('still');setTimeout(function(){if(!c.contains('live'))c.add('still')},6000)})(document.documentElement.classList)</script>
-  <style>html.js:not(.still):not(.live){background:#0b0908}html.js:not(.still):not(.live) body{visibility:hidden}</style>
   <link rel="stylesheet" href="assets/site.css">
   <link rel="modulepreload" href="assets/stage.js">
   <link rel="modulepreload" href="assets/world.js">
