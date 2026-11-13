@@ -94,6 +94,15 @@ struct SoundCloudSessionRenewal {
         return await recover(restoring: environment.load())
     }
 
+    func recover(kinds: Set<SourceKind>, skipping skipped: Set<String>) async -> (outcome: Outcome, tried: Set<String>) {
+        guard !environment.isTrafficStopped() else { return (.temporarilyUnavailable, skipped) }
+        var tried = skipped
+        let original = environment.load()
+        if let original { tried.insert(Self.digest(of: original)) }
+        let outcome = await recover(restoring: original, kinds: kinds, tried: &tried)
+        return (outcome, tried)
+    }
+
     func adoptNewer() async -> Outcome {
         guard !environment.isTrafficStopped() else { return .temporarilyUnavailable }
         guard let local = environment.load() else { return .exhausted }
@@ -118,8 +127,11 @@ struct SoundCloudSessionRenewal {
     private func recover(restoring original: StoredSession?) async -> Outcome {
         var tried = Set<String>()
         if let original { tried.insert(Self.digest(of: original)) }
+        return await recover(restoring: original, kinds: nil, tried: &tried)
+    }
 
-        for source in sources {
+    private func recover(restoring original: StoredSession?, kinds: Set<SourceKind>?, tried: inout Set<String>) async -> Outcome {
+        for source in sources where kinds?.contains(source.kind) ?? true {
             if environment.isTrafficStopped() { return .temporarilyUnavailable }
             guard let candidate = await source.fetch(.afterFailure),
                   !candidate.session.oauthToken.isEmpty,
@@ -204,6 +216,55 @@ struct SoundCloudSessionRenewal {
         if let verdict = await validated() { return verdict }
         restore()
         return .rejected
+    }
+}
+
+enum SoundCloudSessionRecovery {
+    enum Result: Equatable, Sendable {
+        case recovered
+        case unresolved
+        case failed
+    }
+
+    static let window: Duration = .seconds(20)
+    static let pollInterval: Duration = .seconds(4)
+
+    struct Environment {
+        var validateCurrent: @MainActor () async -> SoundCloudTokenValidation?
+        var isResolved: @MainActor () -> Bool
+        var attempt: @MainActor (_ pass: Int) async -> SoundCloudSessionRenewal.Outcome
+        var sleep: @MainActor (Duration) async -> Void
+        var now: @MainActor () -> ContinuousClock.Instant
+    }
+
+    @MainActor
+    static func run(
+        validateFirst: Bool,
+        polls: Bool,
+        window: Duration = SoundCloudSessionRecovery.window,
+        pollInterval: Duration = SoundCloudSessionRecovery.pollInterval,
+        environment: Environment
+    ) async -> Result {
+        if validateFirst, let validation = await environment.validateCurrent() {
+            switch validation {
+            case .valid: return .recovered
+            case .unavailable: return environment.isResolved() ? .recovered : .unresolved
+            case .rejected: break
+            }
+        }
+        let deadline = environment.now().advanced(by: window)
+        var pass = 0
+        while true {
+            if environment.isResolved() { return .recovered }
+            let outcome = await environment.attempt(pass)
+            if outcome.renewed || environment.isResolved() { return .recovered }
+            pass += 1
+            guard polls, environment.now() < deadline else {
+                return outcome == .temporarilyUnavailable ? .unresolved : .failed
+            }
+            await environment.sleep(pollInterval)
+            if Task.isCancelled { return environment.isResolved() ? .recovered : .unresolved }
+        }
     }
 }
 

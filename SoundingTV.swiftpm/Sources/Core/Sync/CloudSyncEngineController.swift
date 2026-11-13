@@ -923,6 +923,7 @@ final class SynchronizationCoordinator: SetlistSynchronizationReceiving, Setting
     }
 
     func latestSyncedSession() async -> SyncedSoundCloudSession? {
+        controller.start()
         let transport = CloudKitSessionSyncTransport(controller: controller)
         guard await transport.isReady() else { return nil }
         do {
@@ -1166,7 +1167,7 @@ extension SoundCloudSessionRenewal.Source {
         localSession: @escaping @MainActor () -> SyncedSoundCloudSession?
     ) -> Self {
         Self(kind: .synced) { phase in
-            let wait: Duration = phase == .beforeRefresh ? .seconds(4) : .seconds(8)
+            let wait: Duration = .seconds(8)
             guard let remote = await SoundCloudSessionRenewalTimeout.value(within: wait, {
                 await coordinator.latestSyncedSession()
             }) else { return nil }

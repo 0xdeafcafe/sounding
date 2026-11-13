@@ -256,7 +256,7 @@ struct MacSettingsAccountTab: View {
                 HStack(spacing: SCContentStyle.mac.spaceTight) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Checking SoundCloud sign-in…")
+                    Text(credentials.isConnecting ? SoundCloudCredentialSource.connectingTitle : "Checking SoundCloud sign-in…")
                     Spacer(minLength: 0)
                 }
                 .task { await validate() }

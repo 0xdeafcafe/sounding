@@ -1818,6 +1818,7 @@ private struct MacSidebar: View {
     }
 
     private var accountStatus: String? {
+        if credentials.isConnecting { return SoundCloudCredentialSource.connectingTitle }
         if isAwaitingVerification { return "Verification paused" }
         if credentials.isReadOnlySession {
             return credentials.canRetrySession ? "Renewal paused" : "Reconnect to continue"

@@ -184,6 +184,7 @@ struct PhoneSettingsView: View {
         case .signedOut:
             return "Please Sign In"
         case .signedIn:
+            if credentials.isConnecting { return SoundCloudCredentialSource.connectingTitle }
             if let user = credentials.currentUser { return "@\(user.username)" }
             return "Signed In"
         }
@@ -1083,7 +1084,7 @@ struct AccountSettingsDetail: View {
 
     private var statusText: String {
         switch credentials.accountStatus {
-        case .signedIn: return "Signed In"
+        case .signedIn: return credentials.isConnecting ? SoundCloudCredentialSource.connectingTitle : "Signed In"
         case .needsReconnect: return "Not Working"
         case .signedOut: return "Please Sign In"
         }
