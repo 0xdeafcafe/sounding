@@ -42,8 +42,8 @@ struct AnalyseMissingMenuItems: View {
     }
 
     private func detail(_ count: MissingAnalysisCount?) -> String? {
-        guard !analysesElsewhere, tracks.count > 1, let count, count.analysable > 0 else { return scopeTitle }
-        let tracks = AnalysisStatusCopy.tracks(count.analysable)
+        guard !analysesElsewhere, tracks.count > 1, let count, count.missing > 0 else { return scopeTitle }
+        let tracks = count.analysable > 0 ? AnalysisStatusCopy.tracks(count.analysable) : "Download tracks first"
         guard let scopeTitle else { return tracks }
         return "\(tracks) · \(scopeTitle)"
     }
@@ -53,26 +53,37 @@ struct MissingAnalysisProgressLine: View {
     @ObservedObject private var run = MissingAnalysisRun.shared
 
     var body: some View {
-        if run.statusLine != nil || run.message != nil {
+        if run.hasStatus {
             VStack(alignment: .leading, spacing: 4) {
                 if let status = run.statusLine {
                     HStack(spacing: 8) {
+                        if run.isPreparing, !run.isActive {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
                         Text(status)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                         Spacer(minLength: 8)
-                        if run.isPaused {
-                            Button("Resume") { run.resume() }
-                        } else {
-                            Button("Pause") { run.pause() }
+                        if run.isActive {
+                            if run.isPaused {
+                                Button("Resume") { run.resume() }
+                            } else {
+                                Button("Pause") { run.pause() }
+                            }
+                            Button("Stop") { run.stop() }
                         }
-                        Button("Stop") { run.stop() }
+                    }
+                    if run.isActive {
+                        ProgressView(value: Double(run.progress.done), total: Double(max(1, run.progress.total)))
+                            .labelsHidden()
                     }
                 }
                 if let message = run.message {
                     HStack(spacing: 8) {
                         Text(message)
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 8)
                         Button("OK") { run.dismissMessage() }
                     }
@@ -81,6 +92,7 @@ struct MissingAnalysisProgressLine: View {
             .font(.footnote)
             .buttonStyle(.borderless)
             .padding(.vertical, 4)
+            .animation(.smooth, value: run.statusLine)
         }
     }
 }

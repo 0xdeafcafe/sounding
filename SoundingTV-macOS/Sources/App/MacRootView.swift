@@ -786,6 +786,15 @@ struct MacRootView: View {
             forwardPaths.removeAll()
             detailPath.append(user)
         }
+        .onReceive(rootSelection.$pendingSetlistPage.compactMap { $0 }) { route in
+            rootSelection.pendingSetlistPage = nil
+            isShowingNowPlaying = false
+            if Self.isOutsideBrowsing(selection) {
+                openSection(.library)
+            }
+            forwardPaths.removeAll()
+            detailPath.append(route)
+        }
         .onReceive(rootSelection.$pendingPlaylist.compactMap { $0 }) { playlist in
             rootSelection.pendingPlaylist = nil
             if !playlist.isAlbum, SidebarPins.shared.sidebarPlaylistIDs(in: PlaylistFolderStore.shared).contains(playlist.id) {
@@ -885,6 +894,12 @@ struct MacRootView: View {
                 .navigationDestination(for: PlaylistFolderRoute.self) { route in
                     detailChrome {
                         MacPlaylistFolderView(folderID: route.folderID)
+                            .navigationBarBackButtonHidden(true)
+                    }
+                }
+                .navigationDestination(for: SetlistRoute.self) { route in
+                    detailChrome {
+                        MacSetlistPageView(route: route)
                             .navigationBarBackButtonHidden(true)
                     }
                 }
@@ -1335,6 +1350,8 @@ final class MacRootSelection: ObservableObject {
 
     @Published var pendingSetlist: Track?
 
+    @Published var pendingSetlistPage: SetlistRoute?
+
     @Published var pendingUSBExport: MacUSBExportSource?
 
     @Published var isShowingLibraryUSBExport = false
@@ -1364,6 +1381,8 @@ final class MacRootSelection: ObservableObject {
     func request(playlist: Playlist) { pendingPlaylist = playlist }
 
     func request(setlist track: Track) { pendingSetlist = track }
+
+    func request(setlistPage track: Track) { pendingSetlistPage = SetlistRoute(track: track) }
 
     func request(usbExport source: MacUSBExportSource) { pendingUSBExport = source }
 
@@ -1695,7 +1714,7 @@ private struct MacSidebar: View {
         navigationRow(for: .smartPlaylist(kind))
             .contextMenu {
                 if kind == .notAnalysed {
-                    Button("Analyse Missing Tracks…") { MissingAnalysisRun.shared.startLibrary() }
+                    Button("Analyse Missing Tracks…") { MacAnalyseMissing.startLibrary() }
                 }
             }
     }

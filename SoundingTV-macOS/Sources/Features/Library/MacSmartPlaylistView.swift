@@ -262,7 +262,7 @@ struct MacSmartPlaylistView: View {
         _model = StateObject(wrappedValue: MacSmartPlaylistModel(kind: kind))
     }
 
-    private var isRunActive: Bool { run.progress.isActive || run.isPaused }
+    private var isRunActive: Bool { run.progress.isActive || run.isPaused || run.isPreparing }
 
     var body: some View {
         Group {
@@ -271,7 +271,7 @@ struct MacSmartPlaylistView: View {
                     .macFillsPane()
             } else if model.rows.isEmpty {
                 VStack(spacing: 0) {
-                    if isRunActive {
+                    if run.hasStatus {
                         MissingAnalysisProgressLine()
                             .padding(.horizontal, 20)
                             .padding(.top, 12)
@@ -337,7 +337,7 @@ struct MacSmartPlaylistView: View {
                         .disabled(isRunActive || model.rows.isEmpty)
                 }
             }
-            if isRunActive {
+            if run.hasStatus {
                 MissingAnalysisProgressLine()
             }
         }
@@ -360,5 +360,13 @@ struct MacSmartPlaylistView: View {
         case .crate:
             ContentUnavailableView("Nothing Here Yet", systemImage: "gearshape", description: Text("This crate is empty."))
         }
+    }
+}
+
+@MainActor
+enum MacAnalyseMissing {
+    static func startLibrary() {
+        MacRootSelection.shared.request(.smartPlaylist(.notAnalysed))
+        MissingAnalysisRun.shared.startLibrary()
     }
 }

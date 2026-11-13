@@ -113,7 +113,7 @@ struct MacSetsPane: View {
                         Task { try? await MacMixLoader.load(track, into: MacDeckTrackRegistry.shared.nextAvailableDeck()) }
                     },
                     onShowSetlist: { track in
-                        MacRootSelection.shared.request(setlist: track)
+                        MacRootSelection.shared.request(setlistPage: track)
                     },
                     onAnalysisChanged: { Task { await model.refreshAnalysis(rereadStore: false) } },
                     onNearEnd: { model.loadMore() },
@@ -134,5 +134,48 @@ struct MacSetsPane: View {
         .task(id: model.tracks.count) {
             if rows.isEmpty, model.canLoadMore, !model.paginator.didFailLoadingMore, !model.paginator.isPaused { model.loadMore() }
         }
+    }
+}
+
+struct MacSetlistPageView: View {
+    let route: SetlistRoute
+
+    @ObservedObject private var store = SetlistIntelligenceStore.shared
+
+    private var title: String {
+        if let setlist = store.setlist(for: route.trackId) { return SetlistText.normalized(setlist.trackTitle) }
+        return route.track?.title ?? "Setlist"
+    }
+
+    var body: some View {
+        SetlistPage(route: route)
+            .environment(\.setlistPlaybackActions, MacSetlistPlayback.actions)
+            .scrollContentBackground(.hidden)
+            .toolbar(removing: .title)
+            .toolbar { MacScrolledPageTitle(title: title) }
+            .onAppear { MacPageTitleVisibility.shared.isShowingPushedTitle = true }
+            .onDisappear { MacPageTitleVisibility.shared.isShowingPushedTitle = false }
+    }
+}
+
+@MainActor
+enum MacSetlistPlayback {
+    static var actions: SetlistPlaybackActions {
+        SetlistPlaybackActions(
+            play: { track, context in
+                Task { await MacPlayback.play(track, in: context) }
+            },
+            playSet: { track, position in
+                Task {
+                    if MacNowPlayingModel.shared.track?.id != track.id {
+                        await MacPlayback.play(track, in: [track])
+                    }
+                    MacPlaybackTimeline.shared.seek(to: position)
+                }
+            },
+            position: { track in
+                MacNowPlayingModel.shared.track?.id == track.id ? MacPlaybackTimeline.shared.position() : nil
+            }
+        )
     }
 }

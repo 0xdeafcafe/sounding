@@ -642,5 +642,39 @@ private struct AppNavigationDestinations: ViewModifier {
                 case .setlists: SavedSetlistsLibraryView()
                 }
             }
+            .navigationDestination(for: SetlistRoute.self) { PhoneSetlistPage(route: $0) }
+    }
+}
+
+private struct PhoneSetlistPage: View {
+    let route: SetlistRoute
+
+    @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
+
+    var body: some View {
+        SetlistPage(route: route)
+            .environment(\.setlistPlaybackActions, actions)
+    }
+
+    private var actions: SetlistPlaybackActions {
+        let coordinator = coordinator
+        return SetlistPlaybackActions(
+            play: { track, context in
+                Task { await coordinator.play(track, in: context) }
+            },
+            playSet: { track, position in
+                if coordinator.nowPlaying?.trackId == track.id {
+                    coordinator.seek(to: position)
+                    return
+                }
+                Task {
+                    await coordinator.play(track, in: [track])
+                    coordinator.seek(to: position)
+                }
+            },
+            position: { track in
+                coordinator.nowPlaying?.trackId == track.id ? coordinator.nowPlaying?.position : nil
+            }
+        )
     }
 }
