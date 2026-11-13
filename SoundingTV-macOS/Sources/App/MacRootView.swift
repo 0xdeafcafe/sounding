@@ -51,9 +51,6 @@ struct MacRootView: View {
     @State private var preservesDetailPathForNextSelection = false
     @State private var sectionBackStack: [MacSectionHistoryEntry] = []
     @State private var sectionForwardStack: [MacSectionHistoryEntry] = []
-    @State private var windowWidth: CGFloat = 1360
-    @State private var sidebarWidth: CGFloat = 220
-    @State private var inspectorWidth: CGFloat = 360
     @State private var columnVisibility = MacRootView.initialColumnVisibility
     @State private var columnVisibilityOutsideDecks: NavigationSplitViewVisibility?
     @State private var prepInspectorTrack: Track?
@@ -584,9 +581,14 @@ struct MacRootView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             MacSidebar(selection: $selection, onOpenFolder: openFolder, onOpenPlaylist: openSidebarPlaylist)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { sidebarWidth = $0 }
         } detail: {
             navigationDetail
+                .overlay(alignment: .bottom) {
+                    if showsPlaybackBar {
+                        MacPlaybackBar(inspectorPane: $sidebarPlayerPane)
+                            .transition(.opacity)
+                    }
+                }
                 .inspector(isPresented: Binding(
                     get: { isShowingInspector },
                     set: { if !$0 { sidebarPlayerPane = nil; prepInspectorTrack = nil } }
@@ -601,15 +603,14 @@ struct MacRootView: View {
                             ))
                         }
                     }
-                    .inspectorColumnWidth(min: 300, ideal: 360, max: 480)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { inspectorWidth = $0 }
+                    .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .inspectorColumnWidth(min: MacInspectorMetrics.minWidth, ideal: MacInspectorMetrics.idealWidth, max: MacInspectorMetrics.maxWidth)
                 }
             .animation(reduceMotion ? nil : SCContentMotion.settle, value: sidebarPlayerPane)
             .animation(reduceMotion ? nil : SCContentMotion.settle, value: prepInspectorTrack?.id)
             .environment(\.macMainSidebarVisible, columnVisibility != .detailOnly)
             .environment(\.macMainInspectorVisible, isShowingInspector)
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { windowWidth = $0 }
         .onChange(of: selection, initial: true) { _, section in
             if section == .console {
                 if sidebarPlayerPane != nil { MacDJPerformModel.shared.isPanelOpen = false }
@@ -920,42 +921,12 @@ struct MacRootView: View {
         sidebarPlayerPane != nil || prepInspectorTrack != nil
     }
 
-    private var capsuleWidth: CGFloat {
-        let sidebar = columnVisibility == .detailOnly ? 0 : sidebarWidth + MacToolbarMetrics.edge
-        let inspector = isShowingInspector ? inspectorWidth : 0
-        let detail = windowWidth - sidebar - inspector
-        let windowControls = columnVisibility == .detailOnly ? MacToolbarMetrics.windowControls : 0
-        let showsTitle = detailPath.isEmpty
-            ? selection != .home && selection != .console
-            : MacPageTitleVisibility.shared.isShowingPushedTitle
-        let leading = windowControls + MacToolbarMetrics.edge
-            + MacToolbarMetrics.button * (hasHistory ? 5 : 3) + MacToolbarMetrics.groupPadding
-            + (showsTitle ? MacToolbarMetrics.title + MacToolbarMetrics.gap : 0)
-        let trailing = MacToolbarMetrics.edge
-            + MacToolbarMetrics.button * CGFloat(3 + pageToolbarItems) + MacToolbarMetrics.groupPadding
-            + MacToolbarMetrics.gap + MacToolbarMetrics.button
-        let centred = detail - (max(leading, trailing) + MacToolbarMetrics.clearance) * 2
-        let offCentre = detail - leading - trailing - MacToolbarMetrics.clearance * 2
-        let width = max(centred, min(offCentre, MacToolbarMetrics.capsuleComfortable))
-        let floor = min(MacToolbarMetrics.capsuleMin, max(MacToolbarMetrics.capsuleFloor, offCentre))
-        return min(MacToolbarMetrics.capsuleMax, max(floor, width))
+    private var showsPlaybackBar: Bool {
+        selection != .console
     }
 
     private var hasHistory: Bool {
         !detailPath.isEmpty || !forwardPaths.isEmpty || !sectionBackStack.isEmpty || !sectionForwardStack.isEmpty
-    }
-
-    private var pageToolbarItems: Int {
-        guard detailPath.isEmpty else { return 0 }
-        switch selection {
-        case .likes: return 3
-        case .console: return 4
-        case .library, .friendsWithADJ, .account, nil: return 2
-        case .search: return 4
-        case .playlists, .myPlaylists, .likedPlaylists: return 2
-        case .albums, .followers, .following, .activity, .smartPlaylist: return 1
-        default: return 0
-        }
     }
 
     private func detailChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -981,12 +952,7 @@ struct MacRootView: View {
                     }
                 }
 
-                MacPlaybackToolbar(capsuleWidth: capsuleWidth)
-
                 ToolbarItemGroup(placement: .primaryAction) {
-                    MacToolbarPlayOn()
-                    MacUpNextToggle(selection: $sidebarPlayerPane)
-
                     MacAccountToolbarMenu(
                         open: { openSection($0) },
                         showActivity: { isShowingActivityInbox = true },
@@ -1003,6 +969,7 @@ struct MacRootView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 trafficStatusBanner
             }
+            .safeAreaPadding(.bottom, showsPlaybackBar ? MacPlaybackBarMetrics.reservedHeight : 0)
     }
 
     @ViewBuilder
@@ -1150,6 +1117,12 @@ struct MacRootView: View {
         case .myTracks: MacOwnProfilePaneView(pane: .tracks)
         }
     }
+}
+
+enum MacInspectorMetrics {
+    static let minWidth: CGFloat = 400
+    static let idealWidth: CGFloat = 440
+    static let maxWidth: CGFloat = 560
 }
 
 private struct MacSectionHistoryEntry {
@@ -2114,7 +2087,7 @@ extension MacRootView {
             if env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SHEET"] == "queue-panel" {
                 HStack(spacing: 0) {
                     Spacer()
-                    MacNowPlayingPanes(pane: .constant(.queue), surface: .inspector).frame(width: 360)
+                    MacNowPlayingPanes(pane: .constant(.queue), surface: .inspector).frame(width: MacInspectorMetrics.idealWidth)
                 }
                 .frame(maxHeight: .infinity)
                 .environment(\.outputRouter, MacPlaybackTarget.router ?? OutputRouter(client: CompanionClient()))
@@ -2156,7 +2129,7 @@ extension MacRootView {
                 .environment(\.colorScheme, env["SOUNDING_TV_MAC_ROOT_SNAPSHOT_SCHEME"] == "dark" ? .dark : .light)
             } else if let model = prepFixture {
                 MacPrepInspectorPane(track: VisualFixtures.tracks[6], model: model)
-                    .frame(width: 360)
+                    .frame(width: MacInspectorMetrics.idealWidth)
                     .task {
                         try? await Task.sleep(for: .milliseconds(600))
                         model.cursorSeconds = 0.12 + 48 * (240 / 120.0) + 0.5
