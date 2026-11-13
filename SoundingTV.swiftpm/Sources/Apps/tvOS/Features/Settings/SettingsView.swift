@@ -318,6 +318,7 @@ private struct SubscriptionSettings: View {
 
     private var statusDisplay: String {
         if isSignedOut { return "Sign In Required" }
+        if credentials.isConnecting { return SoundCloudCredentialSource.connectingTitle }
         guard hasAccountContext else { return "Checking…" }
         return verificationDisplay(subscription.verification)
     }

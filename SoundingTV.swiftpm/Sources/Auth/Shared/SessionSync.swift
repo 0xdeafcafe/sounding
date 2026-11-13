@@ -18,6 +18,12 @@ struct SyncedSoundCloudSession: Codable, Sendable, Equatable {
 
     var lineage: String? { SessionSyncBookkeeping.lineageDigest(refreshToken: refreshToken) }
 
+    func carriesSameCredentials(as other: SyncedSoundCloudSession) -> Bool {
+        oauthToken == other.oauthToken
+            && refreshToken == other.refreshToken
+            && clientId == other.clientId
+    }
+
     static func == (lhs: SyncedSoundCloudSession, rhs: SyncedSoundCloudSession) -> Bool {
         lhs.oauthToken == rhs.oauthToken
             && lhs.refreshToken == rhs.refreshToken
@@ -153,6 +159,11 @@ protocol SoundCloudSessionSyncSource: AnyObject, Sendable {
 }
 
 enum SessionSyncPolicy {
+    static func sameSessionNeedsNoPush(local: SyncedSoundCloudSession, remote: SyncedSoundCloudSession) -> Bool {
+        guard local.carriesSameCredentials(as: remote) else { return false }
+        return remote.accountTag != nil || local.accountTag == nil
+    }
+
     static func remoteWins(
         local: SyncedSoundCloudSession?,
         remote: SyncedSoundCloudSession,
@@ -161,7 +172,7 @@ enum SessionSyncPolicy {
     ) -> Bool {
         if let lineage = remote.lineage, rejectedLineages.contains(lineage) { return false }
         guard let local else { return localSignOutMillis == nil }
-        if local == remote { return false }
+        if local == remote || local.carriesSameCredentials(as: remote) { return false }
         if let mine = local.accountTag, let theirs = remote.accountTag, mine != theirs { return false }
         if let lineage = local.lineage, rejectedLineages.contains(lineage) { return true }
         if remote.issuedAtMillis != nil || local.issuedAtMillis != nil {
@@ -270,7 +281,7 @@ struct SessionSyncRelay: Sendable {
         let lastRemote = try await transport.pull()
         if let remote = lastRemote {
             result.pulledRemote = true
-            if let local, local == remote {
+            if let local, local == remote || SessionSyncPolicy.sameSessionNeedsNoPush(local: local, remote: remote) {
                 Log.sync.debug("\(transport.transportId, privacy: .public): local and remote sessions already match")
                 return result
             }

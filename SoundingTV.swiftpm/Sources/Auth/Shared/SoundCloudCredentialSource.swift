@@ -47,6 +47,12 @@ final class SoundCloudCredentialSource: ObservableObject {
 
     @Published private(set) var isEstablishingSessionAtLaunch = true
 
+    @Published private(set) var isRecoveringSession = false
+    @Published private(set) var isRenewingAtLaunch = false
+
+    var isConnecting: Bool { !isSignedOut && (isRecoveringSession || isRenewingAtLaunch) }
+    static let connectingTitle = "Connecting to SoundCloud…"
+
     var currentUser: User? { state.currentUser }
     var accountUser: User? { isSignedOut ? nil : (state.currentUser ?? state.lastKnownUser) }
     var isSignedOut: Bool { state.isSignedOut }
@@ -56,11 +62,13 @@ final class SoundCloudCredentialSource: ObservableObject {
 
     var accountStatus: AccountStatus {
         SoundCloudAccountStatus.resolve(
-            isEstablishingSessionAtLaunch: isEstablishingSessionAtLaunch,
+            isEstablishingSessionAtLaunch: holdsAccountPresentation,
             isSignedOut: isSignedOut,
             health: sessionHealth
         )
     }
+
+    private var holdsAccountPresentation: Bool { isEstablishingSessionAtLaunch || isRecoveringSession }
 
     var hasAccount: Bool { accountStatus != .signedOut }
 
@@ -68,7 +76,7 @@ final class SoundCloudCredentialSource: ObservableObject {
 
     var needsSignIn: Bool {
         SoundCloudCredentialSourcePolicy.needsSignIn(
-            isEstablishingSessionAtLaunch: isEstablishingSessionAtLaunch,
+            isEstablishingSessionAtLaunch: holdsAccountPresentation,
             isSignedOut: isSignedOut,
             healthNeedsSignIn: sessionHealth.needsSignIn,
             hasExplicitLocalSignOut: DeviceSessionStore.hasLocalSignOut
@@ -82,7 +90,7 @@ final class SoundCloudCredentialSource: ObservableObject {
     }
 
     var isReadOnlySession: Bool {
-        !isEstablishingSessionAtLaunch && sessionHealth.isRejected && !isSignedOut
+        !holdsAccountPresentation && sessionHealth.isRejected && !isSignedOut
     }
 
     var sessionRecoveryTitle: String? {
@@ -123,6 +131,10 @@ final class SoundCloudCredentialSource: ObservableObject {
     private var didEstablishSessionAtLaunch = false
 
     private var renewalTask: Task<SoundCloudSessionRenewal.Outcome, Never>?
+    private var sessionRecoveryTask: Task<SoundCloudSessionRecovery.Result, Never>?
+    private var sessionRecoveryGeneration: UInt64 = 0
+    private var lastUnresolvedRecovery: (digest: String, at: Date)?
+    static let recoveryCooldown: TimeInterval = 60
     private var renewalRetryTask: Task<Void, Never>?
     private var renewalRetryAttempt = 0
     private var lastRenewalVerdict: (digest: String?, outcome: SoundCloudSessionRenewal.Outcome, at: Date)?
@@ -183,8 +195,8 @@ final class SoundCloudCredentialSource: ObservableObject {
     var isRenewing: Bool { renewalTask != nil }
 
     func waitForRenewal() async {
-        guard let renewalTask else { return }
-        _ = await renewalTask.value
+        if let renewalTask { _ = await renewalTask.value }
+        if let sessionRecoveryTask { _ = await sessionRecoveryTask.value }
     }
 
     var holdsAuthenticatedRequests: Bool {
@@ -481,30 +493,12 @@ final class SoundCloudCredentialSource: ObservableObject {
         await prepareStoreAtLaunch()
         guard let session = DeviceSessionStore.load(), session.isExpired else { return }
 
+        isRenewingAtLaunch = true
         let outcome = await runRenewal(trigger: "launch, token expired") { await $0.renew() }
-        guard outcome == .exhausted else { return }
-
-        let token = DeviceSessionStore.load()?.oauthToken ?? session.oauthToken
-        let validation = await SoundCloudAPI.shared.validateToken(token)
-        switch validation {
-        case .valid:
-            noteAuthenticatedRequestSucceeded()
-        case .unavailable(let detail):
-            Log.link.error("[SoundCloudCredentialSource] background renewal failed but account verification was inconclusive: \(detail, privacy: .public) — preserving signed-in presentation")
-        case .rejected:
-            guard SoundCloudCredentialSourcePolicy.launchRefreshRequiresReconnect(
-                refreshOutcome: .unrecoverable,
-                tokenValidation: validation
-            ) else { break }
-            let kind = Self.rejectionKind(for: DeviceSessionStore.load(), refreshWasLocalGuard: false)
-            sessionGeneration &+= 1
-            mutateState(because: "launch renewal refused and /me rejected the stored token") {
-                $0.lastSignOutReason = kind == .noRefreshCapability ? .noRefreshCapability : .accountRejected
-                $0.isSignedOut = false
-                $0.isAuthenticated = false
-            }
-            markRejected(kind, because: "launch renewal refused and /me rejected the stored token")
+        if outcome == .exhausted {
+            _ = beginSessionRecovery(validateFirst: true, because: "launch renewal found no usable session")
         }
+        isRenewingAtLaunch = false
     }
 
     private static func rejectionKind(for session: StoredSession?, refreshWasLocalGuard: Bool) -> RejectionKind {
@@ -521,7 +515,7 @@ final class SoundCloudCredentialSource: ObservableObject {
         } else {
             task = Task { @MainActor in
                 await self.refreshIfNeededAtLaunch()
-                if !self.isSignedOut {
+                if !self.isSignedOut, self.sessionRecoveryTask == nil {
                     _ = await self.revalidate()
                 }
             }
@@ -576,6 +570,7 @@ final class SoundCloudCredentialSource: ObservableObject {
     }
 
     func signOut(revoking revocation: SessionRevocation = .none) async {
+        cancelSessionRecovery()
         let defaults = UserDefaults.sounding
         if revocation != .none, let token = DeviceSessionStore.load()?.oauthToken, !token.isEmpty {
             await SoundCloudSessionRevoker.revoke(revocation, token: token)
@@ -617,6 +612,7 @@ final class SoundCloudCredentialSource: ObservableObject {
         DeviceSessionRefresher.shared.reset()
         sessionGeneration &+= 1
         currentUserTask = nil
+        cancelSessionRecovery()
         resetRenewalRetry()
         lastRenewalVerdict = nil
         lastRejection = nil
@@ -674,6 +670,11 @@ final class SoundCloudCredentialSource: ObservableObject {
 }
 
 @MainActor
+private final class SessionRecoveryProgress {
+    var tried = Set<String>()
+}
+
+@MainActor
 enum SoundCloudCredentialSourcePolicy {
 
     static func needsSignIn(
@@ -705,6 +706,10 @@ enum SoundCloudCredentialSourcePolicy {
         guard refreshOutcome == .unrecoverable else { return false }
         if case .rejected = tokenValidation { return true }
         return false
+    }
+
+    static func adoptionKeepsHealth(current: SoundCloudCredentialSource.SessionHealth, adoptedIsExpired: Bool) -> Bool {
+        current == .healthy && !adoptedIsExpired
     }
 
     static func health(
@@ -780,11 +785,15 @@ extension SoundCloudCredentialSource: SoundCloudCredentialSourcing {
     }
 
     func refreshAccessToken() async -> Bool {
+        if let sessionRecoveryTask { return await sessionRecoveryTask.value == .recovered }
         guard let stored = DeviceSessionStore.load() else { return false }
         if wasRecentlyAccepted(stored) {
             return await runRenewal(trigger: "401 right after a 200, adopting only") { await $0.adoptNewer() }.renewed
         }
-        return await runRenewal(trigger: "401 on a request") { await $0.renew() }.renewed
+        let outcome = await runRenewal(trigger: "401 on a request") { await $0.renew() }
+        if outcome.renewed { return true }
+        guard outcome == .exhausted else { return false }
+        return await recoverSession(validateFirst: true, because: "401 and renewal found no usable session") == .recovered
     }
 
     func handleUnauthorized() async -> SoundCloudUnauthorizedDisposition {
@@ -840,19 +849,13 @@ extension SoundCloudCredentialSource: SoundCloudCredentialSourcing {
             scheduleRenewalRetry(because: "401 without a definitive answer")
             return .temporarilyUnavailable
         case .reconnect(let kind):
-            switch await runRenewal(trigger: "401 verdict, recovering", { await $0.recover() }) {
-            case .refreshed, .adopted, .temporarilyUnavailable:
-                return .temporarilyUnavailable
-            case .exhausted:
-                break
-            }
-            let reason: SignOutReason = kind == .noRefreshCapability ? .noRefreshCapability : .accountRejected
-            sessionGeneration &+= 1
-            currentUserTask = nil
             let because = Self.definitiveReason(refresh: refresh, kind: kind)
-            mutateState(because: because) { $0.lastSignOutReason = reason }
-            markRejected(kind, because: because)
-            return .credentialRejected
+            switch await recoverSession(validateFirst: false, because: because, rejecting: kind) {
+            case .recovered, .unresolved:
+                return .temporarilyUnavailable
+            case .failed:
+                return .credentialRejected
+            }
         }
     }
 
@@ -865,6 +868,134 @@ extension SoundCloudCredentialSource: SoundCloudCredentialSourcing {
     }
 
     static let renewalRetryDelays: [Duration] = [.seconds(15), .seconds(60), .seconds(300), .seconds(900)]
+
+    // MARK: Session recovery
+
+    func recoverSession(
+        validateFirst: Bool,
+        because reason: String,
+        rejecting kind: RejectionKind? = nil
+    ) async -> SoundCloudSessionRecovery.Result {
+        guard let task = beginSessionRecovery(validateFirst: validateFirst, because: reason, rejecting: kind) else {
+            if let kind, !sessionHealth.isRejected, !isSignedOut, DeviceSessionStore.load()?.isUsable == false {
+                rejectSession(kind, because: reason)
+            }
+            return sessionHealth.isRejected ? .failed : .unresolved
+        }
+        return await task.value
+    }
+
+    private func beginSessionRecovery(
+        validateFirst: Bool,
+        because reason: String,
+        rejecting kind: RejectionKind? = nil
+    ) -> Task<SoundCloudSessionRecovery.Result, Never>? {
+        if let sessionRecoveryTask { return sessionRecoveryTask }
+        guard !isSignedOut, let stored = DeviceSessionStore.load(), stored.isUsable else { return nil }
+        let digest = Self.digest(of: stored)
+        if sessionHealth.isRejected, rejectedSessionDigest == digest { return nil }
+        if let last = lastUnresolvedRecovery, last.digest == digest,
+           Date().timeIntervalSince(last.at) < Self.recoveryCooldown { return nil }
+
+        sessionRecoveryGeneration &+= 1
+        let generation = sessionRecoveryGeneration
+        let task = Task { @MainActor [weak self] () -> SoundCloudSessionRecovery.Result in
+            guard let self else { return .unresolved }
+            return await self.performSessionRecovery(
+                from: digest, generation: generation, validateFirst: validateFirst, because: reason, rejecting: kind
+            )
+        }
+        sessionRecoveryTask = task
+        isRecoveringSession = true
+        Log.auth.notice("session recovery started: \(reason, privacy: .public)")
+        return task
+    }
+
+    private func performSessionRecovery(
+        from digest: String,
+        generation: UInt64,
+        validateFirst: Bool,
+        because reason: String,
+        rejecting kind: RejectionKind?
+    ) async -> SoundCloudSessionRecovery.Result {
+        let sources = recoverySources
+        let progress = SessionRecoveryProgress()
+        let result = await SoundCloudSessionRecovery.run(
+            validateFirst: validateFirst,
+            polls: sources.contains { $0.kind != .silentWeb },
+            environment: SoundCloudSessionRecovery.Environment(
+                validateCurrent: { [weak self] in
+                    guard let token = DeviceSessionStore.load()?.oauthToken else { return nil }
+                    let validation = await SoundCloudAPI.shared.validateToken(token)
+                    if validation == .valid { self?.noteAuthenticatedRequestSucceeded() }
+                    return validation
+                },
+                isResolved: { [weak self] in self?.sessionWasReplaced(since: digest) ?? true },
+                attempt: { [weak self] _ in
+                    guard let self, !Task.isCancelled else { return .temporarilyUnavailable }
+                    let renewal = SoundCloudSessionRenewal(environment: self.renewalEnvironment, sources: sources)
+                    let round = await renewal.recover(kinds: [.synced, .linkedPeer], skipping: progress.tried)
+                    progress.tried = round.tried
+                    if round.outcome.renewed { self.didAdoptRecoveredSession() }
+                    return round.outcome
+                },
+                sleep: { duration in try? await Task.sleep(for: duration) },
+                now: { ContinuousClock.now }
+            )
+        )
+
+        guard generation == sessionRecoveryGeneration else { return result }
+        Log.auth.notice("session recovery finished: \(String(describing: result), privacy: .public)")
+        switch result {
+        case .recovered:
+            lastUnresolvedRecovery = nil
+        case .unresolved:
+            lastUnresolvedRecovery = (digest, Date())
+        case .failed:
+            lastUnresolvedRecovery = (digest, Date())
+            let rejection = kind ?? Self.rejectionKind(for: DeviceSessionStore.load(), refreshWasLocalGuard: false)
+            rejectSession(rejection, because: "no device or sync store had a usable session: \(reason)")
+        }
+        sessionRecoveryTask = nil
+        isRecoveringSession = false
+        if result == .unresolved { scheduleRenewalRetry(because: "session recovery could not finish") }
+        if result == .recovered, currentUser == nil { Task { _ = await self.waitForCurrentUser() } }
+        return result
+    }
+
+    private func sessionWasReplaced(since digest: String) -> Bool {
+        guard let stored = DeviceSessionStore.load(), stored.isUsable else { return false }
+        return Self.digest(of: stored) != digest && !RejectedLineageLedger.defaults.rejects(stored)
+    }
+
+    private func didAdoptRecoveredSession() {
+        lastRenewalVerdict = nil
+        DeviceSessionRefresher.shared.reset()
+        currentUserTask = nil
+        _ = currentSessionForSync()
+        requestSessionSync()
+        noteAuthenticatedRequestSucceeded()
+    }
+
+    private func rejectSession(_ kind: RejectionKind, because reason: String) {
+        sessionGeneration &+= 1
+        currentUserTask = nil
+        mutateState(because: reason) {
+            $0.lastSignOutReason = kind == .noRefreshCapability ? .noRefreshCapability : .accountRejected
+            $0.isSignedOut = false
+            $0.isAuthenticated = false
+        }
+        markRejected(kind, because: reason)
+    }
+
+    private func cancelSessionRecovery() {
+        sessionRecoveryGeneration &+= 1
+        sessionRecoveryTask?.cancel()
+        sessionRecoveryTask = nil
+        lastUnresolvedRecovery = nil
+        isRecoveringSession = false
+        isRenewingAtLaunch = false
+    }
 
     private func resetRenewalRetry() {
         renewalRetryTask?.cancel()
@@ -927,14 +1058,20 @@ extension SoundCloudCredentialSource: SoundCloudSessionSyncSource {
             Log.auth.notice("ignored a synced session whose refresh token SoundCloud already refused")
             return
         }
-        SessionProvenance.record(.iCloud)
-        SessionContinueOffer.save(nil)
-        if let local = DeviceSessionStore.load(), local.canSelfRefresh,
+        let local = DeviceSessionStore.load()
+        if let local, local.oauthToken == session.oauthToken,
+           local.refreshToken == session.refreshToken, local.clientId == session.clientId {
+            Log.auth.debug("a synced session matched the one on this device, nothing to adopt")
+            return
+        }
+        if let local, local.canSelfRefresh,
            !RejectedLineageLedger.defaults.rejects(local),
            local.isNewer(than: session.storedSession) {
             Log.auth.notice("ignored a synced session older than the one on this device")
             return
         }
+        SessionProvenance.record(.iCloud)
+        SessionContinueOffer.save(nil)
         DeviceSessionStore.save(session.storedSession)
         let digest = SessionSyncBookkeeping.digest(
             oauthToken: session.oauthToken, refreshToken: session.refreshToken,
@@ -942,17 +1079,22 @@ extension SoundCloudCredentialSource: SoundCloudSessionSyncSource {
         )
         SessionSyncBookkeeping.adoptForeignProvenance(updatedAtMillis: session.updatedAtMillis, digest: digest)
 
+        let keepsHealth = SoundCloudCredentialSourcePolicy.adoptionKeepsHealth(
+            current: sessionHealth,
+            adoptedIsExpired: session.storedSession.isExpired
+        )
         DeviceSessionRefresher.shared.reset()
         sessionGeneration &+= 1
         currentUserTask = nil
+        lastRenewalVerdict = nil
         lastRejection = nil
         rejectedSessionDigest = nil
-        hasSucceededSinceStoreChange = false
+        hasSucceededSinceStoreChange = keepsHealth
 
         let health = computeHealth()
         mutateState(because: "adopted a synced session") {
             $0.isSignedOut = false
-            $0.isAuthenticated = false
+            $0.isAuthenticated = keepsHealth
             $0.lastSignOutReason = nil
             $0.sessionHealth = health
         }

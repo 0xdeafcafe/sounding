@@ -339,3 +339,185 @@ final class SessionRenewalTests: XCTestCase {
         XCTAssertNil(SessionSyncBookkeeping.lineageDigest(refreshToken: ""))
     }
 }
+
+@MainActor
+final class SessionRecoveryTests: XCTestCase {
+    @MainActor private final class Harness {
+        var now = ContinuousClock.now
+        var outcomes: [SoundCloudSessionRenewal.Outcome] = []
+        var attempts = 0
+        var validation: SoundCloudTokenValidation?
+        var validations = 0
+        var resolvedAfterAttempts: Int?
+
+        var environment: SoundCloudSessionRecovery.Environment {
+            SoundCloudSessionRecovery.Environment(
+                validateCurrent: {
+                    self.validations += 1
+                    return self.validation
+                },
+                isResolved: {
+                    guard let after = self.resolvedAfterAttempts else { return false }
+                    return self.attempts >= after
+                },
+                attempt: { _ in
+                    self.attempts += 1
+                    return self.outcomes.isEmpty ? .exhausted : self.outcomes.removeFirst()
+                },
+                sleep: { duration in self.now = self.now.advanced(by: duration) },
+                now: { self.now }
+            )
+        }
+
+        func run(validateFirst: Bool = false, polls: Bool = true) async -> SoundCloudSessionRecovery.Result {
+            await SoundCloudSessionRecovery.run(
+                validateFirst: validateFirst,
+                polls: polls,
+                window: .seconds(20),
+                pollInterval: .seconds(4),
+                environment: environment
+            )
+        }
+    }
+
+    @MainActor private final class World {
+        var stored: StoredSession?
+        var fetched: [SoundCloudSessionRenewal.SourceKind] = []
+        var validated: [String] = []
+    }
+
+    func testKeepsLookingUntilAnotherDevicePublishesASession() async {
+        let harness = Harness()
+        harness.outcomes = [.exhausted, .exhausted, .adopted(.synced)]
+        let result = await harness.run()
+        XCTAssertEqual(result, .recovered)
+        XCTAssertEqual(harness.attempts, 3)
+    }
+
+    func testGivesUpOnlyAfterTheWholeWindowFindsNothing() async {
+        let harness = Harness()
+        let result = await harness.run()
+        XCTAssertEqual(result, .failed)
+        XCTAssertEqual(harness.attempts, 6)
+    }
+
+    func testASessionAdoptedBySyncEndsRecoveryWithoutAnotherAttempt() async {
+        let harness = Harness()
+        harness.resolvedAfterAttempts = 2
+        let result = await harness.run()
+        XCTAssertEqual(result, .recovered)
+        XCTAssertEqual(harness.attempts, 2)
+    }
+
+    func testAStillValidTokenNeedsNoRecovery() async {
+        let harness = Harness()
+        harness.validation = .valid
+        let result = await harness.run(validateFirst: true)
+        XCTAssertEqual(result, .recovered)
+        XCTAssertEqual(harness.attempts, 0)
+    }
+
+    func testAnInconclusiveCheckNeverAsksForReconnect() async {
+        let harness = Harness()
+        harness.validation = .unavailable("offline")
+        let result = await harness.run(validateFirst: true)
+        XCTAssertEqual(result, .unresolved)
+        XCTAssertEqual(harness.attempts, 0)
+    }
+
+    func testARejectedTokenStillLooksForAReplacement() async {
+        let harness = Harness()
+        harness.validation = .rejected
+        harness.outcomes = [.adopted(.linkedPeer)]
+        let result = await harness.run(validateFirst: true)
+        XCTAssertEqual(result, .recovered)
+        XCTAssertEqual(harness.validations, 1)
+        XCTAssertEqual(harness.attempts, 1)
+    }
+
+    func testTransientFailuresAtTheDeadlineStayUnresolved() async {
+        let harness = Harness()
+        harness.outcomes = Array(repeating: .temporarilyUnavailable, count: 10)
+        let result = await harness.run()
+        XCTAssertEqual(result, .unresolved)
+    }
+
+    func testWithNoPeerOrSyncSourceOnePassIsDefinitive() async {
+        let harness = Harness()
+        let result = await harness.run(polls: false)
+        XCTAssertEqual(result, .failed)
+        XCTAssertEqual(harness.attempts, 1)
+    }
+
+    func testRecoveryPassesSkipSilentWebAndCandidatesAlreadyTried() async {
+        let world = World()
+        world.stored = StoredSession(oauthToken: "a1", refreshToken: "r1", clientId: "c", expiresAt: nil)
+        let stale = StoredSession(oauthToken: "a0", refreshToken: "r0", clientId: "c", expiresAt: nil)
+        let renewal = SoundCloudSessionRenewal(
+            environment: SoundCloudSessionRenewal.Environment(
+                load: { world.stored },
+                save: { world.stored = $0 },
+                refresh: { _ in .unrecoverable },
+                validate: { token in
+                    world.validated.append(token)
+                    return .rejected
+                },
+                isTrafficStopped: { false }
+            ),
+            sources: [
+                SoundCloudSessionRenewal.Source(kind: .synced) { _ in
+                    world.fetched.append(.synced)
+                    return SoundCloudSessionRenewal.Candidate(session: stale)
+                },
+                SoundCloudSessionRenewal.Source(kind: .silentWeb) { _ in
+                    world.fetched.append(.silentWeb)
+                    return nil
+                },
+            ]
+        )
+
+        let first = await renewal.recover(kinds: [.synced, .linkedPeer], skipping: [])
+        let second = await renewal.recover(kinds: [.synced, .linkedPeer], skipping: first.tried)
+
+        XCTAssertEqual(first.outcome, .exhausted)
+        XCTAssertEqual(second.outcome, .exhausted)
+        XCTAssertEqual(world.fetched, [.synced, .synced])
+        XCTAssertEqual(world.validated, ["a0"])
+        XCTAssertEqual(world.stored?.oauthToken, "a1")
+    }
+
+    func testAdoptingASyncedSessionKeepsAHealthyAccountHealthy() {
+        XCTAssertTrue(SoundCloudCredentialSourcePolicy.adoptionKeepsHealth(current: .healthy, adoptedIsExpired: false))
+        XCTAssertFalse(SoundCloudCredentialSourcePolicy.adoptionKeepsHealth(current: .healthy, adoptedIsExpired: true))
+        XCTAssertFalse(SoundCloudCredentialSourcePolicy.adoptionKeepsHealth(current: .unverified, adoptedIsExpired: false))
+    }
+}
+
+final class SessionSyncChurnTests: XCTestCase {
+    private func synced(_ token: String, writer: String, updated: Int64, issued: Int64?, tag: String? = "acct") -> SyncedSoundCloudSession {
+        SyncedSoundCloudSession(
+            oauthToken: token, refreshToken: "r-\(token)", clientId: "c", expiresAtMillis: 9_000_000,
+            updatedAtMillis: updated, writerId: writer, issuedAtMillis: issued, generation: 0
+        ).describingAccount(tag: tag, name: "Alex", writerName: nil, writerKind: nil)
+    }
+
+    func testTheSameTokensFromAnotherWriterNeverWin() {
+        let mine = synced("a", writer: "aaa", updated: 500, issued: 500)
+        let theirs = synced("a", writer: "zzz", updated: 900, issued: nil)
+        XCTAssertFalse(SessionSyncPolicy.remoteWins(local: mine, remote: theirs, rejectedLineages: .memory()))
+        XCTAssertFalse(SessionSyncPolicy.remoteWins(local: theirs, remote: mine, rejectedLineages: .memory()))
+    }
+
+    func testARotatedPairStillWins() {
+        let mine = synced("a", writer: "aaa", updated: 500, issued: 500)
+        let rotated = synced("b", writer: "zzz", updated: 900, issued: 900)
+        XCTAssertTrue(SessionSyncPolicy.remoteWins(local: mine, remote: rotated, rejectedLineages: .memory()))
+    }
+
+    func testTheSameTokensAreNotPushedBackUnlessTheCloudCopyLacksTheAccount() {
+        let mine = synced("a", writer: "aaa", updated: 500, issued: 500)
+        XCTAssertTrue(SessionSyncPolicy.sameSessionNeedsNoPush(local: mine, remote: synced("a", writer: "zzz", updated: 900, issued: 900)))
+        XCTAssertFalse(SessionSyncPolicy.sameSessionNeedsNoPush(local: mine, remote: synced("a", writer: "zzz", updated: 900, issued: 900, tag: nil)))
+        XCTAssertFalse(SessionSyncPolicy.sameSessionNeedsNoPush(local: mine, remote: synced("b", writer: "zzz", updated: 900, issued: 900)))
+    }
+}
