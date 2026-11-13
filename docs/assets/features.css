@@ -79,3 +79,26 @@
   .live .fl { gap: .6rem clamp(20px, 2.2vw, 36px); }
   .live .fl dd { line-height: 1.38; }
 }
+
+.fx thead th { top: var(--head, 64px); z-index: 2; }
+
+@media (max-width: 860px), (max-aspect-ratio: 1/1) {
+  .live .chapter.wide .side { width: auto; }
+  .live .chapter.flow .side::before { inset: -110px calc(var(--pad) * -1) -48px; background: linear-gradient(transparent, var(--bg) 110px); opacity: 1; }
+}
+
+@media (max-width: 600px) {
+  .fx, .fx tbody, .fx tr, .fx tbody th, .fx td { display: block; }
+  .fx thead { display: none; }
+  .fx tbody tr { display: flex; flex-wrap: wrap; gap: .45rem 1rem; padding: 1rem 0 1.1rem; }
+  .fx tbody th { flex: 1 1 100%; padding: 0 0 .2rem; }
+  .fx tbody th small { font-size: .9375rem; }
+  .fx td { display: inline-flex; align-items: center; gap: .45rem; width: auto; padding: 0; font-size: .875rem; font-weight: 600; color: var(--ink); }
+  .fx td span[aria-hidden] { margin: 0; }
+  .fx td:nth-of-type(1)::after { content: "iPhone" / ""; }
+  .fx td:nth-of-type(2)::after { content: "iPad" / ""; }
+  .fx td:nth-of-type(3)::after { content: "Mac" / ""; }
+  .fx td:nth-of-type(4)::after { content: "TV" / ""; }
+  .fx td:nth-of-type(5)::after { content: "Watch" / ""; }
+  .fx td:has(.n) { color: var(--ink2); font-weight: 400; opacity: .7; }
+}
