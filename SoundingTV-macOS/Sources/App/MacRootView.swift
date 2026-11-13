@@ -1498,6 +1498,7 @@ private struct MacSidebar: View {
     @ObservedObject private var activityPoller = SoundCloudActivityPoller.shared
     @ObservedObject private var pins = SidebarPins.shared
     @ObservedObject private var folderStore = PlaylistFolderStore.shared
+    @ObservedObject private var duplicates = LibraryDuplicates.shared
     @ObservedObject private var crateList = MacCrateList.shared
     @State private var crateToDelete: RekordboxPlaylistRecord?
 
@@ -1707,6 +1708,7 @@ private struct MacSidebar: View {
     private func navigationRow(for section: MacRootView.Section) -> some View {
         Label(section.title, systemImage: section.symbol)
             .lineLimit(1)
+            .badge(section == .library ? duplicates.count : 0)
             .tag(section)
     }
 
