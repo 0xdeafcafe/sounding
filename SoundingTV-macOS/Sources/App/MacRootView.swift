@@ -32,6 +32,7 @@ struct MacRootView: View {
 
     @StateObject private var sidebarPlaylists = SidebarPlaylistsModel()
     @ObservedObject private var tvLinking = MacTVLinking.shared
+    @ObservedObject private var duplicatesPresenter = DuplicatesPresenter.shared
 
     @StateObject private var searchModel = MacSearchModel()
     @StateObject private var likesModel = MacLibraryModel(mode: .liked)
@@ -234,8 +235,8 @@ struct MacRootView: View {
             .sheet(item: tvLinking.confirmationBinding(for: .window)) { confirmation in
                 MacSameAccountLinkSheet(confirmation: confirmation, linking: tvLinking, linker: tvLinking.linker)
             }
-            .nearbyDeviceCard(tvLinking.card, isEnabled: tvLinking.confirmation == nil)
-            .reconnectCard(yieldingTo: tvLinking.card, isEnabled: tvLinking.confirmation == nil && !isShowingSharePlaySignIn) { done in
+            .nearbyDeviceCard(tvLinking.card, isEnabled: tvLinking.confirmation == nil && !holdsAutomaticSheets)
+            .reconnectCard(yieldingTo: tvLinking.card, isEnabled: tvLinking.confirmation == nil && !holdsAutomaticSheets) { done in
                 MacSoundCloudSignInView(peerName: nil, forHandoff: false, isReauthentication: true, onComplete: done)
             }
             .listenTogether { isShowingSharePlaySignIn = true }
@@ -724,7 +725,10 @@ struct MacRootView: View {
         .onChange(of: showsWelcome) { wasShowing, isShowing in
             if wasShowing, !isShowing, !didAnswerMusicStep { isMusicStepPending = true }
         }
-        .sheet(isPresented: Binding(get: { onboardingStep != nil }, set: { _ in })) {
+        .sheet(isPresented: Binding(
+            get: { onboardingStep != nil && !duplicatesPresenter.isPresented },
+            set: { if !$0, !duplicatesPresenter.isPresented { dismissOnboarding() } }
+        )) {
             MacOnboardingView(
                 step: onboardingStep ?? .music,
                 onUseWithoutSoundCloud: { didLeaveWelcome = true },
@@ -1065,6 +1069,27 @@ struct MacRootView: View {
         if VisualFixtures.isEnabled || environment["SOUNDING_TV_DISMISS_WELCOME"] == "1" { return false }
         #endif
         return credentials.isSignedOut && !credentials.isEstablishingSessionAtLaunch && !didLeaveWelcome
+    }
+
+    private var holdsAutomaticSheets: Bool {
+        onboardingStep != nil
+            || duplicatesPresenter.isPresented
+            || isShowingSharePlaySignIn
+            || nowPlayingPresentation.showsAutoMixSetup
+            || rootSelection.pendingNewPlaylist != nil
+            || rootSelection.pendingAddToPlaylist != nil
+            || rootSelection.pendingUSBExport != nil
+            || rootSelection.isShowingLibraryUSBExport
+            || rootSelection.isShowingRekordboxXMLImport
+            || rootSelection.pendingSetlist != nil
+    }
+
+    private func dismissOnboarding() {
+        switch onboardingStep {
+        case .welcome: didLeaveWelcome = true
+        case .music: answerMusicStep(addedFolder: false)
+        case nil: break
+        }
     }
 
     private func answerMusicStep(addedFolder: Bool) {

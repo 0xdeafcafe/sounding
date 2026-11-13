@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct DuplicatesView: View {
     @ObservedObject private var store = LibraryDuplicates.shared
@@ -314,10 +317,33 @@ final class DuplicatesPresenter: ObservableObject {
 
     @Published var isPresented = false
 
+    private var pending: Task<Void, Never>?
+
     func present() {
         LibraryDuplicates.shared.start()
+        guard !isPresented else { return }
+        #if os(macOS)
+        pending?.cancel()
+        pending = Task { [weak self] in
+            while Self.mainWindowHasSheet {
+                try? await Task.sleep(for: .milliseconds(250))
+                if Task.isCancelled { return }
+            }
+            guard let self, !self.isPresented else { return }
+            self.isPresented = true
+        }
+        #else
         isPresented = true
+        #endif
     }
+
+    #if os(macOS)
+    private static var mainWindowHasSheet: Bool {
+        NSApp.windows.contains { window in
+            window.identifier?.rawValue.hasPrefix("main") == true && window.attachedSheet != nil
+        }
+    }
+    #endif
 }
 
 struct DuplicatesPresentation: ViewModifier {
@@ -345,14 +371,24 @@ struct DuplicateImportPrompt: ViewModifier {
                     ) { _ in
                         Button("Review") {
                             store.importNotice = nil
-                            reviewing = true
+                            review()
                         }
                         Button("Not Now", role: .cancel) { store.importNotice = nil }
                     } message: { notice in
                         Text(notice.message)
                     }
             }
+            #if !os(macOS)
             .sheet(isPresented: $reviewing) { DuplicatesSheet() }
+            #endif
+    }
+
+    private func review() {
+        #if os(macOS)
+        DuplicatesPresenter.shared.present()
+        #else
+        reviewing = true
+        #endif
     }
 
     private var notice: DuplicateImportNotice? {
