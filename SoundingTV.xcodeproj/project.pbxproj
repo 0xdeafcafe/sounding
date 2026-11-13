@@ -93,6 +93,16 @@
 		5A4E00000000000000000103 /* DeckPerformShaping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4E00000000000000000101 /* DeckPerformShaping.swift */; };
 		5A4E00000000000000000102 /* DeckPerformShaping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4E00000000000000000101 /* DeckPerformShaping.swift */; };
 		A2C9D1E00000000000000031 /* LibraryIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2C9D1E00000000000000003 /* LibraryIdentityTests.swift */; };
+		D0B1CA7E0000000000000011 /* DuplicateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1CA7E0000000000000001 /* DuplicateDetector.swift */; };
+		D0B1CA7E0000000000000012 /* DuplicateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1CA7E0000000000000001 /* DuplicateDetector.swift */; };
+		D0B1CA7E0000000000000013 /* DuplicateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1CA7E0000000000000001 /* DuplicateDetector.swift */; };
+		D0B1CA7E0000000000000021 /* LibraryDuplicates.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1CA7E0000000000000002 /* LibraryDuplicates.swift */; };
+		D0B1CA7E0000000000000022 /* LibraryDuplicates.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1CA7E0000000000000002 /* LibraryDuplicates.swift */; };
+		D0B1CA7E0000000000000023 /* LibraryDuplicates.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1CA7E0000000000000002 /* LibraryDuplicates.swift */; };
+		D0B1CA7E0000000000000031 /* DuplicatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1CA7E0000000000000003 /* DuplicatesView.swift */; };
+		D0B1CA7E0000000000000032 /* DuplicatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1CA7E0000000000000003 /* DuplicatesView.swift */; };
+		D0B1CA7E0000000000000033 /* DuplicatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1CA7E0000000000000003 /* DuplicatesView.swift */; };
+		D0B1CA7E0000000000000041 /* DuplicateDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1CA7E0000000000000004 /* DuplicateDetectorTests.swift */; };
 		A2C9D1E00000000000000023 /* LibraryIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2C9D1E00000000000000002 /* LibraryIdentity.swift */; };
 		A2C9D1E00000000000000022 /* LibraryIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2C9D1E00000000000000002 /* LibraryIdentity.swift */; };
 		A2C9D1E00000000000000021 /* LibraryIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2C9D1E00000000000000002 /* LibraryIdentity.swift */; };
@@ -2188,6 +2198,10 @@
 		5A4E00000000000000000201 /* PlaybackAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackAnchor.swift; sourceTree = "<group>"; };
 		5A4E00000000000000000101 /* DeckPerformShaping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckPerformShaping.swift; sourceTree = "<group>"; };
 		A2C9D1E00000000000000003 /* LibraryIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryIdentityTests.swift; sourceTree = "<group>"; };
+		D0B1CA7E0000000000000001 /* DuplicateDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetector.swift; sourceTree = "<group>"; };
+		D0B1CA7E0000000000000002 /* LibraryDuplicates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDuplicates.swift; sourceTree = "<group>"; };
+		D0B1CA7E0000000000000003 /* DuplicatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatesView.swift; sourceTree = "<group>"; };
+		D0B1CA7E0000000000000004 /* DuplicateDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetectorTests.swift; sourceTree = "<group>"; };
 		A2C9D1E00000000000000002 /* LibraryIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryIdentity.swift; sourceTree = "<group>"; };
 		A2C9D1E00000000000000001 /* LibraryIdentityMatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryIdentityMatching.swift; sourceTree = "<group>"; };
 		DEC500000000000000000010 /* DecksLive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecksLive.swift; sourceTree = "<group>"; };
@@ -3426,6 +3440,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				7C9E74FE2F67A3EA3B21D78C /* PlaylistFolders.swift */,
 				B8664C5EAA67F8965C77C6FF /* LibrarySQLiteStore.swift */,
 				A2C9D1E00000000000000001 /* LibraryIdentityMatching.swift */,
+				D0B1CA7E0000000000000001 /* DuplicateDetector.swift */,
 				466A8D8F90F7C8A9303AF16D /* LibrarySync.swift */,
 				33512DD4615A82D12BBA708C /* LibraryBackfillLease.swift */,
 				B8438351D0C2616699EB2D2E /* LocalMusicLibrary.swift */,
@@ -3759,6 +3774,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				451FF5728B7549A6CFFCEED3 /* LibraryCacheSelfTest.swift */,
 				1427A6B74B73B746AA438F3C /* LibrarySyncCoreTests.swift */,
 				A2C9D1E00000000000000003 /* LibraryIdentityTests.swift */,
+				D0B1CA7E0000000000000004 /* DuplicateDetectorTests.swift */,
 				2C93A3944C0E8C0DD6ACFAAD /* LibraryBackfillElectionTests.swift */,
 				E03C9A7855AB4E1B4213E123 /* LoudnessSelfTest.swift */,
 				C841DC6AC7BFEB9AEC237F28 /* MixEngineSelfTest.swift */,
@@ -4675,6 +4691,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				AE4C00000000000000000140 /* CollectionRelatedModel.swift */,
 				A2C100000000000000000001 /* LibraryCollections.swift */,
 				A2C9D1E00000000000000002 /* LibraryIdentity.swift */,
+				D0B1CA7E0000000000000002 /* LibraryDuplicates.swift */,
 				A2C500000000000000000001 /* RecentlyAddedFeed.swift */,
 				A2C600000000000000000001 /* PeopleDirectory.swift */,
 				57A7100000000000000A0001 /* Stations.swift */,
@@ -4841,6 +4858,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				617FC086EC4D76D423813991 /* PlaylistFolderViews.swift */,
 				D5A0C0DE00000000000000A1 /* SoundingDragDrop.swift */,
 				9DFEA7FD83D5D35DAC22E911 /* LocalMusicUI.swift */,
+				D0B1CA7E0000000000000003 /* DuplicatesView.swift */,
 				1F083D17F6C47E788D7A243B /* OnboardingFeaturePage.swift */,
 				5A1E0C27C0FFEE0000000001 /* SoundCloudSignInGate.swift */,
 				7A7A00200000000000000020 /* CollectionHeroPage.swift */,
@@ -5956,6 +5974,9 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				A2C100000000000000000012 /* LibraryCollections.swift in Sources */,
 				A2C9D1E00000000000000023 /* LibraryIdentity.swift in Sources */,
 				A2C9D1E00000000000000013 /* LibraryIdentityMatching.swift in Sources */,
+				D0B1CA7E0000000000000011 /* DuplicateDetector.swift in Sources */,
+				D0B1CA7E0000000000000021 /* LibraryDuplicates.swift in Sources */,
+				D0B1CA7E0000000000000031 /* DuplicatesView.swift in Sources */,
 				A2C500000000000000000012 /* RecentlyAddedFeed.swift in Sources */,
 				A2C600000000000000000012 /* PeopleDirectory.swift in Sources */,
 				A2C600000000000000000022 /* PeopleDirectoryViews.swift in Sources */,
@@ -6416,6 +6437,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				1D220FE1DA207C17AFFE0DAC /* LibraryCacheSelfTest.swift in Sources */,
 				283F25846CDCF9CCE1C3551E /* LibrarySyncCoreTests.swift in Sources */,
 				A2C9D1E00000000000000031 /* LibraryIdentityTests.swift in Sources */,
+				D0B1CA7E0000000000000041 /* DuplicateDetectorTests.swift in Sources */,
 				E2A6FDA25D873D0B66186864 /* LibraryBackfillElectionTests.swift in Sources */,
 				5A686B55DFAAC217A9FAA785 /* LoudnessSelfTest.swift in Sources */,
 				971D49CD1B82990721842FE6 /* MixEngineSelfTest.swift in Sources */,
@@ -6685,6 +6707,9 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				A2C100000000000000000013 /* LibraryCollections.swift in Sources */,
 				A2C9D1E00000000000000021 /* LibraryIdentity.swift in Sources */,
 				A2C9D1E00000000000000011 /* LibraryIdentityMatching.swift in Sources */,
+				D0B1CA7E0000000000000012 /* DuplicateDetector.swift in Sources */,
+				D0B1CA7E0000000000000022 /* LibraryDuplicates.swift in Sources */,
+				D0B1CA7E0000000000000032 /* DuplicatesView.swift in Sources */,
 				A2C500000000000000000013 /* RecentlyAddedFeed.swift in Sources */,
 				A2C600000000000000000013 /* PeopleDirectory.swift in Sources */,
 				A2C600000000000000000023 /* PeopleDirectoryViews.swift in Sources */,
@@ -7177,6 +7202,9 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				A2C100000000000000000011 /* LibraryCollections.swift in Sources */,
 				A2C9D1E00000000000000022 /* LibraryIdentity.swift in Sources */,
 				A2C9D1E00000000000000012 /* LibraryIdentityMatching.swift in Sources */,
+				D0B1CA7E0000000000000013 /* DuplicateDetector.swift in Sources */,
+				D0B1CA7E0000000000000023 /* LibraryDuplicates.swift in Sources */,
+				D0B1CA7E0000000000000033 /* DuplicatesView.swift in Sources */,
 				A2C500000000000000000011 /* RecentlyAddedFeed.swift in Sources */,
 				A2C600000000000000000011 /* PeopleDirectory.swift in Sources */,
 				A2C600000000000000000021 /* PeopleDirectoryViews.swift in Sources */,

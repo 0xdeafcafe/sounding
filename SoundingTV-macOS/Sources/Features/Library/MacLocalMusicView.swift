@@ -7,6 +7,7 @@ struct MacSongsView: View {
     @ObservedObject private var library = LocalMusicLibrary.shared
     @ObservedObject private var identityStore = LibraryIdentity.shared
     @ObservedObject private var analysisRun = MissingAnalysisRun.shared
+    @ObservedObject private var duplicates = LibraryDuplicates.shared
     @State private var analysis: [String: MacAnalysisResult] = [:]
     @State private var isAdding = false
     @State private var isSigningIn = false
@@ -39,6 +40,10 @@ struct MacSongsView: View {
     }
 
     private var tracks: [Track] {
+        duplicates.visible(sourceTracks)
+    }
+
+    private var sourceTracks: [Track] {
         switch sourceFilter {
         case .all:
             let local = localTracks
@@ -72,6 +77,15 @@ struct MacSongsView: View {
                     .macFillsPane()
             } else {
                 VStack(spacing: 0) {
+                    if duplicates.count > 0 {
+                        HStack {
+                            DuplicatesSummaryLabel(count: duplicates.count)
+                            Spacer(minLength: 12)
+                            Button("Review") { DuplicatesPresenter.shared.present() }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                    }
                     if analysisRun.progress.isActive || analysisRun.isPaused {
                         MissingAnalysisProgressLine()
                             .padding(.horizontal, 20)
@@ -118,6 +132,7 @@ struct MacSongsView: View {
                     }
                     Section {
                         AnalyseMissingMenuItems(tracks: rows.map(\.track), scopeTitle: "Tracks")
+                        Button("Show Duplicates", systemImage: "square.on.square") { DuplicatesPresenter.shared.present() }
                     }
                     Section {
                         Button("Add Folder…", systemImage: "folder.badge.plus") { isAdding = true }
@@ -138,6 +153,7 @@ struct MacSongsView: View {
             likesModel.load(currentUserId: credentials.currentUser?.id, isSignedOut: credentials.isSignedOut)
         }
         .task(id: localTracks.count) { await refreshAnalysis(rereadStore: true) }
+        .task { duplicates.start() }
         .onChange(of: library.folders, initial: true) { _, folders in
             for folder in folders { PlaybackQueueSourceDirectory.note(library.queueSource(for: folder)) }
             if let folderFilter, !folders.contains(where: { $0.id == folderFilter }) { self.folderFilter = nil }

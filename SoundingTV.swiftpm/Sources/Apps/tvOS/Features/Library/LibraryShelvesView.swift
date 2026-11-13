@@ -41,6 +41,7 @@ struct LibrarySplitView: View {
     let openSocial: (SocialSection) -> Void
 
     @ObservedObject private var remoteMusic = RemoteLocalMusic.shared
+    @ObservedObject private var duplicates = LibraryDuplicates.shared
     @FocusState private var focusedRow: LibraryFilter?
     @State private var focusedPage: LibraryFilter?
 
@@ -68,7 +69,10 @@ struct LibrarySplitView: View {
                 .onExitCommand { focusedRow = current }
         }
         .defaultFocus($focusedRow, current, priority: .userInitiated)
-        .onAppear { remoteMusic.refreshIfNeeded() }
+        .onAppear {
+            remoteMusic.refreshIfNeeded()
+            duplicates.start()
+        }
         .task {
             for filter in [LibraryFilter.likes, .playlists] {
                 await viewModel.load(filter: filter)
@@ -91,6 +95,25 @@ struct LibrarySplitView: View {
                     .focused($focusedRow, equals: filter)
                     .accessibilityIdentifier("library.sidebar.\(filter.rawValue)")
                     .accessibilityAddTraits(filter == current ? [.isSelected] : [])
+                }
+                if duplicates.count > 0 {
+                    NavigationLink {
+                        DuplicatesView()
+                    } label: {
+                        HStack(spacing: Space.snug) {
+                            Image(systemName: "square.on.square")
+                                .font(.tvCalloutEmph)
+                                .frame(width: 44)
+                                .accessibilityHidden(true)
+                            Text("Duplicates")
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            Text(duplicates.count, format: .number)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(LibrarySidebarRowStyle(isSelected: false))
+                    .accessibilityIdentifier("library.sidebar.duplicates")
                 }
             }
             .padding(.top, SCBrowseMetrics.contentTopInset)
@@ -440,6 +463,7 @@ struct LibraryDetailView: View {
     let filter: LibraryFilter
     @ObservedObject var viewModel: LibraryViewModel
     @ObservedObject private var remoteMusic = RemoteLocalMusic.shared
+    @ObservedObject private var duplicates = LibraryDuplicates.shared
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var setlists = SetlistIntelligenceStore.shared
     @ObservedObject private var settings = SettingsStore.shared

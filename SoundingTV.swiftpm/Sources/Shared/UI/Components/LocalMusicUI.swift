@@ -121,6 +121,7 @@ struct AddMusicFolderModifier: ViewModifier {
     @ObservedObject private var library = LocalMusicLibrary.shared
     @State private var failedNames: [String] = []
     @State private var addedSome = false
+    @State private var addedFolderIDs: Set<String> = []
 
     func body(content: Content) -> some View {
         content
@@ -129,7 +130,13 @@ struct AddMusicFolderModifier: ViewModifier {
                 case .success(let urls):
                     var failed: [String] = []
                     for url in urls {
-                        do { try library.addFolder(at: url) } catch { failed.append(url.lastPathComponent) }
+                        do {
+                            let folder = try library.addFolder(at: url)
+                            addedFolderIDs.insert(folder.id)
+                            LibraryDuplicates.shared.watchImport(folderID: folder.id)
+                        } catch {
+                            failed.append(url.lastPathComponent)
+                        }
                     }
                     addedSome = failed.count < urls.count
                     failedNames = failed
@@ -149,6 +156,7 @@ struct AddMusicFolderModifier: ViewModifier {
             } message: {
                 Text("Sounding couldn’t get access to that folder. Try choosing it again.")
             }
+            .duplicateImportPrompt(folderIDs: addedFolderIDs)
     }
 
     private func finish() {

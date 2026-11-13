@@ -62,6 +62,7 @@ struct LibrarySongsView: View {
     @ObservedObject private var identity = LibraryIdentity.shared
     @ObservedObject private var credentials = SoundCloudCredentialSource.shared
     @ObservedObject private var downloads = DownloadManager.shared
+    @ObservedObject private var duplicates = LibraryDuplicates.shared
     @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -88,6 +89,7 @@ struct LibrarySongsView: View {
         let needle: String
         let analysisRevision: Int
         let downloadsCount: Int
+        let hidden: Set<String>
     }
 
     private var hasSoundCloud: Bool { credentials.showsSoundCloudLibrary }
@@ -115,7 +117,8 @@ struct LibrarySongsView: View {
             query: query,
             needle: trimmedSearch,
             analysisRevision: analysisStore.revision,
-            downloadsCount: query.isFiltering ? downloads.states.count : 0
+            downloadsCount: query.isFiltering ? downloads.states.count : 0,
+            hidden: duplicates.hiddenIDs
         )
         if memo.key == key { return (memo.all, memo.rows) }
         var all = local
@@ -125,6 +128,7 @@ struct LibrarySongsView: View {
                 !localIDs.contains(liked.id) && identity.index.localCopy(of: liked).map { localIDs.contains($0.id) } != true
             }
         }
+        all = duplicates.visible(all)
         let rows = TrackCollection.apply(
             all,
             query: query,
@@ -166,6 +170,7 @@ struct LibrarySongsView: View {
                 await viewModel.loadContent(for: .likes)
             }
             .task(id: derived.all.count) { await analysisStore.load(for: derived.all) }
+            .task { duplicates.start() }
             .onChange(of: library.folders, initial: true) { _, folders in
                 for folder in folders { PlaybackQueueSourceDirectory.note(library.queueSource(for: folder)) }
             }
@@ -203,6 +208,14 @@ struct LibrarySongsView: View {
                 Section {
                     MissingAnalysisProgressLine()
                         .listRowSeparator(.hidden)
+                    if duplicates.count > 0 {
+                        NavigationLink {
+                            DuplicatesView()
+                        } label: {
+                            DuplicatesSummaryLabel(count: duplicates.count)
+                        }
+                        .listRowSeparator(.hidden)
+                    }
                     if showsColumnHeader {
                         TrackColumnsHeader(
                             query: $query,
