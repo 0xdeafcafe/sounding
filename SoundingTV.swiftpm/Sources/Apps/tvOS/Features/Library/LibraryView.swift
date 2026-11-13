@@ -402,7 +402,8 @@ class LibraryViewModel: ObservableObject {
     var librarySongTracks: [Track] {
         var seen = Set<String>()
         let recentlySaved = recentlyAdded.compactMap(\.track)
-        return (recentlySaved + likedTracks).filter { seen.insert($0.id).inserted }
+        let hidden = LibraryDuplicates.shared.hiddenIDs
+        return (recentlySaved + likedTracks).filter { !hidden.contains($0.id) && seen.insert($0.id).inserted }
     }
 
     var libraryPlaylists: [Playlist] {

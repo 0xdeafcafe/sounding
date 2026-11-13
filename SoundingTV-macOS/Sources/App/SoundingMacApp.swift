@@ -181,6 +181,7 @@ struct SoundingMacApp: App {
                 }
                 .playlistFolderPrompts()
                 .macRekordboxFolderImportPresentation()
+                .duplicatesPresentation()
                 .task {
                     #if DEBUG
                     if VisualFixtures.isEnabled { return }
@@ -637,6 +638,8 @@ private enum MacLibraryCommandPreferences {
 }
 
 struct LibraryCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
     var body: some Commands {
         CommandMenu("Library") {
             destination("Likes", systemImage: "heart", section: .likes, shortcut: "1")
@@ -660,6 +663,12 @@ struct LibraryCommands: Commands {
                 MacAnalyseMissing.startLibrary()
             } label: {
                 Label("Analyse Missing Tracks…", systemImage: "waveform.badge.magnifyingglass")
+            }
+            Button {
+                openWindow(id: "main")
+                DuplicatesPresenter.shared.present()
+            } label: {
+                Label("Show Duplicates", systemImage: "square.on.square")
             }
         }
     }
