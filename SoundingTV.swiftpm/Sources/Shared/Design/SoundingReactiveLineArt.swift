@@ -361,6 +361,8 @@ private final class SoundingLineArtStage {
     private static let horizon: TimeInterval = 8
     private static let refreshAfter: TimeInterval = 6
     private static let frameRate: Double = 20
+    private static let keyframeRange = CAFrameRateRange(minimum: 10, maximum: 30, preferred: 20)
+    private static let tapeFrameRange = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
     private static let animationKeys = ["opacity", "transform"]
 
     init() {
@@ -554,6 +556,7 @@ private final class SoundingLineArtStage {
         animation.beginTime = begin
         animation.fillMode = .both
         animation.isRemovedOnCompletion = false
+        animation.preferredFrameRateRange = Self.tapeFrameRange
         tape.transform = CATransform3DMakeTranslation(origin - CGFloat(positions[count - 1]) * speed, 0, 0)
         tape.add(animation, forKey: "transform")
         CATransaction.commit()
@@ -575,6 +578,7 @@ private final class SoundingLineArtStage {
         animation.calculationMode = .linear
         animation.fillMode = .both
         animation.isRemovedOnCompletion = false
+        animation.preferredFrameRateRange = Self.keyframeRange
         layer.add(animation, forKey: keyPath)
         if let last = values.last {
             layer.setValue(last, forKeyPath: keyPath)

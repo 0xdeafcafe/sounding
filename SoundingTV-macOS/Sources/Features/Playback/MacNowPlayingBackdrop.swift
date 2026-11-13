@@ -40,6 +40,8 @@ struct MacNowPlayingBackdrop: NSViewRepresentable {
         private var drifts = true
         private var isPaused = false
 
+        private static let driftFrameRange = CAFrameRateRange(minimum: 8, maximum: 15, preferred: 10)
+
         private struct Layer {
             let group: CALayer
             let art: CALayer
@@ -158,6 +160,7 @@ struct MacNowPlayingBackdrop: NSViewRepresentable {
             drift.autoreverses = true
             drift.repeatCount = .infinity
             drift.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            drift.preferredFrameRateRange = Self.driftFrameRange
             layer.art.add(drift, forKey: "drift")
 
             let durations: [CFTimeInterval] = [31, 38, 27]
@@ -171,6 +174,7 @@ struct MacNowPlayingBackdrop: NSViewRepresentable {
                 move.autoreverses = true
                 move.repeatCount = .infinity
                 move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                move.preferredFrameRateRange = Self.driftFrameRange
                 if index == 1 { move.timeOffset = move.duration }
                 blob.add(move, forKey: "drift")
             }

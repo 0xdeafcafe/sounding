@@ -315,15 +315,14 @@ struct MacNowPlayingView: View {
     var onWillClose: () -> Void = {}
 
     @ObservedObject private var presentation = MacNowPlayingPresentation.shared
-    @ObservedObject private var engagement = MacTrackEngagement.shared
-    @ObservedObject private var waveforms = WaveformService.shared
-    @ObservedObject private var setlistStore = SetlistIntelligenceStore.shared
     @Environment(\.outputRouter) private var outputRouter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.macPlaybackAnimationsActive) private var animationsActive
 
-    @State private var scrubTime: TimeInterval?
+    @State private var scrub = MacNowPlayingScrub()
+    @State private var source = MacNowPlayingSource()
+    @State private var autoMixReserve: CGFloat = 0
     @State private var artworkFrame: CGRect = .zero
     @State private var flight: Flight?
     @State private var pendingFlight = false
@@ -349,10 +348,10 @@ struct MacNowPlayingView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
-                MacNowPlayingBackdrop(
+                MacNowPlayingBackdropHost(
                     artworkURL: track?.artworkURL ?? track?.user.largeAvatarURL,
                     palette: model.palette,
-                    isAnimating: animationsActive && !isClosing,
+                    isActive: animationsActive && !isClosing,
                     reduceMotion: reduceMotion,
                     reduceTransparency: reduceTransparency
                 )
@@ -373,8 +372,8 @@ struct MacNowPlayingView: View {
                 if let track {
                     MacNowPlayingLineArt(
                         trackID: track.id,
-                        samples: waveformSamples(track),
-                        scrubTime: scrubTime,
+                        samples: source.samples(for: track.id),
+                        scrub: scrub,
                         tint: model.palette.accent,
                         isActive: animationsActive && !isClosing
                     )
@@ -406,24 +405,25 @@ struct MacNowPlayingView: View {
         .onAppear(perform: open)
         .onDisappear { presentation.noteFullWindow(false) }
         .onChange(of: presentation.closeRequest) { close() }
+        .background {
+            if let track {
+                MacNowPlayingSourceReader(track: track) { source = $0 }
+            }
+            MacAutoMixReserveReader { autoMixReserve = $0 }
+        }
         .task(id: track?.id) {
-            guard let track else { return }
-            waveforms.load(track)
+            guard track != nil else { return }
             model.ensureComments()
         }
     }
-
-
-
 
     private func layout(_ track: Track, size: CGSize) -> some View {
         let leading = max(40, size.width * 0.076)
         let trailing = max(28, size.width * 0.042)
         let gap = max(36, size.width * 0.0625)
         let vertical = max(36, size.height * 0.056)
-        let autoMix = MacNowPlayingAutoMixMetrics.reserved(for: AutoMixLive.shared.state, ratingPending: AutoMixFeedbackStore.shared.pending != nil)
-        let deck = Self.tapeStyle.height + 64 + 14 + 46 + autoMix
-        let art = max(200, min(size.width * 0.26, size.height - vertical - deck - 150, 520))
+        let deck = Self.tapeStyle.height + MacNowPlayingTransport.height + 14 + 46 + autoMixReserve
+        let art = max(200, min(size.width * 0.26, size.height - vertical - deck - 170, 520))
         return VStack(spacing: 0) {
             HStack(alignment: .top, spacing: gap) {
                 playerColumn(track, art: art)
@@ -438,7 +438,17 @@ struct MacNowPlayingView: View {
             .padding(.top, vertical)
             .frame(maxHeight: .infinity, alignment: .top)
 
-            bottomDeck(track, leading: leading, trailing: trailing)
+            MacNowPlayingDeck(
+                track: track,
+                samples: source.samples(for: track.id),
+                entries: source.entries(for: track.id),
+                comments: model.timedComments,
+                leading: leading,
+                trailing: trailing,
+                tint: model.palette.accent,
+                isActive: animationsActive && !isClosing,
+                scrub: scrub
+            )
                 .padding(.top, 22)
                 .padding(.bottom, 24)
         }
@@ -459,121 +469,57 @@ struct MacNowPlayingView: View {
         VStack(alignment: .leading, spacing: 0) {
             artwork(track, size: art)
 
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 0) {
-                    MacFadingText(track.title, font: .title.weight(.semibold))
-                    MacFadingText(track.artistLine(), font: .title)
-                        .foregroundStyle(model.palette.accent)
-                    SoundCloudPreviewNowPlayingLine(trackID: track.id)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
-                    StationNowPlayingLine(source: stationSource)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture { presentation.pane = .about }
-                .pointerStyle(.link)
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityHint("Shows Behind the Track")
-                .accessibilityAction { presentation.pane = .about }
-                HStack(spacing: 8) {
-                    ListenTogetherIndicator()
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.trailing, 4)
-                    MacSleepTimerBadge()
-                        .padding(.trailing, 4)
-                    if track.supportsSoundCloudActions {
-                        MacLikeButton(track: track, style: .circle)
+            VStack(alignment: .leading, spacing: 2) {
+                MacWrappingFadeText(track.title, font: .title.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .contentShape(Rectangle())
+                    .onTapGesture { presentation.pane = .about }
+                    .pointerStyle(.link)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Shows Behind the Track")
+                    .accessibilityAction { presentation.pane = .about }
+
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        MacFadingText(track.artistLine(), font: .title2)
+                            .foregroundStyle(MacVibrantSecondary())
+                        SoundCloudPreviewNowPlayingLine(trackID: track.id)
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(MacVibrantSecondary())
+                        StationNowPlayingLine(source: stationSource)
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(MacVibrantSecondary())
                     }
-                    MacMoreMenu(track: track, style: .circle) { pane in
-                        presentation.pane = pane
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture { presentation.pane = .about }
+                    .pointerStyle(.link)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Shows Behind the Track")
+                    .accessibilityAction { presentation.pane = .about }
+
+                    HStack(spacing: 8) {
+                        ListenTogetherIndicator()
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(MacVibrantSecondary())
+                        MacSleepTimerBadge()
+                        if track.supportsSoundCloudActions {
+                            MacLikeButton(track: track, style: .circle)
+                        }
+                        MacMoreMenu(track: track, style: .circle) { pane in
+                            presentation.pane = pane
+                        }
                     }
+                    .fixedSize()
                 }
-                .padding(.top, 2)
             }
-            .padding(.top, 26)
-        }
-    }
-
-    private func bottomDeck(_ track: Track, leading: CGFloat, trailing: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            if let autoMix = AutoMixLive.shared.state, MacNowPlayingAutoMixMetrics.showsDecks(autoMix) {
-                MacNowPlayingAutoMixDecks(state: autoMix, tint: model.palette.accent)
-                    .frame(maxWidth: 760)
-                    .frame(maxWidth: .infinity)
-                    .transition(.opacity)
-            } else {
-                MacTapeScrubber(
-                    track: track,
-                    samples: waveformSamples(track),
-                    duration: duration,
-                    entries: tapeEntries,
-                    comments: model.timedComments,
-                    style: Self.tapeStyle,
-                    bleed: TapeBleed(leading: leading, trailing: trailing),
-                    tint: model.palette.accent,
-                    isActive: animationsActive && !isClosing,
-                    scrubTime: $scrubTime
-                )
-                .padding(.leading, leading)
-                .padding(.trailing, trailing)
-                .transition(.opacity)
-            }
-
-            ZStack {
-                transport
-                    .frame(width: 300, height: 64)
-                HStack(spacing: 18) {
-                    Spacer(minLength: 0)
-                    MacVolumeSlider(showsEndCaps: true)
-                        .tint(.white.opacity(0.9))
-                        .frame(width: 200)
-                    if let outputRouter {
-                        MacPlayOnMenu(router: outputRouter, style: .pill)
-                    }
-                }
-                .padding(.trailing, trailing)
-            }
-            .padding(.top, 14)
-
-            if let autoMix = AutoMixLive.shared.state {
-                MacNowPlayingAutoMixLine(state: autoMix, tint: model.palette.accent)
-                    .frame(height: MacNowPlayingAutoMixMetrics.lineHeight(for: autoMix))
-                    .frame(maxWidth: MacNowPlayingAutoMixMetrics.lineWidth)
-                    .padding(.top, 14)
-                    .transition(.opacity)
-            } else if AutoMixFeedbackStore.shared.pending != nil {
-                AutoMixRatingView()
-                    .controlSize(.large)
-                    .frame(height: 74)
-                    .padding(.top, 14)
-                    .transition(.opacity)
-            }
-        }
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.45), value: AutoMixLive.shared.state.map(MacNowPlayingAutoMixMetrics.showsDecks))
-    }
-
-    private var tapeEntries: [TapeEntry] {
-        (tracklist?.entries ?? []).map { entry in
-            TapeEntry.parse(
-                id: entry.id,
-                start: entry.startSeconds,
-                title: entry.segment.title,
-                artist: entry.segment.artist,
-                isUnknown: MacTracklistPane.isUnknown(entry.segment)
-            )
+            .padding(.top, 24)
         }
     }
 
     private func artwork(_ track: Track, size: CGFloat) -> some View {
-        let scale: CGFloat = timeline.isPlaying ? 1 : 0.86
-        return ArtworkThumbnail(
+        ArtworkThumbnail(
             url: track.artworkURL,
             identity: track.id,
             size: size,
@@ -583,8 +529,7 @@ struct MacNowPlayingView: View {
         )
         .trackDragSource(track)
         .shadow(color: .black.opacity(0.45), radius: 30, y: 18)
-        .scaleEffect(scale)
-        .animation(reduceMotion ? nil : .spring(duration: 0.6, bounce: 0.25), value: scale)
+        .modifier(MacPausedArtworkScale(reduceMotion: reduceMotion))
         .opacity(flight == nil ? 1 : 0)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(macNowPlayingSpace)) } action: { frame in
             artworkFrame = frame
@@ -608,41 +553,6 @@ struct MacNowPlayingView: View {
         return "\(artist) — \(segment.title)"
     }
 
-    private var transport: some View {
-        HStack {
-            Button {
-                MacPlayback.previous()
-            } label: {
-                Label("Previous", systemImage: "backward.fill")
-                    .font(.system(.title, weight: .semibold))
-                    .frame(width: 56, height: 56)
-                    .contentShape(Rectangle())
-            }
-            Spacer()
-            Button {
-                timeline.togglePlayPause()
-            } label: {
-                Label(timeline.isPlaying ? "Pause" : "Play", systemImage: timeline.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(.largeTitle, weight: .semibold))
-                    .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 64, height: 64)
-                    .contentShape(Rectangle())
-            }
-            Spacer()
-            Button {
-                MacPlayback.next()
-            } label: {
-                Label("Next", systemImage: "forward.fill")
-                    .font(.system(.title, weight: .semibold))
-                    .frame(width: 56, height: 56)
-                    .contentShape(Rectangle())
-            }
-        }
-        .labelStyle(.iconOnly)
-        .buttonStyle(MacPressableButtonStyle(reduceMotion: reduceMotion))
-        .foregroundStyle(.primary)
-    }
-
     private var closeButton: some View {
         Button(action: close) {
             Label("Exit Full Window", systemImage: "arrow.down.right.and.arrow.up.left")
@@ -664,40 +574,6 @@ struct MacNowPlayingView: View {
             Text("Choose a track to start listening.")
         } actions: {
             Button("Done", action: close)
-        }
-    }
-
-
-    private var duration: TimeInterval {
-        let anchorDuration = timeline.anchor.duration
-        return anchorDuration > 0 ? anchorDuration : (track?.duration ?? 0)
-    }
-
-    private var tracklist: Tracklist? {
-        guard let id = track?.id else { return nil }
-        let list = setlistStore.tracklist(for: id)
-        return list?.isEmpty == false ? list : nil
-    }
-
-    private func waveformSamples(_ track: Track) -> [Float] {
-        if case .ready(let waveform) = waveforms.state(for: track.id), !waveform.isEmpty {
-            return SCWaveformSampler.visuallyNormalized(waveform.samples, floor: 0.12)
-        }
-        #if DEBUG
-        if VisualFixtures.isEnabled { return MacNowPlayingFixtures.waveform(for: track) }
-        #endif
-        return []
-    }
-
-    private var waveformMarks: [Double] {
-        guard duration > 0 else { return [] }
-        switch presentation.pane {
-        case .tracklist:
-            return (tracklist?.entries ?? []).dropFirst().map { $0.startSeconds / duration }
-        case .comments:
-            return model.timedComments.compactMap { $0.timeInTrack.map { $0 / duration } }
-        default:
-            return []
         }
     }
 
@@ -841,6 +717,302 @@ struct MacFadingText: View {
                 }
             }
             .help(textWidth > boxWidth + 0.5 ? text : "")
+    }
+}
+
+struct MacWrappingFadeText: View {
+    let text: String
+    let font: Font
+    let lines: Int
+
+    @State private var fullHeight: CGFloat = 0
+    @State private var limitHeight: CGFloat = 0
+
+    init(_ text: String, font: Font, lines: Int = 2) {
+        self.text = text
+        self.font = font
+        self.lines = max(1, lines)
+    }
+
+    private var overflows: Bool { limitHeight > 0 && fullHeight > limitHeight + 0.5 }
+
+    var body: some View {
+        Text(text)
+            .font(font)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
+            .frame(height: fullHeight > 0 && limitHeight > 0 ? min(fullHeight, limitHeight) : nil, alignment: .top)
+            .clipped()
+            .mask(alignment: .topLeading) { fadeMask }
+            .background(alignment: .topLeading) {
+                Text(Array(repeating: "Ag", count: lines).joined(separator: "\n"))
+                    .font(font)
+                    .fixedSize()
+                    .hidden()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { limitHeight = $0 }
+            }
+            .help(overflows ? text : "")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(text)
+    }
+
+    @ViewBuilder
+    private var fadeMask: some View {
+        if overflows {
+            let line = limitHeight / CGFloat(lines)
+            VStack(spacing: 0) {
+                Rectangle()
+                    .frame(height: limitHeight - line)
+                LinearGradient(
+                    stops: [.init(color: .black, location: 0.8), .init(color: .clear, location: 1)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(height: line)
+            }
+        } else {
+            Rectangle()
+        }
+    }
+}
+
+struct MacVibrantSecondary: ShapeStyle {
+    func resolve(in environment: EnvironmentValues) -> Color {
+        Color(white: 1, opacity: environment.colorSchemeContrast == .increased ? 0.86 : 0.66)
+    }
+}
+
+private struct MacPausedArtworkScale: ViewModifier {
+    let reduceMotion: Bool
+
+    func body(content: Content) -> some View {
+        let scale: CGFloat = MacPlaybackTimeline.shared.isPlaying ? 1 : 0.86
+        content
+            .scaleEffect(scale)
+            .animation(reduceMotion ? nil : .spring(duration: 0.6, bounce: 0.25), value: scale)
+    }
+}
+
+@MainActor
+@Observable
+final class MacNowPlayingScrub {
+    var time: TimeInterval?
+}
+
+struct MacNowPlayingSource: Equatable {
+    var trackID: String?
+    var samples: [Float] = []
+    var entries: [TapeEntry] = []
+
+    func samples(for id: String) -> [Float] { trackID == id ? samples : [] }
+    func entries(for id: String) -> [TapeEntry] { trackID == id ? entries : [] }
+}
+
+private struct MacNowPlayingSourceReader: View {
+    let track: Track
+    let report: (MacNowPlayingSource) -> Void
+
+    @ObservedObject private var waveforms = WaveformService.shared
+    @ObservedObject private var setlists = SetlistIntelligenceStore.shared
+
+    private struct Key: Equatable {
+        let trackID: String
+        let sampleCount: Int
+        let entries: [TapeEntry]
+    }
+
+    var body: some View {
+        let waveform = readyWaveform
+        let entries = Self.entries(setlists.tracklist(for: track.id))
+        Color.clear
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: Key(trackID: track.id, sampleCount: waveform?.samples.count ?? 0, entries: entries), initial: true) {
+                report(MacNowPlayingSource(trackID: track.id, samples: Self.samples(waveform, track: track), entries: entries))
+            }
+            .task(id: track.id) { waveforms.load(track) }
+    }
+
+    private var readyWaveform: Waveform? {
+        if case .ready(let waveform) = waveforms.state(for: track.id), !waveform.isEmpty { return waveform }
+        return nil
+    }
+
+    private static func samples(_ waveform: Waveform?, track: Track) -> [Float] {
+        if let waveform { return SCWaveformSampler.visuallyNormalized(waveform.samples, floor: 0.12) }
+        #if DEBUG
+        if VisualFixtures.isEnabled { return MacNowPlayingFixtures.waveform(for: track) }
+        #endif
+        return []
+    }
+
+    private static func entries(_ tracklist: Tracklist?) -> [TapeEntry] {
+        guard let tracklist, !tracklist.isEmpty else { return [] }
+        return tracklist.entries.map { entry in
+            TapeEntry.parse(
+                id: entry.id,
+                start: entry.startSeconds,
+                title: entry.segment.title,
+                artist: entry.segment.artist,
+                isUnknown: MacTracklistPane.isUnknown(entry.segment)
+            )
+        }
+    }
+}
+
+private struct MacAutoMixReserveReader: View {
+    let report: (CGFloat) -> Void
+
+    var body: some View {
+        let reserve = MacNowPlayingAutoMixMetrics.reserved(for: AutoMixLive.shared.state, ratingPending: AutoMixFeedbackStore.shared.pending != nil)
+        Color.clear
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: reserve, initial: true) { _, value in report(value) }
+    }
+}
+
+private struct MacNowPlayingBackdropHost: View {
+    let artworkURL: URL?
+    let palette: ArtworkPalette
+    let isActive: Bool
+    let reduceMotion: Bool
+    let reduceTransparency: Bool
+
+    @State private var isLowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+
+    var body: some View {
+        MacNowPlayingBackdrop(
+            artworkURL: artworkURL,
+            palette: palette,
+            isAnimating: isActive && !isLowPower && MacPlaybackTimeline.shared.isPlaying,
+            reduceMotion: reduceMotion || isLowPower,
+            reduceTransparency: reduceTransparency
+        )
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name.NSProcessInfoPowerStateDidChange).receive(on: RunLoop.main)) { _ in
+            isLowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+        }
+    }
+}
+
+private struct MacNowPlayingDeck: View {
+    let track: Track
+    let samples: [Float]
+    let entries: [TapeEntry]
+    let comments: [Comment]
+    let leading: CGFloat
+    let trailing: CGFloat
+    let tint: Color
+    let isActive: Bool
+    let scrub: MacNowPlayingScrub
+
+    @Environment(\.outputRouter) private var outputRouter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let autoMix = AutoMixLive.shared.state
+        let showsDecks = autoMix.map(MacNowPlayingAutoMixMetrics.showsDecks) ?? false
+        VStack(spacing: 0) {
+            if let autoMix, showsDecks {
+                MacNowPlayingAutoMixDecks(state: autoMix, tint: tint)
+                    .frame(maxWidth: 760)
+                    .frame(maxWidth: .infinity)
+                    .transition(.opacity)
+            } else {
+                MacTapeScrubber(
+                    track: track,
+                    samples: samples,
+                    entries: entries,
+                    comments: comments,
+                    style: MacNowPlayingView.tapeStyle,
+                    bleed: TapeBleed(leading: leading, trailing: trailing),
+                    tint: tint,
+                    isActive: isActive,
+                    scrub: scrub
+                )
+                .padding(.leading, leading)
+                .padding(.trailing, trailing)
+                .transition(.opacity)
+            }
+
+            ZStack {
+                MacNowPlayingTransport()
+                HStack(spacing: 18) {
+                    Spacer(minLength: 0)
+                    MacVolumeSlider(showsEndCaps: true)
+                        .tint(.white.opacity(0.9))
+                        .frame(width: 200)
+                    if let outputRouter {
+                        MacPlayOnMenu(router: outputRouter, style: .pill)
+                    }
+                }
+                .padding(.trailing, trailing)
+            }
+            .frame(height: MacNowPlayingTransport.height)
+            .padding(.top, 14)
+
+            if let autoMix {
+                MacNowPlayingAutoMixLine(state: autoMix, tint: tint)
+                    .frame(width: MacNowPlayingAutoMixMetrics.lineWidth, height: MacNowPlayingAutoMixMetrics.lineHeight(for: autoMix))
+                    .padding(.top, 14)
+                    .transition(.opacity)
+            } else if AutoMixFeedbackStore.shared.pending != nil {
+                AutoMixRatingView()
+                    .controlSize(.large)
+                    .frame(maxWidth: MacNowPlayingAutoMixMetrics.lineWidth)
+                    .frame(height: 74)
+                    .padding(.top, 14)
+                    .transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.45), value: showsDecks)
+    }
+}
+
+private struct MacNowPlayingTransport: View {
+    static let height: CGFloat = 64
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let timeline = MacPlaybackTimeline.shared
+        let isPlaying = timeline.isPlaying
+        HStack(spacing: 28) {
+            Button {
+                MacPlayback.previous()
+            } label: {
+                Label("Previous", systemImage: "backward.fill")
+                    .font(.system(.title, weight: .semibold))
+                    .frame(width: 48, height: 48)
+                    .contentShape(Rectangle())
+            }
+            .help("Previous")
+            Button {
+                timeline.togglePlayPause()
+            } label: {
+                Label(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(.largeTitle, weight: .semibold))
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 56, height: 56)
+                    .contentShape(Rectangle())
+            }
+            .help(isPlaying ? "Pause" : "Play")
+            Button {
+                MacPlayback.next()
+            } label: {
+                Label("Next", systemImage: "forward.fill")
+                    .font(.system(.title, weight: .semibold))
+                    .frame(width: 48, height: 48)
+                    .contentShape(Rectangle())
+            }
+            .help("Next")
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(MacPressableButtonStyle(reduceMotion: reduceMotion))
+        .focusEffectDisabled()
+        .foregroundStyle(.white)
+        .fixedSize()
     }
 }
 
@@ -990,7 +1162,7 @@ private let macNowPlayingSpace = "macNowPlaying"
 private struct MacNowPlayingLineArt: View {
     let trackID: String
     let samples: [Float]
-    let scrubTime: TimeInterval?
+    let scrub: MacNowPlayingScrub
     let tint: Color
     let isActive: Bool
 
@@ -1001,7 +1173,7 @@ private struct MacNowPlayingLineArt: View {
             samples: samples,
             duration: anchor.duration,
             playhead: SoundingLineArtPlayhead(position: anchor.position, date: anchor.date, rate: anchor.rate, duration: anchor.duration),
-            scrub: scrubTime,
+            scrub: scrub.time,
             tint: tint,
             intensity: 0.38,
             bandPosition: 0.035,
@@ -1015,14 +1187,13 @@ private struct MacNowPlayingLineArt: View {
 struct MacTapeScrubber: View {
     let track: Track
     let samples: [Float]
-    let duration: TimeInterval
     let entries: [TapeEntry]
     let comments: [Comment]
     let style: TapeScrubberStyle
     let bleed: TapeBleed
     let tint: Color
     let isActive: Bool
-    @Binding var scrubTime: TimeInterval?
+    let scrub: MacNowPlayingScrub
 
     @State private var peaks: TapeWaveformPeaks?
     @State private var tapeComments: [TapeComment] = []
@@ -1037,6 +1208,7 @@ struct MacTapeScrubber: View {
 
     var body: some View {
         let anchor = timeline.anchor
+        let duration = anchor.duration > 0 ? anchor.duration : track.duration
         let shot = Self.debugShot
         TapeScrubber(
             clock: TapeClock(position: anchor.position, date: anchor.date, rate: anchor.rate, duration: anchor.duration > 0 ? anchor.duration : duration),
@@ -1052,14 +1224,13 @@ struct MacTapeScrubber: View {
             startsScrubbing: shot == "scrub",
             showsBubbleOnAppear: shot == "bubble",
             onSeek: { timeline.seek(to: $0) },
-            onScrubChange: { scrubTime = $0 }
+            onScrubChange: { scrub.time = $0 }
         ) { comment, size in
             MacAvatar(url: comment.avatarURL, name: comment.name, size: size)
         }
         .id(track.id)
         .task(id: PeaksKey(trackID: track.id, count: samples.count, duration: duration)) {
             let samples = samples
-            let duration = duration
             let built = await Task.detached(priority: .userInitiated) {
                 TapeWaveformPeaks.build(samples: samples, duration: duration)
             }.value

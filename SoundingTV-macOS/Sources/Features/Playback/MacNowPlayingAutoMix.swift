@@ -23,6 +23,7 @@ struct MacNowPlayingAutoMixLine: View {
     var tint: Color = .white
 
     @State private var showingPlan = false
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         Button {
@@ -31,12 +32,19 @@ struct MacNowPlayingAutoMixLine: View {
             AutoMixNextMixCapsule(state: state, scale: .mac, tint: tint) {
                 ArtworkThumbnail(url: artworkURL, identity: state.incomingTrackId ?? state.incomingTitle, size: 32, cornerRadius: 6)
             }
+            .padding(.leading, 10)
+            .padding(.trailing, 18)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background {
+                if reduceTransparency {
+                    Capsule().fill(Color(white: 0.16))
+                } else {
+                    Capsule().fill(.clear).glassEffect(.regular.interactive(), in: .capsule)
+                }
+            }
             .contentShape(.capsule)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.capsule)
-        .controlSize(.large)
+        .buttonStyle(.plain)
         .help(state.stage == .mixing ? "Show the plan for this mix" : "Show the plan for the next mix")
         .popover(isPresented: $showingPlan, arrowEdge: .bottom) {
             MacAutoMixPlanPopover(isPresented: $showingPlan)
