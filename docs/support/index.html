@@ -12,12 +12,13 @@
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
   <link rel="stylesheet" href="../assets/site.css">
   <link rel="stylesheet" href="../assets/pages.css">
+  <script src="../assets/nav.js" defer></script>
 </head>
 <body data-page="support">
   <a class="skip" href="#main">Skip to content</a>
   <header class="top">
     <a class="brand" href="../"><img src="../assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
-    <nav aria-label="Main"><a href="../?side=dj">DJ</a><a href="../support/" aria-current="page">Support</a></nav>
+    <div class="tools"><nav class="site-nav" aria-label="Main"><button type="button" class="menu-btn" aria-expanded="false" aria-controls="site-links">Menu</button><ul class="links" id="site-links"><li><a href="../tv/">Apple&nbsp;TV</a></li><li><a href="../?side=dj">DJ</a></li><li><a href="../features/">Features</a></li><li><a href="../support/" aria-current="page">Support</a></li></ul></nav></div>
   </header>
   <main id="main" class="prose">
     <h1>Support</h1>
@@ -37,15 +38,13 @@
     <p>Open Sounding on your iPhone, iPad or Mac on the same Wi-Fi as the TV. A card should pop up with the TV’s name: tap Sign In, and keep the device in the room while the TV plays its sound. If it says it couldn’t hear the TV, turn the TV up and try again. Some soundbars cut off the very high bit the sound relies on, so if yours does, scan the QR code on the TV instead. No card at all? Scan the code, or press Play Sound on the TV.</p>
     <h2>The Apple TV is asking for a code</h2>
     <p>The first time a device links to a TV, the TV shows a six-digit code and asks whether to allow it, even on your own Apple ID. Check the same code is on your iPhone, iPad or Mac, then choose Allow on the TV. After that it reconnects on its own. To start over, go to Settings, Remotes &amp; Devices on the TV and forget the device.</p>
-    <h2>Not in the beta yet?</h2>
-    <p>It’s invite only. I made it for me, and for a few people who now owe me a favour.</p>
     <h2>Your data</h2>
     <p>There are no Sounding servers or Sounding accounts, so there’s nothing for me to look up or delete for you. The <a href="../privacy/">privacy policy</a> says what’s stored where, and how to get rid of it.</p>
   </main>
   <footer class="foot">
     <div>
-      <p>Mused lovingly in Amsterdam, 🇳🇱.</p>
-      <p>Despite their many attempts, SoundCloud is not affiliated with or endorsed by Me.</p>
+      <p>Mused lovingly in Amsterdam, 🇳🇱</p>
+      <p>Despite their many attempts, SoundCloud is not affiliated with or endorsed by me.</p>
     </div>
     <nav aria-label="Footer"><a href="../">Home</a><a href="../?side=dj">DJ</a><a href="../tv/">TV</a><a href="../features/">Features</a><a href="../privacy/">Privacy</a><a href="../support/">Support</a></nav>
   </footer>

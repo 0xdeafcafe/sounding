@@ -5,7 +5,7 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Sounding is a SoundCloud player for iPhone, iPad, Mac, Apple TV and Apple Watch, with a pair of DJ decks bolted on. It’s invite only for now.">
+  <meta name="description" content="Sounding is a SoundCloud player for iPhone, iPad, Mac, Apple TV and Apple Watch, with a pair of DJ decks bolted on.">
   <meta name="theme-color" content="#0b0908">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Sounding. Plug in. All the way.">
@@ -23,6 +23,7 @@
   <link rel="modulepreload" href="assets/gl.js">
   <link rel="modulepreload" href="assets/shaders.js">
   <script type="module" src="assets/app.js"></script>
+  <script src="assets/nav.js" defer></script>
 </head>
 <body data-page="home">
   <a class="skip" href="#main">Skip to content</a>
@@ -35,7 +36,7 @@
       <input type="range" min="0" max="1000" value="0" step="1" aria-label="Crossfade from listening to DJing" data-xf-range>
       <button type="button" class="ink" data-xf="1" aria-pressed="false">DJing</button>
     </div>
-    <nav aria-label="Main"><button type="button" class="snd ink" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Sound off</span></button><a class="ink" href="support/">Support</a></nav>
+    <div class="tools"><button type="button" class="snd ink" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Sound off</span></button><nav class="site-nav" aria-label="Main"><button type="button" class="menu-btn ink" aria-expanded="false" aria-controls="site-links">Menu</button><ul class="links" id="site-links"><li><a class="ink" href="tv/">Apple&nbsp;TV</a></li><li><a class="ink" href="?side=dj">DJ</a></li><li><a class="ink" href="features/">Features</a></li><li><a class="ink" href="support/">Support</a></li></ul></nav></div>
   </header>
 
   <main id="main">
@@ -46,18 +47,17 @@
         <p class="lede ink">Sounding is a SoundCloud player for iPhone, iPad, Mac, Apple&nbsp;TV and Apple&nbsp;Watch, with a pair of DJ decks bolted on. Built for me, myself, and I.</p>
         <div class="try live-only">
           <p class="hint"><span class="ink">Scroll down, or</span><button type="button" class="ink go" data-plug>push the jack down.</button></p>
-          <p class="played ink">Scratch a record, or fiddle a knob, they're real. <a href="#top" data-plug>Unplug</a></p>
+          <p class="played ink"><span aria-hidden="true">Scratch a record, or fiddle a knob, they're real.</span> <a href="#top" data-plug>Unplug</a></p>
         </div>
-        <p class="note ink">Invite only. I made this for me, and for a few people who now owe me a favour.</p>
       </div>
       <div class="side b">
         <p class="h1 ink" role="heading" aria-level="2">Drop it on the&nbsp;one.</p>
         <p class="lede ink">Sounding’s Mac app has a proper DJ side: two decks and a mixer, a Prep panel on every track for beat grids and cue points, rekordbox in and out, and a line to the CDJs. Your cue points follow you to every device, and Auto Mix reads them too.</p>
         <div class="try live-only">
           <p class="hint"><span class="ink">Scroll down, or</span><button type="button" class="ink go" data-plug>push the jack down.</button></p>
-          <p class="played ink">Drag a record, or turn a knob. They all work. The beat’s one I made up for this page. <a href="#top" data-plug>Unplug</a></p>
+          <p class="played ink"><span aria-hidden="true">Drag a record, or turn a knob. They all work. The beat’s one I made up for this page.</span> <a href="#top" data-plug>Unplug</a></p>
         </div>
-        <p class="note ink">Invite only. I made this for me, and for a few people who now owe me a favour. The decks are on the Mac.</p>
+        <p class="note ink">The decks are on the Mac.</p>
       </div>
     </section>
 
@@ -69,7 +69,7 @@
           <p class="cap ink"><b>Your Likes, straight from SoundCloud.</b> Sign in once and it’s all there, likes, playlists, and that set you saved at 4am and swore you’d listen to. Nothing to import.</p>
           <p class="cap ink"><b>A three-hour set.</b> Essy at Wildeburg, all of it. Long mixes are the whole point tbh.</p>
           <p class="cap ink"><b>The tracklist.</b> Sounding cobbles it together from the uploader’s notes, the comments and Shazam. Missing one? Tap Identify and it’ll Shazam whatever’s on, no more holding your phone up to the speaker like it’s 2012.</p>
-          <p class="cap ink"><b>Tap a track to jump to it.</b> <span class="live-only">Go on, it works on this page too.</span></p>
+          <p class="cap ink"><b>Tap a track to jump to it.</b> <span class="live-only" aria-hidden="true">Go on, it works on this page too.</span></p>
         </div>
       </div>
       <div class="side b">

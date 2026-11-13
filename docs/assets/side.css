@@ -65,6 +65,10 @@ main, .foot { position: relative; z-index: 1; }
   html[lang] { --sec: clamp(64px, 10vh, 96px); }
 }
 
+@media (min-width: 861px) and (min-aspect-ratio: 1/1) {
+  .live [data-page="tv"] .chapter:not(.flip, .hero) .side.a { top: auto; bottom: clamp(32px, 8vh, 80px); transform: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .mass { transition: none; }
 }

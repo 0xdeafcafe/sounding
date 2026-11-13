@@ -23,6 +23,7 @@
   <link rel="modulepreload" href="../assets/gl.js">
   <link rel="modulepreload" href="../assets/shaders.js">
   <script type="module" src="../assets/app.js"></script>
+  <script src="../assets/nav.js" defer></script>
 </head>
 <body data-page="tv">
   <a class="skip" href="#main">Skip to content</a>
@@ -30,27 +31,21 @@
 
   <header class="top">
     <a class="brand ink" href="../"><img src="../assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
-    <div class="xf" role="group" aria-label="Crossfader">
-      <button type="button" class="ink" data-xf="0" aria-pressed="true">Listening</button>
-      <input type="range" min="0" max="1000" value="0" step="1" aria-label="Crossfade from listening to DJing" data-xf-range>
-      <button type="button" class="ink" data-xf="1" aria-pressed="false">DJing</button>
-    </div>
-    <nav aria-label="Main"><button type="button" class="snd ink" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Sound off</span></button><a class="ink" href="../support/">Support</a></nav>
+    <div class="tools"><button type="button" class="snd ink" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Sound off</span></button><nav class="site-nav" aria-label="Main"><button type="button" class="menu-btn ink" aria-expanded="false" aria-controls="site-links">Menu</button><ul class="links" id="site-links"><li><a class="ink" href="../tv/" aria-current="page">Apple&nbsp;TV</a></li><li><a class="ink" href="../?side=dj">DJ</a></li><li><a class="ink" href="../features/">Features</a></li><li><a class="ink" href="../support/">Support</a></li></ul></nav></div>
   </header>
 
   <main id="main">
-    <section class="scene chapter hero" id="top" data-scene="hero" data-shot="tv1" data-span="1.5" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-np.webp"}]' aria-labelledby="hero-h">
+    <section class="scene chapter hero" id="top" data-scene="hero" data-shot="tvf~" data-span="1.5" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-np.webp"}]' aria-labelledby="hero-h">
       <div class="pin">
         <figure class="plate" aria-hidden="true"><img class="pa" src="../assets/still/output-a.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="../assets/still/output-b.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"></figure>
         <div class="side a">
           <h1 class="ink" id="hero-h">Sounding on the Apple&nbsp;TV.</h1>
           <p class="lede ink">Sounding started out as an Apple&nbsp;TV app, and the TV’s still where it’s loudest. It signs in by ear, it mixes on its own, and your iPhone, iPad, Mac and Watch are all the remote.</p>
-          <p class="note ink">Invite only. I made this for me, and for a few people who now owe me a favour.</p>
         </div>
       </div>
     </section>
 
-    <section class="scene chapter" id="sign-in" data-scene="sign-in" data-shot="tv1,tv2,tv1,tv2" data-states='[{"tv":"sign","ph":"out","phone":"tv","out":"idle"},{"out":"toast"},{},{}]' aria-labelledby="sign-in-h">
+    <section class="scene chapter" id="sign-in" data-scene="sign-in" data-shot="tvf~,tv2,tvf~,tv2" data-states='[{"tv":"sign","ph":"out","phone":"tv","out":"idle"},{"out":"toast"},{},{}]' aria-labelledby="sign-in-h">
       <div class="pin">
         <figure class="plate" aria-hidden="true"><img class="pa" src="../assets/still/output-a.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="../assets/still/output-b.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"></figure>
         <div class="side a">
@@ -169,15 +164,14 @@
       <p class="first">The TV app is getting a redesign as I write this, so some of it will look a bit different by the time you see it. It’ll still sign in by ear.</p>
       <p>A free SoundCloud account gets previews. Full tracks and downloads need Go or Go+.</p>
       <p class="needs">Needs tvOS 27. The remotes need iOS or iPadOS 26.5 or later, macOS 27 or watchOS 27.</p>
-      <p class="invite">Invite only. I made this for me, and for a few people who now owe me a favour.</p>
       <p class="small">Found a bug? Email <a href="mailto:sounding@alex.forbes.red">sounding@alex.forbes.red</a>. Everything else it does is on the <a href="../features/">features page</a>.</p>
     </section>
   </main>
 
   <footer class="foot">
     <div>
-      <p>Mused lovingly in Amsterdam, 🇳🇱.</p>
-      <p>Despite their many attempts, SoundCloud is not affiliated with or endorsed by Me.</p>
+      <p>Mused lovingly in Amsterdam, 🇳🇱</p>
+      <p>Despite their many attempts, SoundCloud is not affiliated with or endorsed by me.</p>
     </div>
     <nav aria-label="Footer"><a href="../">Home</a><a href="../?side=dj">DJ</a><a href="../tv/" aria-current="page">TV</a><a href="../features/">Features</a><a href="../privacy/">Privacy</a><a href="../support/">Support</a></nav>
   </footer>

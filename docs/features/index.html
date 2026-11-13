@@ -24,6 +24,7 @@
   <link rel="modulepreload" href="../assets/gl.js">
   <link rel="modulepreload" href="../assets/shaders.js">
   <script type="module" src="../assets/app.js"></script>
+  <script src="../assets/nav.js" defer></script>
 </head>
 <body data-page="features">
   <a class="skip" href="#main">Skip to content</a>
@@ -31,12 +32,7 @@
 
   <header class="top">
     <a class="brand ink" href="../"><img src="../assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
-    <div class="xf" role="group" aria-label="Crossfader">
-      <button type="button" class="ink" data-xf="0" aria-pressed="true">Listening</button>
-      <input type="range" min="0" max="1000" value="0" step="1" aria-label="Crossfade from listening to DJing" data-xf-range>
-      <button type="button" class="ink" data-xf="1" aria-pressed="false">DJing</button>
-    </div>
-    <nav aria-label="Main"><button type="button" class="snd ink" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Sound off</span></button><a class="ink" href="../support/">Support</a></nav>
+    <div class="tools"><button type="button" class="snd ink" data-sound aria-pressed="false"><i aria-hidden="true"></i><span>Sound off</span></button><nav class="site-nav" aria-label="Main"><button type="button" class="menu-btn ink" aria-expanded="false" aria-controls="site-links">Menu</button><ul class="links" id="site-links"><li><a class="ink" href="../tv/">Apple&nbsp;TV</a></li><li><a class="ink" href="../?side=dj">DJ</a></li><li><a class="ink" href="../features/" aria-current="page">Features</a></li><li><a class="ink" href="../support/">Support</a></li></ul></nav></div>
   </header>
 
   <main id="main">
@@ -45,7 +41,7 @@
         <figure class="plate" aria-hidden="true"><img class="pa" src="../assets/still/listen-a.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="../assets/still/listen-b.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"></figure>
         <div class="side a">
           <h1 class="ink" id="hero-h">Everything it does.</h1>
-          <p class="lede ink">The lot, by device. If it’s on this page, it’s in the beta. If it’s half built, it isn’t on this page.</p>
+          <p class="lede ink">The lot, by device. If it’s half built, it isn’t on this page.</p>
           <p class="note ink">A free SoundCloud account gets previews. Full tracks and downloads need Go or Go+.</p>
           <nav class="jump" aria-label="Devices"><a class="ink" href="#all">All of them</a><a class="ink" href="#iphone">iPhone</a><a class="ink" href="#ipad">iPad</a><a class="ink" href="#mac">Mac</a><a class="ink" href="#tv">Apple&nbsp;TV</a><a class="ink" href="#watch">Apple&nbsp;Watch</a><a class="ink" href="#extras">Widgets and the rest</a><a class="ink" href="#privacy">Privacy</a></nav>
         </div>
@@ -171,7 +167,7 @@
       </div>
     </section>
 
-    <section class="scene chapter wide flow" id="tv" data-scene="tv" data-shot="tv1" data-span="2.3" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-np.webp"}]' aria-labelledby="tv-h">
+    <section class="scene chapter wide flow" id="tv" data-scene="tv" data-shot="tvf" data-span="2.3" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-np.webp"}]' aria-labelledby="tv-h">
       <div class="pin">
         <div class="side a">
           <h2 class="ink" id="tv-h">Apple&nbsp;TV.</h2>
@@ -243,17 +239,16 @@
 
     <section class="pg-warn flowing tail" id="join" aria-labelledby="join-h">
       <h2 id="join-h">Fair warning.</h2>
-      <p class="first">It’s a beta, made by one person in the evenings. Some of this will be rough round the edges, and some of it will change under you.</p>
+      <p class="first">It’s made by one person in the evenings. Some of this will be rough round the edges, and some of it will change under you.</p>
       <p class="needs">Needs iOS or iPadOS 26.5 or later, or macOS, tvOS or watchOS 27.</p>
-      <p class="invite">Invite only. I made this for me, and for a few people who now owe me a favour.</p>
       <p class="small">Found a bug? Email <a href="mailto:sounding@alex.forbes.red">sounding@alex.forbes.red</a>.</p>
     </section>
   </main>
 
   <footer class="foot">
     <div>
-      <p>Mused lovingly in Amsterdam, 🇳🇱.</p>
-      <p>Despite their many attempts, SoundCloud is not affiliated with or endorsed by Me.</p>
+      <p>Mused lovingly in Amsterdam, 🇳🇱</p>
+      <p>Despite their many attempts, SoundCloud is not affiliated with or endorsed by me.</p>
     </div>
     <nav aria-label="Footer"><a href="../">Home</a><a href="../?side=dj">DJ</a><a href="../tv/">TV</a><a href="../features/" aria-current="page">Features</a><a href="../privacy/">Privacy</a><a href="../support/">Support</a></nav>
   </footer>
