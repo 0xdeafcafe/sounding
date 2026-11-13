@@ -1671,7 +1671,8 @@ private struct MacSetlistMark: View {
     @ObservedObject private var store = SetlistIntelligenceStore.shared
 
     var body: some View {
-        if let count = store.setlist(for: track.id)?.segments.filter({ !$0.isDeleted }).count, count > 0 {
+        let count = store.setlist(for: track.id)?.segments.filter({ !$0.isDeleted }).count ?? 0
+        if count > 0 || DeckIdentityResolver.isLikelyMix(track) {
             Button(action: action) {
                 Image(systemName: "list.number")
                     .imageScale(.small)
@@ -1680,8 +1681,8 @@ private struct MacSetlistMark: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .help("View Setlist (\(count == 1 ? "1 track" : "\(count) tracks"))")
-            .accessibilityLabel("View Setlist")
+            .help(count > 0 ? "View Setlist (\(count == 1 ? "1 track" : "\(count) tracks"))" : "Identify the tracks in this mix")
+            .accessibilityLabel(count > 0 ? "View Setlist" : "Identify Tracks")
         }
     }
 }
