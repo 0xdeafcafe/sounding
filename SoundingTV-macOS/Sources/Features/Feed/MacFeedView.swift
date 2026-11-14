@@ -103,6 +103,7 @@ struct MacFeedView: View {
                 .listRowSeparator(.hidden)
         }
         .listStyle(.plain)
+        .macClearsPlaybackBar()
     }
 
     private var signedOutState: some View {

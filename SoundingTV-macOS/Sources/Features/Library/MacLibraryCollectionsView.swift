@@ -33,23 +33,12 @@ struct MacLibraryCollectionsPane: View {
             } else {
                 MacViewportScrollView {
                     VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceSection) {
-                        VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceBase) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(model.kind.title)
-                                    .font(.largeTitle.weight(.bold))
-                                if let subtitle = model.subtitle {
-                                    Text(subtitle)
-                                        .font(.subheadline)
-                                        .foregroundStyle(MacSecondaryStyle())
-                                }
-                            }
-                            LibraryCollectionPlayButtons(model: model, items: items, fills: false, isCompact: true) { tracks, shuffled in
-                                Task {
-                                    if shuffled {
-                                        await MacPlayback.shuffle(tracks)
-                                    } else if let first = tracks.first {
-                                        await MacPlayback.play(first, in: tracks)
-                                    }
+                        LibraryCollectionPlayButtons(model: model, items: items, fills: false, isCompact: true) { tracks, shuffled in
+                            Task {
+                                if shuffled {
+                                    await MacPlayback.shuffle(tracks)
+                                } else if let first = tracks.first {
+                                    await MacPlayback.play(first, in: tracks)
                                 }
                             }
                         }
@@ -71,8 +60,9 @@ struct MacLibraryCollectionsPane: View {
                 }
             }
         }
-        .macFillsPane()
-        .navigationTitle(model.kind.title)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .macPageTitle(model.kind.title, style: .inline)
+        .navigationSubtitle(model.subtitle ?? "")
         .toolbar {
             ToolbarItem(id: "library-collection-view-mode", placement: .primaryAction) {
                 CollectionViewModeToggle(mode: viewMode)
@@ -156,8 +146,9 @@ struct MacLibraryArtistsPane: View {
 
     var body: some View {
         states
-            .macFillsPane()
-            .navigationTitle(model.kind.title)
+            .macClearsPlaybackBar()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .macPageTitle(model.kind.title, style: .hidden)
             .searchable(
                 text: $searchText,
                 isPresented: $isSearchPresented,
@@ -200,13 +191,14 @@ struct MacLibraryArtistsPane: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(model.kind.title)
-                    .font(.largeTitle.weight(.bold))
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundStyle(MacSecondaryStyle())
                 }
             }
@@ -219,8 +211,7 @@ struct MacLibraryArtistsPane: View {
                 .fixedSize()
         }
         .padding(.horizontal, SCContentStyle.mac.spaceGutter)
-        .padding(.top, SCContentStyle.mac.spaceBase)
-        .padding(.bottom, SCContentStyle.mac.spaceSnug)
+        .padding(.vertical, SCContentStyle.mac.spaceSnug)
     }
 
     private func playArtist(_ artist: LibraryArtist, shuffled: Bool) {
@@ -243,13 +234,12 @@ struct MacLibraryArtistsPane: View {
 
 struct MacLocalCollectionView: View {
     let collection: LocalCollection
-    @State private var titleIsHidden = false
     @State private var backdropGone = false
 
     private var isAlbum: Bool { collection.kind == .album }
 
     var body: some View {
-        MacViewportScrollView(hidesContentUnderToolbar: backdropGone) {
+        MacViewportScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 hero
                     .macReportsScrolledAway($backdropGone)
@@ -266,18 +256,9 @@ struct MacLocalCollectionView: View {
         .scrollEdgeEffectHidden(!backdropGone, for: .top)
         .tracksCollectionOverscroll()
         .animation(.smooth, value: backdropGone)
-        .animation(.smooth, value: titleIsHidden)
         .collectionPage(artworkURL: collection.artworkURL)
         .collectionAccent(from: collection.artworkURL)
-        .navigationTitle(collection.title)
-        .toolbar(removing: .title)
-        .toolbar {
-            if titleIsHidden {
-                MacScrolledPageTitle(title: collection.title)
-            }
-        }
-        .onChange(of: titleIsHidden) { _, hidden in MacPageTitleVisibility.shared.isShowingPushedTitle = hidden }
-        .onDisappear { MacPageTitleVisibility.shared.isShowingPushedTitle = false }
+        .macPageTitle(collection.title, style: .large)
     }
 
     private var hero: some View {
@@ -308,7 +289,7 @@ struct MacLocalCollectionView: View {
             }
             .padding(.top, SCContentStyle.mac.spaceTight)
         }
-        .macReportsScrolledAway($titleIsHidden)
+        .macPageTitleAnchor()
     }
 
     private var heroContent: CollectionHeroContent {

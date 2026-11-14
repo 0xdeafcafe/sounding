@@ -10,6 +10,7 @@ struct MacSearchView: View {
     @State private var isSearchPresented = false
     @StateObject private var libraryInsights = LibrarySearchInsights()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.macPlaybackBarInset) private var barInset
 
     static let prompt = "Artists, Tracks, Sets and More"
 
@@ -41,8 +42,22 @@ struct MacSearchView: View {
         .navigationDestination(for: SearchCategory.self) { category in
             MacSearchCategoryView(category: category)
         }
-        .navigationTitle("Search")
+        .macPageTitle("Search", style: .hidden)
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                MacGlassTabs(
+                    "Search in",
+                    selection: $model.scope,
+                    options: SearchScope.browsable,
+                    compact: true,
+                    title: \.title
+                )
+                .fixedSize()
+            }
+            .sharedBackgroundVisibility(.hidden)
+
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+
             ToolbarItem(placement: .primaryAction) {
                 MacIdentifySongToolbarButton()
             }
@@ -50,7 +65,7 @@ struct MacSearchView: View {
         .searchable(
             text: $model.query,
             isPresented: $isSearchPresented,
-            placement: .toolbar,
+            placement: .toolbarPrincipal,
             prompt: Self.prompt
         )
         .searchSuggestions {
@@ -66,24 +81,21 @@ struct MacSearchView: View {
         }
         .onExitCommand { dismissSearchFocus() }
         .safeAreaBar(edge: .top) {
-            VStack(spacing: SCContentStyle.mac.spaceTight) {
-                MacGlassTabs(
-                    "Search in",
-                    selection: $model.scope,
-                    options: SearchScope.browsable,
-                    title: \.title
-                )
-                .frame(maxWidth: .infinity)
+            Group {
                 if model.isSearching {
                     SearchFilterPills(selection: $model.filter, filters: model.availableFilters, horizontalInset: 20)
+                        .padding(.top, SCContentStyle.mac.spaceSnug)
+                        .padding(.bottom, SCContentStyle.mac.spaceTight)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            .padding(.top, SCContentStyle.mac.spaceSnug)
-            .padding(.bottom, SCContentStyle.mac.spaceTight)
             .animation(reduceMotion ? nil : SearchMotion.state, value: model.isSearching)
         }
-        .onReceive(findFocus.$request.dropFirst()) { _ in isSearchPresented = true }
+        .onReceive(findFocus.$request.dropFirst()) { _ in focusSearchField() }
+        .task {
+            try? await Task.sleep(for: .milliseconds(200))
+            focusSearchField()
+        }
         .background {
             MacSearchFocusDismissalMonitor(isSearchPresented: $isSearchPresented)
                 .frame(width: 0, height: 0)
@@ -99,6 +111,18 @@ struct MacSearchView: View {
             }
         }
         #endif
+    }
+
+    private func focusSearchField() {
+        guard isSearchPresented else {
+            isSearchPresented = true
+            return
+        }
+        isSearchPresented = false
+        Task { @MainActor in
+            await Task.yield()
+            isSearchPresented = true
+        }
     }
 
     private func dismissSearchFocus() {
@@ -144,8 +168,10 @@ struct MacSearchView: View {
                 }
             }
             .padding(20)
+            .padding(.bottom, barInset)
             .animation(reduceMotion ? nil : SearchMotion.state, value: model.recents.map(\.id))
         }
+        .contentMargins(.bottom, barInset, for: .scrollIndicators)
         .defaultScrollAnchor(.top, for: .alignment)
     }
 
@@ -225,9 +251,11 @@ struct MacSearchView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
+            .padding(.bottom, barInset)
             .animation(reduceMotion ? nil : SearchMotion.state, value: items.map(\.id))
         }
         .contentMargins(.bottom, 12, for: .scrollContent)
+        .contentMargins(.bottom, barInset, for: .scrollIndicators)
         .defaultScrollAnchor(.top, for: .alignment)
         .prefetchArtwork(items.prefix(30).compactMap(\.hit.artworkURL), variant: .thumbnail)
         .overlay {
@@ -405,7 +433,7 @@ private struct MacSearchCategoryView: View {
 
     var body: some View {
         content
-            .navigationTitle(category.title)
+            .macPageTitle(category.title, style: .inline)
             .task { await model.load() }
     }
 
@@ -448,6 +476,7 @@ private struct MacSearchCategoryView: View {
                 }
                 .padding(20)
             }
+            .macClearsPlaybackBar()
             .defaultScrollAnchor(.top, for: .alignment)
             .prefetchArtwork(model.tracks.prefix(20).compactMap(\.artworkURL))
         }
@@ -509,14 +538,16 @@ private struct MacSearchFocusDismissalMonitor: NSViewRepresentable {
                       event.window != nil,
                       self.isSearchPresented?.wrappedValue == true else { return event }
 
-                if event.window === window,
-                   Self.isInsideSearchField(event, in: window) {
+                guard event.window === window else { return event }
+                if Self.isInsideSearchField(event, in: window) {
                     return event
                 }
 
+                let location = event.locationInWindow
                 DispatchQueue.main.async { [weak self, weak window] in
-                    self?.isSearchPresented?.wrappedValue = false
-                    window?.makeFirstResponder(nil)
+                    guard let self, let window, !Self.isEditingSearchField(in: window, at: location) else { return }
+                    self.isSearchPresented?.wrappedValue = false
+                    window.makeFirstResponder(nil)
                 }
                 return event
             }
@@ -538,7 +569,20 @@ private struct MacSearchFocusDismissalMonitor: NSViewRepresentable {
                 if view is NSSearchField { return true }
                 hitView = view.superview
             }
-            return false
+            return containsSearchField(in: root, at: event.locationInWindow)
+        }
+
+        private static func containsSearchField(in view: NSView, at location: NSPoint) -> Bool {
+            if view is NSSearchField, !view.isHiddenOrHasHiddenAncestor {
+                return view.convert(view.bounds, to: nil).insetBy(dx: -6, dy: -6).contains(location)
+            }
+            return view.subviews.contains { containsSearchField(in: $0, at: location) }
+        }
+
+        private static func isEditingSearchField(in window: NSWindow, at location: NSPoint) -> Bool {
+            guard let editor = window.firstResponder as? NSText, editor.isFieldEditor,
+                  let field = editor.delegate as? NSView else { return false }
+            return field.convert(field.bounds, to: nil).insetBy(dx: -6, dy: -6).contains(location)
         }
     }
 }

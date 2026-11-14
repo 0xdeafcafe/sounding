@@ -87,15 +87,15 @@ struct MacPlaylistFolderView: View {
                 .playlistFolderDropTarget(folderID, highlightCorner: 0)
             }
         }
-        .navigationTitle(folder?.name ?? "")
+        .macPageTitle(folder?.name ?? "", style: .inline)
         .toolbar {
             if folder != nil {
-                ToolbarItem(id: "playlist-folder-view-mode", placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    addMenu
                     CollectionViewModeToggle(mode: viewMode)
-                }
-                ToolbarItem(id: "playlist-folder-new", placement: .primaryAction) { addMenu }
-                if store.canEdit {
-                    ToolbarItem(id: "playlist-folder-more", placement: .primaryAction) { moreMenu }
+                    if store.canEdit {
+                        moreMenu
+                    }
                 }
             }
         }

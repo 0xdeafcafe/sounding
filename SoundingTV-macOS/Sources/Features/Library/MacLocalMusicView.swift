@@ -12,6 +12,9 @@ struct MacSongsView: View {
     @State private var isAdding = false
     @State private var isSigningIn = false
     @State private var folderFilter: String?
+    @State private var searchText = ""
+    @State private var isSearchPresented = false
+    @ObservedObject private var findFocus = MacFindFocus.shared
     @AppStorage("mac.songs.source", store: .sounding) private var sourceFilter = SourceFilter.all
 
     enum SourceFilter: String, CaseIterable, Identifiable {
@@ -60,19 +63,27 @@ struct MacSongsView: View {
     }
 
     private var rows: [MacLibraryRow] {
-        tracks.map {
+        let all = tracks.map {
             MacLibraryRow(
                 track: $0,
                 analysis: analysis[$0.id] ?? likesModel.analysis[$0.id],
                 dateAdded: likesModel.likedAtByTrackID[$0.id] ?? $0.createdAt
             )
         }
+        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return all }
+        return all.filter {
+            $0.titleKey.lowercased().contains(needle) || $0.artistKey.lowercased().contains(needle)
+        }
     }
 
     var body: some View {
         let rows = rows
         Group {
-            if rows.isEmpty {
+            if rows.isEmpty, !searchText.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+                    .macFillsPane()
+            } else if rows.isEmpty {
                 emptyState
                     .macFillsPane()
             } else {
@@ -110,10 +121,12 @@ struct MacSongsView: View {
                 }
             }
         }
-        .navigationTitle("Tracks")
+        .macPageTitle("Tracks", style: .inline)
         .navigationSubtitle(rows.isEmpty ? "" : LocalMusicFormat.trackCount(rows.count))
+        .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Find in Tracks")
+        .onReceive(findFocus.$request.dropFirst()) { _ in isSearchPresented = true }
         .toolbar {
-            ToolbarItem {
+            ToolbarItem(placement: .primaryAction) {
                 Menu("Show", systemImage: "line.3.horizontal.decrease") {
                     if hasSoundCloud {
                         Picker("Source", selection: $sourceFilter) {

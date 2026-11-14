@@ -13,28 +13,29 @@ struct MacConnectionsPage: View {
     }
 
     var body: some View {
-        if credentials.isSessionRejected {
-            MacAccountRecoveryEmptyState(sectionName: kind.rawValue)
-                .navigationTitle(kind.rawValue)
-        } else if credentials.isSignedOut {
-            ContentUnavailableView(
-                "Sign In to See \(kind.rawValue)",
-                systemImage: kind.systemImage,
-                description: Text("Sign in with SoundCloud to see who you follow and who follows you.")
-            )
-            .macFillsPane()
-            .navigationTitle(kind.rawValue)
-        } else {
-            PeopleDirectoryView(model: model) { people in
-                MacViewportScrollView {
-                    MacPeopleDirectoryGrid(people: people, model: model)
-                        .padding(.horizontal, SCContentStyle.mac.spaceGutter)
-                        .padding(.top, SCContentStyle.mac.spaceBase)
-                        .padding(.bottom, 32)
+        Group {
+            if credentials.isSessionRejected {
+                MacAccountRecoveryEmptyState(sectionName: kind.rawValue)
+            } else if credentials.isSignedOut {
+                ContentUnavailableView(
+                    "Sign In to See \(kind.rawValue)",
+                    systemImage: kind.systemImage,
+                    description: Text("Sign in with SoundCloud to see who you follow and who follows you.")
+                )
+                .macFillsPane()
+            } else {
+                PeopleDirectoryView(model: model) { people in
+                    MacViewportScrollView {
+                        MacPeopleDirectoryGrid(people: people, model: model)
+                            .padding(.horizontal, SCContentStyle.mac.spaceGutter)
+                            .padding(.top, SCContentStyle.mac.spaceBase)
+                            .padding(.bottom, 32)
+                    }
+                    .defaultScrollAnchor(.top, for: .alignment)
                 }
-                .defaultScrollAnchor(.top, for: .alignment)
             }
         }
+        .macPageTitle(kind.rawValue, style: .inline)
     }
 }
 
@@ -144,9 +145,10 @@ struct MacActivityPage: View {
                 .macFillsPane()
             } else {
                 MacActivityInboxList(showsHeader: false)
+                    .macClearsPlaybackBar()
             }
         }
-        .navigationTitle("Activity")
+        .macPageTitle("Activity", style: .inline)
         .toolbar {
             ToolbarItem(id: "activity-mark-all-read", placement: .primaryAction) {
                 Button("Mark All Read") { poller.markAllRead() }

@@ -301,11 +301,16 @@ struct MacSmartPlaylistView: View {
                 }
             }
         }
-        .navigationTitle(kind.title)
+        .macPageTitle(kind.title, style: .inline)
         .navigationSubtitle(model.rows.isEmpty ? "" : model.summary)
         .toolbar {
-            ToolbarItem {
-                Menu("Actions", systemImage: "ellipsis.circle") {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if kind == .notAnalysed {
+                    Button("Analyse Missing", systemImage: "waveform") { run.start(model.tracks) }
+                        .help("Analyse Missing")
+                        .disabled(isRunActive || model.rows.isEmpty)
+                }
+                Menu("Actions", systemImage: "ellipsis") {
                     AnalyseMissingMenuItems(tracks: model.tracks, scopeTitle: kind.title)
                     Button("Export to USB…", systemImage: "externaldrive.badge.plus") {
                         MacRootSelection.shared.request(usbExport: model.exportSource)
@@ -318,32 +323,13 @@ struct MacSmartPlaylistView: View {
         .task { await model.start() }
     }
 
+    @ViewBuilder
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(kind.title)
-                        .font(.largeTitle.weight(.bold))
-                        .lineLimit(1)
-                    Text(model.summary)
-                        .font(.subheadline)
-                        .foregroundStyle(MacSecondaryStyle())
-                        .monospacedDigit()
-                }
-                Spacer(minLength: 12)
-                if kind == .notAnalysed {
-                    Button("Analyse Missing") { run.start(model.tracks) }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isRunActive || model.rows.isEmpty)
-                }
-            }
-            if run.hasStatus {
-                MissingAnalysisProgressLine()
-            }
+        if run.hasStatus {
+            MissingAnalysisProgressLine()
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 10)
     }
 
     @ViewBuilder

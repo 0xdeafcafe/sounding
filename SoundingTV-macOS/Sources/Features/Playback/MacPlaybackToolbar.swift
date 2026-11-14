@@ -1,34 +1,6 @@
 import SwiftUI
 import AppKit
 
-enum MacToolbarMetrics {
-    static let title: CGFloat = 180
-}
-
-struct MacScrolledPageTitle: ToolbarContent {
-    let title: String
-
-    var body: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            Text(title)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: MacToolbarMetrics.title, alignment: .leading)
-                .padding(.horizontal, 4)
-                .accessibilityAddTraits(.isHeader)
-        }
-        .sharedBackgroundVisibility(.hidden)
-    }
-}
-
-@MainActor
-@Observable
-final class MacPageTitleVisibility {
-    static let shared = MacPageTitleVisibility()
-    var isShowingPushedTitle = false
-}
-
 // MARK: - Playback bar
 
 enum MacPlaybackBarMetrics {
@@ -345,6 +317,29 @@ private struct MacTransportButton: View {
     }
 }
 
+private struct MacBarArtworkExpandHint: ViewModifier {
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.black.opacity(0.45))
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+            .onHover { isHovering = $0 }
+            .animation(reduceMotion ? nil : SCContentMotion.gentle, value: isHovering)
+    }
+}
+
 struct MacPlaybackBarNowPlaying: View {
     var showsText: Bool
 
@@ -406,10 +401,12 @@ struct MacPlaybackBarNowPlaying: View {
                     crownContext: track.title
                 )
                 .background(MacViewAnchor { MacNowPlayingPresentation.shared.capsuleArtworkView = $0 })
+                .modifier(MacBarArtworkExpandHint())
             }
             .buttonStyle(.plain)
-            .help("Open Now Playing")
-            .accessibilityLabel("Open Now Playing")
+            .pointerStyle(.link)
+            .help("Show Now Playing")
+            .accessibilityLabel("Show Now Playing")
 
             if showsText {
                 VStack(spacing: 1) {
