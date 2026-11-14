@@ -10,6 +10,6 @@ struct OpenRemoteControl: ControlWidget {
             }
         }
         .displayName("Sounding Remote")
-        .description("Opens the Remote for your Apple TV.")
+        .description("Opens the Sounding remote for your TV.")
     }
 }
