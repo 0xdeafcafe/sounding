@@ -51,6 +51,8 @@ struct MacPlaybackBar: View {
     @State private var availableWidth: CGFloat = 800
     @State private var isShowingPlayOn = false
     @State private var isShowingRemote = false
+    @State private var isShowingNoAppleTV = false
+    @Environment(\.openSettings) private var openSettings
 
     private var model: MacNowPlayingModel { .shared }
 
@@ -68,6 +70,22 @@ struct MacPlaybackBar: View {
             .frame(height: MacPlaybackBarMetrics.height)
             .frame(maxWidth: MacPlaybackBarMetrics.maxWidth)
             .glassEffect(.regular, in: .capsule)
+            .popover(isPresented: $isShowingNoAppleTV, arrowEdge: .top) {
+                RemoteNoAppleTVView {
+                    isShowingNoAppleTV = false
+                    MacSettingsNavigation.shared.selection = .devices
+                    openSettings()
+                }
+                .frame(width: 380, height: 360)
+            }
+        }
+        .onReceive(RemoteRequest.shared.$request.compactMap { $0 }) { id in
+            guard RemoteRequest.shared.claim(id) else { return }
+            if outputRouter?.remoteTarget != nil {
+                isShowingRemote = true
+            } else {
+                isShowingNoAppleTV = true
+            }
         }
         .padding(.horizontal, MacPlaybackBarMetrics.sideGap)
         .padding(.bottom, MacPlaybackBarMetrics.bottomGap)
@@ -96,7 +114,7 @@ struct MacPlaybackBar: View {
 
             HStack(spacing: 2) {
                 if let outputRouter {
-                    MacRemoteButton(router: outputRouter)
+                    MacRemoteButton(router: outputRouter, isPresented: $isShowingRemote)
                 }
                 paneButton(.lyrics, enabled: canShowLyrics)
                 paneButton(.queue, enabled: true)
@@ -199,9 +217,6 @@ struct MacPlaybackBar: View {
                 RemoteControlView(client: outputRouter.client, sessionId: target.linkSessionId, router: outputRouter)
                     .frame(width: 380, height: 560)
             }
-        }
-        .onReceive(RemoteRequest.shared.$request.dropFirst().compactMap { $0 }) { _ in
-            if outputRouter?.remoteTarget != nil { isShowingRemote = true }
         }
     }
 
@@ -621,8 +636,7 @@ private struct MacRouterObserver<Content: View>: View {
 
 private struct MacRemoteButton: View {
     @ObservedObject var router: OutputRouter
-    @ObservedObject private var request = RemoteRequest.shared
-    @State private var isPresented = false
+    @Binding var isPresented: Bool
 
     var body: some View {
         if let target = router.remoteTarget {
@@ -637,9 +651,6 @@ private struct MacRemoteButton: View {
             .popover(isPresented: $isPresented, arrowEdge: .top) {
                 RemoteControlView(client: router.client, sessionId: target.linkSessionId, router: router)
                     .frame(width: 380, height: 560)
-            }
-            .onChange(of: request.request) { _, next in
-                if next != nil { isPresented = true }
             }
         }
     }

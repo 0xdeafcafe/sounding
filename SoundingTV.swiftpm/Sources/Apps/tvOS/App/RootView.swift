@@ -10,6 +10,7 @@ struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("red.forbes.sounding.didSeeTVWelcome", store: .sounding) private var didSeeWelcome = false
     @AppStorage("red.forbes.sounding.tv.usesDeviceMusic", store: .sounding) private var usesDeviceMusic = false
+    @AppStorage(TVWithoutSoundCloud.storageKey, store: .sounding) private var withoutSoundCloud: TVWithoutSoundCloud = .unrecorded
     @ObservedObject private var remoteMusic = RemoteLocalMusic.shared
     @AppStorage("red.forbes.sounding.tv.didAnswerMusicStep", store: .sounding) private var didAnswerMusicStep = false
     @State private var forcesStartScreen = RootView.debugForcesStartScreen
@@ -92,7 +93,8 @@ struct RootView: View {
         remoteMusic.hasMusic && authService.needsSignIn && !usesDeviceMusic
     }
 
-    private func startWithDeviceMusic() {
+    private func startWithDeviceMusic(deliberately: Bool) {
+        withoutSoundCloud = deliberately ? .chosen : .automatic
         usesDeviceMusic = true
         didSeeWelcome = true
         navigationState.selectedTab = .library
@@ -101,7 +103,7 @@ struct RootView: View {
     private func useWithoutSoundCloud() {
         forcesStartScreen = false
         if didAnswerMusicStep {
-            startWithDeviceMusic()
+            startWithDeviceMusic(deliberately: true)
         } else {
             showsMusicStep = true
         }
@@ -111,7 +113,7 @@ struct RootView: View {
         didAnswerMusicStep = true
         didSeeWelcome = true
         showsMusicStep = false
-        if authService.needsSignIn { startWithDeviceMusic() }
+        if authService.needsSignIn { startWithDeviceMusic(deliberately: true) }
     }
 
     @ViewBuilder
@@ -133,6 +135,9 @@ struct RootView: View {
         .onChange(of: authService.needsSignIn) { _, needsSignIn in
             if !needsSignIn { navigationState.isSigningIn = false }
         }
+        .onChange(of: authService.isAuthenticated && !authService.needsSignIn, initial: true) { _, signedIn in
+            if signedIn, withoutSoundCloud != .signedIn { withoutSoundCloud = .signedIn }
+        }
         .onChange(of: authService.needsSignIn, initial: true) { _, needsSignIn in
             let deviceTabs: [NavigationState.Tab] = [.library, .nowPlaying, .settings]
             if needsSignIn, !deviceTabs.contains(navigationState.selectedTab) {
@@ -140,7 +145,7 @@ struct RootView: View {
             }
         }
         .onChange(of: landsInDeviceMusic, initial: true) { _, lands in
-            if lands, !forcesStartScreen { startWithDeviceMusic() }
+            if lands, !forcesStartScreen { startWithDeviceMusic(deliberately: false) }
         }
     }
 
@@ -217,18 +222,34 @@ struct RootView: View {
         .environmentObject(NavigationState())
 }
 
+enum TVWithoutSoundCloud: String {
+    case unrecorded
+    case chosen
+    case automatic
+    case signedIn
+
+    static let storageKey = "red.forbes.sounding.tv.withoutSoundCloud"
+
+    func isDeliberate(usesDeviceMusic: Bool) -> Bool {
+        guard usesDeviceMusic else { return false }
+        return self == .chosen || self == .unrecorded
+    }
+}
+
 private struct SameAccountLinking: ViewModifier {
     @EnvironmentObject var authService: AuthenticationService
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var advertiser = SameAccountLinkAdvertiser.shared
     @ObservedObject private var server = SameAccountLinkAdvertiser.shared.server
     @ObservedObject private var nearby = SameAccountPhoneBrowser.shared
+    @AppStorage("red.forbes.sounding.tv.usesDeviceMusic", store: .sounding) private var usesDeviceMusic = false
+    @AppStorage(TVWithoutSoundCloud.storageKey, store: .sounding) private var withoutSoundCloud: TVWithoutSoundCloud = .unrecorded
     @State private var linkedBanner: String?
     @State private var accountNotice: CompanionServer.AccountNotice?
     @State private var dismissedNearbyName: String?
 
     private var accountKey: String {
-        "\(!authService.needsSignIn)-\(authService.currentUser?.id ?? "")-\(scenePhase != .background)"
+        "\(!authService.needsSignIn)-\(authService.currentUser?.id ?? "")-\(scenePhase != .background)-\(asksToSignIn)"
     }
 
     func body(content: Content) -> some View {
@@ -310,10 +331,14 @@ private struct SameAccountLinking: ViewModifier {
         return "\(name) is nearby. To link it, open Sounding › Devices on it."
     }
 
+    private var asksToSignIn: Bool {
+        authService.needsSignIn && !withoutSoundCloud.isDeliberate(usesDeviceMusic: usesDeviceMusic)
+    }
+
     private func update() {
         let accountId = authService.needsSignIn ? nil : SameAccountLinkAdvertiser.currentAccountId
         let active = scenePhase != .background
-        advertiser.update(accountId: accountId, isActive: active, needsSignIn: authService.needsSignIn)
+        advertiser.update(accountId: accountId, isActive: active, needsSignIn: asksToSignIn)
         nearby.update(accountId: active ? accountId : nil)
         askPhonesToLink()
     }

@@ -12,6 +12,7 @@ struct SoundingWidgetBundle: WidgetBundle {
         ResumeControl()
         #if os(iOS)
         IdentifySongControl()
+        OpenRemoteControl()
         NowPlayingLiveActivity()
         TVSignInLiveActivity()
         #endif
