@@ -173,7 +173,7 @@ enum SoundCloudGatewaySelfTest {
                 context: .init(intent: .autonomous, lane: .metadata)
             )
             report.failures.append("autonomous endpoint cooldown did not engage")
-        } catch SoundCloudGatewayError.endpointCoolingDown {
+        } catch SoundCloudGatewayError.endpointRecovering {
         } catch {
             report.failures.append("unexpected autonomous cooldown error: \(error)")
         }

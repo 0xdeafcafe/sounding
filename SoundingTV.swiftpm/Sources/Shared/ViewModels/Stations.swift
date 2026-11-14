@@ -261,7 +261,7 @@ enum StationQueue {
         if let error = error as? APIError {
             switch error {
             case .rateLimited, .temporarilyBlocked:
-                return error.errorDescription ?? "SoundCloud is limiting requests. Try again later."
+                return SoundCloudLimitNotice.message(for: error, surface: "Stations") ?? "SoundCloud couldn’t start this station. Try again later."
             case .unauthorized:
                 return "Sign in to SoundCloud to play stations."
             default:

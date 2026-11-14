@@ -78,7 +78,10 @@ struct Playlist: Identifiable, Codable, Hashable, Sendable {
         case genre
         case setType = "set_type"
         case tagList = "tag_list"
+        case playlistType = "playlist_type"
     }
+
+    private static let albumReleaseKinds: Set<String> = ["album", "ep", "single", "ep single", "compilation"]
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -96,7 +99,9 @@ struct Playlist: Identifiable, Codable, Hashable, Sendable {
         userFavorite = try container.decodeIfPresent(Bool.self, forKey: .userFavorite) ?? false
         userReposted = try container.decodeIfPresent(Bool.self, forKey: .userReposted) ?? false
         createdAt = try container.decode(Date.self, forKey: .createdAt)
-        isAlbum = try container.decodeIfPresent(Bool.self, forKey: .isAlbum) ?? false
+        let albumFlag = (try? container.decodeIfPresent(Bool.self, forKey: .isAlbum)) ?? nil
+        let releaseKind = (Self.text(container, .setType) ?? Self.text(container, .playlistType))?.lowercased()
+        isAlbum = albumFlag == true || releaseKind.map { Self.albumReleaseKinds.contains($0) } == true
         sharing = try container.decodeIfPresent(String.self, forKey: .sharing) ?? "public"
         user = try container.decode(User.self, forKey: .user)
         lastModified = (try? container.decodeIfPresent(Date.self, forKey: .lastModified)) ?? nil

@@ -144,7 +144,9 @@ struct PhoneHomeView: View {
     }
 
     private var homeFailure: LoadFailure? {
-        guard case .waiting(_, let until) = SoundCloudAPI.shared.trafficSafetyState() else { return nil }
+        guard case .waiting(let statusCode, let until) = SoundCloudAPI.shared.trafficSafetyState() else { return nil }
+        guard statusCode == 429 else { return .server(statusCode) }
+        SoundCloudLimitNotice.shown("Phone Home", cause: .rateLimit, until: until)
         return .rateLimited(until: until)
     }
 

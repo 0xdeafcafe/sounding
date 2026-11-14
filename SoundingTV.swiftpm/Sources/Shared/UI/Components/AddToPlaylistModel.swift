@@ -15,8 +15,8 @@ enum PlaylistEditFailure {
     static func message(for error: Error, action: String) -> String {
         if let apiError = error as? APIError {
             switch apiError {
-            case .rateLimited:
-                return "SoundCloud is limiting requests. Try again in a little while."
+            case .rateLimited, .temporarilyBlocked:
+                return SoundCloudLimitNotice.message(for: apiError, surface: "Playlist edit") ?? "SoundCloud couldn’t \(action). Try again in a little while."
             case .unauthorized, .forbidden:
                 return "Sign in to SoundCloud again, then try again."
             default:

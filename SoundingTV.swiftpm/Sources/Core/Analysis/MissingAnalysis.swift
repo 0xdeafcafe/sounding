@@ -189,9 +189,12 @@ final class MissingAnalysisRun: ObservableObject {
                 finish(message: completionMessage)
                 return
             }
-            if Self.isRateLimited {
+            let traffic = SoundCloudGateway.shared.trafficSafetyState()
+            if let cause = traffic.limitCause {
                 runner = nil
-                finish(message: "Stopped: SoundCloud is limiting requests.")
+                SoundCloudLimitNotice.shown("Missing analysis", cause: cause, until: traffic.resumesAt)
+                let resume = traffic.resumesAt.map { " Resume after \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
+                finish(message: "Stopped: \(SoundCloudLimitNotice.title(for: cause)).\(resume)")
                 return
             }
             if AnalysisLibraryProgress.isTooWarm {
@@ -263,10 +266,5 @@ final class MissingAnalysisRun: ObservableObject {
         progress = HeavyWorkProgress()
         outcome = Outcome()
         if let message { self.message = message }
-    }
-
-    private static var isRateLimited: Bool {
-        if case .waiting = SoundCloudGateway.shared.trafficSafetyState() { return true }
-        return false
     }
 }

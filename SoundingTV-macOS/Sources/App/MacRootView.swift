@@ -23,6 +23,7 @@ struct MacRootView: View {
 
     @State private var isShowingNowPlaying = false
     @State private var isNowPlayingClosing = false
+    @State private var nowPlayingCoversWindow = false
     @State private var isWindowActive = true
     @State private var isShowingSharePlaySignIn = false
     @State private var isShowingActivityInbox = false
@@ -214,6 +215,8 @@ struct MacRootView: View {
     var body: some View {
         ZStack {
             splitView
+                .opacity(nowPlayingCoversWindow ? 0 : 1)
+                .accessibilityHidden(nowPlayingCoversWindow)
                 .allowsHitTesting(!isShowingNowPlaying)
                 .environment(\.macPlaybackAnimationsActive, isWindowActive && !isShowingNowPlaying)
 
@@ -224,6 +227,15 @@ struct MacRootView: View {
         }
             .background(MacWindowActivityReader(isActive: $isWindowActive).frame(width: 0, height: 0))
             .background(MacTrafficLightsKeeper(isActive: hidesWindowChrome).frame(width: 0, height: 0))
+            .task(id: hidesWindowChrome) {
+                guard hidesWindowChrome else {
+                    nowPlayingCoversWindow = false
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled else { return }
+                nowPlayingCoversWindow = true
+            }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: isShowingNowPlaying)
             .downloadRequestPrompts()
             .soundCloudEntitlementAlert()
@@ -995,8 +1007,8 @@ struct MacRootView: View {
 
     @ViewBuilder
     private var trafficStatusBanner: some View {
-        if case .waiting(_, let until) = soundCloudTrafficState {
-            MacTrafficPauseBanner(until: until)
+        if let cause = soundCloudTrafficState.limitCause, let until = soundCloudTrafficState.resumesAt, until > .now {
+            MacTrafficPauseBanner(cause: cause, until: until)
         }
     }
 
@@ -1182,6 +1194,7 @@ private struct MacSidebarRedirect: View {
 }
 
 private struct MacTrafficPauseBanner: View {
+    let cause: SoundCloudLimitCause
     let until: Date
 
     var body: some View {
@@ -1189,7 +1202,7 @@ private struct MacTrafficPauseBanner: View {
             Image(systemName: "clock.badge.exclamationmark")
                 .foregroundStyle(MacSecondaryStyle())
             VStack(alignment: .leading, spacing: 1) {
-                Text("SoundCloud is temporarily limiting requests")
+                Text(SoundCloudLimitNotice.title(for: cause))
                     .font(.subheadline.weight(.semibold))
                 Text("Your sign-in is saved. Everything resumes automatically at \(until.formatted(date: .omitted, time: .shortened)).")
                     .font(.caption)
@@ -1204,6 +1217,7 @@ private struct MacTrafficPauseBanner: View {
         .padding(.horizontal, SCContentStyle.mac.spaceGutter)
         .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
+        .onAppear { SoundCloudLimitNotice.shown("Mac traffic banner", cause: cause, until: until) }
     }
 }
 

@@ -117,6 +117,7 @@ enum SoundCloudGatewayError: Error, LocalizedError, Equatable, Sendable {
     case autonomousWorkSuspended
     case backgroundPaused(until: Date)
     case endpointCoolingDown(lane: SoundCloudRequestLane, until: Date)
+    case endpointRecovering(lane: SoundCloudRequestLane, until: Date)
     case untrustedDestination(String)
     case invalidResponse
 
@@ -128,6 +129,8 @@ enum SoundCloudGatewayError: Error, LocalizedError, Equatable, Sendable {
             return "SoundCloud background updates are paused until \(until.formatted(date: .omitted, time: .shortened))."
         case .endpointCoolingDown(let lane, let until):
             return "SoundCloud \(lane.rawValue) requests are paused until \(until.formatted(date: .abbreviated, time: .shortened))."
+        case .endpointRecovering(_, let until):
+            return "SoundCloud didn’t answer properly. Sounding tries again at \(until.formatted(date: .omitted, time: .shortened))."
         case .untrustedDestination:
             return "SoundCloud returned an untrusted network destination."
         case .invalidResponse:
@@ -347,6 +350,7 @@ final class SoundCloudGateway: ObservableObject {
     private struct EndpointFailure {
         var consecutiveFailures: Int
         var until: Date
+        var rateLimited: Bool
     }
 
     private enum DefaultsKey {
@@ -394,6 +398,7 @@ final class SoundCloudGateway: ObservableObject {
     private var rejectedRequests = 0
     private var requestsByLane: [SoundCloudRequestLane: Int] = [:]
     @Published private(set) var trafficSafety: SoundCloudTrafficSafetyState = .ready
+    private var expiryTask: Task<Void, Never>?
 
     init(
         transport: SoundCloudHTTPTransport? = nil,
@@ -438,6 +443,8 @@ final class SoundCloudGateway: ObservableObject {
         if let until = blockedUntil, until > now() {
             let status = defaults.integer(forKey: DefaultsKey.blockedStatus)
             trafficSafety = .waiting(statusCode: status == 0 ? 429 : status, until: until)
+            logger.notice("Restored a persisted SoundCloud traffic stop (HTTP \(status == 0 ? 429 : status)) until \(until)")
+            scheduleExpiry(at: until)
         }
     }
 
@@ -667,6 +674,7 @@ final class SoundCloudGateway: ObservableObject {
         defaults.set(statusCode, forKey: DefaultsKey.blockedStatus)
         defaults.set(reason, forKey: DefaultsKey.blockedReason)
         trafficSafety = .waiting(statusCode: statusCode, until: effective)
+        scheduleExpiry(at: effective)
         logger.error("Global traffic stop: HTTP \(statusCode), reason \(reason, privacy: .public), until \(effective)")
         return effective
     }
@@ -682,7 +690,7 @@ final class SoundCloudGateway: ObservableObject {
         let contentType = response.value(forHTTPHeaderField: "Content-Type")?.lowercased()
             ?? response.mimeType?.lowercased()
             ?? ""
-        guard contentType.contains("text/html") else { return false }
+        guard contentType.contains("text/html"), response.statusCode == 403 || response.statusCode == 429 else { return false }
         return body.contains("datadome")
             || body.contains("please enable javascript and disable any ad blocker")
     }
@@ -695,16 +703,49 @@ final class SoundCloudGateway: ObservableObject {
     }
 
     private func clearGlobalBlock() {
+        let wasWaiting = trafficSafety != .ready || blockedUntil != nil
         defaults.removeObject(forKey: DefaultsKey.blockedUntil)
         defaults.removeObject(forKey: DefaultsKey.blockedStatus)
         defaults.removeObject(forKey: DefaultsKey.blockedReason)
-        trafficSafety = .ready
+        expiryTask?.cancel()
+        expiryTask = nil
+        if trafficSafety != .ready { trafficSafety = .ready }
+        if wasWaiting { logger.notice("SoundCloud traffic stop expired and was cleared") }
+    }
+
+    private func scheduleExpiry(at until: Date) {
+        expiryTask?.cancel()
+        let delay = max(0, until.timeIntervalSince(now())) + 0.5
+        expiryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int64(delay * 1000)))
+            guard !Task.isCancelled, let self else { return }
+            self.expiryTask = nil
+            if let current = self.blockedUntil, current > self.now() {
+                self.scheduleExpiry(at: current)
+            } else {
+                self.clearGlobalBlock()
+            }
+        }
     }
 
     private func clampPersistedRateLimitStop() {
+        let current = now()
+        if let until = blockedUntil, until <= current {
+            clearGlobalBlock()
+        }
+        for key in [DefaultsKey.backgroundPausedUntil, DefaultsKey.playbackPausedUntil] {
+            guard let until = storedDate(key) else { continue }
+            let ceiling = current.addingTimeInterval(key == DefaultsKey.playbackPausedUntil ? Self.maximumPlaybackPause : Self.maximumServerRetryAfter)
+            if until <= current {
+                defaults.removeObject(forKey: key)
+            } else if until > ceiling {
+                defaults.set(ceiling.timeIntervalSince1970, forKey: key)
+                logger.notice("Clamped a persisted SoundCloud pause \(key, privacy: .public) to \(ceiling)")
+            }
+        }
         guard let until = blockedUntil,
               defaults.string(forKey: DefaultsKey.blockedReason) != BlockReason.challenge else { return }
-        let ceiling = now().addingTimeInterval(Self.rateLimitBackoff.cap)
+        let ceiling = current.addingTimeInterval(Self.rateLimitBackoff.cap)
         guard until > ceiling else { return }
         defaults.set(ceiling.timeIntervalSince1970, forKey: DefaultsKey.blockedUntil)
         logger.notice("Clamped a persisted SoundCloud traffic stop to the \(Int(Self.rateLimitBackoff.cap / 60)) minute ceiling")
@@ -743,7 +784,10 @@ final class SoundCloudGateway: ObservableObject {
         let current = now()
         if current < failure.until {
             rejectedRequests += 1
-            throw SoundCloudGatewayError.endpointCoolingDown(lane: context.lane, until: failure.until)
+            if failure.rateLimited {
+                throw SoundCloudGatewayError.endpointCoolingDown(lane: context.lane, until: failure.until)
+            }
+            throw SoundCloudGatewayError.endpointRecovering(lane: context.lane, until: failure.until)
         }
         endpointFailures[context.lane] = nil
     }
@@ -839,7 +883,7 @@ final class SoundCloudGateway: ObservableObject {
                 until = max(until, min(retryAfter, current.addingTimeInterval(Self.maximumServerRetryAfter)))
             }
             until = max(previous?.until ?? current, until)
-            endpointFailures[context.lane] = EndpointFailure(consecutiveFailures: failures, until: until)
+            endpointFailures[context.lane] = EndpointFailure(consecutiveFailures: failures, until: until, rateLimited: true)
             logger.error("SoundCloud \(context.lane.rawValue, privacy: .public) lane paused after HTTP 429 from \(endpoint, privacy: .public) until \(until); other traffic is unaffected")
             logStop(.laneCooldown, endpoint: endpoint, context: context, until: until)
             return
@@ -935,8 +979,12 @@ final class SoundCloudGateway: ObservableObject {
 
     private static func isBackoff(_ error: (any Error)?) -> Bool {
         switch error {
-        case let gateway as SoundCloudGatewayError: return gateway != .autonomousWorkSuspended
-        case is APIError: return true
+        case let gateway as SoundCloudGatewayError:
+            switch gateway {
+            case .backgroundPaused, .endpointCoolingDown: return true
+            case .autonomousWorkSuspended, .endpointRecovering, .untrustedDestination, .invalidResponse: return false
+            }
+        case let api as APIError: return SoundCloudLimitNotice.cause(of: api) != nil
         default: return false
         }
     }
@@ -955,9 +1003,11 @@ final class SoundCloudGateway: ObservableObject {
             : SoundCloudBackoff(base: 60, cap: 60 * 60, jitter: 0.25)
         let delay = backoff.delay(attempt: failures - 1, unit: random())
         let retryAfter = response.flatMap { Self.retryAfterDate(from: $0, now: now()) }
+        let ongoingRateLimit = endpointFailures[context.lane].map { $0.rateLimited && $0.until > now() } ?? false
         endpointFailures[context.lane] = EndpointFailure(
             consecutiveFailures: failures,
-            until: max(retryAfter ?? now(), now().addingTimeInterval(delay))
+            until: max(endpointFailures[context.lane].flatMap { ongoingRateLimit ? $0.until : nil } ?? now(), retryAfter ?? now(), now().addingTimeInterval(delay)),
+            rateLimited: ongoingRateLimit
         )
         if let until = endpointFailures[context.lane]?.until {
             logger.notice(
@@ -1000,4 +1050,103 @@ final class SoundCloudGateway: ObservableObject {
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
         return formatter
     }()
+}
+
+// MARK: - Limit notices
+
+enum SoundCloudLimitCause: String, Sendable {
+    case rateLimit = "HTTP 429"
+    case challenge = "bot challenge"
+}
+
+extension SoundCloudTrafficSafetyState {
+    var limitCause: SoundCloudLimitCause? {
+        guard case .waiting(let statusCode, _) = self else { return nil }
+        return statusCode == 429 ? .rateLimit : .challenge
+    }
+
+    var resumesAt: Date? {
+        guard case .waiting(_, let until) = self else { return nil }
+        return until
+    }
+}
+
+enum SoundCloudLimitNotice {
+    private static let logger = Logger(subsystem: "red.forbes.sounding", category: "network")
+    private static let recent = OSAllocatedUnfairLock<[String: Date]>(initialState: [:])
+
+    static func cause(of error: any Error) -> SoundCloudLimitCause? {
+        if let api = error as? APIError {
+            switch api {
+            case .rateLimited: return .rateLimit
+            case .temporarilyBlocked(_, let statusCode): return statusCode == 429 ? .rateLimit : .challenge
+            default: return nil
+            }
+        }
+        if let gateway = error as? SoundCloudGatewayError {
+            switch gateway {
+            case .backgroundPaused, .endpointCoolingDown: return .rateLimit
+            default: return nil
+            }
+        }
+        return nil
+    }
+
+    static func resumeDate(of error: any Error) -> Date? {
+        if let api = error as? APIError {
+            switch api {
+            case .rateLimited(let resetAt): return resetAt
+            case .temporarilyBlocked(let until, _): return until
+            default: return nil
+            }
+        }
+        if let gateway = error as? SoundCloudGatewayError {
+            switch gateway {
+            case .backgroundPaused(let until), .endpointCoolingDown(_, let until), .endpointRecovering(_, let until): return until
+            default: return nil
+            }
+        }
+        return nil
+    }
+
+    static func title(for cause: SoundCloudLimitCause) -> String {
+        switch cause {
+        case .rateLimit: return "SoundCloud is limiting requests"
+        case .challenge: return "SoundCloud paused this device"
+        }
+    }
+
+    static func message(for cause: SoundCloudLimitCause, until: Date?) -> String {
+        let resume = until.flatMap { $0 > Date() ? $0 : nil }
+        switch cause {
+        case .rateLimit:
+            guard let resume else { return "SoundCloud is limiting requests. Try again in a few minutes." }
+            return "SoundCloud is limiting requests. Try again after \(resume.formatted(date: .omitted, time: .shortened))."
+        case .challenge:
+            guard let resume else { return "SoundCloud paused requests from this device for a while. Try again later." }
+            return "SoundCloud paused requests from this device. Try again after \(resume.formatted(date: .omitted, time: .shortened))."
+        }
+    }
+
+    static func message(for error: any Error, surface: String) -> String? {
+        guard let cause = cause(of: error) else { return nil }
+        let until = resumeDate(of: error)
+        shown(surface, cause: cause, until: until, detail: String(describing: error))
+        return message(for: cause, until: until)
+    }
+
+    static func shown(_ surface: String, cause: SoundCloudLimitCause, until: Date?, detail: String? = nil) {
+        let key = "\(surface)|\(cause.rawValue)|\(until.map { Int($0.timeIntervalSince1970) } ?? 0)"
+        let current = Date()
+        let isFresh = recent.withLock { seen -> Bool in
+            if let last = seen[key], current.timeIntervalSince(last) < 60 { return false }
+            seen[key] = current
+            if seen.count > 64 { seen = seen.filter { current.timeIntervalSince($0.value) < 60 } }
+            return true
+        }
+        guard isFresh else { return }
+        let resume = until.map { "\($0)" } ?? "unknown"
+        let source = detail ?? "gateway state"
+        logger.notice("Limiting notice shown on \(surface, privacy: .public): cause \(cause.rawValue, privacy: .public), resumes \(resume, privacy: .public), source \(source, privacy: .public)")
+    }
 }

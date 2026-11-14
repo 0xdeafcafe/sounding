@@ -331,7 +331,9 @@ struct PagedFooter: View {
     var continueLoading: () -> Void = {}
 
     private var pausedMessage: String {
-        let base = "SoundCloud is limiting requests. Your sign-in is saved."
+        let cause = SoundCloudGateway.shared.trafficSafetyState().limitCause ?? .rateLimit
+        SoundCloudLimitNotice.shown("Paged list footer", cause: cause, until: resumesAt)
+        let base = "\(SoundCloudLimitNotice.title(for: cause)). Your sign-in is saved."
         guard let resumesAt else { return "\(base) More loads automatically." }
         return "\(base) More loads automatically at \(resumesAt.formatted(date: .omitted, time: .shortened))."
     }

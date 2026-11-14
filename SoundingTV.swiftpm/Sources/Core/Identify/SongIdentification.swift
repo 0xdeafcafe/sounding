@@ -331,7 +331,7 @@ enum IdentifiedSongMatching {
     static func message(for error: Error) -> String {
         switch error as? APIError {
         case .rateLimited?, .temporarilyBlocked?:
-            return "SoundCloud is limiting requests. Try again in a few minutes."
+            return SoundCloudLimitNotice.message(for: error, surface: "Song identification") ?? "Couldn’t reach SoundCloud. Try again in a few minutes."
         case .unauthorized?:
             return "Sign in to SoundCloud to search."
         default:

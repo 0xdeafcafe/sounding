@@ -396,10 +396,10 @@ final class SoundCloudAPI: ObservableObject {
                 Log.api.error("[Auth] token probe rejected by SoundCloud (401)")
                 return .rejected
             case 403, 429:
-                if case .waiting(_, let until) = trafficSafetyState() {
-                    return .unavailable(
-                        "SoundCloud is temporarily limiting account checks until \(until.formatted(date: .abbreviated, time: .shortened))."
-                    )
+                let state = trafficSafetyState()
+                if let cause = state.limitCause, let until = state.resumesAt {
+                    SoundCloudLimitNotice.shown("Account check", cause: cause, until: until)
+                    return .unavailable(SoundCloudLimitNotice.message(for: cause, until: until))
                 }
                 return .unavailable("SoundCloud temporarily refused the account check (HTTP \(http.statusCode)).")
             default:

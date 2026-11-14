@@ -147,12 +147,23 @@ extension LoadFailure {
             case .serverError(let code):
                 return code == 401 ? credentialFailure() : .server(code)
             case .rateLimited(let resetAt):
+                SoundCloudLimitNotice.shown("Phone load failure", cause: .rateLimit, until: resetAt, detail: String(describing: apiError))
                 return .rateLimited(until: resetAt)
-            case .temporarilyBlocked(let until, _):
+            case .temporarilyBlocked(let until, let statusCode):
+                guard statusCode == 429 else { return .server(statusCode) }
+                SoundCloudLimitNotice.shown("Phone load failure", cause: .rateLimit, until: until, detail: String(describing: apiError))
                 return .rateLimited(until: until)
             case .invalidURL, .noStreamURL:
                 return .unknown(apiError.errorDescription ?? "\(apiError)")
             }
+        }
+        if let gateway = error as? SoundCloudGatewayError {
+            if SoundCloudLimitNotice.cause(of: gateway) == .rateLimit {
+                let until = SoundCloudLimitNotice.resumeDate(of: gateway)
+                SoundCloudLimitNotice.shown("Phone load failure", cause: .rateLimit, until: until, detail: String(describing: gateway))
+                return .rateLimited(until: until)
+            }
+            return .unknown(gateway.errorDescription ?? String(describing: gateway))
         }
         return classifyTransport(error)
     }

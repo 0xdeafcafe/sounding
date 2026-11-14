@@ -857,22 +857,40 @@ struct TapeScrubber<Avatar: View>: View {
     private func markerView(_ marker: CommentMarker) -> some View {
         let size = style.markerSize
         let strong = contrast == .increased
-        if marker.comments.count == 1 {
-            avatar(marker.comments[0], size)
-                .frame(width: size, height: size)
-                .clipShape(Circle())
-                .overlay(Circle().strokeBorder(.white.opacity(strong ? 0.6 : 0.18), lineWidth: 0.5))
-                .opacity(strong ? 1 : 0.85)
-        } else {
-            Text(marker.comments.count > 99 ? "99+" : "\(marker.comments.count)")
-                .font(.system(size: max(7, size * 0.62), weight: .medium).monospacedDigit())
-                .foregroundStyle(.white.opacity(strong ? 0.9 : 0.62))
-                .lineLimit(1)
-                .padding(.horizontal, size * 0.22)
-                .frame(minWidth: size, minHeight: size)
-                .background(.white.opacity(strong ? 0.3 : 0.1), in: Capsule())
-                .fixedSize()
+        let count = marker.comments.count
+        ZStack {
+            if count > 1 {
+                markerAvatar(marker.comments[1], size: size, strong: strong)
+                    .offset(x: size * 0.42)
+                    .opacity(0.7)
+            }
+            markerAvatar(marker.comments[0], size: size, strong: strong)
+                .offset(x: count > 1 ? -size * 0.21 : 0)
         }
+        .frame(width: size * (count > 1 ? 1.42 : 1), height: size)
+        .overlay(alignment: .bottomTrailing) {
+            if count >= Self.clusterBadgeThreshold {
+                Text(count > 99 ? "99+" : "\(count)")
+                    .font(.system(size: max(9, size * 0.7), weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .padding(.horizontal, 3)
+                    .background(.black.opacity(strong ? 0.85 : 0.6), in: Capsule())
+                    .fixedSize()
+                    .offset(x: size * 0.45, y: size * 0.55)
+            }
+        }
+        .opacity(strong ? 1 : 0.9)
+        .accessibilityLabel(count == 1 ? "1 comment" : "\(count) comments")
+    }
+
+    private static var clusterBadgeThreshold: Int { 3 }
+
+    private func markerAvatar(_ comment: TapeComment, size: CGFloat, strong: Bool) -> some View {
+        avatar(comment, size)
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+            .overlay(Circle().strokeBorder(.white.opacity(strong ? 0.6 : 0.25), lineWidth: 0.5))
     }
 
     private func markerOpacity(_ x: CGFloat, f: Frame, reach: CGFloat?, leading: CGFloat, trailing: CGFloat) -> Double {

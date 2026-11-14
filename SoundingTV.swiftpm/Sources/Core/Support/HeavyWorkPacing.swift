@@ -24,7 +24,7 @@ enum HeavyWorkPause: String, Codable, Sendable, Equatable {
         case .cellular: return "paused on cellular"
         case .playback: return "paused while streaming"
         case .listening: return "paused while playing"
-        case .rateLimited: return "paused by SoundCloud"
+        case .rateLimited: return "waiting for SoundCloud"
         }
     }
 }

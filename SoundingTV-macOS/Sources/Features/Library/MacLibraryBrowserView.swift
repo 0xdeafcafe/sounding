@@ -137,7 +137,7 @@ extension Error {
             case .notFound:
                 return "SoundCloud couldn’t find that."
             case .rateLimited, .temporarilyBlocked:
-                return "SoundCloud is limiting requests right now. Try again in a few minutes."
+                return SoundCloudLimitNotice.message(for: api, surface: "Mac library") ?? "Something went wrong talking to SoundCloud. Try again."
             case .noStreamURL:
                 return "This track can’t be played on this account."
             case .invalidURL, .networkError, .decodingError, .serverError:
@@ -146,6 +146,10 @@ extension Error {
         }
         if (self as NSError).domain == NSURLErrorDomain {
             return "Couldn’t reach SoundCloud. Check your connection and try again."
+        }
+        if let gateway = self as? SoundCloudGatewayError {
+            if let limited = SoundCloudLimitNotice.message(for: gateway, surface: "Mac library") { return limited }
+            return gateway.errorDescription ?? "Something went wrong talking to SoundCloud. Try again."
         }
         return "Something went wrong talking to SoundCloud. Try again."
     }
@@ -747,6 +751,7 @@ final class MacLibraryModel: ObservableObject {
     }
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
+    private var errorIsPause = false
 
     let paginator: Paginator<Track>
     private var subscriptions = Set<AnyCancellable>()
@@ -774,6 +779,15 @@ final class MacLibraryModel: ObservableObject {
             .store(in: &subscriptions)
         paginator.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &subscriptions)
+        paginator.$pausedUntil
+            .dropFirst()
+            .filter { $0 == nil }
+            .sink { [weak self] _ in
+                guard let self, self.errorIsPause else { return }
+                self.errorIsPause = false
+                self.errorMessage = nil
+            }
             .store(in: &subscriptions)
         paginator.onAppend = { [weak self] _ in
             Task { await self?.refreshAnalysis() }
@@ -1081,8 +1095,13 @@ final class MacLibraryModel: ObservableObject {
             await paginator.reload()
             guard !Task.isCancelled, mode == .liked else { return }
             if paginator.isPaused {
-                let resumes = paginator.pausedUntil.map { " at \($0.formatted(date: .omitted, time: .shortened))" } ?? ""
-                errorMessage = "SoundCloud is limiting requests. Your sign-in is saved. Likes load automatically\(resumes)."
+                let state = SoundCloudGateway.shared.trafficSafetyState()
+                let cause = state.limitCause ?? .rateLimit
+                let resume = paginator.pausedUntil ?? state.resumesAt
+                SoundCloudLimitNotice.shown("Mac Liked", cause: cause, until: resume)
+                let resumes = resume.map { " at \($0.formatted(date: .omitted, time: .shortened))" } ?? ""
+                errorMessage = "\(SoundCloudLimitNotice.title(for: cause)). Your sign-in is saved. Likes load automatically\(resumes)."
+                errorIsPause = true
             } else {
                 errorMessage = paginator.firstError.map(\.macUserFacingMessage)
             }
