@@ -40,12 +40,12 @@ const STOPS = [
 
 const CAM = {
   wide: { tw: 0.7, cx: 0.47, cy: 0.4, d: 1 },
-  pair: { tw: 0.6, cx: 0.4, cy: 0.4, d: 0.55 },
+  pair: { tw: 0.58, cx: 0.36, cy: 0.38, d: 0.55 },
   tv: { tw: 0.95, cx: 0.5, cy: 0.46, d: 0 },
 };
 const CAM_M = {
   wide: { tw: 0.8, cx: 0.5, cy: 0.42, d: 1 },
-  pair: { tw: 0.66, cx: 0.36, cy: 0.4, d: 0 },
+  pair: { tw: 0.6, cx: 0.33, cy: 0.38, d: 0 },
   tv: { tw: 1, cx: 0.5, cy: 0.5, d: 0 },
 };
 const FOCUS = { np: [1.7, 0.27, 0.3], upnext: [1.7, 0.74, 0.32], amb: [1.15, 0.5, 0.5], mixup: [1.6, 0.33, 0.52], mixblend: [1.45, 0.5, 0.5], decks: [1.45, 0.5, 0.45], trackmap: [1.6, 0.4, 0.32], cues: [1.7, 0.7, 0.38], lyrics: [1.25, 0.42, 0.5], sign: [1, 0.5, 0.5] };
@@ -167,21 +167,22 @@ function roomPage() {
     const ga = glow[A.tv] || [40, 70, 200], gb = glow[B.tv] || ga;
     root.style.setProperty('--glow', `rgb(${ga.map((c, q) => Math.round(lerp(c, gb[q], w))).join(' ')})`);
 
-    const pk = smooth((t - 0.3) / 0.4);
-    const pv = lerp(A.phone ? 1 : 0, B.phone ? 1 : 0, pk), wv = lerp(A.watch, B.watch, pk);
+    const swap = (a, b) => a === b ? a : a > b ? lerp(a, b, smooth((t - 0.1) / 0.35)) : lerp(a, b, smooth((t - 0.55) / 0.35));
+    const pv = swap(A.phone ? 1 : 0, B.phone ? 1 : 0), wv = swap(A.watch, B.watch);
     const ps = STOPS[Math.round(pe)].phone || A.phone || B.phone;
     if (ps) { const key = JSON.stringify(ps); if (key !== phoneKey) { phoneKey = key; panes.set('phone', ps); } }
-    const ph = mobile ? art.h * 0.84 : Math.min(art.h * 0.64, 600);
+    const ph = mobile ? art.h * 0.78 : Math.min(art.h * 0.62, 580);
     const pw = ph * 0.48;
     phone.style.width = `${pw}px`;
-    const px = art.x + art.w * (mobile ? 0.8 : 0.83) - pw / 2, py = art.y + art.h * (mobile ? 0.5 : 0.58) - ph / 2;
+    const edge = clamp(art.w * 0.04, 14, 28);
+    const px = mobile ? art.x + art.w - pw - edge : Math.min(art.x + art.w * 0.86 - pw / 2, art.x + art.w - pw - edge), py = art.y + art.h * (mobile ? 0.52 : 0.62) - ph / 2;
     phone.style.transform = `translate3d(${px.toFixed(1)}px, ${(py + (1 - pv) * (art.h * 0.9 + 60)).toFixed(1)}px, 0) rotate(${lerp(9, mobile ? -3 : -5, pv).toFixed(2)}deg)`;
     phone.style.opacity = pv > 0.001 ? 1 : 0;
     panes.show('phone', pv > 0.001);
     const wh = ph * 0.4;
     const ww = wh * 0.837;
     watch.style.width = `${ww}px`;
-    const wx = art.x + art.w * (mobile ? 0.78 : 0.82) - ww / 2, wy = art.y + art.h * (mobile ? 0.48 : 0.56) - wh / 2;
+    const wx = px + pw / 2 - ww / 2 - ww * 0.06, wy = art.y + art.h * (mobile ? 0.5 : 0.56) - wh / 2;
     watch.style.transform = `translate3d(${wx.toFixed(1)}px, ${(wy + (1 - wv) * (art.h * 0.8 + 60)).toFixed(1)}px, 0) rotate(${lerp(-10, 4, wv).toFixed(2)}deg)`;
     watch.style.opacity = wv > 0.001 ? 1 : 0;
     panes.show('watch', wv > 0.001);
