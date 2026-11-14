@@ -661,17 +661,9 @@ function tvCtl(ctx, sc, top) {
   icon(ctx, 'pause', 49.7, cy - 1.3, 2.6, '#111');
   text(ctx, 'Pause', 51, top + 6.8, 2.2, { w: 600, align: 'center' });
 }
-const HOME_HERO = ['Top Picks for You', 'Low Sun Over the Dyke', 'Marit Vos'];
+const HOME_HERO = LIKES[at('hearthug-computerized-souls')];
 const HOME_TABS = ['Home', 'Library', 'Decks', 'Stations', 'Now Playing', 'Settings'];
-const HOME_ROW = [
-  ['kyle-starkey-boom-boom-jam', 'Glasshouse', 'Ellis Marr'],
-  ['hearthug-alien', 'Night Bus Home', 'Koen Daal'],
-  ['benwal-just-go', 'Copper Wire', 'Ines Ferro'],
-  ['pegassi-227kg', 'Tidal Static', 'Halden'],
-  ['kyle-starkey-tryton', 'Field Notes', 'Ruth Okafor'],
-  ['kyle-starkey-love-euphoria', 'Second Wind', 'Moll & Brick'],
-  ['benwal-dive', 'Room Tone', 'Sable Days'],
-];
+const HOME_ROW = ['kyle-starkey-boom-boom-jam', 'hearthug-alien', 'benwal-just-go', 'pegassi-227kg', 'kyle-starkey-tryton', 'kyle-starkey-love-euphoria', 'benwal-dive'].map(n => LIKES[at(n)]);
 function homeBack(ctx, sc) {
   const H = sc.H;
   ctx.fillStyle = cssLinear(ctx, 180, 0, 0, 100, H, [[0, '#1c1c1c'], [1, '#0d0d0d']]);
@@ -724,9 +716,9 @@ function homeHero(ctx, sc) {
   const s = 20.5, ax = 100 - 4.2 - s, ay = 8, bottom = ay + s, by = bottom - 3.4;
   shadow(ctx, sc, ax, ay, s, s, 1, 1, 2.6, 'rgba(0,0,0,.45)');
   art(ctx, sc, HOME_ART, ax, ay, s, s, 1);
-  const [eyebrow, title, artist] = HOME_HERO;
-  text(ctx, eyebrow, 4.2, by - 12.4, 1.35, { w: 600, c: 'rgba(255,255,255,.62)' });
-  text(ctx, title, 4.2, by - 10.4, 4, { w: 700, lh: 1.1, max: 60 });
+  const [, title, artist] = HOME_HERO, ls = wrap(title, 3.2, 700, 58, 2), ty = by - 5.8 - ls.length * 3.6;
+  text(ctx, 'Top Picks for You', 4.2, ty - 2.1, 1.35, { w: 600, c: 'rgba(255,255,255,.62)' });
+  ls.forEach((l, i) => text(ctx, l, 4.2, ty + i * 3.6, 3.2, { w: 700, lh: 1.1 }));
   text(ctx, artist, 4.2, by - 5.6, 2, { c: 'rgba(255,255,255,.62)', max: 60 });
   const pill = (x, label, n, tint) => {
     const w = 1.6 + 1.6 + 0.7 + tw(label, 1.5, 600) + 1.8;
@@ -741,12 +733,12 @@ function homeHero(ctx, sc) {
 function homeRow(ctx, sc) {
   const x0 = 4.2, y0 = 34.4, s = 12.6, gap = 1.8;
   text(ctx, 'Recently Played', x0, y0 - 4.1, 2, { w: 700 });
-  HOME_ROW.forEach(([file, title, artist], i) => {
+  HOME_ROW.forEach(([n, title, artist], i) => {
     const x = x0 + i * (s + gap);
     if (!i || x > 100) return;
-    art(ctx, sc, small(file), x, y0, s, s, 0.6);
-    text(ctx, title, x, y0 + s + 0.6, 1.45, { w: 500, c: 'rgba(255,255,255,.62)', max: s });
-    text(ctx, artist, x, y0 + s + 2.5, 1.3, { c: 'rgba(255,255,255,.4)', max: s });
+    art(ctx, sc, small(n), x, y0, s, s, 0.6);
+    text(ctx, title, x, y0 + s + 0.6, 1.45, { w: 500, c: 'rgba(255,255,255,.62)', max: s - 0.8 });
+    text(ctx, artist, x, y0 + s + 2.5, 1.3, { c: 'rgba(255,255,255,.4)', max: s - 0.8 });
   });
   const [file, title, artist] = HOME_ROW[0], fs = s * 1.15, fx = x0 + s / 2 - fs / 2, fy = y0 + s / 2 - fs / 2 - 0.5;
   ctx.save();

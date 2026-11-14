@@ -107,6 +107,7 @@ html:not(.room) .hero .beat { display: grid; gap: 1.2rem; max-width: 40rem; }
 html:not(.room) .hero .lede { color: var(--ink2); }
 .frame { position: relative; aspect-ratio: 16 / 9; padding: 1.1%; border-radius: 10px; background: linear-gradient(#141210, #070605); box-shadow: 0 0 0 1.5px #2a2522, 0 30px 70px rgb(0 0 0 / .5); }
 .frame img, .frame canvas { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 3px; background: #000; }
+.shot .frame + .frame { margin-top: clamp(16px, 2.5vw, 32px); }
 
 @media (max-width: 860px), (max-aspect-ratio: 1/1) {
   html[data-side="b"] { --head: 56px; --band: min(46svh, 92vw); }
