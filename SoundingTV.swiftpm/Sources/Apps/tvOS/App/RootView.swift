@@ -313,7 +313,7 @@ private struct SameAccountLinking: ViewModifier {
     private func update() {
         let accountId = authService.needsSignIn ? nil : SameAccountLinkAdvertiser.currentAccountId
         let active = scenePhase != .background
-        advertiser.update(accountId: accountId, isActive: active)
+        advertiser.update(accountId: accountId, isActive: active, needsSignIn: authService.needsSignIn)
         nearby.update(accountId: active ? accountId : nil)
         askPhonesToLink()
     }

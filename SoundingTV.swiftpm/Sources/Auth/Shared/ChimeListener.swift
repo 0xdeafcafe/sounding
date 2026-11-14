@@ -482,6 +482,9 @@ final class NearbyTVSignIn: ObservableObject {
     @Published var invitedName: String?
     var preferredRendezvous: String?
     var preferredSessionIdPrefix: String?
+    var requestsChime = false
+    private let chimeRequest = ChimePlayRequest()
+    private var requestedChime = false
 
     var invitedOffer: LinkOfferBrowser.Offer? {
         guard let preferredRendezvous else { return nil }
@@ -562,7 +565,27 @@ final class NearbyTVSignIn: ObservableObject {
         heard = [:]
         attempted = []
         budget.reset()
+        chimeRequest.cancel()
+        requestedChime = false
         if forcedPhase == nil { phase = .idle }
+    }
+
+    private func requestChimeIfNeeded() {
+        guard requestsChime, !requestedChime, phase == .listening, chosen == nil else { return }
+        let waiting = browser.offers.filter { $0.kind == .tv && !$0.isSignedIn }
+        let named = invitedName.flatMap { name in
+            waiting.first { $0.claimedName.localizedCaseInsensitiveCompare(name) == .orderedSame }
+        }
+        let preferred = waiting.first { offer in
+            (preferredSessionIdPrefix.map { offer.sessionIdPrefix == $0 } ?? false)
+                || (preferredRendezvous.map { offer.rendezvous == $0 } ?? false)
+        }
+        guard let target = preferred ?? named ?? (waiting.count == 1 ? waiting.first : nil) else { return }
+        requestedChime = true
+        Log.link.info("[NearbyTVSignIn] asking \(target.claimedName, privacy: .public) to play its sound")
+        chimeRequest.send(to: target) { played in
+            if !played { Log.link.info("[NearbyTVSignIn] the Apple TV didn't play its sound on request") }
+        }
     }
 
     private func beginListening() {
@@ -572,6 +595,7 @@ final class NearbyTVSignIn: ObservableObject {
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
                 self?.tryPendingCodes()
+                self?.requestChimeIfNeeded()
             }
         listenStart?.cancel()
         listenStart = Task { @MainActor [weak self] in
@@ -581,6 +605,7 @@ final class NearbyTVSignIn: ObservableObject {
                 guard !Task.isCancelled, self.listener.isRunning else { return }
                 self.phase = .listening
                 self.startLevelUpdates()
+                self.requestChimeIfNeeded()
             } catch {
                 guard !Task.isCancelled else { return }
                 Log.link.error("[NearbyTVSignIn] couldn't listen: \(error.localizedDescription, privacy: .public)")

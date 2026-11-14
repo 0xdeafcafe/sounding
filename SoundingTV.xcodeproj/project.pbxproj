@@ -572,6 +572,7 @@
 		35B8B26914DD0642F0295750 /* PeerAccountWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8078A0E56096FF6DE086A54 /* PeerAccountWireTests.swift */; };
 		252326F590CFC675CF378BA8 /* TVAccountRelationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A794E72A0834259BD5310E13 /* TVAccountRelationTests.swift */; };
 		7C1A2B3D4E5F60718293A4B5 /* MacSameAccountOfferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D2B3C4E5F60718293A4B5C6 /* MacSameAccountOfferTests.swift */; };
+		5157A1E5000000000000A002 /* TVSignInWatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5157A1E5000000000000A001 /* TVSignInWatchTests.swift */; };
 		CC2D791589E9BB620646572B /* TVSignInLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7309A9CB427C73F5FDD6DE2 /* TVSignInLiveActivity.swift */; };
 		72D70A1ADE63B0C6DD2CBD87 /* TVSignInLiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4BD51AF5083F4660AB95F96 /* TVSignInLiveActivityController.swift */; };
 		0FADAC582B4730BD64C14EBD /* TVSignInRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B9C2DA8658A749AD9197716 /* TVSignInRequests.swift */; };
@@ -2374,6 +2375,7 @@
 		F8078A0E56096FF6DE086A54 /* PeerAccountWireTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerAccountWireTests.swift; sourceTree = "<group>"; };
 		A794E72A0834259BD5310E13 /* TVAccountRelationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAccountRelationTests.swift; sourceTree = "<group>"; };
 		8D2B3C4E5F60718293A4B5C6 /* MacSameAccountOfferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSameAccountOfferTests.swift; sourceTree = "<group>"; };
+		5157A1E5000000000000A001 /* TVSignInWatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSignInWatchTests.swift; sourceTree = "<group>"; };
 		F7309A9CB427C73F5FDD6DE2 /* TVSignInLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSignInLiveActivity.swift; sourceTree = "<group>"; };
 		E4BD51AF5083F4660AB95F96 /* TVSignInLiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSignInLiveActivityController.swift; sourceTree = "<group>"; };
 		2B9C2DA8658A749AD9197716 /* TVSignInRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSignInRequests.swift; sourceTree = "<group>"; };
@@ -3726,6 +3728,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				F8078A0E56096FF6DE086A54 /* PeerAccountWireTests.swift */,
 				A794E72A0834259BD5310E13 /* TVAccountRelationTests.swift */,
 				8D2B3C4E5F60718293A4B5C6 /* MacSameAccountOfferTests.swift */,
+				5157A1E5000000000000A001 /* TVSignInWatchTests.swift */,
 				949C960054E3837436057D23 /* DJPlayersTests.swift */,
 				44634F4493EF3E0E6FD246BB /* DJPlayersStickTests.swift */,
 				04F093C5CB7D4A0583191EA9 /* RekordboxShareTests.swift */,
@@ -6387,6 +6390,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				35B8B26914DD0642F0295750 /* PeerAccountWireTests.swift in Sources */,
 				252326F590CFC675CF378BA8 /* TVAccountRelationTests.swift in Sources */,
 				7C1A2B3D4E5F60718293A4B5 /* MacSameAccountOfferTests.swift in Sources */,
+				5157A1E5000000000000A002 /* TVSignInWatchTests.swift in Sources */,
 				108EB92F649F25B61F79A0DB /* DJPlayersStickTests.swift in Sources */,
 				D5B0E1A00000000000000001 /* DJUSBExportRoundTripTests.swift in Sources */,
 				1D90660C408941115210013B /* DJStickLibrary.swift in Sources */,

@@ -1220,6 +1220,7 @@ final class CompanionClient: ObservableObject {
             lastDeviceStatusMillis = status.issuedAtMillis
             if peerNeedsSignIn != status.needsSignIn { peerNeedsSignIn = status.needsSignIn }
             if !status.needsSignIn { endPeerSignInRequest() }
+            TVSignInEvidence.shared.noteLinked(name: link.peerName, kind: link.peerClass, needsSignIn: status.needsSignIn)
             Log.link.info("[CompanionClient] \(self.linkedName, privacy: .public) needs sign-in=\(status.needsSignIn, privacy: .public)")
 
         case .accountStatus:

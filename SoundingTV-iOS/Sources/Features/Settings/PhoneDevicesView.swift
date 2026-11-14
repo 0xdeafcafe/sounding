@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import VisionKit
 
@@ -128,12 +129,23 @@ final class DevicePairingFlow: ObservableObject {
 
     private(set) var peerName: String?
     private(set) var peerClass: DeviceClass = .tv
+    private var presentedAt: Date?
+    private var evidenceWatch: AnyCancellable?
 
     init() {
         listening = NearbyTVSignIn(browser: nearby, forcedPhase: NearbyTVDebugStory.forcedPhase)
+        listening.requestsChime = true
         sameAccount = SameAccountLinkModel(browser: nearby)
         card = NearbyDeviceCardModel(browser: nearby, sameAccount: sameAccount)
         card.onEvent = { [weak self] event in self?.handleCard(event) }
+        evidenceWatch = TVSignInEvidence.shared.$revision
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.observeEvidence() }
+        TVSignInInbox.shared.isOfferedInApp = { [weak self] name in
+            guard let self, self.showsNearbyCard else { return false }
+            return self.card.offersSignIn(name: name)
+        }
         #if DEBUG
         if NearbyTVDebugStory.forcedPhase != nil { isPresented = true }
         #endif
@@ -141,12 +153,39 @@ final class DevicePairingFlow: ObservableObject {
 
     func addDevice() {
         method = .listen
-        isPresented = true
+        present()
     }
 
     func signInNearbyTV() {
         method = .listen
+        present()
+    }
+
+    private func present() {
+        if !isPresented { presentedAt = Date() }
         isPresented = true
+    }
+
+    private func observeEvidence() {
+        guard isPresented, let since = presentedAt else { return }
+        let evidence = TVSignInEvidence.shared
+        guard let target = signInTargets.first(where: { evidence.signedIn(name: $0.name, kind: $0.kind, since: since) }) else { return }
+        Log.link.info("[DevicePairingFlow] \(target.name, privacy: .public) signed in; closing the sheet")
+        TVSignInLiveActivityController.shared.succeed()
+        dismiss()
+    }
+
+    private var signInTargets: [(name: String, kind: DeviceClass)] {
+        var targets: [(name: String, kind: DeviceClass)] = []
+        if let invited = listening.invitedName { targets.append((name: invited, kind: .tv)) }
+        switch listening.phase {
+        case .found(let name, let kind): targets.append((name: name, kind: kind))
+        case .signingIn(let name): targets.append((name: name, kind: .tv))
+        default: break
+        }
+        if let handshake { targets.append((name: handshake.claimedName, kind: handshake.kind)) }
+        if case .picked(let invitation) = method { targets.append((name: invitation.tvName, kind: invitation.kind)) }
+        return targets
     }
 
     var isInvited: Bool {
@@ -155,6 +194,10 @@ final class DevicePairingFlow: ObservableObject {
     }
 
     func accept(_ invitation: TVSignInInvitation) {
+        if case .nearby(let request) = invitation, card.isSigningIn(name: request.tvName) {
+            Log.link.info("[DevicePairingFlow] already signing in \(request.tvName, privacy: .public) from the card")
+            return
+        }
         handshake?.stop()
         handshake = nil
         listening.stop()
@@ -169,13 +212,13 @@ final class DevicePairingFlow: ObservableObject {
             method = .picked(picked)
         }
         TVSignInLiveActivityController.shared.begin(tvName: invitation.tvName, kind: invitation.kind)
-        isPresented = true
+        present()
     }
 
     func confirm(_ offer: LinkOfferBrowser.Offer) {
         handshake?.stop()
         handshake = LinkConfirmationHandshake(offer: offer)
-        isPresented = true
+        present()
     }
 
     func linkSameAccountTV() {
@@ -209,13 +252,15 @@ final class DevicePairingFlow: ObservableObject {
             TVSignInLiveActivityController.shared.cancel()
         case .linked(let linked):
             link(sessionId: linked.sessionId, secret: linked.secret, peerName: linked.name, peerClass: linked.kind)
+        case .signedIn:
+            TVSignInLiveActivityController.shared.succeed()
         case .linkSameAccount:
             linkSameAccountTV()
         case .useCode:
             TVSignInLiveActivityController.shared.cancel()
             listening.stop()
             method = .scan
-            isPresented = true
+            present()
         }
     }
 
@@ -231,6 +276,7 @@ final class DevicePairingFlow: ObservableObject {
         listening.preferredRendezvous = nil
         if case .picked = method { method = .listen }
         isPresented = false
+        presentedAt = nil
         TVSignInLiveActivityController.shared.cancel()
     }
 
