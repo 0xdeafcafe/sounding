@@ -17,6 +17,7 @@
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
   <script>(function(r){var c=r.classList;c.add('js');if(matchMedia('(prefers-reduced-motion: reduce)').matches||/[?&]still/.test(location.search))c.add('still');else{c.add('room');setTimeout(function(){if(!c.contains('ready')){c.remove('room');c.add('still')}},5000)}})(document.documentElement)</script>
   <link rel="stylesheet" href="../assets/site.css">
+  <link rel="stylesheet" href="../assets/devices.css">
   <link rel="stylesheet" href="../assets/tv.css">
   <link rel="preload" as="image" href="../assets/shots/tv-np.webp">
   <link rel="modulepreload" href="../assets/screens.js">
@@ -51,12 +52,12 @@
               <img class="layer" data-screen="decks" src="../assets/shots/tv-decks.webp" alt="" width="1600" height="900" decoding="async" loading="lazy">
               <img class="layer" data-screen="trackmap" src="../assets/shots/tv-trackmap.webp" alt="" width="1600" height="900" decoding="async" loading="lazy">
               <img class="layer" data-screen="cues" src="../assets/shots/tv-cues.webp" alt="" width="1600" height="900" decoding="async" loading="lazy">
-              <img class="layer" data-screen="lyrics" src="../assets/shots/tv-lyrics.webp" alt="" width="1600" height="900" decoding="async" loading="lazy">
+              <div class="layer lyr" data-screen="lyrics"><div class="lines"><p>the kettle’s on, the room is dark</p><p>the TV hums along</p><p class="now">one more track, then bed</p><p>it was not one more track</p><p>the neighbours know the drop by now</p></div></div>
             </div>
           </div>
         </div>
-        <div class="hand phone"><div class="slot"></div></div>
-        <div class="hand watch"><div class="slot"></div></div>
+        <div class="hand phone iphone"><div class="body"><div class="bezel"><div class="glass slot"></div></div></div><i class="b act"></i><i class="b vu"></i><i class="b vd"></i><i class="b pw"></i></div>
+        <div class="hand watch awatch"><i class="band t"></i><i class="band u"></i><div class="case"><div class="bezel"><div class="glass slot"></div></div></div><i class="crown"></i><i class="push"></i></div>
       </div>
 
       <div class="copy">
@@ -124,7 +125,7 @@
 
         <section class="ch" id="lyrics" aria-labelledby="lyrics-h">
           <h2 class="ink" id="lyrics-h">Lyrics, if you want them.</h2>
-          <figure class="shot" aria-hidden="true"><div class="frame"><img src="../assets/shots/tv-lyrics.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></div></figure>
+          <figure class="shot" aria-hidden="true"><div class="frame"><div class="lyr"><div class="lines"><p>the kettle’s on, the room is dark</p><p>the TV hums along</p><p class="now">one more track, then bed</p><p>it was not one more track</p><p>the neighbours know the drop by now</p></div></div></div></figure>
           <div class="caps">
             <p class="cap beat" data-stop="lrclib"><b>They come from LRCLIB,</b> a free lyrics database, and they’re off until you say yes. Nothing goes to it before then.</p>
             <p class="cap beat" data-stop="full"><b>On the TV they go full screen</b> over the artwork, the line being sung in white and the rest fading away. Select a line to jump to it.</p>

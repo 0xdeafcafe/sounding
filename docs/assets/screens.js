@@ -356,8 +356,26 @@ function phone(ctx, sc, friend) {
   }
   sc.view(ctx, b, { s: 1.03 - 0.03 * b, direct: true }, x => sc.layer(x, 'cues', y => phCues(y, sc)));
   const k = Math.round(255 * (1 - (friend ? 0 : sc.v('sbd')))), c = `rgb(${k},${k},${k})`;
-  text(ctx, '21:47', 12.5, 4.8, 4.7, { w: 600, c });
-  box(ctx, 82.9, 4.8 + (5.875 - 3.6) / 2, 7.6, 3.6, 1.2, c);
+  text(ctx, '21:47', 17, 4.9, 4.7, { w: 600, c, align: 'center' });
+  status(ctx, 7.8, c);
+  box(ctx, 34.4, 2.7, 31.2, 9.2, 4.6, '#000');
+}
+function status(ctx, cy, c) {
+  ctx.save();
+  for (let i = 0; i < 4; i++) { const h = 1.2 + i * 0.62; box(ctx, 67.4 + i * 1.5, cy + 1.3 - h, 1.05, h, 0.35, c); }
+  ctx.strokeStyle = c;
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 0.78;
+  for (const r of [1.55, 2.95]) { ctx.beginPath(); ctx.arc(76.8, cy + 1.45, r, -Math.PI * 0.76, -Math.PI * 0.24); ctx.stroke(); }
+  dot(ctx, 76.8, cy + 1.05, 0.5, c);
+  ctx.globalAlpha = 0.4;
+  rr(ctx, 81.3, cy - 1.75, 7.1, 3.5, 1.15);
+  ctx.lineWidth = 0.42;
+  ctx.stroke();
+  box(ctx, 88.75, cy - 0.6, 0.55, 1.2, 0.27, c);
+  ctx.globalAlpha = 1;
+  box(ctx, 81.9, cy - 1.15, 5.1, 2.3, 0.7, c);
+  ctx.restore();
 }
 function phLib(ctx, sc) {
   sc.layer(ctx, 'lib', x => {
