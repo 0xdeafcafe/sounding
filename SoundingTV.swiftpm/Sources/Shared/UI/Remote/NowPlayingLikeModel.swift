@@ -75,11 +75,13 @@ enum LikeRetryPolicy {
     }
 
     static func message(for error: any Error, stoppedUntil: Date?) -> String {
-        if isRateLimit(error) {
-            if let stoppedUntil {
-                return "SoundCloud is limiting requests. Try again after \(stoppedUntil.formatted(date: .omitted, time: .shortened))."
-            }
-            return "SoundCloud is limiting requests. Try again in a few minutes."
+        if isRateLimit(error), let cause = SoundCloudLimitNotice.cause(of: error) {
+            let until = stoppedUntil ?? SoundCloudLimitNotice.resumeDate(of: error)
+            SoundCloudLimitNotice.shown("Like", cause: cause, until: until, detail: String(describing: error))
+            return SoundCloudLimitNotice.message(for: cause, until: until)
+        }
+        if case SoundCloudGatewayError.endpointRecovering = error {
+            return "SoundCloud didn’t answer properly. Try again in a moment."
         }
         if let api = error as? APIError {
             switch api {

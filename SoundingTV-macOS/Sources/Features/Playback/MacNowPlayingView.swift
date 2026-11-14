@@ -431,23 +431,26 @@ struct MacNowPlayingView: View {
     private func layout(_ track: Track, size: CGSize) -> some View {
         let leading = max(40, size.width * 0.076)
         let trailing = max(28, size.width * 0.042)
-        let gap = max(36, size.width * 0.0625)
+        let gap = min(96, max(36, size.width * 0.0625))
         let vertical = max(36, size.height * 0.056)
         let deck = Self.tapeStyle.height + MacNowPlayingTransport.height + 14 + 46 + autoMixReserve
-        let art = max(200, min(size.width * 0.26, size.height - vertical - deck - 170, 520))
+        let art = max(160, min(size.width * 0.26, size.height - vertical - deck - 170, 520))
         return VStack(spacing: 0) {
             HStack(alignment: .top, spacing: gap) {
                 playerColumn(track, art: art)
                     .frame(width: art)
                 MacNowPlayingPanes(pane: $presentation.pane, surface: .fullWindow)
                     .padding(.top, 20)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: Self.paneMaxWidth, maxHeight: .infinity)
                     .modifier(MacNowPlayingPanelSurface(reduceTransparency: reduceTransparency))
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
             }
+            .frame(maxWidth: art + gap + Self.paneMaxWidth, maxHeight: .infinity, alignment: .top)
             .padding(.leading, leading)
             .padding(.trailing, trailing)
             .padding(.top, vertical)
-            .frame(maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+            .clipped()
 
             MacNowPlayingDeck(
                 track: track,
@@ -465,6 +468,8 @@ struct MacNowPlayingView: View {
         }
         .frame(width: size.width, height: size.height)
     }
+
+    static let paneMaxWidth: CGFloat = 820
 
     static let tapeStyle = TapeScrubberStyle(
         waveHeight: 44, labelHeight: 20, labelGap: 8, avatarSize: 20, avatarGap: 6, timesGap: 10, timesHeight: 18,
@@ -1252,7 +1257,7 @@ struct MacTapeScrubber: View {
             tapeComments = comments
                 .compactMap { comment in
                     comment.timeInTrack.map {
-                        TapeComment(id: comment.id, time: $0, body: comment.body, avatarURL: comment.user.avatarURL, name: comment.user.id)
+                        TapeComment(id: comment.id, time: $0, body: comment.body, avatarURL: comment.user.avatarURL, name: comment.user.displayName)
                     }
                 }
                 .sorted { $0.time < $1.time }

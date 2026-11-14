@@ -175,6 +175,7 @@ enum LibraryRecords {
             switch gateway {
             case .backgroundPaused(let until): return .stop(until: until)
             case .endpointCoolingDown(_, let until): return .stop(until: until)
+            case .endpointRecovering(_, let until): return .stop(until: until)
             default: return .stop(until: nil)
             }
         }

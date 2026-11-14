@@ -28,6 +28,12 @@ enum DownloadError: LocalizedError, Equatable {
         case .entitlement(let denial): return denial.errorDescription
         case .previewOnly: return "Only a preview is available for this track."
         case .trafficStopped(let statusCode, let until):
+            if statusCode == 429 {
+                return "SoundCloud is limiting requests. Downloads resume at \(until.formatted(date: .abbreviated, time: .shortened))."
+            }
+            if statusCode == 0 {
+                return "SoundCloud didn\u{2019}t answer properly. Downloads try again at \(until.formatted(date: .abbreviated, time: .shortened))."
+            }
             return "SoundCloud returned HTTP \(statusCode). Downloads are paused until \(until.formatted(date: .abbreviated, time: .shortened))."
         }
     }

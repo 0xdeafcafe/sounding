@@ -205,6 +205,12 @@ enum SearchRanking {
         return scored.map(\.item)
     }
 
+    static func rankedKeepingRest<Item>(_ items: [Item], by score: (Item) -> Int) -> [Item] {
+        let matched = ranked(items, by: score)
+        guard matched.count < items.count else { return matched }
+        return matched + items.filter { score($0) <= 0 }
+    }
+
     static func libraryHits(query: String, in snapshot: SearchLibrarySnapshot, limit: Int = libraryLimit) -> [SearchLibraryHit] {
         var candidates: [(hit: SearchLibraryHit, score: Int, order: Int)] = []
         var seen = Set<String>()
@@ -258,8 +264,8 @@ enum SearchRanking {
             let ranked = Self.ranked(dedupe(remote.tracks ?? [])) { score($0, query: query) }
             remoteTracks = ranked.filter { $0.duration < setMinimumDuration }
             remoteSets = ranked.filter { $0.duration >= setMinimumDuration }
-            remoteArtists = Self.ranked(dedupe(remote.artists ?? [])) { score($0, query: query) }
-            remotePlaylists = Self.ranked(dedupe(remote.playlists ?? [])) { score($0, query: query) }
+            remoteArtists = Self.rankedKeepingRest(dedupe(remote.artists ?? [])) { score($0, query: query) }
+            remotePlaylists = Self.rankedKeepingRest(dedupe(remote.playlists ?? [])) { score($0, query: query) }
         }
 
         var best: (hit: SearchHit, reason: SearchLibraryReason?, score: Int)?

@@ -1310,7 +1310,7 @@ private struct TrafficNoticeModifier: ViewModifier {
     @ViewBuilder
     private var notice: some View {
         if let until = resumeDate, until != dismissedUntil {
-            TrafficNotice(until: until) {
+            TrafficNotice(cause: gateway.trafficSafety.limitCause ?? .rateLimit, until: until) {
                 withAnimation(.smooth) { dismissedUntil = until }
             }
             .transition(.move(edge: .top).combined(with: .opacity))
@@ -1339,6 +1339,7 @@ private struct TrafficNoticeModifier: ViewModifier {
 }
 
 private struct TrafficNotice: View {
+    let cause: SoundCloudLimitCause
     let until: Date
     let onDismiss: () -> Void
 
@@ -1349,7 +1350,7 @@ private struct TrafficNotice: View {
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
-                Text("SoundCloud is limiting requests")
+                Text(SoundCloudLimitNotice.title(for: cause))
                     .font(.footnote.weight(.semibold))
                 Text("Your sign-in is saved. Resumes at \(until.formatted(date: .omitted, time: .shortened)).")
                     .font(.caption)
@@ -1373,6 +1374,7 @@ private struct TrafficNotice: View {
         .background(.bar, ignoresSafeAreaEdges: .top)
         .overlay(alignment: .bottom) { Divider() }
         .accessibilityElement(children: .contain)
+        .onAppear { SoundCloudLimitNotice.shown("Phone traffic banner", cause: cause, until: until) }
     }
 }
 

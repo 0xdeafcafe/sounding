@@ -237,7 +237,7 @@ final class PlayedAudioCache {
         } catch {
             if let gateway = error as? SoundCloudGatewayError {
                 switch gateway {
-                case .endpointCoolingDown, .backgroundPaused, .autonomousWorkSuspended: return .rateLimited
+                case .endpointCoolingDown, .endpointRecovering, .backgroundPaused, .autonomousWorkSuspended: return .rateLimited
                 case .untrustedDestination, .invalidResponse: return .skipped
                 }
             }

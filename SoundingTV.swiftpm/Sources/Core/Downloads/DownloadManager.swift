@@ -1359,6 +1359,9 @@ final class DownloadManager: NSObject, ObservableObject {
         } catch SoundCloudGatewayError.endpointCoolingDown(_, let until) {
             scheduleTrafficSafetyResume(at: until)
             throw DownloadError.trafficStopped(statusCode: 429, until: until)
+        } catch SoundCloudGatewayError.endpointRecovering(_, let until) {
+            scheduleTrafficSafetyResume(at: until)
+            throw DownloadError.trafficStopped(statusCode: 0, until: until)
         } catch APIError.rateLimited(let resetAt) {
             let until = resetAt ?? Date(timeIntervalSinceNow: 60 * 60)
             scheduleTrafficSafetyResume(at: until)
@@ -1831,7 +1834,13 @@ final class DownloadManager: NSObject, ObservableObject {
         } else if !hasConnectivity {
             reason = "Waiting for a connection"
         } else if (try? SoundCloudAPI.shared.enforceTrafficSafety()) == nil {
-            reason = "Paused by SoundCloud rate limiting"
+            let state = SoundCloudAPI.shared.trafficSafetyState()
+            if state.limitCause == .rateLimit {
+                SoundCloudLimitNotice.shown("Downloads", cause: .rateLimit, until: state.resumesAt)
+                reason = "Paused while SoundCloud is limiting requests"
+            } else {
+                reason = "Paused while SoundCloud has paused this device"
+            }
         } else if !isOnUnmeteredNetwork && !allowsCellularDownloads {
             reason = "Waiting for Wi-Fi"
         } else if !hasStorageHeadroom() {
