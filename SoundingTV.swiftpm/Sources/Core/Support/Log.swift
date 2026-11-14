@@ -11,6 +11,7 @@ enum Log {
     static let analysis = Logger(subsystem: subsystem, category: "analysis")
     static let download = Logger(subsystem: subsystem, category: "download")
     static let link = Logger(subsystem: subsystem, category: "link")
+    static let companion = Logger(subsystem: subsystem, category: "companion")
     static let sync = Logger(subsystem: subsystem, category: "sync")
     static let ui = Logger(subsystem: subsystem, category: "ui")
     static let cues = Logger(subsystem: subsystem, category: "cues")

@@ -3114,7 +3114,43 @@ enum CompanionEndpoint {
     }
 
     static func isCompanionService(_ name: String, sessionId: String) -> Bool {
-        name.hasPrefix(BonjourConstants.companionServiceName) && name.contains(sessionId.prefix(8))
+        let base = serviceName(sessionId: sessionId)
+        return name == base || name.hasPrefix(base + " (")
+    }
+
+    static func candidates(in results: Set<NWBrowser.Result>, sessionId: String) -> [NWEndpoint] {
+        let base = serviceName(sessionId: sessionId)
+        let matches: [(endpoint: NWEndpoint, name: String, interface: NWInterface?)] = results.compactMap { result in
+            guard case .service(let name, _, _, let interface) = result.endpoint,
+                  isCompanionService(name, sessionId: sessionId) else { return nil }
+            return (result.endpoint, name, interface ?? result.interfaces.first)
+        }
+        return matches.sorted { lhs, rhs in
+            let lhsExact = lhs.name == base
+            let rhsExact = rhs.name == base
+            if lhsExact != rhsExact { return lhsExact }
+            let lhsRank = interfaceRank(lhs.interface)
+            let rhsRank = interfaceRank(rhs.interface)
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            if lhs.name != rhs.name { return lhs.name < rhs.name }
+            return (lhs.interface?.name ?? "") < (rhs.interface?.name ?? "")
+        }.map(\.endpoint)
+    }
+
+    static func describe(_ endpoint: NWEndpoint) -> String {
+        guard case .service(let name, _, _, let interface) = endpoint else { return "\(endpoint)" }
+        guard let interface else { return name }
+        return "\(name)@\(interface.name)"
+    }
+
+    private static func interfaceRank(_ interface: NWInterface?) -> Int {
+        switch interface?.type {
+        case .wiredEthernet: return 0
+        case .wifi: return 1
+        case nil: return 2
+        case .other: return 3
+        default: return 4
+        }
     }
 
     static func makeBrowser(serviceType: String) -> NWBrowser {

@@ -237,7 +237,9 @@ final class CompanionClient: ObservableObject {
 
     private var contentEndpoint: NWEndpoint?
     private var contentEndpointsByDeviceToken: [String: NWEndpoint] = [:]
-    private var companionServiceName: String?
+    private var companionEndpointKey: String?
+    private var failedEndpointKeys: Set<String> = []
+    private var loggedCompanionServices: String?
     private let localContentServer: PeerContentServer
     private nonisolated(unsafe) var searchTimeout: Task<Void, Never>?
     private nonisolated(unsafe) var rejectionTimeout: Task<Void, Never>?
@@ -434,6 +436,10 @@ final class CompanionClient: ObservableObject {
             if state == .connected, CompanionHeartbeat.controllerIsStale(lastFrameAt: lastFrameAt, now: Date()) {
                 Log.link.info("[CompanionClient] connection went quiet while inactive; reconnecting")
                 retry()
+            } else if case .failed = state {
+                Log.companion.notice("[CompanionClient] active again after a failure; retrying \(self.linkedName, privacy: .public) now")
+                reconnectDelay = Self.initialReconnectDelay
+                retry()
             } else {
                 connect()
             }
@@ -495,10 +501,21 @@ final class CompanionClient: ObservableObject {
     }
 
     func waitUntilReachable(timeout: Duration) async -> Bool {
-        if state == .idle { connect() }
+        if isReachable { return true }
+        switch state {
+        case .idle:
+            connect()
+        case .failed(let failure):
+            Log.companion.notice("[CompanionClient] asked for \(self.linkedName, privacy: .public) after \(String(describing: failure), privacy: .public); retrying now")
+            reconnectDelay = Self.initialReconnectDelay
+            retry()
+        case .unlinked, .searching, .connecting, .connected:
+            break
+        }
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if isReachable { return true }
+            if state == .unlinked { return false }
             if case .failed = state { return false }
             try? await Task.sleep(for: .milliseconds(150))
         }
@@ -525,7 +542,11 @@ final class CompanionClient: ObservableObject {
         teardown()
         discardPendingCommands()
         resetMirroredState()
+        failedEndpointKeys.removeAll()
         link = next
+        if let next {
+            Log.companion.notice("[CompanionClient] active link is now \(next.peerName, privacy: .public) (\(next.servicePrefix, privacy: .public), \(next.peerClass.rawValue, privacy: .public))")
+        }
         guard next != nil else {
             localContentServer.stop()
             clearPersistedSnapshot()
@@ -704,9 +725,11 @@ final class CompanionClient: ObservableObject {
                 guard let self else { return }
                 switch browserState {
                 case .failed(let error):
+                    Log.companion.error("[CompanionClient] Bonjour browse failed: \(String(describing: error), privacy: .public)")
                     self.teardown()
                     self.fail(CompanionFailure.classify(error, fallback: .networkUnavailable))
                 case .waiting(let error):
+                    Log.companion.notice("[CompanionClient] Bonjour browse waiting: \(String(describing: error), privacy: .public)")
                     self.lastWaitingError = error
                 default:
                     break
@@ -724,7 +747,9 @@ final class CompanionClient: ObservableObject {
         searchTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(15))
             guard !Task.isCancelled, let self, self.state == .searching else { return }
-            self.fail(CompanionFailure.classify(self.lastWaitingError, fallback: .notFound))
+            let failure = CompanionFailure.classify(self.lastWaitingError, fallback: .notFound)
+            Log.companion.error("[CompanionClient] \(self.linkedName, privacy: .public) (\(self.link?.servicePrefix ?? "", privacy: .public)) not found within 15s: \(String(describing: failure), privacy: .public)")
+            self.fail(failure)
         }
     }
 
@@ -779,6 +804,7 @@ final class CompanionClient: ObservableObject {
         contentEndpoint = nil
         contentEndpointsByDeviceToken.removeAll()
         advertisedEndpoints.removeAll()
+        loggedCompanionServices = nil
         if !advertisedSessionIds.isEmpty { advertisedSessionIds = [] }
     }
 
@@ -957,7 +983,7 @@ final class CompanionClient: ObservableObject {
         connectTimeout?.cancel()
         connectTimeout = nil
         lastWaitingError = nil
-        companionServiceName = nil
+        companionEndpointKey = nil
         channel?.cancel()
         channel = nil
         appliedRevision = -1
@@ -1005,7 +1031,8 @@ final class CompanionClient: ObservableObject {
         let ownServiceName = localContentServer.advertisedServiceName
         var discovered: [String: NWEndpoint] = [:]
         var fallback: NWEndpoint?
-        for result in results {
+        let ordered = results.sorted { CompanionEndpoint.describe($0.endpoint) < CompanionEndpoint.describe($1.endpoint) }
+        for result in ordered {
             guard case .service(let name, _, _, _) = result.endpoint,
                   name.hasPrefix(BonjourConstants.contentServiceName),
                   name.contains(prefix),
@@ -1018,17 +1045,54 @@ final class CompanionClient: ObservableObject {
         contentEndpointsByDeviceToken = discovered
         contentEndpoint = fallback
 
-        let match = results.first { result in
-            guard case .service(let name, _, _, _) = result.endpoint else { return false }
-            return CompanionEndpoint.isCompanionService(name, sessionId: link.sessionId)
+        logCompanionServices(results, link: link)
+        let candidates = CompanionEndpoint.candidates(in: results, sessionId: link.sessionId)
+        guard !candidates.isEmpty else { return }
+        if channel != nil {
+            if state == .connected { return }
+            if let current = companionEndpointKey,
+               candidates.contains(where: { CompanionEndpoint.describe($0) == current }) { return }
         }
 
-        guard let match, case .service(let name, _, _, _) = match.endpoint else { return }
-        guard channel == nil || companionServiceName != name else { return }
+        let untried = candidates.filter { !failedEndpointKeys.contains(CompanionEndpoint.describe($0)) }
+        if untried.isEmpty { failedEndpointKeys.removeAll() }
+        let endpoint = untried.first ?? candidates[0]
+        let reason: String
+        if candidates.count == 1 {
+            reason = "the only match"
+        } else if untried.count < candidates.count, !untried.isEmpty {
+            reason = "first of \(candidates.count) matches not yet failed"
+        } else {
+            reason = "first of \(candidates.count) matches by name and interface"
+        }
+        Log.companion.notice("[CompanionClient] connecting to \(CompanionEndpoint.describe(endpoint), privacy: .public) for \(self.linkedName, privacy: .public) (\(link.servicePrefix, privacy: .public)); \(reason, privacy: .public)")
 
         searchTimeout?.cancel()
         searchTimeout = nil
-        connect(to: match.endpoint, serviceName: name, sessionId: link.sessionId, secret: secret)
+        connect(to: endpoint, sessionId: link.sessionId, secret: secret)
+    }
+
+    private func logCompanionServices(_ results: Set<NWBrowser.Result>, link: LinkedCompanionStore.LinkRecord) {
+        let names = results.compactMap { result -> String? in
+            guard case .service(let name, _, _, _) = result.endpoint,
+                  name.hasPrefix(BonjourConstants.companionServiceName) else { return nil }
+            return CompanionEndpoint.describe(result.endpoint)
+        }.sorted().joined(separator: ", ")
+        let summary = "\(link.servicePrefix)|\(names)"
+        guard summary != loggedCompanionServices else { return }
+        loggedCompanionServices = summary
+        let ours = results.contains { result in
+            guard case .service(let name, _, _, _) = result.endpoint else { return false }
+            return CompanionEndpoint.isCompanionService(name, sessionId: link.sessionId)
+        }
+        Log.companion.notice("[CompanionClient] Companion services: [\(names, privacy: .public)]; this link is \(link.servicePrefix, privacy: .public), \(ours ? "advertised" : "not advertised", privacy: .public)")
+    }
+
+    private func noteEndpointFailed(_ failure: CompanionFailure, error: NWError?) {
+        let endpoint = companionEndpointKey ?? "no endpoint"
+        if let key = companionEndpointKey { failedEndpointKeys.insert(key) }
+        let detail = error.map { "\($0)" } ?? "no error"
+        Log.companion.error("[CompanionClient] \(endpoint, privacy: .public) failed: \(String(describing: failure), privacy: .public), \(detail, privacy: .public)")
     }
 
     private func noteAdvertisedLinks(_ results: Set<NWBrowser.Result>) {
@@ -1047,13 +1111,13 @@ final class CompanionClient: ObservableObject {
         flushOutbox()
     }
 
-    private func connect(to endpoint: NWEndpoint, serviceName: String, sessionId: String, secret: Data) {
+    private func connect(to endpoint: NWEndpoint, sessionId: String, secret: Data) {
         channel?.cancel()
         channel = nil
         connectTimeout?.cancel()
         connectTimeout = nil
 
-        companionServiceName = serviceName
+        companionEndpointKey = CompanionEndpoint.describe(endpoint)
         state = .connecting
         cuePushHighWaterMark = 0
         libraryPushHighWaterMark = libraryPushMarks[sessionId]
@@ -1080,7 +1144,10 @@ final class CompanionClient: ObservableObject {
             guard !Task.isCancelled, let self, let source, source === self.channel else { return }
             guard self.state == .connecting else { return }
 
-            let failure = CompanionFailure.classify(source.lastError ?? self.lastWaitingError, fallback: .notFound)
+            let error = source.lastError ?? self.lastWaitingError
+            let failure = CompanionFailure.classify(error, fallback: .notFound)
+            Log.companion.error("[CompanionClient] no answer within 15s")
+            self.noteEndpointFailed(failure, error: error)
             self.dropConnection()
             self.fail(failure)
         }
@@ -1095,10 +1162,11 @@ final class CompanionClient: ObservableObject {
             reconnectTask = nil
             reconnectDelay = Self.initialReconnectDelay
             lastWaitingError = nil
+            failedEndpointKeys.removeAll()
             state = .connected
             lastFrameAt = Date()
             connectedAt = lastFrameAt
-            Log.link.info("[CompanionClient] connected to \(self.linkedName, privacy: .public)")
+            Log.companion.notice("[CompanionClient] connected to \(self.linkedName, privacy: .public) at \(self.companionEndpointKey ?? "", privacy: .public)")
             startLivenessWatchdog()
             announceAndRequestQueue()
             flushPendingCommands()
@@ -1116,13 +1184,22 @@ final class CompanionClient: ObservableObject {
             scheduleAnalysisPush()
         case .waiting:
             lastWaitingError = channel?.lastError
+            let detail = lastWaitingError.map { "\($0)" } ?? "no error"
+            Log.companion.notice("[CompanionClient] \(self.companionEndpointKey ?? "", privacy: .public) waiting: \(detail, privacy: .public)")
         case .failed:
-            let failure = CompanionFailure.classify(channel?.lastError)
+            let error = channel?.lastError
+            let failure = CompanionFailure.classify(error)
             let reconnectsAtOnce = connectionWasSettled
+            noteEndpointFailed(failure, error: error)
             dropConnection()
             reconnectAfterDrop(failure, atOnce: reconnectsAtOnce)
         case .closed:
             let reconnectsAtOnce = connectionWasSettled
+            if reconnectsAtOnce {
+                Log.companion.notice("[CompanionClient] \(self.linkedName, privacy: .public) closed the connection")
+            } else {
+                noteEndpointFailed(.closed, error: nil)
+            }
             dropConnection()
             reconnectAfterDrop(.closed, atOnce: reconnectsAtOnce)
         }
@@ -1255,6 +1332,7 @@ final class CompanionClient: ObservableObject {
 
         case .error:
             let kind = CompanionRejection.classify(code: message.errorCode, message: message.error)
+            Log.companion.notice("[CompanionClient] \(self.linkedName, privacy: .public) refused a frame: \(message.error ?? "", privacy: .public) code=\(message.errorCode ?? "", privacy: .public)")
             Log.link.info("[CompanionClient] \(self.linkedName, privacy: .public) rejected a command: \(message.error ?? "", privacy: .public)")
             guard kind.answersPlayback else { return }
             rejection = message.error
@@ -2544,9 +2622,16 @@ final class OutputRouter: ObservableObject {
         }
         if !client.isActive(sessionId) { client.select(sessionId: sessionId) }
         guard await client.waitUntilReachable(timeout: Self.focusTimeout) else {
-            return "\(device.name) isn't reachable right now."
+            return unreachableMessage(for: device)
         }
         return nil
+    }
+
+    private func unreachableMessage(for device: OutputDevice) -> String {
+        guard case .failed(let failure) = client.state else {
+            return "\(device.name) isn't reachable right now. \(CompanionFailure.notFound.message())"
+        }
+        return "\(device.name) isn't reachable right now. \(failure.message())"
     }
 
     private static let focusTimeout: Duration = .seconds(8)
@@ -2917,10 +3002,10 @@ final class OutputRouter: ObservableObject {
         if track.isLocal {
             return await playHere(track, in: context, collectionId: collectionId, source: source, instead: current)
         }
-        if !client.isReachable, client.connectionPhase == .connecting {
+        if !client.isReachable {
             _ = await client.waitUntilReachable(timeout: Self.focusTimeout)
         }
-        guard client.isReachable else { return "\(current.name) isn't reachable right now." }
+        guard client.isReachable else { return unreachableMessage(for: current) }
         if let source { PlaybackQueueSourceDirectory.note(source) }
         var ids = context.filter { !$0.isLocal }.map(\.id)
         if !ids.contains(track.id) { ids.insert(track.id, at: 0) }

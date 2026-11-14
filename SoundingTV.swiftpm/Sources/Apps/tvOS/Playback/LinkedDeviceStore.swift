@@ -118,6 +118,20 @@ struct LinkedDeviceStore {
         return Change(devices: devices, removed: removed.filter { $0.sessionId != device.sessionId })
     }
 
+    static func superseded(in devices: [LinkedDevice]) -> [LinkedDevice] {
+        var newest: [String: LinkedDevice] = [:]
+        for device in devices {
+            guard let deviceId = device.deviceId, !deviceId.isEmpty else { continue }
+            if let kept = newest[deviceId], kept.pairedAt >= device.pairedAt { continue }
+            newest[deviceId] = device
+        }
+        let kept = Set(newest.values.map(\.sessionId))
+        return devices.filter { device in
+            guard let deviceId = device.deviceId, !deviceId.isEmpty else { return false }
+            return !kept.contains(device.sessionId)
+        }
+    }
+
     @discardableResult
     func revoke(sessionId: String) -> Change {
         var devices = load()

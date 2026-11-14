@@ -138,16 +138,11 @@ final class ShareTVClient {
 
         newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in
-                guard let self, self.channel == nil else { return }
-                for result in results {
-                    guard case .service(let name, _, _, _) = result.endpoint,
-                          CompanionEndpoint.isCompanionService(name, sessionId: sessionId) else { continue }
-
-                    self.browser?.cancel()
-                    self.browser = nil
-                    self.openChannel(to: result.endpoint, sessionId: sessionId, secret: secret)
-                    return
-                }
+                guard let self, self.channel == nil,
+                      let endpoint = CompanionEndpoint.candidates(in: results, sessionId: sessionId).first else { return }
+                self.browser?.cancel()
+                self.browser = nil
+                self.openChannel(to: endpoint, sessionId: sessionId, secret: secret)
             }
         }
 

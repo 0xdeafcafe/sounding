@@ -212,23 +212,53 @@ final class CompanionServer: ObservableObject {
         }
         let change = store.add(device)
         revokedStore.settle(sessionId: credentials.sessionId)
+        beacons[credentials.sessionId]?.cancelNetwork()
+        beacons[credentials.sessionId] = nil
         devices = change.devices
         for removed in change.removed { revokeWithNotice(removed, reason: "replaced by a newer link", revokeReason: .replaced) }
         activate(sessionId: credentials.sessionId, secret: credentials.secret)
         Log.link.info("[CompanionServer] linked a device; \(change.devices.count, privacy: .public) linked")
+        Log.companion.notice("[CompanionServer] linked \(device.displayName, privacy: .public) on \(Self.shortId(credentials.sessionId), privacy: .public); serving \(Self.describe(change.devices), privacy: .public)")
     }
 
     func startIfPaired() {
         Self.discardLegacyPairingOffer()
+        let linked = Set(store.load().map(\.sessionId))
         for link in revokedStore.load() where beacons[link.sessionId] == nil {
+            guard !linked.contains(link.sessionId) else {
+                revokedStore.settle(sessionId: link.sessionId)
+                continue
+            }
             startBeacon(for: link)
         }
         guard sessions.isEmpty else { return }
         devices = store.load()
+        for duplicate in LinkedDeviceStore.superseded(in: devices) {
+            retire(duplicate)
+        }
+        Log.companion.notice("[CompanionServer] serving \(Self.describe(self.devices), privacy: .public)")
         for device in devices {
             guard let secret = device.secret else { continue }
             activate(sessionId: device.sessionId, secret: secret)
         }
+    }
+
+    private func retire(_ device: LinkedDevice) {
+        let change = store.revoke(sessionId: device.sessionId)
+        devices = change.devices
+        RemoteLocalMusic.shared.forget(sessionId: device.sessionId)
+        controllerAccounts[device.sessionId] = nil
+        Log.companion.notice("[CompanionServer] \(device.displayName, privacy: .public) linked again; retiring its older link \(Self.shortId(device.sessionId), privacy: .public)")
+        revokeWithNotice(device, reason: "replaced by a newer link", revokeReason: .replaced)
+    }
+
+    nonisolated static func shortId(_ sessionId: String) -> String {
+        String(sessionId.prefix(8))
+    }
+
+    private static func describe(_ devices: [LinkedDevice]) -> String {
+        let entries = devices.map { "\(shortId($0.sessionId)) \($0.displayName) (\($0.deviceClass?.rawValue ?? "unknown"))" }
+        return entries.isEmpty ? "no linked devices" : entries.joined(separator: ", ")
     }
 
     func forget(_ device: LinkedDevice) {
@@ -538,8 +568,10 @@ final class CompanionServer: ObservableObject {
         case .ready:
             session.isListening = true
             Log.link.info("[CompanionServer] Advertising remote control service")
+            Log.companion.notice("[CompanionServer] advertising \(CompanionEndpoint.serviceName(sessionId: sessionId), privacy: .public) on port \(listener.port?.rawValue ?? 0, privacy: .public)")
         case .failed(let error):
             session.isListening = false
+            Log.companion.error("[CompanionServer] listener \(Self.shortId(sessionId), privacy: .public) failed: \(String(describing: error), privacy: .public)")
             lastError = "Remote listener failed: \(error.localizedDescription)"
             scheduleListenerRestart(sessionId: sessionId)
         case .cancelled:
@@ -655,7 +687,13 @@ final class CompanionServer: ObservableObject {
             sendDeviceStatus(to: peer)
             sendAccountStatus(to: peer)
             pushCueChanges(to: peer)
-        case .failed, .cancelled:
+            Log.companion.notice("[CompanionServer] client \(peer.id, privacy: .public) ready on \(Self.shortId(peer.sessionId), privacy: .public)")
+        case .waiting(let error):
+            Log.companion.notice("[CompanionServer] client \(peer.id, privacy: .public) on \(Self.shortId(peer.sessionId), privacy: .public) waiting: \(String(describing: error), privacy: .public)")
+        case .failed(let error):
+            Log.companion.error("[CompanionServer] client \(peer.id, privacy: .public) on \(Self.shortId(peer.sessionId), privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            removePeer(peer, reason: "connection ended")
+        case .cancelled:
             removePeer(peer, reason: "connection ended")
         default:
             break
@@ -793,6 +831,8 @@ final class CompanionServer: ObservableObject {
         guard identity.verify(sessionId: session.sessionId, secret: session.secret),
               let updated = store.update(sessionId: session.sessionId, identity: identity) else { return }
         devices = updated
+        let older = devices.filter { $0.sessionId != session.sessionId && $0.deviceId == identity.deviceId }
+        for device in older { retire(device) }
     }
 
     private func handleCueSync(_ message: TokenTransferMessage, from peer: Peer, session: TrustedSession) {
@@ -2143,6 +2183,7 @@ final class CompanionServer: ObservableObject {
     }
 
     private func sendError(_ text: String, code: String? = nil, trackId: String? = nil, to peer: Peer) {
+        Log.companion.notice("[CompanionServer] refused a frame from client \(peer.id, privacy: .public) on \(Self.shortId(peer.sessionId), privacy: .public): \(text, privacy: .public)")
         send(.error(sessionId: peer.sessionId, message: text, code: code, trackId: trackId), to: peer)
     }
 
