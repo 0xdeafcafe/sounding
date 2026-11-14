@@ -19,8 +19,8 @@ struct NPLyricsScreen: View {
                 .padding(.top, topInset)
                 .padding(.bottom, 8)
             NowPlayingLyrics(track: track, nextTrack: nextTrack, playhead: playhead, style: .tv, onSeek: onSeek)
-                .frame(maxWidth: 1380, maxHeight: .infinity, alignment: .leading)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .frame(maxWidth: showsLines ? 1380 : .infinity, maxHeight: .infinity, alignment: showsLines ? .leading : .center)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: showsLines ? .leading : .center)
                 .focusSection()
         }
         .padding(.horizontal, Space.page)
@@ -51,6 +51,14 @@ struct NPLyricsScreen: View {
             .frame(maxWidth: 900, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private var showsLines: Bool {
+        guard case .loaded(let lyrics) = LyricsStore.shared.state(for: track?.id) else { return false }
+        switch lyrics.body {
+        case .synced, .plain: return true
+        case .instrumental: return false
+        }
     }
 
     private var lyricsTakeFocus: Bool {
