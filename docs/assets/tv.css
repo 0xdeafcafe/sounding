@@ -41,6 +41,7 @@ h2 { font-size: clamp(1.9rem, 3vw, 3rem); }
 html.room { scroll-padding: calc(var(--head) + 16px) 0 24px; }
 .room .lede { color: var(--ink2); }
 
+.room .stage::before { content: ""; position: absolute; inset: 0 auto 0 0; z-index: 1; width: calc(var(--pad) + var(--cw) + 3vw); background: linear-gradient(90deg, var(--bg) 0, color-mix(in srgb, var(--bg) 88%, transparent) 62%, transparent); }
 .wall { position: absolute; inset: 0; background: radial-gradient(120% 90% at 68% 42%, #2a1c18 0%, #1a1210 45%, #0f0b0a 80%); }
 .wall::after { content: ""; position: absolute; inset: 0; background: radial-gradient(60% 50% at 96% 8%, rgb(255 168 92 / .08), transparent 70%); }
 .set { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; opacity: 0; transition: opacity .6s var(--ease); }
@@ -55,7 +56,8 @@ html.room { scroll-padding: calc(var(--head) + 16px) 0 24px; }
 .layer[data-screen="np"] { opacity: 1; }
 .layer canvas { display: block; width: 100%; height: 100%; }
 .console { z-index: 1; left: -700px; top: 372px; width: 1400px; height: 128px; border-radius: 0 0 8px 8px; background: linear-gradient(#2b1f19, #1b1310 60%, #140e0c); box-shadow: 0 30px 60px rgb(0 0 0 / .5); }
-.console::before { content: ""; position: absolute; left: -3000px; right: -3000px; top: 128px; height: 1600px; background: radial-gradient(40% 22% at 50% 0, color-mix(in srgb, var(--glow) 22%, transparent), transparent), linear-gradient(#1a120f, #120c0a 25%, #0d0908 60%); }
+.console::before { content: ""; position: absolute; left: -3000px; right: -3000px; top: 128px; height: 1600px; background: radial-gradient(40% 22% at 50% 0, color-mix(in srgb, var(--glow) 22%, transparent), transparent), linear-gradient(#140e0c, #0d0908 14%, #0a0706 40%); }
+.console > .floor-shade { position: absolute; left: -120px; right: -120px; top: 118px; height: 70px; background: radial-gradient(50% 50% at 50% 30%, rgb(0 0 0 / .55), transparent); }
 .console::after { content: ""; position: absolute; inset: 0; border-radius: 8px; background: repeating-linear-gradient(90deg, transparent 0 348px, rgb(0 0 0 / .45) 348px 350px); }
 .console-top { position: absolute; left: 0; right: 0; top: -66px; height: 68px; clip-path: polygon(1.2% 0, 98.8% 0, 100% 100%, 0 100%); background: linear-gradient(#21170f, #3a2a20 55%, #4e392c 96%, #33251e); }
 .console-top::after { content: ""; position: absolute; inset: 0; background: radial-gradient(50% 120% at 50% 0, color-mix(in srgb, var(--glow) 16%, transparent), transparent); }
@@ -71,6 +73,7 @@ html.room { scroll-padding: calc(var(--head) + 16px) 0 24px; }
 .lamp-pole { left: 117px; top: 150px; width: 6px; height: 920px; background: linear-gradient(90deg, #3a2e27, #6a5548, #2a211c); }
 .lamp-foot { left: 60px; top: 1062px; width: 120px; height: 14px; border-radius: 7px; background: #2a211c; }
 
+.fade { display: none; }
 .hand { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; opacity: 0; }
 .lyr { container-type: inline-size; overflow: hidden; background: radial-gradient(80% 100% at 28% 42%, #2b4fcf, #12287f 55%, #08133f); }
 .frame .lyr { position: relative; width: 100%; height: 100%; border-radius: 3px; }
@@ -116,8 +119,10 @@ html:not(.room) .hero .lede { color: var(--ink2); }
   .top::before { inset: 0; background: var(--bg); }
   .room main { padding-top: var(--head); }
   .room .stage { top: var(--head); height: var(--band); z-index: 2; contain: strict; }
-  .room .stage::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 36px; background: linear-gradient(transparent, var(--bg)); }
-  .room .copy { margin-top: 0; width: auto; padding: 8px var(--pad) 42vh; }
+  .room .stage::before { display: none; }
+  .room .stage::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 18px; background: linear-gradient(transparent, var(--bg)); }
+  .room .fade { display: block; position: sticky; top: calc(var(--head) + var(--band)); z-index: 2; height: 64px; margin-bottom: -64px; background: linear-gradient(var(--bg), color-mix(in srgb, var(--bg) 60%, transparent) 45%, transparent); pointer-events: none; }
+  .room .copy { margin-top: 0; width: auto; padding: 44px var(--pad) 42vh; }
   .room .hero .beat { min-height: 0; padding: 18px 0 8px; gap: .8rem; }
   .room .hero h1 { font-size: clamp(2.3rem, 9vw, 3.6rem); }
   .room .ch { padding-top: 9vh; }

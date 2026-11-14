@@ -168,7 +168,7 @@ class Hat extends Voice {
     if (this.metal) {
       this.ph1 += 6173 / this.e.sr; if (this.ph1 >= 1) this.ph1 -= 1;
       this.ph2 += 8419 / this.e.sr; if (this.ph2 >= 1) this.ph2 -= 1;
-      x *= 0.7 + 0.3 * ((this.ph1 < 0.5 ? 1 : -1) * (this.ph2 < 0.5 ? 1 : -1));
+      x *= 0.78 + 0.22 * Math.sin(TAU * this.ph1) * Math.sin(TAU * this.ph2);
     }
     this.hp.run(x); x = this.lp.run(this.hp.hp);
     return x * (this.env + this.env2 * this.tail) * atk * this.amp;
@@ -184,7 +184,7 @@ class Clap extends Voice {
     if (this.n === this.gap || this.n === this.gap * 2) this.b = 1;
     if (this.n === this.gap * 3) this.tl = 1;
     this.b *= this.bd; this.tl *= this.td;
-    const atk = this.n < 10 ? this.n / 10 : 1;
+    const atk = this.n < 24 ? this.n / 24 : 1;
     this.hp.run(this.e.noise.next());
     this.bp.run(this.hp.hp);
     return this.bp.bp * 2.2 * (this.b * 0.8 + this.tl) * atk * this.amp;
@@ -197,7 +197,7 @@ class Perc extends Voice {
   trig(p) { this.ph = 0; this.f = p.freq * 1.9; this.f0 = p.freq; this.env = 1; this.dec = this.e.dc(p.decay); this.nz = 1; this.nd = this.e.dc(p.ndecay); this.n = 0; this.amp = p.level; this.bp.set(p.freq * 2.5, 2); this.pc = 1 - this.e.dc(4); this.tone = p.tone; }
   run() {
     this.n++;
-    const atk = this.n < 10 ? this.n / 10 : 1;
+    const atk = this.n < 40 ? this.n / 40 : 1;
     this.f += (this.f0 - this.f) * this.pc;
     this.ph += this.f / this.e.sr; if (this.ph >= 1) this.ph -= 1;
     this.env *= this.dec; this.nz *= this.nd;
@@ -237,7 +237,7 @@ class Bass extends Voice {
     this.amp = 0; this.cut = 300; this.cutEnd = 100; this.sub = 0; this.drive = 1; this.res = 1; this.ar = 0; this.sq = 0; this.ac = 0; this.acd = 0; this.acAmt = 0;
   }
   trig(p) {
-    this.inc = this.incT = midi(p.note) / this.e.sr; this.gl = 1; this.ph = 0.5; this.sph = 0; this.env = 0; this.n = 0;
+    this.inc = this.incT = midi(p.note) / this.e.sr; this.gl = 1; if (this.env < 0.001) { this.ph = 0.5; this.sph = 0; this.env = 0; } this.n = 0;
     this.len = p.len; this.amp = p.level; this.cut = p.cut; this.cutEnd = p.cutEnd; this.ce = 1; this.cdec = this.e.dc(p.cdecay);
     this.rc = this.e.dc(p.rel); this.sub = p.sub; this.drive = p.drive; this.res = p.res; this.ar = 1 / (0.0025 * this.e.sr);
     this.sq = p.square || 0; this.ac = p.accent ? 1 : 0; this.acd = this.e.dc(120); this.acAmt = p.accentAmt || 0;

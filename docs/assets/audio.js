@@ -40,14 +40,14 @@ const SONG_A = {
     },
   },
   kit: {
-    kick: { pitch: 150, deep: 48, glide: 14, decay: 290, click: 0.04, sat: 1.1, level: 0.58 },
+    kick: { pitch: 150, deep: 48, glide: 14, decay: 260, click: 0.03, sat: 1, level: 0.42 },
     rumble: { decay: 300, lp: 120, freq: 42, level: 0.2 },
-    hat: { decay: 28, tail: 0.25, hp: 5500, lp: 15000, metal: 0, level: 0.2 },
-    ohat: { decay: 140, tail: 0.5, hp: 6000, lp: 14000, metal: 0, level: 0.16 },
-    ride: { decay: 160, tail: 0.6, hp: 5000, lp: 13000, metal: 1, level: 0.12 },
-    shaker: { decay: 35, tail: 0.2, hp: 4500, lp: 12000, metal: 0, level: 0.12 },
-    clap: { freq: 1300, decay: 110, level: 0.3 },
-    rim: { freq: 1700, decay: 20, ndecay: 12, tone: 0.6, level: 0.16 },
+    hat: { decay: 26, tail: 0.2, hp: 5500, lp: 9500, metal: 0, level: 0.15 },
+    ohat: { decay: 110, tail: 0.35, hp: 6000, lp: 9500, metal: 0, level: 0.1 },
+    ride: { decay: 150, tail: 0.45, hp: 5000, lp: 10000, metal: 1, level: 0.08 },
+    shaker: { decay: 32, tail: 0.15, hp: 4500, lp: 9000, metal: 0, level: 0.09 },
+    clap: { freq: 1200, decay: 100, level: 0.2 },
+    rim: { freq: 1700, decay: 22, ndecay: 8, tone: 0.7, level: 0.1 },
     perc: { freq: 210, decay: 70, ndecay: 8, tone: 0.9, level: 0.22 },
     bell: { decay: 900, level: 0.05 },
     bass: { cut: 700, cutEnd: 220, cdecay: 160, rel: 14, sub: 0.35, drive: 1.6, res: 1.1, level: 0.3, square: 0, accentAmt: 0 },
@@ -85,17 +85,17 @@ const SONG_B = {
     keys: {}, arp: {}, lead: {},
   },
   kit: {
-    kick: { pitch: 190, deep: 52, glide: 10, decay: 230, click: 0.12, sat: 1.5, level: 0.64 },
+    kick: { pitch: 170, deep: 52, glide: 10, decay: 220, click: 0.05, sat: 1.15, level: 0.46 },
     rumble: { decay: 320, lp: 130, freq: 44, level: 0.16 },
-    hat: { decay: 22, tail: 0.2, hp: 6500, lp: 16000, metal: 1, level: 0.21 },
-    ohat: { decay: 200, tail: 0.7, hp: 6000, lp: 15000, metal: 1, level: 0.18 },
-    ride: { decay: 180, tail: 0.6, hp: 5000, lp: 13000, metal: 1, level: 0.14 },
-    shaker: { decay: 30, tail: 0.2, hp: 4500, lp: 12000, metal: 0, level: 0.1 },
-    clap: { freq: 1500, decay: 130, level: 0.34 },
-    rim: { freq: 1800, decay: 15, ndecay: 10, tone: 0.5, level: 0.18 },
+    hat: { decay: 22, tail: 0.15, hp: 6500, lp: 10000, metal: 1, level: 0.14 },
+    ohat: { decay: 120, tail: 0.35, hp: 6000, lp: 9500, metal: 1, level: 0.09 },
+    ride: { decay: 160, tail: 0.45, hp: 5000, lp: 10000, metal: 1, level: 0.09 },
+    shaker: { decay: 30, tail: 0.15, hp: 4500, lp: 9000, metal: 0, level: 0.08 },
+    clap: { freq: 1300, decay: 110, level: 0.21 },
+    rim: { freq: 1700, decay: 18, ndecay: 7, tone: 0.65, level: 0.1 },
     perc: { freq: 160, decay: 120, ndecay: 6, tone: 1, level: 0.24 },
     bell: { decay: 700, level: 0.04 },
-    bass: { cut: 600, cutEnd: 170, cdecay: 180, rel: 8, sub: 0.1, drive: 2.2, res: 4.5, level: 0.34, square: 0, accentAmt: 1.2 },
+    bass: { cut: 600, cutEnd: 170, cdecay: 180, rel: 18, sub: 0.2, drive: 1.6, res: 2.4, level: 0.32, square: 0, accentAmt: 0.8 },
     stab: { det: 12, cut: 1400, cutEnd: 400, cdecay: 80, attack: 0.003, rel: 60, res: 1.2, wave: 'sq', drive: 1.5, level: 0.26, send: 0.55 },
     keys: { det: 4, cut: 3000, cutEnd: 900, cdecay: 300, attack: 0.003, rel: 200, res: 0.7, wave: 'tri', drive: 1, level: 0.2, send: 0.4 },
     arp: { det: 5, cut: 1800, cutEnd: 500, cdecay: 120, attack: 0.002, rel: 40, res: 0.9, wave: 'saw', drive: 1, level: 0.1 },
@@ -213,7 +213,7 @@ export function createAudio(base) {
     A.on = true;
     apply(0.001);
     master.gain.cancelScheduledValues(ctx.currentTime);
-    master.gain.setTargetAtTime(0.85, ctx.currentTime, 0.05);
+    master.gain.setTargetAtTime(0.55, ctx.currentTime, 0.05);
   };
 
   A.stop = () => {

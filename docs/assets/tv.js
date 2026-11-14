@@ -39,16 +39,15 @@ const STOPS = [
 ].map(([id, cam, tv, phone = null, watch = 0]) => ({ id, cam, tv, phone, watch }));
 
 const CAM = {
-  wide: { tw: 0.7, cx: 0.47, cy: 0.4, d: 1 },
+  wide: { tw: 0.62, cx: 0.43, cy: 0.44, d: 1 },
   pair: { tw: 0.58, cx: 0.36, cy: 0.38, d: 0.55 },
   tv: { tw: 0.95, cx: 0.5, cy: 0.46, d: 0 },
 };
 const CAM_M = {
   wide: { tw: 0.8, cx: 0.5, cy: 0.42, d: 1 },
   pair: { tw: 0.6, cx: 0.33, cy: 0.38, d: 0 },
-  tv: { tw: 1, cx: 0.5, cy: 0.5, d: 0 },
+  tv: { tw: 0.94, cx: 0.5, cy: 0.47, d: 0 },
 };
-const FOCUS = { np: [1.7, 0.27, 0.3], upnext: [1.7, 0.74, 0.32], amb: [1.15, 0.5, 0.5], mixup: [1.6, 0.33, 0.52], mixblend: [1.45, 0.5, 0.5], decks: [1.45, 0.5, 0.45], trackmap: [1.6, 0.4, 0.32], cues: [1.7, 0.7, 0.38], lyrics: [1.25, 0.42, 0.5], sign: [1, 0.5, 0.5], home: [1, 0.5, 0.5], live: [1.7, 0.27, 0.3] };
 const CANVAS = { sign: { tv: 'sign' }, home: { tv: 'home' }, live: { tv: 'play', tvb: 'np' }, amb: { tv: 'play', tvb: 'amb' } };
 const GLOW = { np: [18, 66, 150], upnext: [20, 66, 150], mixup: [150, 110, 95], mixblend: [150, 111, 100], decks: [54, 84, 150], trackmap: [150, 121, 105], cues: [21, 67, 150], sign: [120, 52, 20], home: [96, 70, 52], live: [70, 84, 64], amb: [110, 70, 60], lyrics: [40, 70, 200] };
 const FADE = 160;
@@ -123,12 +122,8 @@ function roomPage() {
     if (!mobile) return CAM[s.cam];
     const c = CAM_M[s.cam];
     if (s.cam !== 'tv') return c;
-    const f = FOCUS[s.tv] || [1, 0.5, 0.5];
-    const z = lerp(f[0], 1, clamp((art.w - 420) / 320));
-    const tvW = z * art.w, tvH = tvW * 0.5625;
-    const cx = 0.5 - (f[1] - 0.5) * tvW / art.w, cy = 0.5 - (f[2] - 0.5) * tvH / art.h;
-    const fitX = Math.max(0, (tvW - art.w) / 2 / art.w), fitY = Math.max(0, (tvH - art.h) / 2 / art.h);
-    return { tw: z, cx: clamp(cx, 0.5 - fitX, 0.5 + fitX), cy: clamp(cy, 0.5 - fitY, 0.5 + fitY), d: 0 };
+    const tw = Math.min(c.tw, (art.h - 24) / 0.62 / art.w);
+    return { ...c, tw };
   }
 
   function screen(now) {
