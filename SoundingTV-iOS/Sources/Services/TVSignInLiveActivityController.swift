@@ -55,6 +55,11 @@ final class TVSignInLiveActivityController {
         move(to: .failed)
     }
 
+    func succeed() {
+        guard let phase, !phase.isFinished else { return }
+        move(to: .done)
+    }
+
     private func start(tvName: String, kind: DeviceClass, phase: Phase) async {
         await Self.endAll()
         subscription = nil

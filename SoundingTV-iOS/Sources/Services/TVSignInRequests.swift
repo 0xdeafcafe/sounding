@@ -39,6 +39,7 @@ final class TVSignInInbox: ObservableObject {
     @Published var invitation: TVSignInInvitation?
 
     var signedInTVNames: () -> Set<String> = { [] }
+    var isOfferedInApp: (String) -> Bool = { _ in false }
 
     private var filter = SignInRequestFilter()
 
@@ -150,7 +151,8 @@ final class TVSignInNotifications: NSObject, ObservableObject, @preconcurrency U
         guard let request = SignInRequest(remoteNotification: userInfo) else {
             return [.banner, .list, .sound]
         }
-        return TVSignInInbox.shared.admit(request) == .show ? [.banner, .list, .sound] : []
+        guard TVSignInInbox.shared.admit(request) == .show else { return [] }
+        return TVSignInInbox.shared.isOfferedInApp(request.tvName) ? [] : [.banner, .list, .sound]
     }
 
     func userNotificationCenter(

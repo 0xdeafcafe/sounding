@@ -111,6 +111,7 @@ final class LinkServer: ObservableObject {
     }
 
     static let chimeRedeemGrace: TimeInterval = 45
+    static let answerFlushDelay: TimeInterval = 3
 
     private nonisolated(unsafe) var listener: NWListener?
     private nonisolated(unsafe) var connection: NWConnection?
@@ -305,7 +306,11 @@ final class LinkServer: ObservableObject {
         validationTask?.cancel()
         validationTask = nil
 
-        connection?.cancel()
+        if state == .completed, let answered = connection {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.answerFlushDelay) { answered.cancel() }
+        } else {
+            connection?.cancel()
+        }
         connection = nil
 
         listener?.cancel()
@@ -1264,18 +1269,29 @@ final class SameAccountLinkAdvertiser: ObservableObject {
     @Published private(set) var linkedName: String?
     @Published private(set) var linkedClass: DeviceClass?
 
+    enum Mode: Equatable {
+        case sameAccount
+        case signIn
+    }
+
+    private(set) var mode: Mode?
+
     private var accountId: String?
+    private var needsSignIn = false
     private var isActive = false
     private var holds = 0
     private var restart: Task<Void, Never>?
     private var stateSubscription: AnyCancellable?
     private var approvalSubscription: AnyCancellable?
+    private var chimeSubscription: AnyCancellable?
     private var approvedName: String?
     private var devicesSubscription: AnyCancellable?
     private var advertisedLinkedIds: Set<String>?
     private var linkedPeersRefresh: Task<Void, Never>?
+    private let chime = ChimePlayer()
+    private var signInRequest: SignInRequestPublisher?
 
-    nonisolated static let advertLifetime: TimeInterval = 30 * 60
+    nonisolated static let advertLifetime: TimeInterval = BonjourConstants.sessionTimeout
     nonisolated static let linkedPeersSettle: Duration = .seconds(2)
 
     init() {
@@ -1293,6 +1309,12 @@ final class SameAccountLinkAdvertiser: ObservableObject {
         approvalSubscription = server.$linkedPeerName
             .compactMap { $0 }
             .sink { [weak self] name in self?.approvedName = name }
+        chimeSubscription = server.$chimeCode
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] code in
+                guard let self else { return }
+                self.chime.prepare(code, canPlay: self.mode == .signIn && self.isActive)
+            }
     }
 
     static var currentAccountId: String? {
@@ -1302,9 +1324,10 @@ final class SameAccountLinkAdvertiser: ObservableObject {
         return SoundCloudCredentialSource.shared.currentUser?.id
     }
 
-    func update(accountId: String?, isActive: Bool) {
+    func update(accountId: String?, isActive: Bool, needsSignIn: Bool = false) {
         self.accountId = accountId
         self.isActive = isActive
+        self.needsSignIn = needsSignIn
         if isActive, accountId?.isEmpty == false { LinkOwnerKeyCloud.shared.refreshIfNeeded() }
         reconcile()
     }
@@ -1326,30 +1349,88 @@ final class SameAccountLinkAdvertiser: ObservableObject {
             guard !Task.isCancelled, let self else { return }
             self.linkedPeersRefresh = nil
             let linked = Set(CompanionServer.shared.devices.compactMap(\.deviceId))
-            guard self.isAdvertising, self.server.state == .advertising, self.server.linkApproval == nil,
+            guard self.isAdvertising, self.mode == .sameAccount, self.server.state == .advertising, self.server.linkApproval == nil,
                   linked != self.advertisedLinkedIds else { return }
-            self.begin()
+            self.begin(.sameAccount)
         }
     }
 
-    private var wantsAdvert: Bool { isActive && holds == 0 && accountId?.isEmpty == false }
+    private var wantedMode: Mode? {
+        guard isActive, holds == 0 else { return nil }
+        if accountId?.isEmpty == false { return .sameAccount }
+        return needsSignIn ? .signIn : nil
+    }
 
     private func reconcile() {
-        if wantsAdvert {
-            if !isAdvertising { begin() }
+        if let wanted = wantedMode {
+            if !isAdvertising || mode != wanted { begin(wanted) }
         } else if isAdvertising {
             Log.link.info("[SameAccountLink] stop advertising")
             restart?.cancel()
             linkedPeersRefresh?.cancel()
             linkedPeersRefresh = nil
             server.stop()
+            endSignInRequest()
             isAdvertising = false
+            mode = nil
             advertisedLinkedIds = nil
         }
     }
 
-    private func begin() {
+    private func begin(_ next: Mode) {
+        switch next {
+        case .sameAccount: beginSameAccount()
+        case .signIn: beginSignIn()
+        }
+    }
+
+    private func beginSignIn() {
+        restart?.cancel()
+        linkedPeersRefresh?.cancel()
+        linkedPeersRefresh = nil
+        if mode != .signIn { endSignInRequest() }
+        let request = signInRequest ?? SignInRequestPublisher()
+        signInRequest = request
+        mode = .signIn
+        server.accountHint = nil
+        server.ownerAccountId = nil
+        server.rendezvous = request.rendezvous
+        server.playsChime = true
+        server.sessionLifetime = BonjourConstants.sessionTimeout
+        server.onChimeRequested = { [weak self] in self?.chime.playChime() }
+        server.onTokenReceived = { [weak self] token, refreshToken, clientId, expiry in
+            Log.link.info("[SameAccountLink] a nearby device signed this Apple TV in")
+            self?.endSignInRequest()
+            Task {
+                await AuthenticationService.shared.authenticate(
+                    token: token,
+                    refreshToken: refreshToken,
+                    clientId: clientId,
+                    expiry: expiry
+                )
+            }
+        }
+        server.onLinked = nil
+        Log.link.info("[SameAccountLink] advertising that this Apple TV needs signing in")
+        server.start()
+        isAdvertising = true
+        advertisedLinkedIds = nil
+    }
+
+    private func endSignInRequest() {
+        signInRequest?.withdraw()
+        signInRequest = nil
+        chime.stop()
+    }
+
+    private func beginSameAccount() {
         guard let accountId, let salt = LinkAccountHint.makeSalt() else { return }
+        if mode == .signIn { endSignInRequest() }
+        mode = .sameAccount
+        server.rendezvous = nil
+        server.playsChime = false
+        server.sessionLifetime = Self.advertLifetime
+        server.onChimeRequested = nil
         let linked = CompanionServer.shared.devices.compactMap(\.deviceId)
         server.accountHint = LinkAccountHint.advert(accountId: accountId, linkedDeviceIds: linked, salt: salt)
         server.ownerAccountId = accountId
@@ -1369,18 +1450,22 @@ final class SameAccountLinkAdvertiser: ObservableObject {
     }
 
     private func serverChanged(_ state: LinkServer.State) {
-        guard isAdvertising, state.isTerminal else { return }
+        guard isAdvertising else { return }
+        if mode == .signIn, state == .advertising, isActive {
+            signInRequest?.publish()
+        }
+        guard state.isTerminal else { return }
         restart?.cancel()
         let delay: Double
         switch state {
-        case .completed: delay = 2
+        case .completed: delay = mode == .signIn ? 10 : 2
         case .timeout: delay = 1
-        default: delay = 30
+        default: delay = mode == .signIn ? 5 : 30
         }
         restart = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled, let self, self.isAdvertising, self.wantsAdvert else { return }
-            self.begin()
+            guard !Task.isCancelled, let self, self.isAdvertising, let wanted = self.wantedMode else { return }
+            self.begin(wanted)
         }
     }
 }

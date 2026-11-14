@@ -185,7 +185,11 @@ private struct MacAddDeviceSheet: View {
         self.linker = linker
         self.isSignedIn = isSignedIn
         self.onConfirmed = onConfirmed
-        _listening = StateObject(wrappedValue: NearbyTVSignIn(browser: nearby))
+        _listening = StateObject(wrappedValue: {
+            let listening = NearbyTVSignIn(browser: nearby)
+            listening.requestsChime = true
+            return listening
+        }())
     }
 
     var body: some View {
@@ -579,6 +583,8 @@ final class MacTVLinking: ObservableObject {
         switch event {
         case .began, .failed, .cancelled:
             break
+        case .signedIn:
+            isCardTransfer = false
         case .linked(let linked):
             guard let session = DeviceSessionStore.load(), session.isUsable else {
                 card.transferFinished(error: "Sign in to SoundCloud on this Mac first.")

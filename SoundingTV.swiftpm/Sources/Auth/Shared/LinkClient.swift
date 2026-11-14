@@ -54,6 +54,7 @@ final class LinkClient: ObservableObject {
     private nonisolated(unsafe) var discoveryTimeout: Task<Void, Never>?
     private nonisolated(unsafe) var ackTimeout: Task<Void, Never>?
     private nonisolated(unsafe) var handshakeTimeout: Task<Void, Never>?
+    private nonisolated(unsafe) var graceTask: Task<Void, Never>?
 
     private var framer = MessageFramer()
 
@@ -63,12 +64,20 @@ final class LinkClient: ObservableObject {
     private let sessionSecret: Data
     private let peerName: String?
     private let peerClass: DeviceClass
+    private var watch: TVSignInWatch
+    private var tokenSent = false
+    private var evidenceWatch: AnyCancellable?
 
     init(sessionId: String, sessionSecret: Data, peerName: String? = nil, peerClass: DeviceClass = .tv) {
         self.sessionId = sessionId
         self.sessionSecret = sessionSecret
         self.peerName = peerName
         self.peerClass = peerClass
+        watch = TVSignInWatch(since: Date())
+        evidenceWatch = TVSignInEvidence.shared.$revision
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.observeEvidence() }
     }
 
     deinit {
@@ -93,7 +102,51 @@ final class LinkClient: ObservableObject {
 
     func startDiscovery() {
         retry = LinkRetryPolicy()
+        watch = TVSignInWatch(since: watch.since)
+        tokenSent = false
         beginDiscovery()
+    }
+
+    private func observeEvidence() {
+        switch state {
+        case .idle, .completed: return
+        default: break
+        }
+        let evidence = TVSignInEvidence.shared
+        guard let identity = peerName.map({ (name: $0, kind: peerClass) }) ?? evidence.identity(sessionId: sessionId),
+              evidence.signedIn(name: identity.name, kind: identity.kind, since: watch.since) else { return }
+        Log.link.info("[LinkClient] \(identity.name, privacy: .public) is signed in; finishing without waiting for its answer")
+        watch.tvSignedIn()
+        if tokenSent {
+            completeLink(account: SoundCloudCredentialSource.shared.accountUser.map(PeerAccount.init(user:)))
+        } else {
+            state = .completed
+            stop()
+        }
+    }
+
+    private func failAwaitingTV(_ message: String) {
+        watch.transferFailed(message, at: Date(), awaitingTV: tokenSent)
+        switch watch.verdict {
+        case .failed(let reason):
+            state = .failed(reason)
+            return
+        case .succeeded:
+            return
+        case .waiting:
+            break
+        }
+        guard watch.pending != nil, graceTask == nil else { return }
+        Log.link.info("[LinkClient] lost the answer after sending; watching for the sign-in to land")
+        graceTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(TVSignInWatch.grace + 0.1))
+            guard !Task.isCancelled, let self else { return }
+            self.graceTask = nil
+            self.watch.tick(at: Date())
+            guard case .failed(let reason) = self.watch.verdict, self.state != .completed else { return }
+            self.state = .failed(reason)
+            self.stop()
+        }
     }
 
     private func beginDiscovery() {
@@ -258,6 +311,7 @@ final class LinkClient: ObservableObject {
                         self?.state = .failed(LinkFailureCopy.message(for: error, peer: self?.peerClass ?? .tv))
                     } else {
                         Log.link.info("[LinkClient] Send completed, awaiting ack")
+                        self?.tokenSent = true
                         self?.receiveAcknowledgment()
                         self?.startAckTimeout()
                     }
@@ -298,7 +352,7 @@ final class LinkClient: ObservableObject {
             try? await Task.sleep(for: .seconds(15))
             guard !Task.isCancelled, let self, self.state == .sending else { return }
             Log.link.error("[LinkClient] no ack within 15 s")
-            self.state = .failed(LinkStep.waitingForTV.timedOutMessage(peer: self.peerClass.displayName))
+            self.failAwaitingTV(LinkStep.waitingForTV.timedOutMessage(peer: self.peerClass.displayName))
         }
     }
 
@@ -309,6 +363,8 @@ final class LinkClient: ObservableObject {
         ackTimeout = nil
         handshakeTimeout?.cancel()
         handshakeTimeout = nil
+        graceTask?.cancel()
+        graceTask = nil
 
         browser?.cancel()
         browser = nil
@@ -376,6 +432,11 @@ final class LinkClient: ObservableObject {
             connectionSecured = true
         case .failed(let error):
             Log.link.error("[LinkClient] TLS-PSK connection failed: \(String(describing: error), privacy: .public)")
+            if state == .sending {
+                stop()
+                failAwaitingTV(LinkFailureCopy.message(for: error, peer: peerClass))
+                return
+            }
             if !LinkFailureCopy.isLocalNetworkDenied(error), let delay = retry.nextDelay() {
                 Log.link.info("[LinkClient] retrying in \(delay, privacy: .public) s (attempt \(self.retry.attempts, privacy: .public)/\(LinkRetryPolicy.maximumAttempts, privacy: .public))")
                 stop()
@@ -405,13 +466,13 @@ final class LinkClient: ObservableObject {
 
                 if let error = error {
                     Log.link.error("[LinkClient] ack receive failed: \(String(describing: error), privacy: .public)")
-                    self.state = .failed(LinkFailureCopy.message(for: error, peer: self.peerClass))
+                    self.failAwaitingTV(LinkFailureCopy.message(for: error, peer: self.peerClass))
                     return
                 }
 
                 guard let data, !data.isEmpty else {
                     Log.link.error("[LinkClient] connection closed before the ack")
-                    self.state = .failed(LinkFailureCopy.droppedMessage(peer: self.peerClass))
+                    self.failAwaitingTV(LinkFailureCopy.droppedMessage(peer: self.peerClass))
                     return
                 }
 
@@ -601,6 +662,46 @@ enum LinkOfferHints {
 }
 
 @MainActor
+final class TVSignInEvidence: ObservableObject {
+    static let shared = TVSignInEvidence()
+
+    @Published private(set) var revision = 0
+
+    private var sightings = TVSignInSightings()
+    private var identities: [String: (name: String, kind: DeviceClass)] = [:]
+
+    func noteOffer(prefix: String, name: String, kind: DeviceClass, signedIn: Bool, at now: Date = Date()) {
+        if identities[prefix] == nil, identities.count >= TVSignInSightings.capacity { identities.removeAll() }
+        identities[prefix] = (name: name, kind: kind)
+        note(name: name, kind: kind, signedIn: signedIn, at: now)
+    }
+
+    func noteLinked(name: String, kind: DeviceClass, needsSignIn: Bool, at now: Date = Date()) {
+        note(name: name, kind: kind, signedIn: !needsSignIn, at: now)
+    }
+
+    func identity(sessionId: String) -> (name: String, kind: DeviceClass)? {
+        identities[String(sessionId.prefix(8))]
+    }
+
+    func needsSignIn(name: String, kind: DeviceClass) -> Bool {
+        sightings.needsSignIn(name: name, kind: kind)
+    }
+
+    func signedIn(name: String, kind: DeviceClass, since: Date) -> Bool {
+        sightings.signedIn(name: name, kind: kind, since: since)
+    }
+
+    private func note(name: String, kind: DeviceClass, signedIn: Bool, at now: Date) {
+        let wasSignedIn = !sightings.needsSignIn(name: name, kind: kind)
+        sightings.observe(name: name, kind: kind, signedIn: signedIn, at: now)
+        guard signedIn, !wasSignedIn, !sightings.needsSignIn(name: name, kind: kind) else { return }
+        Log.link.info("[TVSignInEvidence] \(name, privacy: .public) is now signed in")
+        revision += 1
+    }
+}
+
+@MainActor
 final class LinkOfferBrowser: ObservableObject {
     struct Offer: Equatable {
         let claimedName: String
@@ -724,6 +825,10 @@ final class LinkOfferBrowser: ObservableObject {
             let prefix = name.count > BonjourConstants.linkOfferServiceName.count + 1
                 ? String(name.dropFirst(BonjourConstants.linkOfferServiceName.count + 1))
                 : name
+
+            if let decoded {
+                TVSignInEvidence.shared.noteOffer(prefix: prefix, name: decoded.name, kind: decoded.kind, signedIn: accountHint != nil)
+            }
 
             if pairedPrefixes.contains(prefix) {
                 Log.link.debug("[LinkOfferBrowser] ignoring completed link offer \(name, privacy: .public)")

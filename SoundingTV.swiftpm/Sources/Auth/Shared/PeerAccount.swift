@@ -187,3 +187,99 @@ enum LinkEstablishPolicy {
         return LinkAccountHint.accountDigest(accountId: accountId, salt: salt).base64EncodedString()
     }
 }
+
+// MARK: - TV sign-in evidence
+
+struct TVSignInSightings: Equatable, Sendable {
+    struct Entry: Equatable, Sendable {
+        var needsSignInAt: Date?
+        var signedInAt: Date?
+    }
+
+    static let capacity = 32
+
+    private(set) var entries: [String: Entry] = [:]
+
+    static func key(name: String, kind: DeviceClass) -> String {
+        "\(kind.rawValue)|\(name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+    }
+
+    @discardableResult
+    mutating func observe(name: String, kind: DeviceClass, signedIn: Bool, at now: Date) -> Bool {
+        let key = Self.key(name: name, kind: kind)
+        let before = entries[key]
+        var entry = before ?? Entry()
+        if signedIn {
+            guard let needs = entry.needsSignInAt, entry.signedInAt.map({ needs >= $0 }) ?? true else { return false }
+            entry.signedInAt = now
+        } else {
+            entry.needsSignInAt = now
+        }
+        if before == nil, entries.count >= Self.capacity {
+            entries = [:]
+        }
+        entries[key] = entry
+        return entry != before
+    }
+
+    func needsSignIn(name: String, kind: DeviceClass) -> Bool {
+        guard let entry = entries[Self.key(name: name, kind: kind)], let needs = entry.needsSignInAt else { return false }
+        return entry.signedInAt.map { needs >= $0 } ?? true
+    }
+
+    func signedIn(name: String, kind: DeviceClass, since: Date) -> Bool {
+        guard let entry = entries[Self.key(name: name, kind: kind)],
+              let needs = entry.needsSignInAt,
+              let signedIn = entry.signedInAt else { return false }
+        return signedIn > needs && signedIn >= since
+    }
+}
+
+struct TVSignInWatch: Equatable, Sendable {
+    enum Verdict: Equatable, Sendable {
+        case waiting
+        case succeeded
+        case failed(String)
+    }
+
+    struct PendingFailure: Equatable, Sendable {
+        let message: String
+        let deadline: Date
+    }
+
+    static let grace: TimeInterval = 12
+
+    let since: Date
+    private(set) var verdict: Verdict = .waiting
+    private(set) var pending: PendingFailure?
+
+    init(since: Date) {
+        self.since = since
+    }
+
+    mutating func tvSignedIn() {
+        verdict = .succeeded
+        pending = nil
+    }
+
+    mutating func transferCompleted() {
+        guard verdict == .waiting else { return }
+        verdict = .succeeded
+        pending = nil
+    }
+
+    mutating func transferFailed(_ message: String, at now: Date, awaitingTV: Bool) {
+        guard verdict == .waiting, pending == nil else { return }
+        if awaitingTV {
+            pending = PendingFailure(message: message, deadline: now.addingTimeInterval(Self.grace))
+        } else {
+            verdict = .failed(message)
+        }
+    }
+
+    mutating func tick(at now: Date) {
+        guard verdict == .waiting, let pending, now >= pending.deadline else { return }
+        verdict = .failed(pending.message)
+        self.pending = nil
+    }
+}

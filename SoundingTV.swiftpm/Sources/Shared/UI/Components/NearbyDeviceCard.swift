@@ -117,6 +117,7 @@ final class NearbyDeviceCardModel: ObservableObject {
         case failed
         case cancelled
         case linked(NearbyTVSignIn.Linked)
+        case signedIn(Candidate)
         case linkSameAccount
         case useCode(Candidate)
     }
@@ -142,6 +143,7 @@ final class NearbyDeviceCardModel: ObservableObject {
     private var presence: NWListener?
     private var finishTask: Task<Void, Never>?
     private var pendingLink: (key: String, until: Date)?
+    private var flowStartedAt: Date?
 
     init(browser: LinkOfferBrowser, sameAccount: SameAccountLinkModel) {
         self.browser = browser
@@ -170,6 +172,21 @@ final class NearbyDeviceCardModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refresh() }
             .store(in: &subscriptions)
+        TVSignInEvidence.shared.$revision
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.observeEvidence() }
+            .store(in: &subscriptions)
+    }
+
+    func isSigningIn(name: String) -> Bool {
+        guard let candidate, candidate.purpose == .signIn, phase != .offering else { return false }
+        return candidate.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+    }
+
+    func offersSignIn(name: String) -> Bool {
+        guard let candidate, candidate.purpose == .signIn else { return false }
+        return candidate.name.localizedCaseInsensitiveCompare(name) == .orderedSame
     }
 
     static func rememberNotNow(kind: DeviceClass, name: String, at now: Date = Date()) {
@@ -272,6 +289,11 @@ final class NearbyDeviceCardModel: ObservableObject {
             phase = .failed(error)
             return
         }
+        succeed()
+    }
+
+    private func succeed() {
+        flowStartedAt = nil
         phase = .done
         finishTask?.cancel()
         finishTask = Task { [weak self] in
@@ -279,6 +301,19 @@ final class NearbyDeviceCardModel: ObservableObject {
             guard !Task.isCancelled, let self, self.phase == .done, let candidate = self.candidate else { return }
             self.close(candidate)
         }
+    }
+
+    private func observeEvidence() {
+        guard let candidate, candidate.purpose == .signIn, let since = flowStartedAt else { return }
+        switch phase {
+        case .offering, .done: return
+        case .listening, .connecting, .found, .signingIn, .failed: break
+        }
+        guard TVSignInEvidence.shared.signedIn(name: candidate.name, kind: candidate.kind, since: since) else { return }
+        Log.link.info("[NearbyDeviceCard] \(candidate.name, privacy: .public) signed in")
+        stopFlow()
+        succeed()
+        onEvent?(.signedIn(candidate))
     }
 
     private var isFound: Bool {
@@ -289,6 +324,7 @@ final class NearbyDeviceCardModel: ObservableObject {
     private func close(_ closing: Candidate) {
         finishTask?.cancel()
         finishTask = nil
+        flowStartedAt = nil
         closed.insert(closing.id)
         candidate = nil
         phase = .offering
@@ -309,7 +345,7 @@ final class NearbyDeviceCardModel: ObservableObject {
         }
         guard phase == .offering else { return }
         let next = nextCandidate(now: now)
-        if let current = candidate, current.id != next?.id, shown.contains(current.id) {
+        if let current = candidate, let next, current.id != next.id, shown.contains(current.id) {
             closed.insert(current.id)
         }
         if candidate != next { candidate = next }
@@ -363,6 +399,7 @@ final class NearbyDeviceCardModel: ObservableObject {
         stopFlow()
         shown.insert(signing.id)
         requestedChime = false
+        if flowStartedAt == nil { flowStartedAt = Date() }
         phase = .listening
         onEvent?(.began(signing))
         listener.preferredSessionIdPrefix = signing.sessionIdPrefix
