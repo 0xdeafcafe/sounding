@@ -195,7 +195,7 @@ function live(stage) {
   let vw = 1, vh = 1, svh = 1, aspect = 1.6, mobile = false, dpr = 1;
   const rulers = coarse && CSS.supports('height', '100lvh') ? ['100lvh', '100svh'].map(h => { const i = document.createElement('i'); i.style.cssText = `position:fixed;top:0;left:0;width:0;height:${h};visibility:hidden;pointer-events:none`; document.body.append(i); return i; }) : null;
   const viewport = () => { if (!rulers) return [innerWidth, innerHeight, innerHeight]; const l = rulers[0].offsetHeight, s = rulers[1].offsetHeight; return [innerWidth, l ? Math.max(l, innerHeight) : innerHeight, s ? Math.min(s, innerHeight) : innerHeight]; };
-  let p = 0, pe = 0, pv = 0, lastY = scrollY, bend = 0;
+  let p = 0, pe = 0, pv = 0, lastY = scrollY;
   let beats = 0, clock = 0, last = performance.now(), step = 0.016;
   const X = { pos: 0, vel: 0, target: null, held: false };
   let fade = 0;
@@ -777,7 +777,7 @@ function live(stage) {
     S.room = home ? fade : 0;
     if (panes && home && !loadedB && fade > 0.02) { loadedB = true; panes.preload(SHOTS_B); }
 
-    const master = 1 + bend;
+    const master = 1;
     const powered = lightT > 0.3;
     const rate = [1, 1], slip = [0, 0];
     for (let i = 0; i < 2; i++) {
@@ -793,7 +793,7 @@ function live(stage) {
       }
       rate[i] = dk.w / W0;
       slip[i] = dk.held || Math.abs(rate[i] - master) > 0.015 ? 1 : 0;
-      S.pitch[i] = clamp(dk.user + bend * 4, -1, 1);
+      S.pitch[i] = clamp(dk.user, -1, 1);
     }
     const needles = home ? lit && revT >= 0.98 : audio.on || starting;
     for (let i = 0; i < 2; i++) {
@@ -869,9 +869,7 @@ function live(stage) {
     if (!!glide !== root.classList.contains('glide')) root.classList.toggle('glide', !!glide);
     const y = scrollY;
     p = plate ? plateAt + lead : y / vh;
-    const v = (y - lastY) / vh / dt;
     lastY = y;
-    bend += (clamp(v / 16, -0.05, 0.05) - bend) * (1 - Math.exp(-dt / 0.4));
     if (plate) { pe = p; pv = 0; }
     else {
       const was = pe;
@@ -891,7 +889,7 @@ function live(stage) {
       script(at);
       commit();
       if (demoAt > 0 && clock >= demoAt) { demoAt = -1; if (!np.tapped && shown.ph === 'list') np.jump(3); }
-      if (shown.ph !== 'lib') np.set(np.sec + dt * (1 + bend));
+      if (shown.ph !== 'lib') np.set(np.sec + dt);
       if (shown.w === 'remote' && Math.abs(at - TA.by.watch) < 0.2 && pv) { crown += pv * dt * 16; np.set(clamp(np.sec + pv * dt * 1500, 0, MIX.duration - 1)); }
       S.crown = crown;
     } else {

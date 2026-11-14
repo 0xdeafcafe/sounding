@@ -15,20 +15,17 @@
   <title>Features · Sounding</title>
   <link rel="icon" type="image/webp" href="../assets/app-icon.webp">
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
-  <script>(function(r){var c=r.classList;c.add('js');var s;try{s=localStorage.getItem('sounding.side')}catch(e){}r.dataset.side=s||(matchMedia('(prefers-color-scheme: dark)').matches?'b':'a');if(matchMedia('(prefers-reduced-motion: reduce)').matches||/[?&]still/.test(location.search))c.add('still');setTimeout(function(){if(!c.contains('live'))c.add('still')},6000)})(document.documentElement)</script>
+  <script>(function(r){var c=r.classList;c.add('js');var s;try{s=localStorage.getItem('sounding.side')}catch(e){}r.dataset.side=s||(matchMedia('(prefers-color-scheme: dark)').matches?'b':'a');if(matchMedia('(prefers-reduced-motion: reduce)').matches||/[?&]still/.test(location.search))c.add('still');else c.add('ease')})(document.documentElement)</script>
   <link rel="stylesheet" href="../assets/site.css">
   <link rel="stylesheet" href="../assets/side.css">
+  <link rel="stylesheet" href="../assets/devices.css">
   <link rel="stylesheet" href="../assets/features.css">
-  <link rel="modulepreload" href="../assets/stage.js">
-  <link rel="modulepreload" href="../assets/world.js">
-  <link rel="modulepreload" href="../assets/gl.js">
-  <link rel="modulepreload" href="../assets/shaders.js">
-  <script type="module" src="../assets/app.js"></script>
+  <link rel="modulepreload" href="../assets/screens.js">
+  <script type="module" src="../assets/features.js"></script>
   <script src="../assets/nav.js" defer></script>
 </head>
 <body data-page="features">
   <a class="skip" href="#main">Skip to content</a>
-  <canvas id="gl" aria-hidden="true"></canvas>
 
   <header class="top">
     <a class="brand ink" href="../"><img src="../assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
@@ -36,208 +33,192 @@
   </header>
 
   <main id="main">
-    <section class="scene chapter hero" id="top" data-scene="hero" data-shot="crate" data-span="1.4" aria-labelledby="hero-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img class="pa" src="../assets/still/listen-a.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="../assets/still/listen-b.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"></figure>
-        <div class="side a">
-          <h1 class="ink" id="hero-h">Everything it does.</h1>
-          <p class="lede ink">The lot, by device. If it’s half built, it isn’t on this page.</p>
-          <p class="note ink">A free SoundCloud account gets previews. Full tracks and downloads need Go or Go+.</p>
-          <nav class="jump" aria-label="Devices"><a class="ink" href="#all">All of them</a><a class="ink" href="#iphone">iPhone</a><a class="ink" href="#ipad">iPad</a><a class="ink" href="#mac">Mac</a><a class="ink" href="#tv">Apple&nbsp;TV</a><a class="ink" href="#watch">Apple&nbsp;Watch</a><a class="ink" href="#extras">Widgets and the rest</a><a class="ink" href="#privacy">Privacy</a></nav>
-        </div>
+    <section class="fh" id="top" aria-labelledby="hero-h">
+      <div class="fh-text">
+        <h1 id="hero-h">Everything it does.</h1>
+        <p class="lede">The lot, by device. If it’s half built, it isn’t on this page.</p>
+        <p class="note">A free SoundCloud account gets previews. Full tracks and downloads need Go or Go+.</p>
+        <nav class="jump" aria-label="Devices"><a href="#iphone">iPhone</a><a href="#ipad">iPad</a><a href="#mac">Mac</a><a href="#tv">Apple&nbsp;TV</a><a href="#watch">Apple&nbsp;Watch</a><a href="#all">All of them</a><a href="#extras">Widgets and the rest</a><a href="#privacy">Privacy</a></nav>
+      </div>
+      <div class="lineup" aria-hidden="true">
+        <div class="d d-tv"><div class="scr"><img src="../assets/shots/tv-np.webp" alt="" width="1600" height="900" fetchpriority="high" decoding="async"></div></div>
+        <div class="d d-mac"><div class="scr"><img src="../assets/shots/mac-decks.webp" alt="" width="1920" height="1200" decoding="async"></div><i class="base"></i></div>
+        <div class="d d-pad"><div class="scr"><img data-mirror="pad" src="../assets/shots/pad-play.webp" alt="" width="1640" height="1180" decoding="async"></div></div>
+        <div class="d d-phone iphone"><div class="body"><div class="bezel"><div class="glass"><img data-mirror="phone" src="../assets/shots/phone-play.webp" alt="" width="600" height="1305" decoding="async"></div></div></div><i class="b act"></i><i class="b vu"></i><i class="b vd"></i><i class="b pw"></i></div>
+        <div class="d d-watch awatch"><i class="band t"></i><i class="band u"></i><div class="case"><div class="bezel"><div class="glass"><img data-mirror="watch" src="../assets/shots/watch-remote.webp" alt="" width="512" height="627" decoding="async"></div></div></div><i class="crown"></i><i class="push"></i></div>
       </div>
     </section>
 
-    <section class="pg-sec all flowing" id="all" aria-labelledby="all-h">
-      <div class="pg-sh">
+    <section class="plat" id="iphone" aria-labelledby="iphone-h">
+      <div class="dev" aria-hidden="true"><i class="mass m1"></i><i class="mass m2"></i><i class="mass m3"></i><div class="d d-phone iphone"><div class="body"><div class="bezel"><div class="glass"><img data-mirror="phone" src="../assets/shots/phone-play.webp" alt="" width="600" height="1305" decoding="async"></div></div></div><i class="b act"></i><i class="b vu"></i><i class="b vd"></i><i class="b pw"></i></div></div>
+      <div class="txt">
+        <h2 id="iphone-h">iPhone.</h2>
+        <p class="sub">Everything in the table, plus:</p>
+        <dl class="fl">
+          <div><dt>Live Activity</dt><dd>Now Playing in the Dynamic Island and on the Lock Screen, and the TV sign-in while it happens.</dd></div>
+          <div><dt>Widgets</dt><dd>Now Playing and Recently Played, on the Home Screen and the Lock Screen.</dd></div>
+          <div><dt>Controls</dt><dd>Play or Pause, Resume and Identify Song in Control Center, or on the Action button.</dd></div>
+          <div><dt>Wake to This</dt><dd>An alarm that wakes you with a track, playlist or station.</dd></div>
+          <div><dt>Match My Workout</dt><dd>Your heart rate from Apple Watch sets how hard Auto Mix goes.</dd></div>
+          <div><dt>Signs in the Apple TV</dt><dd>Listens for the TV’s chime, or scans its QR code.</dd></div>
+          <div><dt>Share to the Apple TV</dt><dd>Share a SoundCloud link and pick Play Now, Play Next or Add to End.</dd></div>
+          <div><dt>Volume buttons</dt><dd>With Sounding open, they turn the TV up and down.</dd></div>
+          <div><dt>Scout</dt><dd>A notification when an artist you scout posts a new track or set.</dd></div>
+          <div><dt>Spotlight</dt><dd>Finds your tracks, playlists and artists.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="plat flip" id="ipad" aria-labelledby="ipad-h">
+      <div class="dev" aria-hidden="true"><i class="mass m1"></i><i class="mass m2"></i><i class="mass m3"></i><div class="d d-pad"><div class="scr"><img data-mirror="pad" src="../assets/shots/pad-play.webp" alt="" width="1640" height="1180" decoding="async"></div></div></div>
+      <div class="txt">
+        <h2 id="ipad-h">iPad.</h2>
+        <p class="sub">Same app as the iPhone, laid out for the bigger screen.</p>
+        <dl class="fl">
+          <div><dt>The bar along the bottom</dt><dd>Shuffle, transport, repeat, Lyrics and Up Next, like Music on iPad.</dd></div>
+          <div><dt>Sidebar</dt><dd>Home, Search and Decks, then your Library and every playlist.</dd></div>
+          <div><dt>Now Playing in two columns</dt><dd>The player on the left; comments, lyrics or Up Next on the right.</dd></div>
+          <div><dt>Drag and drop</dt><dd>Tracks, albums and playlists into Up Next or onto a playlist.</dd></div>
+          <div><dt>Keyboard</dt><dd>Space to play, ⌘L to like, ⌘1 to ⌘9 to get around.</dd></div>
+          <div><dt>More windows</dt><dd>Open an artist or a playlist in a new window.</dd></div>
+          <div><dt>And most of the iPhone list</dt><dd>Widgets, controls, Wake to This, Scout, Spotlight and Share to the Apple TV.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="plat wide" id="mac" aria-labelledby="mac-h">
+      <div class="dev" aria-hidden="true"><i class="mass m1"></i><i class="mass m2"></i><i class="mass m3"></i><div class="d d-mac"><div class="scr"><img src="../assets/shots/mac-decks.webp" alt="" width="1920" height="1200" loading="lazy" decoding="async"></div><i class="base"></i></div></div>
+      <div class="txt">
+        <h2 id="mac-h">Mac.</h2>
+        <p class="sub">The DJ side lives here. It’s all on the <a href="../?side=dj">DJ side of the homepage</a>.</p>
+        <dl class="fl">
+          <div><dt>Decks</dt><dd>Two decks and a mixer: EQ, filter, sync, key lock, Audio Unit effects, cue in your headphones.</dd></div>
+          <div><dt>Prep panel</dt><dd>On any track (⌘I or ⌥⌘P), or on the deck: beat grids, keys, hot cues A to H, memory cues and loops.</dd></div>
+          <div><dt>rekordbox in and out</dt><dd>Import a rekordbox.xml, folder or USB stick. Export a new XML with your prep.</dd></div>
+          <div><dt>Export to USB</dt><dd>A stick the CDJ-2000NXS2 and CDJ-3000 can read (⇧⌘E). Not tried on a real CDJ yet.</dd></div>
+          <div><dt>DDJ-400</dt><dd>Mapped, jogs to pads. Controllers play your own music only.</dd></div>
+          <div><dt>DJ Players</dt><dd>Sees CDJs on the network, writes your setlist, joins as a virtual deck. Only met a fake CDJ so far.</dd></div>
+        </dl>
+        <h3 id="mac-rest-h">Mac, the rest of it.</h3>
+        <dl class="fl">
+          <div><dt>Menu bar player</dt><dd>Play, skip and see what’s on without opening the window.</dd></div>
+          <div><dt>Now Playing window</dt><dd>Full window, or the player in the toolbar (⇧⌘N).</dd></div>
+          <div><dt>Menus and shortcuts</dt><dd>Playback, Library, Decks and the Prep panel all have them.</dd></div>
+          <div><dt>Mac-only sidebar</dt><dd>Your Tracks, Private Shares and Messages.</dd></div>
+          <div><dt>Share extension</dt><dd>Share a SoundCloud link to Sounding: Play Now, Play Next or Play Last.</dd></div>
+          <div><dt>Heavy lifting</dt><dd>The Mac works out tempo and key, and your iPhone and iPad pick the results up.</dd></div>
+          <div><dt>Deeper analysis</dt><dd>On-device AI analysis, off until you turn it on.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="plat wide flip" id="tv" aria-labelledby="tv-h">
+      <div class="dev" aria-hidden="true"><i class="mass m1"></i><i class="mass m2"></i><i class="mass m3"></i><div class="d d-tv"><div class="scr"><img src="../assets/shots/tv-decks.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></div></div></div>
+      <div class="txt">
+        <h2 id="tv-h">Apple&nbsp;TV.</h2>
+        <p class="sub">The loud one. More on the <a href="../tv/">TV page</a>.</p>
+        <dl class="fl">
+          <div><dt>Signs in by ear</dt><dd>Your iPhone hears its chime and signs it in. QR code if the room’s loud.</dd></div>
+          <div><dt>Now Playing</dt><dd>The artwork as the background, laid out like a tape deck, the next two tracks beside it.</dd></div>
+          <div><dt>Auto Mix and Decks</dt><dd>Watch the mix happen, and a Decks tab for the room.</dd></div>
+          <div><dt>Top Shelf</dt><dd>Continue Listening, Recently Played, Your Likes and Mixes For You. Select one and it plays.</dd></div>
+          <div><dt>Lyrics, full screen</dt><dd>Over the artwork, off until you say yes.</dd></div>
+          <div><dt>Ambient</dt><dd>Leave it alone and it’s just the artwork, big.</dd></div>
+          <div><dt>Output</dt><dd>Send it on to AirPlay or Bluetooth speakers, or a Sonos.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="plat" id="watch" aria-labelledby="watch-h">
+      <div class="dev" aria-hidden="true"><i class="mass m1"></i><i class="mass m2"></i><i class="mass m3"></i><div class="d d-watch awatch"><i class="band t"></i><i class="band u"></i><div class="case"><div class="bezel"><div class="glass"><img data-mirror="watch" src="../assets/shots/watch-remote.webp" alt="" width="512" height="627" decoding="async"></div></div></div><i class="crown"></i><i class="push"></i></div></div>
+      <div class="txt">
+        <h2 id="watch-h">Apple&nbsp;Watch.</h2>
+        <p class="sub">A remote for your iPhone, and for the TV when that’s playing.</p>
+        <dl class="fl">
+          <div><dt>A remote with a crown</dt><dd>Play and skip. The crown sets the volume when the TV’s playing, and scrubs when the iPhone is.</dd></div>
+          <div><dt>Output</dt><dd>The iPhone or an Apple TV, with a volume slider.</dd></div>
+          <div><dt>Up Next</dt><dd>The iPhone’s real queue. Tap a track to jump to it.</dd></div>
+          <div><dt>Auto Mix</dt><dd>Turn it on, Mix Now, from your wrist.</dd></div>
+          <div><dt>Match My Workout</dt><dd>Start a workout and Auto Mix follows your heart rate.</dd></div>
+          <div><dt>Identify Song</dt><dd>Listens on the Watch’s own microphone.</dd></div>
+          <div><dt>Complication</dt><dd>Now Playing on the watch face and in the Smart Stack, with play and pause.</dd></div>
+          <div><dt>Siri</dt><dd>Play, Pause, Next Track, Play Likes, Shuffle Likes and Like Track.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="doc all" id="all" aria-labelledby="all-h">
+      <div class="doc-head">
         <h2 id="all-h">On all of them.</h2>
         <p class="sub">Most of it is the same app everywhere, so here it is in one go.</p>
         <p class="key"><span><i class="y" aria-hidden="true"></i>Yes</span><span><i class="p" aria-hidden="true"></i>Through the iPhone</span><span><i class="n" aria-hidden="true"></i>No</span></p>
       </div>
-      <div class="pg-sb">
-        <div class="fx-wrap"><table class="fx">
-          <caption class="vh">Which device has which feature</caption>
-          <thead><tr><th scope="col"><span class="vh">Feature</span></th><th scope="col"><abbr title="iPhone">iPhone</abbr></th><th scope="col"><abbr title="iPad">iPad</abbr></th><th scope="col"><abbr title="Mac">Mac</abbr></th><th scope="col"><abbr title="Apple TV">TV</abbr></th><th scope="col"><abbr title="Apple Watch">Watch</abbr></th></tr></thead>
-          <tbody>
-            <tr><th scope="row"><b>Your SoundCloud</b><small>Likes, playlists, albums, sets and who you follow</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
-            <tr><th scope="row"><b>Your own music</b><small>Your files in the same Library. The TV streams them from your other devices</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="p"></span><span class="vh">Apple Watch: through the iPhone</span></td></tr>
-            <tr><th scope="row"><b>Search</b><small>SoundCloud and your Library in one box, plus Browse</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
-            <tr><th scope="row"><b>Stations</b><small>Built from what you like, follow and play</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Recently Played</b><small>One shelf, whichever device you played it on</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
-            <tr><th scope="row"><b>Comments on the waveform</b><small>Timed comments where they were left</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Tape scrubbing</b><small>Anything over six minutes scrubs like tape</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Tracklists for mixes</b><small>From the uploader’s notes, the comments and Shazam</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
-            <tr><th scope="row"><b>Identify Song</b><small>Shazams whatever’s playing in the room</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple TV: no</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
-            <tr><th scope="row"><b>Lyrics</b><small>Synced, from LRCLIB, off until you say yes</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Behind the Track</b><small>Who liked it that you follow, BPM, key, label, links</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Up Next</b><small>Says what it’s playing from</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
-            <tr><th scope="row"><b>Auto Mix</b><small>Mixes your queue on the phrase. On the Watch, it steers the iPhone’s</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="p"></span><span class="vh">Apple Watch: through the iPhone</span></td></tr>
-            <tr><th scope="row"><b>Decks</b><small>Two decks and a mixer. The Mac’s are the proper ones</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Cue points</b><small>Hot cues and memory cues, synced through your own iCloud</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Downloads</b><small>Needs Go or Go+. The Watch plays the iPhone’s</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="p"></span><span class="vh">Apple Watch: through the iPhone</span></td></tr>
-            <tr><th scope="row"><b>Play On</b><small>This device, an Apple TV, AirPlay, Bluetooth or Sonos</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
-            <tr><th scope="row"><b>Apple TV remote</b><small>Now Playing, Up Next and volume for the TV</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple TV: no</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
-            <tr><th scope="row"><b>SharePlay</b><small>Listen along on a FaceTime call, in sync</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Sleep Timer</b><small>Fades out the last 30 seconds</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Start and end times</b><small>Skip a long intro or a dead outro, every time</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Playlists</b><small>Add to Playlist and New Playlist</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Siri and Shortcuts</b><small>“Play my likes in Sounding”, and a few more</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
-            <tr><th scope="row"><b>Home lighting</b><small>Your HomeKit lights, coloured from the artwork</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Mac: no</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Picks up where you left off</b><small>Relaunch and the queue’s still there, paused</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Network Activity</b><small>A list of every request the app makes</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>Handoff from the Apple TV</b><small>Pick up what the TV’s playing on your iPhone, iPad or Mac, at the same spot</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-            <tr><th scope="row"><b>On This Watch</b><small>Music the iPhone sends to the Watch, to play with the phone left at home</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">iPad: no</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Mac: no</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple TV: no</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
-            <tr><th scope="row"><b>Continue from another device</b><small>Pick up where your last device stopped, from the mini player, Home or the Watch</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
-            <tr><th scope="row"><b>Steer the TV’s decks</b><small>With the Apple TV playing, Decks on your iPhone or iPad drive the TV’s own</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Mac: no</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
-          </tbody>
-        </table></div>
-      </div>
+      <div class="fx-wrap"><table class="fx">
+        <caption class="vh">Which device has which feature</caption>
+        <thead><tr><th scope="col"><span class="vh">Feature</span></th><th scope="col"><abbr title="iPhone">iPhone</abbr></th><th scope="col"><abbr title="iPad">iPad</abbr></th><th scope="col"><abbr title="Mac">Mac</abbr></th><th scope="col"><abbr title="Apple TV">TV</abbr></th><th scope="col"><abbr title="Apple Watch">Watch</abbr></th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><b>Your SoundCloud</b><small>Likes, playlists, albums, sets and who you follow</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
+          <tr><th scope="row"><b>Your own music</b><small>Your files in the same Library. The TV streams them from your other devices</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="p"></span><span class="vh">Apple Watch: through the iPhone</span></td></tr>
+          <tr><th scope="row"><b>Search</b><small>SoundCloud and your Library in one box, plus Browse</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
+          <tr><th scope="row"><b>Stations</b><small>Built from what you like, follow and play</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Recently Played</b><small>One shelf, whichever device you played it on</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
+          <tr><th scope="row"><b>Comments on the waveform</b><small>Timed comments where they were left</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Tape scrubbing</b><small>Anything over six minutes scrubs like tape</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Tracklists for mixes</b><small>From the uploader’s notes, the comments and Shazam</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
+          <tr><th scope="row"><b>Identify Song</b><small>Shazams whatever’s playing in the room</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple TV: no</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
+          <tr><th scope="row"><b>Lyrics</b><small>Synced, from LRCLIB, off until you say yes</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Behind the Track</b><small>Who liked it that you follow, BPM, key, label, links</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Up Next</b><small>Says what it’s playing from</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
+          <tr><th scope="row"><b>Auto Mix</b><small>Mixes your queue on the phrase. On the Watch, it steers the iPhone’s</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="p"></span><span class="vh">Apple Watch: through the iPhone</span></td></tr>
+          <tr><th scope="row"><b>Decks</b><small>Two decks and a mixer. The Mac’s are the proper ones</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Cue points</b><small>Hot cues and memory cues, synced through your own iCloud</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Downloads</b><small>Needs Go or Go+. The Watch plays the iPhone’s</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="p"></span><span class="vh">Apple Watch: through the iPhone</span></td></tr>
+          <tr><th scope="row"><b>Play On</b><small>This device, an Apple TV, AirPlay, Bluetooth or Sonos</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
+          <tr><th scope="row"><b>Apple TV remote</b><small>Now Playing, Up Next and volume for the TV</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple TV: no</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
+          <tr><th scope="row"><b>SharePlay</b><small>Listen along on a FaceTime call, in sync</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Sleep Timer</b><small>Fades out the last 30 seconds</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Start and end times</b><small>Skip a long intro or a dead outro, every time</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Playlists</b><small>Add to Playlist and New Playlist</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Siri and Shortcuts</b><small>“Play my likes in Sounding”, and a few more</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
+          <tr><th scope="row"><b>Home lighting</b><small>Your HomeKit lights, coloured from the artwork</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Mac: no</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Picks up where you left off</b><small>Relaunch and the queue’s still there, paused</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Network Activity</b><small>A list of every request the app makes</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>Handoff from the Apple TV</b><small>Pick up what the TV’s playing on your iPhone, iPad or Mac, at the same spot</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+          <tr><th scope="row"><b>On This Watch</b><small>Music the iPhone sends to the Watch, to play with the phone left at home</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">iPad: no</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Mac: no</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple TV: no</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
+          <tr><th scope="row"><b>Continue from another device</b><small>Pick up where your last device stopped, from the mini player, Home or the Watch</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Mac: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple Watch: yes</span></td></tr>
+          <tr><th scope="row"><b>Steer the TV’s decks</b><small>With the Apple TV playing, Decks on your iPhone or iPad drive the TV’s own</small></th><td><span aria-hidden="true" class="y"></span><span class="vh">iPhone: yes</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">iPad: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Mac: no</span></td><td><span aria-hidden="true" class="y"></span><span class="vh">Apple TV: yes</span></td><td><span aria-hidden="true" class="n"></span><span class="vh">Apple Watch: no</span></td></tr>
+        </tbody>
+      </table></div>
     </section>
 
-    <section class="scene chapter wide flow" id="iphone" data-scene="iphone" data-shot="phone" data-span="2.4" data-states='[{"ph":"play"}]' aria-labelledby="iphone-h">
-      <div class="pin">
-        <div class="side a">
-          <h2 class="ink" id="iphone-h">iPhone.</h2>
-          <p class="sub ink">Everything in the table, plus:</p>
-          <dl class="fl">
-            <div><dt class="ink">Live Activity</dt><dd class="ink">Now Playing in the Dynamic Island and on the Lock Screen, and the TV sign-in while it happens.</dd></div>
-            <div><dt class="ink">Widgets</dt><dd class="ink">Now Playing and Recently Played, on the Home Screen and the Lock Screen.</dd></div>
-            <div><dt class="ink">Controls</dt><dd class="ink">Play or Pause, Resume and Identify Song in Control Center, or on the Action button.</dd></div>
-            <div><dt class="ink">Wake to This</dt><dd class="ink">An alarm that wakes you with a track, playlist or station.</dd></div>
-            <div><dt class="ink">Match My Workout</dt><dd class="ink">Your heart rate from Apple Watch sets how hard Auto Mix goes.</dd></div>
-            <div><dt class="ink">Signs in the Apple TV</dt><dd class="ink">Listens for the TV’s chime, or scans its QR code.</dd></div>
-            <div><dt class="ink">Share to the Apple TV</dt><dd class="ink">Share a SoundCloud link and pick Play Now, Play Next or Add to End.</dd></div>
-            <div><dt class="ink">Volume buttons</dt><dd class="ink">With Sounding open, they turn the TV up and down.</dd></div>
-            <div><dt class="ink">Scout</dt><dd class="ink">A notification when an artist you scout posts a new track or set.</dd></div>
-            <div><dt class="ink">Spotlight</dt><dd class="ink">Finds your tracks, playlists and artists.</dd></div>
-          </dl>
-        </div>
-      </div>
+    <section class="doc" id="extras" aria-labelledby="extras-h">
+      <div class="doc-head"><h2 id="extras-h">Widgets, extensions and notifications.</h2></div>
+      <dl class="fl three">
+        <div><dt>Widgets</dt><dd>Now Playing and Recently Played, small, medium and Lock Screen. iPhone and iPad.</dd></div>
+        <div><dt>Live Activity</dt><dd>Now Playing and TV sign-in. iPhone.</dd></div>
+        <div><dt>Controls</dt><dd>Play or Pause, Resume and Identify Song. iPhone and iPad; Play or Pause on the Watch.</dd></div>
+        <div><dt>Complication</dt><dd>Now Playing on the watch face. Apple Watch.</dd></div>
+        <div><dt>Top Shelf</dt><dd>Four shelves of what you’re listening to. Apple TV.</dd></div>
+        <div><dt>Share extension</dt><dd>Send a SoundCloud link to the Apple TV from an iPhone or iPad, or to Sounding on the Mac.</dd></div>
+        <div><dt>Notifications</dt><dd>An Apple TV asking to sign in, a new sign-in on your account, and Scout. iPhone, iPad and Mac.</dd></div>
+      </dl>
     </section>
 
-    <section class="scene chapter wide flow" id="ipad" data-scene="ipad" data-shot="pad" data-span="2.3" data-states='[{"pad":"play"}]' aria-labelledby="ipad-h">
-      <div class="pin">
-        <div class="side a">
-          <h2 class="ink" id="ipad-h">iPad.</h2>
-          <p class="sub ink">Same app as the iPhone, laid out for the bigger screen.</p>
-          <dl class="fl">
-            <div><dt class="ink">The bar along the bottom</dt><dd class="ink">Shuffle, transport, repeat, Lyrics and Up Next, like Music on iPad.</dd></div>
-            <div><dt class="ink">Sidebar</dt><dd class="ink">Home, Search and Decks, then your Library and every playlist.</dd></div>
-            <div><dt class="ink">Now Playing in two columns</dt><dd class="ink">The player on the left; comments, lyrics or Up Next on the right.</dd></div>
-            <div><dt class="ink">Drag and drop</dt><dd class="ink">Tracks, albums and playlists into Up Next or onto a playlist.</dd></div>
-            <div><dt class="ink">Keyboard</dt><dd class="ink">Space to play, ⌘L to like, ⌘1 to ⌘9 to get around.</dd></div>
-            <div><dt class="ink">More windows</dt><dd class="ink">Open an artist or a playlist in a new window.</dd></div>
-            <div><dt class="ink">And most of the iPhone list</dt><dd class="ink">Widgets, controls, Wake to This, Scout, Spotlight and Share to the Apple TV.</dd></div>
-          </dl>
-        </div>
+    <section class="doc" id="privacy" aria-labelledby="privacy-h">
+      <div class="doc-head">
+        <h2 id="privacy-h">Privacy.</h2>
+        <p class="sub">All on device. The <a href="../privacy/">privacy policy</a> has the detail.</p>
       </div>
+      <dl class="fl three">
+        <div><dt>No Sounding servers</dt><dd>No Sounding account, no analytics, no tracking SDKs, no ads of mine.</dd></div>
+        <div><dt>Your sign-in stays yours</dt><dd>In the Keychain and your private iCloud. It only ever goes to SoundCloud.</dd></div>
+        <div><dt>Sync through your own iCloud</dt><dd>Cue points, settings, Recently Played and analysis. I can’t read any of it.</dd></div>
+        <div><dt>Off until you say</dt><dd>Lyrics, heart rate, home lights and the Mac’s AI models.</dd></div>
+        <div><dt>See for yourself</dt><dd>Settings, Network Activity, lists every request the app makes.</dd></div>
+      </dl>
     </section>
 
-    <section class="scene chapter wide flow" id="mac" data-scene="mac" data-shot="mac" data-span="2.3" data-states='[{"mac":"play","macShot":"shots/mac-decks.webp"}]' aria-labelledby="mac-h">
-      <div class="pin">
-        <div class="side a">
-          <h2 class="ink" id="mac-h">Mac.</h2>
-          <p class="sub ink">The DJ side lives here. It’s all on the <a href="../?side=dj">DJ side of the homepage</a>.</p>
-          <dl class="fl">
-            <div><dt class="ink">Decks</dt><dd class="ink">Two decks and a mixer: EQ, filter, sync, key lock, Audio Unit effects, cue in your headphones.</dd></div>
-            <div><dt class="ink">Prep panel</dt><dd class="ink">On any track (⌘I or ⌥⌘P), or on the deck: beat grids, keys, hot cues A to H, memory cues and loops.</dd></div>
-            <div><dt class="ink">rekordbox in and out</dt><dd class="ink">Import a rekordbox.xml, folder or USB stick. Export a new XML with your prep.</dd></div>
-            <div><dt class="ink">Export to USB</dt><dd class="ink">A stick the CDJ-2000NXS2 and CDJ-3000 can read (⇧⌘E). Not tried on a real CDJ yet.</dd></div>
-            <div><dt class="ink">DDJ-400</dt><dd class="ink">Mapped, jogs to pads. Controllers play your own music only.</dd></div>
-            <div><dt class="ink">DJ Players</dt><dd class="ink">Sees CDJs on the network, writes your setlist, joins as a virtual deck. Only met a fake CDJ so far.</dd></div>
-          </dl>
-        </div>
-      </div>
-    </section>
-
-    <section class="scene chapter wide flow" id="mac-rest" data-scene="macrest" data-shot="mac" data-span="2.3" data-states='[{"mac":"play"}]' aria-labelledby="mac-rest-h">
-      <div class="pin">
-        <div class="side a">
-          <h2 class="ink" id="mac-rest-h">Mac, the rest of it.</h2>
-          <dl class="fl">
-            <div><dt class="ink">Menu bar player</dt><dd class="ink">Play, skip and see what’s on without opening the window.</dd></div>
-            <div><dt class="ink">Now Playing window</dt><dd class="ink">Full window, or the player in the toolbar (⇧⌘N).</dd></div>
-            <div><dt class="ink">Menus and shortcuts</dt><dd class="ink">Playback, Library, Decks and the Prep panel all have them.</dd></div>
-            <div><dt class="ink">Mac-only sidebar</dt><dd class="ink">Your Tracks, Private Shares and Messages.</dd></div>
-            <div><dt class="ink">Share extension</dt><dd class="ink">Share a SoundCloud link to Sounding: Play Now, Play Next or Play Last.</dd></div>
-            <div><dt class="ink">Heavy lifting</dt><dd class="ink">The Mac works out tempo and key, and your iPhone and iPad pick the results up.</dd></div>
-            <div><dt class="ink">Deeper analysis</dt><dd class="ink">On-device AI analysis, off until you turn it on.</dd></div>
-          </dl>
-        </div>
-      </div>
-    </section>
-
-    <section class="scene chapter wide flow" id="tv" data-scene="tv" data-shot="tvf" data-span="2.3" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-np.webp"}]' aria-labelledby="tv-h">
-      <div class="pin">
-        <div class="side a">
-          <h2 class="ink" id="tv-h">Apple&nbsp;TV.</h2>
-          <p class="sub ink">The loud one. More on the <a href="../tv/">TV page</a>.</p>
-          <dl class="fl">
-            <div><dt class="ink">Signs in by ear</dt><dd class="ink">Your iPhone hears its chime and signs it in. QR code if the room’s loud.</dd></div>
-            <div><dt class="ink">Now Playing</dt><dd class="ink">The artwork as the background, laid out like a tape deck, the next two tracks beside it.</dd></div>
-            <div><dt class="ink">Auto Mix and Decks</dt><dd class="ink">Watch the mix happen, and a Decks tab for the room.</dd></div>
-            <div><dt class="ink">Top Shelf</dt><dd class="ink">Continue Listening, Recently Played, Your Likes and Mixes For You. Select one and it plays.</dd></div>
-            <div><dt class="ink">Lyrics, full screen</dt><dd class="ink">Over the artwork, off until you say yes.</dd></div>
-            <div><dt class="ink">Ambient</dt><dd class="ink">Leave it alone and it’s just the artwork, big.</dd></div>
-            <div><dt class="ink">Output</dt><dd class="ink">Send it on to AirPlay or Bluetooth speakers, or a Sonos.</dd></div>
-          </dl>
-        </div>
-      </div>
-    </section>
-
-    <section class="scene chapter wide flow" id="watch" data-scene="watch" data-shot="watch" data-span="2.3" data-states='[{"tv":"play","w":"remote"}]' aria-labelledby="watch-h">
-      <div class="pin">
-        <div class="side a">
-          <h2 class="ink" id="watch-h">Apple&nbsp;Watch.</h2>
-          <p class="sub ink">A remote for your iPhone, and for the TV when that’s playing.</p>
-          <dl class="fl">
-            <div><dt class="ink">A remote with a crown</dt><dd class="ink">Play and skip. The crown sets the volume when the TV’s playing, and scrubs when the iPhone is.</dd></div>
-            <div><dt class="ink">Output</dt><dd class="ink">The iPhone or an Apple TV, with a volume slider.</dd></div>
-            <div><dt class="ink">Up Next</dt><dd class="ink">The iPhone’s real queue. Tap a track to jump to it.</dd></div>
-            <div><dt class="ink">Auto Mix</dt><dd class="ink">Turn it on, Mix Now, from your wrist.</dd></div>
-            <div><dt class="ink">Match My Workout</dt><dd class="ink">Start a workout and Auto Mix follows your heart rate.</dd></div>
-            <div><dt class="ink">Identify Song</dt><dd class="ink">Listens on the Watch’s own microphone.</dd></div>
-            <div><dt class="ink">Complication</dt><dd class="ink">Now Playing on the watch face and in the Smart Stack, with play and pause.</dd></div>
-            <div><dt class="ink">Siri</dt><dd class="ink">Play, Pause, Next Track, Play Likes, Shuffle Likes and Like Track.</dd></div>
-          </dl>
-        </div>
-      </div>
-    </section>
-
-    <section class="scene chapter wide flow" id="extras" data-scene="extras" data-shot="crate" data-span="2.3" aria-labelledby="extras-h">
-      <div class="pin">
-        <div class="side a">
-          <h2 class="ink" id="extras-h">Widgets, extensions and notifications.</h2>
-          <dl class="fl">
-            <div><dt class="ink">Widgets</dt><dd class="ink">Now Playing and Recently Played, small, medium and Lock Screen. iPhone and iPad.</dd></div>
-            <div><dt class="ink">Live Activity</dt><dd class="ink">Now Playing and TV sign-in. iPhone.</dd></div>
-            <div><dt class="ink">Controls</dt><dd class="ink">Play or Pause, Resume and Identify Song. iPhone and iPad; Play or Pause on the Watch.</dd></div>
-            <div><dt class="ink">Complication</dt><dd class="ink">Now Playing on the watch face. Apple Watch.</dd></div>
-            <div><dt class="ink">Top Shelf</dt><dd class="ink">Four shelves of what you’re listening to. Apple TV.</dd></div>
-            <div><dt class="ink">Share extension</dt><dd class="ink">Send a SoundCloud link to the Apple TV from an iPhone or iPad, or to Sounding on the Mac.</dd></div>
-            <div><dt class="ink">Notifications</dt><dd class="ink">An Apple TV asking to sign in, a new sign-in on your account, and Scout. iPhone, iPad and Mac.</dd></div>
-          </dl>
-        </div>
-      </div>
-    </section>
-
-    <section class="scene chapter wide flow" id="privacy" data-scene="privacy" data-shot="amp" data-span="2.2" aria-labelledby="privacy-h">
-      <div class="pin">
-        <div class="side a">
-          <h2 class="ink" id="privacy-h">Privacy.</h2>
-          <p class="sub ink">All on device. The <a href="../privacy/">privacy policy</a> has the detail.</p>
-          <dl class="fl">
-            <div><dt class="ink">No Sounding servers</dt><dd class="ink">No Sounding account, no analytics, no tracking SDKs, no ads of mine.</dd></div>
-            <div><dt class="ink">Your sign-in stays yours</dt><dd class="ink">In the Keychain and your private iCloud. It only ever goes to SoundCloud.</dd></div>
-            <div><dt class="ink">Sync through your own iCloud</dt><dd class="ink">Cue points, settings, Recently Played and analysis. I can’t read any of it.</dd></div>
-            <div><dt class="ink">Off until you say</dt><dd class="ink">Lyrics, heart rate, home lights and the Mac’s AI models.</dd></div>
-            <div><dt class="ink">See for yourself</dt><dd class="ink">Settings, Network Activity, lists every request the app makes.</dd></div>
-          </dl>
-        </div>
-      </div>
-    </section>
-
-    <section class="pg-warn flowing tail" id="join" aria-labelledby="join-h">
+    <section class="warn" id="join" aria-labelledby="join-h">
       <h2 id="join-h">Fair warning.</h2>
       <p class="first">It’s made by one person in the evenings. Some of this will be rough round the edges, and some of it will change under you.</p>
       <p class="needs">Needs iOS or iPadOS 26.5 or later, or macOS, tvOS or watchOS 27.</p>

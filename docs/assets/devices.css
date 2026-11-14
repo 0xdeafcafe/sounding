@@ -1,0 +1,27 @@
+.iphone { --ti: linear-gradient(90deg, #6f6a64, #d8d4ce 5%, #a6a19b 12%, #7d7873 50%, #a6a19b 88%, #d8d4ce 95%, #6f6a64); position: relative; container-type: inline-size; isolation: isolate; }
+.iphone .body { position: relative; padding: 1.25cqw; border-radius: 16.4cqw; background: var(--ti); box-shadow: inset 0 0 0 .3cqw rgb(255 255 255 / .35), 0 1.5cqw 3cqw rgb(0 0 0 / .28), 0 9cqw 22cqw -5cqw rgb(0 0 0 / .55); }
+.iphone .bezel { padding: 2.55cqw; border-radius: 15.15cqw; background: #050505; box-shadow: inset 0 0 0 .2cqw rgb(255 255 255 / .06); }
+.iphone .glass { position: relative; aspect-ratio: 300 / 652.4; overflow: hidden; border-radius: 12.6cqw; background: #000; }
+.iphone .glass::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(125deg, rgb(255 255 255 / .07), transparent 32%); pointer-events: none; }
+.iphone canvas, .iphone .glass > img { display: block; width: 100%; height: 100%; max-width: none; object-fit: cover; }
+.iphone .b { position: absolute; z-index: -1; width: 1.6cqw; border-radius: .8cqw; background: linear-gradient(90deg, #5d5853, #b9b4ae 50%, #7d7873); }
+.iphone .b.act { left: -.75cqw; top: 17.5%; height: 4%; }
+.iphone .b.vu { left: -.75cqw; top: 24.5%; height: 7.5%; }
+.iphone .b.vd { left: -.75cqw; top: 33.5%; height: 7.5%; }
+.iphone .b.pw { right: -.75cqw; top: 27%; height: 11.5%; }
+
+.awatch { position: relative; container-type: inline-size; isolation: isolate; }
+.awatch .case { position: relative; padding: 1.6cqw; border-radius: 25cqw; background: linear-gradient(135deg, #d6d2cc, #8f8a84 30%, #5f5b56 70%, #a9a49e); box-shadow: inset 0 0 0 .5cqw rgb(255 255 255 / .3), 0 2cqw 4cqw rgb(0 0 0 / .3), 0 10cqw 24cqw -6cqw rgb(0 0 0 / .55); }
+.awatch .bezel { padding: 5.2cqw; border-radius: 23.4cqw; background: #050505; }
+.awatch .glass { position: relative; aspect-ratio: 160 / 195.9; overflow: hidden; border-radius: 18.4cqw; background: #000; }
+.awatch .glass::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(135deg, rgb(255 255 255 / .08), transparent 35%); pointer-events: none; }
+.awatch canvas, .awatch .glass > img { display: block; width: 100%; height: 100%; max-width: none; object-fit: cover; }
+.awatch .band { position: absolute; z-index: -1; left: 50%; width: 64cqw; height: 66cqw; transform: translateX(-50%); background: linear-gradient(90deg, #7d3417, #c75f32 14%, #e07a48 50%, #c75f32 86%, #7d3417); }
+.awatch .band.t { bottom: 82%; border-radius: 40% 40% 4cqw 4cqw / 18% 18% 4cqw 4cqw; -webkit-mask-image: linear-gradient(transparent, #000 45%); mask-image: linear-gradient(transparent, #000 45%); }
+.awatch .band.u { top: 82%; border-radius: 4cqw 4cqw 40% 40% / 4cqw 4cqw 18% 18%; -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); }
+.awatch .band::before { content: ""; position: absolute; left: 0; right: 0; height: 10cqw; background: linear-gradient(rgb(0 0 0 / .35), transparent); }
+.awatch .band.t::before { bottom: 0; transform: scaleY(-1); }
+.awatch .band.u::before { top: 0; }
+.awatch .crown { position: absolute; right: -4.2cqw; top: 24%; width: 5.4cqw; height: 15%; border-radius: 1.6cqw; background: repeating-linear-gradient(#cfcac4 0 .7cqw, #7a756f .7cqw 1.3cqw); box-shadow: 0 .5cqw 1cqw rgb(0 0 0 / .35); }
+.awatch .crown::after { content: ""; position: absolute; right: 0; top: 30%; bottom: 30%; width: 1.3cqw; border-radius: 0 1cqw 1cqw 0; background: #d9693a; }
+.awatch .push { position: absolute; right: -1.6cqw; top: 50%; width: 2.2cqw; height: 22%; border-radius: 1.1cqw; background: linear-gradient(90deg, #6f6a64, #c2bdb7 60%, #8f8a84); }

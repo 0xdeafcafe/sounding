@@ -12,7 +12,7 @@ const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const fmt = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return h ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`; };
 
 // MARK: Content
-const PARIAH = 'music/essy-wildeburg.webp', BACKDROP = 'music/essy-backdrop.webp', TRANS = 'music/paul-renard-transmissions.webp', ICON = 'app-icon.webp';
+const PARIAH = 'music/essy-wildeburg.webp', BACKDROP = 'music/essy-backdrop.webp', TRANS = 'music/paul-renard-transmissions.webp', ICON = 'app-icon.webp', HOME_ART = 'music/hearthug-computerized-souls.webp';
 const small = f => `music/s/${f}.webp`;
 const LIKES = [
   ['pegassi-jump-4-joy', 'Jump 4 Joy', 'Pegassi'],
@@ -53,7 +53,7 @@ const at = n => LIKES.findIndex(l => l[0] === n);
 const RECENT = ['benwal-dgtl', 'essy-wildeburg', 'benwal-wildeburg', 'kyle-starkey-wildeburg', 'pegassi-essential-mix', 'hearthug-lost-in-tokyo'].map(at);
 const LIKED = ['pegassi-jump-4-joy', 'hearthug-computerized-souls', 'kyle-starkey-boom-boom-jam', 'benwal-just-go', 'pegassi-227kg', 'hearthug-buzz-look-an-alien'].map(at);
 const NEXT = ['pegassi-style', 'kyle-starkey-tryton', 'pegassi-227kg', 'hearthug-buzz-look-an-alien'].map(at);
-const FILES = [PARIAH, BACKDROP, TRANS, ICON, ...LIKES.map(l => small(l[0]))];
+const FILES = [PARIAH, BACKDROP, TRANS, ICON, HOME_ART, ...LIKES.map(l => small(l[0]))];
 
 // MARK: Shapes
 const C = (x, y, r) => `M${x - r} ${y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0z`;
@@ -92,6 +92,7 @@ const ICON_SRC = {
   check: [['s', 'M5 12.6l4.4 4.4L19 7.4', 2.6]],
   back: [['s', 'M14.5 5 7.5 12l7 7', 2.4]],
   chev: [['s', 'M9.5 5l7 7-7 7', 2.6]],
+  info: [['s', C(12, 12, 8.6) + 'M12 11v5.6', 1.9], ['f', C(12, 7.6, 1.25)]],
   gear: [['g', C(12, 12, 8)], ['s', C(12, 12, 5.6) + C(12, 12, 2.2)]],
 };
 const WF_A = [83,101,107,124,136,128,242,287,239,227,263,227,247,231,248,228,270,297,282,301,296,249,288,266,236,211,252,226,242,257,257,282,260,297,279,315,309,248,242,237,127,112,117,108,114,111,110,345,345,372,353,374,368,379,353,310,368,377,372,344,356,314,366,344,320,302,368,379,304,363,331,309,321,361,369,300,348,300,356,324,273,279,250,280,237,223,255,220,231,244,256,228,221,243,185,184,149,104,78,54];
@@ -356,8 +357,26 @@ function phone(ctx, sc, friend) {
   }
   sc.view(ctx, b, { s: 1.03 - 0.03 * b, direct: true }, x => sc.layer(x, 'cues', y => phCues(y, sc)));
   const k = Math.round(255 * (1 - (friend ? 0 : sc.v('sbd')))), c = `rgb(${k},${k},${k})`;
-  text(ctx, '21:47', 12.5, 4.8, 4.7, { w: 600, c });
-  box(ctx, 82.9, 4.8 + (5.875 - 3.6) / 2, 7.6, 3.6, 1.2, c);
+  text(ctx, '21:47', 17, 4.9, 4.7, { w: 600, c, align: 'center' });
+  status(ctx, 7.8, c);
+  box(ctx, 34.4, 2.7, 31.2, 9.2, 4.6, '#000');
+}
+function status(ctx, cy, c) {
+  ctx.save();
+  for (let i = 0; i < 4; i++) { const h = 1.2 + i * 0.62; box(ctx, 67.4 + i * 1.5, cy + 1.3 - h, 1.05, h, 0.35, c); }
+  ctx.strokeStyle = c;
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 0.78;
+  for (const r of [1.55, 2.95]) { ctx.beginPath(); ctx.arc(76.8, cy + 1.45, r, -Math.PI * 0.76, -Math.PI * 0.24); ctx.stroke(); }
+  dot(ctx, 76.8, cy + 1.05, 0.5, c);
+  ctx.globalAlpha = 0.4;
+  rr(ctx, 81.3, cy - 1.75, 7.1, 3.5, 1.15);
+  ctx.lineWidth = 0.42;
+  ctx.stroke();
+  box(ctx, 88.75, cy - 0.6, 0.55, 1.2, 0.27, c);
+  ctx.globalAlpha = 1;
+  box(ctx, 81.9, cy - 1.15, 5.1, 2.3, 0.7, c);
+  ctx.restore();
 }
 function phLib(ctx, sc) {
   sc.layer(ctx, 'lib', x => {
@@ -642,12 +661,112 @@ function tvCtl(ctx, sc, top) {
   icon(ctx, 'pause', 49.7, cy - 1.3, 2.6, '#111');
   text(ctx, 'Pause', 51, top + 6.8, 2.2, { w: 600, align: 'center' });
 }
+const HOME_HERO = LIKES[at('hearthug-computerized-souls')];
+const HOME_TABS = ['Home', 'Library', 'Decks', 'Stations', 'Now Playing', 'Settings'];
+const HOME_ROW = ['kyle-starkey-boom-boom-jam', 'hearthug-alien', 'benwal-just-go', 'pegassi-227kg', 'kyle-starkey-tryton', 'kyle-starkey-love-euphoria', 'benwal-dive'].map(n => LIKES[at(n)]);
+function homeBack(ctx, sc) {
+  const H = sc.H;
+  ctx.fillStyle = cssLinear(ctx, 180, 0, 0, 100, H, [[0, '#1c1c1c'], [1, '#0d0d0d']]);
+  ctx.fillRect(0, 0, 100, H);
+  const im = sc.img(HOME_ART);
+  if (im) {
+    const b = document.createElement('canvas');
+    b.width = 12; b.height = 8;
+    cover(b.getContext('2d'), im, 0, 0, 12, 8);
+    ctx.save();
+    ctx.imageSmoothingQuality = 'high';
+    ctx.globalAlpha = 0.42;
+    ctx.drawImage(b, -6, -6, 112, 46);
+    ctx.restore();
+  }
+  ctx.fillStyle = cssLinear(ctx, 180, 0, 0, 100, 40, [[0, 'rgba(0,0,0,.34)'], [0.55, 'rgba(13,13,13,.55)'], [1, '#0d0d0d']]);
+  ctx.fillRect(0, 0, 100, 40);
+  ctx.fillStyle = cssLinear(ctx, 90, 0, 0, 70, 40, [[0, 'rgba(0,0,0,.4)'], [1, 'rgba(0,0,0,0)']]);
+  ctx.fillRect(0, 0, 70, 40);
+  ctx.fillStyle = '#0d0d0d';
+  ctx.fillRect(0, 40, 100, H - 40);
+}
+function homeGlass(ctx, sc, x, y, w, h, tint) {
+  shadow(ctx, sc, x, y, w, h, h / 2, 0.5, 2.2, 'rgba(0,0,0,.28)');
+  rr(ctx, x, y, w, h, h / 2);
+  ctx.fillStyle = tint ? cssLinear(ctx, 180, x, y, w, h, [[0, 'rgba(255,150,92,.46)'], [1, 'rgba(255,107,26,.32)']]) : cssLinear(ctx, 180, x, y, w, h, [[0, 'rgba(255,255,255,.2)'], [1, 'rgba(255,255,255,.1)']]);
+  ctx.fill();
+  line(ctx, 0.1, 'rgba(255,255,255,.22)');
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = cssLinear(ctx, 180, x, y, w, h, [[0, 'rgba(255,255,255,.18)'], [0.4, 'rgba(255,255,255,0)']]);
+  ctx.fillRect(x, y, w, h);
+  ctx.restore();
+}
+function homeTabs(ctx, sc) {
+  const f = 1.55, px = 1.6, h = 3.7, y = 1.9, gap = 0.2, ws = HOME_TABS.map(l => tw(l, f, 600) + 2 * px);
+  const total = 1.1 + 3.4 + gap + ws.reduce((a, b) => a + b, 0) + gap * (ws.length - 1) + 1.1;
+  let x = 50 - total / 2;
+  homeGlass(ctx, sc, x, y, total, h);
+  x += 1.1;
+  icon(ctx, 'search', x + 0.85, y + 0.98, 1.75, 'rgba(255,255,255,.7)', 2.2);
+  x += 3.4 + gap;
+  HOME_TABS.forEach((l, i) => {
+    if (!i) box(ctx, x, y + 0.45, ws[i], h - 0.9, (h - 0.9) / 2, 'rgba(255,255,255,.2)');
+    text(ctx, l, x + ws[i] / 2, y + (h - f * 1.25) / 2, f, { w: 600, c: i ? 'rgba(255,255,255,.62)' : '#fff', align: 'center' });
+    x += ws[i] + gap;
+  });
+}
+function homeHero(ctx, sc) {
+  const s = 20.5, ax = 100 - 4.2 - s, ay = 8, bottom = ay + s, by = bottom - 3.4;
+  shadow(ctx, sc, ax, ay, s, s, 1, 1, 2.6, 'rgba(0,0,0,.45)');
+  art(ctx, sc, HOME_ART, ax, ay, s, s, 1);
+  const [, title, artist] = HOME_HERO, ls = wrap(title, 3.2, 700, 58, 2), ty = by - 5.8 - ls.length * 3.6;
+  text(ctx, 'Top Picks for You', 4.2, ty - 2.1, 1.35, { w: 600, c: 'rgba(255,255,255,.62)' });
+  ls.forEach((l, i) => text(ctx, l, 4.2, ty + i * 3.6, 3.2, { w: 700, lh: 1.1 }));
+  text(ctx, artist, 4.2, by - 5.6, 2, { c: 'rgba(255,255,255,.62)', max: 60 });
+  const pill = (x, label, n, tint) => {
+    const w = 1.6 + 1.6 + 0.7 + tw(label, 1.5, 600) + 1.8;
+    homeGlass(ctx, sc, x, by, w, 3.4, tint);
+    icon(ctx, n, x + 1.6, by + 0.9, 1.6, '#fff');
+    text(ctx, label, x + 3.9, by + (3.4 - 1.5 * 1.25) / 2, 1.5, { w: 600 });
+    return x + w + 1;
+  };
+  pill(pill(4.2, 'Play', 'play', true), 'Behind the Track', 'info');
+  for (let i = 0; i < 5; i++) dot(ctx, 48 + i, bottom + 2.1, 0.22, i ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.9)');
+}
+function homeRow(ctx, sc) {
+  const x0 = 4.2, y0 = 34.4, s = 12.6, gap = 1.8;
+  text(ctx, 'Recently Played', x0, y0 - 4.1, 2, { w: 700 });
+  HOME_ROW.forEach(([n, title, artist], i) => {
+    const x = x0 + i * (s + gap);
+    if (!i || x > 100) return;
+    art(ctx, sc, small(n), x, y0, s, s, 0.6);
+    text(ctx, title, x, y0 + s + 0.6, 1.45, { w: 500, c: 'rgba(255,255,255,.62)', max: s - 0.8 });
+    text(ctx, artist, x, y0 + s + 2.5, 1.3, { c: 'rgba(255,255,255,.4)', max: s - 0.8 });
+  });
+  const [file, title, artist] = HOME_ROW[0], fs = s * 1.15, fx = x0 + s / 2 - fs / 2, fy = y0 + s / 2 - fs / 2 - 0.5;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.55)';
+  ctx.shadowBlur = 2.4 * sc.K;
+  ctx.shadowOffsetY = 1.4 * sc.K;
+  box(ctx, fx, fy, fs, fs, 0.7, '#000');
+  ctx.restore();
+  art(ctx, sc, small(file), fx, fy, fs, fs, 0.7);
+  ctx.save();
+  rr(ctx, fx, fy, fs, fs, 0.7);
+  ctx.clip();
+  ctx.fillStyle = cssLinear(ctx, 165, fx, fy, fs, fs, [[0, 'rgba(255,255,255,.26)'], [0.42, 'rgba(255,255,255,0)']]);
+  ctx.fillRect(fx, fy, fs, fs);
+  ctx.restore();
+  text(ctx, title, fx, fy + fs + 0.6, 1.55, { w: 600, max: fs });
+  text(ctx, artist, fx, fy + fs + 2.6, 1.35, { c: 'rgba(255,255,255,.66)', max: fs });
+}
+function tvHome(ctx, sc) {
+  sc.layer(ctx, 'home', x => { homeBack(x, sc); homeHero(x, sc); homeRow(x, sc); homeTabs(x, sc); });
+}
 function tv(ctx, sc) {
-  const on = sc.v('on'), sign = sc.v('sign'), np = sc.v('np'), dj = sc.v('dj'), H = sc.H;
-  if (on <= 0 && sign <= 0 && np <= 0 && dj <= 0) return;
+  const on = sc.v('on'), sign = sc.v('sign'), home = sc.v('home'), np = sc.v('np'), dj = sc.v('dj'), H = sc.H;
+  if (on <= 0 && sign <= 0 && home <= 0 && np <= 0 && dj <= 0) return;
   ctx.fillStyle = `rgba(11,10,9,${on})`;
   ctx.fillRect(0, 0, 100, H);
   sc.view(ctx, sign, { direct: true }, x => tvSign(x, sc));
+  if (np < 1) sc.view(ctx, home, null, x => tvHome(x, sc));
   if (dj < 1) sc.view(ctx, np, null, x => tvNp(x, sc));
   sc.view(ctx, dj, { s: 1.03 - 0.03 * dj }, x => tvDj(x, sc));
 }
@@ -1294,7 +1413,7 @@ function targets(sc) {
     go('sbd', s.ph === 'lib' && !s.b, 0.4);
   } else if (sc.name === 'tv') {
     const am = s.tvb === 'am';
-    go('on', s.tv !== 'off', 0.6); go('sign', s.tv === 'sign', 0.4); go('np', s.tv === 'play', 0.4); go('dj', s.tv === 'play' && (am || s.b), 0.45); go('am', am, 0.5);
+    go('on', s.tv !== 'off', 0.6); go('sign', s.tv === 'sign', 0.4); go('home', s.tv === 'home', 0.4); go('np', s.tv === 'play', 0.4); go('dj', s.tv === 'play' && (am || s.b), 0.45); go('am', am, 0.5);
     go('next', s.tvb === 'next', 0.5); go('amb', s.tvb === 'amb', 0.7);
   } else if (sc.name === 'watch') {
     go('home', s.w === 'home', 0.35); go('remote', s.w === 'remote', 0.35);
@@ -1314,7 +1433,7 @@ function live(sc) {
   }
 }
 
-export function createScreens({ base = 'assets/', opaque = false, budget = 0 } = {}) {
+export function createScreens({ base = 'assets/', opaque = false, budget = 0, only = null } = {}) {
   shapes();
   const imgs = new Map();
   const S = { sec: 0, whole: -1, p: 0, idx: 0, row: 0, el: '0:00', left: `-${fmt(D)}`, now: `${T[0][2]} - ${T[0][1]}` };
@@ -1404,7 +1523,7 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
     targets(sc);
     return sc;
   }
-  for (const name in SCREENS) all[name] = make(name);
+  for (const name in SCREENS) if (!only || only.includes(name)) all[name] = make(name);
 
   function paint(sc) {
     const ctx = sc.cv.getContext('2d');
@@ -1437,7 +1556,7 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
     }
   }
   const get = name => { const sc = all[name]; if (!sc) throw new Error(`Unknown screen: ${name}`); return sc; };
-  setTimeout(() => { F = all.tv.w / 100; tvSign(document.createElement('canvas').getContext('2d'), all.tv); }, 1800);
+  if (all.tv) setTimeout(() => { F = all.tv.w / 100; tvSign(document.createElement('canvas').getContext('2d'), all.tv); }, 1800);
 
   return {
     ready,
@@ -1466,8 +1585,8 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
       S.idx = idx;
       S.now = `${T[idx][2]} - ${T[idx][1]}`;
       const row = Math.max(0, idx - 1), ph = all.phone, mc = all.mac;
-      if (ph.v('play') > 0 && ph.v('L') > 0 && ph.v('b') < 1 && ph.vis) ph.go('scroll', row, 0.45); else ph.snap('scroll', row);
-      if (mc.v('play') > 0 && mc.vis) mc.go('scroll', row, 0.45); else mc.snap('scroll', row);
+      if (ph) { if (ph.v('play') > 0 && ph.v('L') > 0 && ph.v('b') < 1 && ph.vis) ph.go('scroll', row, 0.45); else ph.snap('scroll', row); }
+      if (mc) { if (mc.v('play') > 0 && mc.vis) mc.go('scroll', row, 0.45); else mc.snap('scroll', row); }
       for (const name in all) if (live(all[name])) all[name].dirty = true;
     },
     pace(k) { pace = k; },
@@ -1484,10 +1603,11 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
       let painted = 0;
       for (const name in all) {
         const sc = all[name];
+        const skip = only && !sc.vis;
         for (const k in sc.a) {
           const a = sc.a[k];
           if (a.t >= 1) continue;
-          a.t = pace > 0 ? Math.min(1, a.t + dt / (a.d * pace)) : 1;
+          a.t = pace > 0 && !skip ? Math.min(1, a.t + dt / (a.d * pace)) : 1;
           a.v = a.f + (a.to - a.f) * ease(a.t);
           sc.dirty = true;
         }

@@ -1,121 +1,81 @@
-export const BPM = 124;
+export const BPM = 122;
 
-const CHORDS = {
-  main: [[57, 60, 64, 67, 71], [53, 57, 60, 64, 67], [55, 59, 60, 64, 67], [55, 59, 62, 64, 69]],
-  alt: [[50, 53, 57, 60, 64], [52, 55, 59, 62, 64], [53, 57, 60, 64, 67], [55, 59, 62, 67, 69]],
-};
-const ROOTS = { main: [33, 29, 36, 31], alt: [38, 40, 29, 31] };
-
-const DRUMS = {
-  kick: { four: 'x...x...x...x...', push: 'x...x...x...x.x.', off: 'x...x.....x...x.' },
-  hat: { off8: '..x...x...x...x.', six: 'o-x-o-x-o-x-o-x-', sixb: '-ox--ox--ox--ox-', sparse: '..x.......x.....' },
-  ohat: { oh: '..x...x...x...x.', oh2: '......x.......x.' },
-  ride: { rd: 'x.o.x.o.x.o.x.o.', rd2: '..x...x...x...x.' },
-  clap: { two4: '....x.......x...', two4b: '....x......-x...', late: '....x.......x..-' },
-  rim: { r1: '...x..x....x..x.', r2: '.x...x...x.x...x', r3: '......x.......x.' },
-  shaker: { sh: 'o-x-o-x-o-x-o-x-', sh2: '-xo--xo--xo--xo-', sh3: 'x-o-x-o-x-o-x-o-' },
-  perc: { c1: '..x..x.x...x..x.', c2: '.x..x..x.x..x..x', c3: '...x...x..x...x.' },
-};
+const KICK = { four: 'x...x...x...x...' };
 
 const SONG_A = {
-  seed: 101, bpm: BPM, swing: 0.11, bassOct: 12,
-  chords: CHORDS, roots: ROOTS,
-  fills: ['hatroll', 'kickpush', 'bassrun', 'claproll', 'percburst', 'none', 'none'],
+  seed: 101, bpm: BPM, swing: 0.06,
+  chords: [
+    { notes: [57, 60, 64, 67, 71], root: 45, bars: 4 },
+    { notes: [53, 57, 60, 64, 67], root: 41, bars: 4 },
+  ],
   pat: {
-    ...DRUMS,
+    kick: KICK,
+    hat: { off: '..x...x...x...x.', off16: '..x.-.x...x.-.x.' },
+    shaker: { sh: '.-o-.-o-.-o-.-o-' },
+    rim: { r1: '..........x.....', r2: ['...x.......x....', '......x.......x.'] },
+    stab: { s0: '..x.............', s1: ['..x.......x.....', '..x.......x..x..'], s2: ['...x..x.....x...', '...x..x.......x.'] },
     bass: {
-      r8: [[0, 0, 2, 1], [2, 0, 2], [4, 0, 2], [6, 0, 2], [8, 0, 2, 1], [10, 0, 2], [12, 0, 2], [14, 0, 2]],
-      off: [[2, 0, 2], [6, 0, 2], [10, 0, 2, 1], [14, 0, 2]],
-      long: [[0, 0, 6, 1], [8, 0, 4], [12, 12, 2]],
-      walk: [[0, 0, 2, 1], [2, 0, 2], [4, 0, 2], [6, 7, 2], [8, 0, 2, 1], [10, 0, 2], [12, 12, 2], [14, 10, 2]],
-      bump: [[2, 0, 2], [6, 0, 1], [7, 0, 1], [10, 0, 2, 1], [13, 7, 1], [14, 0, 1]],
-    },
-    stab: { sd: ['..X.............', '..........X.....'] },
-    keys: { k1: ['x.....x.....x...', 'x.....x...x.....'], k2: ['..x.....x.......', '..x.....x.....x.'], k3: ['x.......x.......', 'x.......x...x...'] },
-    arp: { a16: 'x-x-x-x-x-x-x-x-', a16b: '-x-x-x-x-x-x-x-x', a8: 'x.x.x.x.x.x.x.x.', a8b: 'x..x..x.x..x..x.' },
-    lead: {
-      m1: [[0, 76, 3], [4, 74, 2], [6, 72, 2], [8, 69, 4], [16, 72, 3], [20, 74, 2], [22, 76, 2], [24, 79, 6]],
-      m2: [[0, 81, 2], [2, 79, 2], [4, 76, 4], [10, 74, 2], [12, 72, 4], [16, 74, 2], [18, 76, 2], [20, 79, 4], [26, 76, 2], [28, 74, 4]],
-      m3: [[0, 72, 2], [2, 76, 2], [4, 79, 4], [8, 76, 2], [10, 74, 2], [12, 72, 4], [16, 69, 6], [24, 72, 2], [26, 74, 2], [28, 76, 4]],
+      b1: [[2, 0, 1.6], [6, 0, 1.6], [10, 0, 1.6], [14, 0, 1.6]],
+      b2: [[0, 0, 3], [6, 0, 1.5], [10, 7, 1.5, 0.85], [14, 0, 1.5]],
+      b3: [[0, 0, 7], [8, 0, 6, 0.9]],
     },
   },
   kit: {
-    kick: { pitch: 150, deep: 48, glide: 14, decay: 290, click: 0.04, sat: 1.1, level: 0.58 },
-    rumble: { decay: 300, lp: 120, freq: 42, level: 0.2 },
-    hat: { decay: 28, tail: 0.25, hp: 5500, lp: 15000, metal: 0, level: 0.2 },
-    ohat: { decay: 140, tail: 0.5, hp: 6000, lp: 14000, metal: 0, level: 0.16 },
-    ride: { decay: 160, tail: 0.6, hp: 5000, lp: 13000, metal: 1, level: 0.12 },
-    shaker: { decay: 35, tail: 0.2, hp: 4500, lp: 12000, metal: 0, level: 0.12 },
-    clap: { freq: 1300, decay: 110, level: 0.3 },
-    rim: { freq: 1700, decay: 20, ndecay: 12, tone: 0.6, level: 0.16 },
-    perc: { freq: 210, decay: 70, ndecay: 8, tone: 0.9, level: 0.22 },
-    bell: { decay: 900, level: 0.05 },
-    bass: { cut: 700, cutEnd: 220, cdecay: 160, rel: 14, sub: 0.35, drive: 1.6, res: 1.1, level: 0.3, square: 0, accentAmt: 0 },
-    stab: { det: 8, cut: 2200, cutEnd: 500, cdecay: 160, attack: 0.004, rel: 90, res: 0.9, wave: 'saw', drive: 1.2, level: 0.24, send: 0.5 },
-    keys: { det: 4, cut: 3800, cutEnd: 1000, cdecay: 350, attack: 0.003, rel: 250, res: 0.7, wave: 'tri', drive: 1, level: 0.32, send: 0.4 },
-    arp: { det: 5, cut: 2200, cutEnd: 600, cdecay: 120, attack: 0.002, rel: 40, res: 0.9, wave: 'saw', drive: 1, level: 0.17 },
-    lead: { det: 6, cut: 2600, cutEnd: 1200, cdecay: 300, attack: 0.01, rel: 140, res: 0.8, wave: 'tri', drive: 1, level: 0.25 },
-    pad: { det: 9, cut: 900, cutEnd: 900, cdecay: 1000, attack: 0.9, rel: 900, res: 0.6, lfo: 0.06, lfoAmt: 0.35, wave: 'saw', drive: 1, level: 0.13, drop: 0 },
-    riser: { from: 300, to: 7000, level: 0.09 },
-    impact: { decay: 900, lp: 5000, boom: 500, level: 0.3 },
+    kick: { pitch: 110, deep: 50, glide: 28, decay: 170, drive: 1.3, level: 0.52 },
+    bass: { drive: 1.4, hold: 600, rel: 40, lp: 320, level: 0.3 },
+    stab: { det: 7, cut: 900, famt: 1.2, fdecay: 70, res: 1.6, decay: 160, level: 0.8 },
+    pad: { attack: 1.6, release: 2.2, lp: 900, level: 0.16 },
+    hat: { attack: 0.8, decay: 22, hp: 5500, lp: 8000, level: 0.2 },
+    shaker: { attack: 3, decay: 40, hp: 4500, lp: 7000, level: 0.06 },
+    rim: { freq: 1150, decay: 28, noise: 0.5, level: 0.1 },
   },
-  fx: { decay: 0.62, damp: 0.45, delaySteps: 3, feedback: 0.42, delayLevel: 0.5, revLevel: 0.5, duck: 0.35, thr: 0.5, ratio: 2.5, makeup: 1.12, stabSend: 0.5, percSend: 0.25, arpSend: 0.45, leadSend: 0.6, percRev: 0.3, stabRev: 0.3, padRev: 0.25, hatRev: 0.04, kickRev: 0, arpRev: 0.3, leadRev: 0.5 },
+  fx: { delaySteps: 3, delayLp: 2200, delayHp: 280, feedback: 0.55, rt: 2.6, damp: 4500, duck: 0.45, duckMs: 140, stabSend: 0.7, stabDry: 0.8, stabRev: 0.3, echoRev: 0.35, echoLevel: 0.75, padRev: 0.4, rimSend: 0.8, rimDry: 0.4, rimRev: 0.2, hatSend: 0.04, revLevel: 0.55, hiss: 0.006, gain: 1 },
   sections: [
-    { name: 'intro', bars: 8, kick: 'four', shaker: 'sh', pad: 0.7, arp: 'a8', lp: [500, 4000], pings: 0.25 },
-    { name: 'rise', bars: 8, kick: 'four', hat: 'off8', shaker: 'sh', bass: 'off', arp: 'a16', keys: 'k3', pad: 0.8, lp: [4000, 14000], pings: 0.2 },
-    { name: 'groove', bars: 16, kick: 'four', hat: ['off8', 'six'], shaker: ['sh', 'sh2'], clap: 'two4', rim: ['r3', 0], bass: ['r8', 'off', 'walk'], arp: ['a16', 'a8'], keys: ['k1', 'k2'], pad: 0.7, pings: 0.15 },
-    { name: 'break', bars: 8, shaker: 'sh2', bass: 'long', pad: 1, prog: 'alt', keys: 'k2', lead: 'm1', riser: 4, hp: [20, 180], pings: 0.4, fills: ['snareroll', 'claproll'] },
-    { name: 'drop', bars: 16, impact: true, kick: 'four', hat: 'six', ohat: 'oh2', clap: 'two4', shaker: 'sh', perc: ['c1', 0], bass: ['r8', 'walk'], arp: 'a16', keys: 'k1', lead: ['m1', 'm2'], pad: 0.6, pings: 0.1 },
-    { name: 'groove2', bars: 16, kick: 'four', hat: 'off8', shaker: 'sh', clap: ['two4', 0], rim: 'r1', bass: ['off', 'r8', 'bump'], arp: ['a8', 'a8b', 0], keys: 'k2', pad: 0.7, pings: 0.2 },
-    { name: 'break2', bars: 8, kick: 'four', shaker: 'sh', bass: 'long', pad: 1, prog: 'alt', lead: 'm2', arp: 'a16', riser: 4, lp: [12000, 450], pings: 0.4, fills: ['snareroll'] },
-    { name: 'drop2', bars: 16, impact: true, kick: 'four', hat: ['six', 'sixb'], ohat: 'oh', clap: 'two4b', shaker: 'sh', perc: ['c1', 'c3'], ride: [0, 'rd2'], bass: ['walk', 'r8'], arp: 'a16', keys: 'k1', lead: ['m2', 'm3', 'm1'], pad: 0.6, pings: 0.1 },
-    { name: 'outro', bars: 4, kick: 'four', shaker: 'sh', pad: 0.7, arp: 'a8', lp: [14000, 600] },
+    { name: 'in', bars: 4, kick: 'four', stab: 's0', cut: [450, 700], pad: 0.5 },
+    { name: 'a', bars: 16, kick: 'four', hat: 'off', bass: 'b1', stab: 's1', rim: 'r1', cut: [700, 1500], pad: 0.4 },
+    { name: 'b', bars: 16, kick: 'four', hat: 'off16', shaker: 'sh', bass: ['b1', 'b2'], stab: 's2', rim: 'r2', cut: [1500, 900], pad: 0.5 },
+    { name: 'dub', bars: 8, bass: 'b3', stab: 's1', rim: 'r1', cut: [900, 600], fb: 0.7, pad: 1 },
+    { name: 'c', bars: 16, kick: 'four', hat: 'off16', shaker: 'sh', bass: 'b2', stab: ['s1', 's2'], rim: 'r2', cut: [700, 2000], pad: 0.3 },
+    { name: 'd', bars: 16, kick: 'four', hat: 'off', shaker: 'sh', bass: 'b1', stab: 's2', rim: 'r1', cut: [2000, 800], pad: 0.5 },
+    { name: 'out', bars: 4, kick: 'four', stab: 's0', cut: [800, 450], pad: 0.5 },
   ],
 };
 
 const SONG_B = {
-  seed: 202, bpm: BPM, swing: 0.07, bassOct: 12,
-  chords: CHORDS, roots: ROOTS,
-  acidNotes: [0, 0, 0, 0, 12, 12, 3, 7, 10, -2, -5],
-  fills: ['hatroll', 'snareroll', 'kickpush', 'claproll', 'none', 'percburst'],
+  seed: 202, bpm: BPM, swing: 0.08,
+  chords: [
+    { notes: [57, 60, 62, 64, 67], root: 45, bars: 6 },
+    { notes: [50, 53, 57, 60, 64], root: 38, bars: 2 },
+  ],
   pat: {
-    ...DRUMS,
-    bass: {},
-    stab: { t1: ['..x..x.....x....', '..x..x.....x..x.'], t2: ['.x.....x..x.....', '.x.....x..x...x.'], sd: ['..X.............', '..........X.....'] },
-    keys: {}, arp: {}, lead: {},
+    kick: KICK,
+    hat: { soft: '..o...o...o...o.', off: '..x...x...x...x.', off16: '..x.-.x.-.x...x-' },
+    shaker: { sh: '-o-x-o-x-o-x-o-x' },
+    rim: { r1: '.......x........', r2: ['...x......x.....', '......x....x..x.'] },
+    stab: { s1: '...x.....x......', s2: ['..x..x....x.....', '..x..x.......x..'] },
+    bass: {
+      roll: [[2, 0, 1], [3, 0, 0.8, 0.6], [6, 0, 1], [7, 12, 0.6, 0.5], [10, 0, 1], [11, 0, 0.8, 0.6], [14, 0, 1], [15, 7, 0.6, 0.5]],
+      b3: [[0, 0, 7], [8, 0, 6, 0.9]],
+    },
   },
   kit: {
-    kick: { pitch: 190, deep: 52, glide: 10, decay: 230, click: 0.12, sat: 1.5, level: 0.64 },
-    rumble: { decay: 320, lp: 130, freq: 44, level: 0.16 },
-    hat: { decay: 22, tail: 0.2, hp: 6500, lp: 16000, metal: 1, level: 0.21 },
-    ohat: { decay: 200, tail: 0.7, hp: 6000, lp: 15000, metal: 1, level: 0.18 },
-    ride: { decay: 180, tail: 0.6, hp: 5000, lp: 13000, metal: 1, level: 0.14 },
-    shaker: { decay: 30, tail: 0.2, hp: 4500, lp: 12000, metal: 0, level: 0.1 },
-    clap: { freq: 1500, decay: 130, level: 0.34 },
-    rim: { freq: 1800, decay: 15, ndecay: 10, tone: 0.5, level: 0.18 },
-    perc: { freq: 160, decay: 120, ndecay: 6, tone: 1, level: 0.24 },
-    bell: { decay: 700, level: 0.04 },
-    bass: { cut: 600, cutEnd: 170, cdecay: 180, rel: 8, sub: 0.1, drive: 2.2, res: 4.5, level: 0.34, square: 0, accentAmt: 1.2 },
-    stab: { det: 12, cut: 1400, cutEnd: 400, cdecay: 80, attack: 0.003, rel: 60, res: 1.2, wave: 'sq', drive: 1.5, level: 0.26, send: 0.55 },
-    keys: { det: 4, cut: 3000, cutEnd: 900, cdecay: 300, attack: 0.003, rel: 200, res: 0.7, wave: 'tri', drive: 1, level: 0.2, send: 0.4 },
-    arp: { det: 5, cut: 1800, cutEnd: 500, cdecay: 120, attack: 0.002, rel: 40, res: 0.9, wave: 'saw', drive: 1, level: 0.1 },
-    lead: { det: 6, cut: 2400, cutEnd: 1100, cdecay: 300, attack: 0.01, rel: 140, res: 0.8, wave: 'tri', drive: 1, level: 0.15 },
-    pad: { det: 10, cut: 600, cutEnd: 600, cdecay: 1000, attack: 1.2, rel: 1500, res: 0.6, lfo: 0.05, lfoAmt: 0.5, wave: 'saw', drive: 1, level: 0.12, drop: 1 },
-    riser: { from: 250, to: 8000, level: 0.1 },
-    impact: { decay: 700, lp: 6000, boom: 450, level: 0.32 },
+    kick: { pitch: 100, deep: 46, glide: 30, decay: 200, drive: 1.5, level: 0.56 },
+    bass: { drive: 1.8, hold: 300, rel: 30, lp: 280, level: 0.29 },
+    stab: { det: 10, cut: 700, famt: 1.6, fdecay: 50, res: 2.2, decay: 120, level: 0.75 },
+    pad: { attack: 2.5, release: 3, lp: 700, level: 0.13 },
+    hat: { attack: 0.8, decay: 18, hp: 6000, lp: 8000, level: 0.19 },
+    shaker: { attack: 2.5, decay: 35, hp: 4500, lp: 7000, level: 0.065 },
+    rim: { freq: 900, decay: 24, noise: 0.7, level: 0.11 },
   },
-  fx: { decay: 0.5, damp: 0.5, delaySteps: 3, feedback: 0.35, delayLevel: 0.4, revLevel: 0.35, duck: 0.45, thr: 0.5, ratio: 2.5, makeup: 1.18, stabSend: 0.55, percSend: 0.3, arpSend: 0, leadSend: 0, percRev: 0.3, stabRev: 0.3, padRev: 0.3, hatRev: 0.03, kickRev: 0, arpRev: 0, leadRev: 0 },
+  fx: { delaySteps: 3, delayLp: 1800, delayHp: 300, feedback: 0.62, rt: 3.4, damp: 3800, duck: 0.5, duckMs: 150, stabSend: 0.8, stabDry: 0.7, stabRev: 0.35, echoRev: 0.45, echoLevel: 0.8, padRev: 0.5, rimSend: 0.9, rimDry: 0.35, rimRev: 0.25, hatSend: 0.05, revLevel: 0.6, hiss: 0.007, gain: 1 },
   sections: [
-    { name: 'intro', bars: 4, kick: 'four', rumble: 0.6, shaker: 'sh', pad: 0.5, lp: [1000, 3000] },
-    { name: 'intro2', bars: 4, kick: 'four', rumble: 0.6, hat: 'off8', shaker: 'sh', pad: 0.5, acid: [0.2, 0.35, 'up'], lp: [3000, 12000] },
-    { name: 'groove', bars: 16, kick: 'four', rumble: 0.5, hat: ['off8', 'sparse'], ohat: 'oh2', clap: ['two4', 'late'], shaker: ['sh', 'sh3'], rim: ['r3', 'r1'], acid: [0.35, 0.9, 'up'] },
-    { name: 'groove2', bars: 8, kick: 'four', rumble: 0.5, hat: 'off8', ohat: 'oh', clap: 'two4', shaker: 'sh', perc: [0, 'c3'], stab: 't1', acid: [0.9, 1.8, 'up'] },
-    { name: 'build', bars: 8, kick: 'four', rumble: 0.4, hat: 'six', ohat: 'oh', clap: 'two4', shaker: 'sh', stab: 't1', pad: 0.5, riser: 4, acid: [1.8, 3.5, 'up'], fills: ['snareroll', 'hatroll'] },
-    { name: 'drop', bars: 16, impact: true, kick: 'four', rumble: 0.5, hat: ['six', 'off8'], ohat: 'oh', clap: 'two4b', ride: [0, 'rd'], perc: 'c1', shaker: 'sh', stab: 't2', pad: 0.4, acid: [3, 2, 'tri'], pings: 0.1 },
-    { name: 'break', bars: 8, shaker: 'sh2', stab: 'sd', pad: 0.9, prog: 'alt', riser: 4, acid: [1.2, 3.8, 'up'], hp: [20, 160], fills: ['snareroll'] },
-    { name: 'drop2', bars: 16, impact: true, kick: 'four', rumble: 0.5, hat: 'six', ohat: 'oh', clap: 'two4', ride: 'rd', perc: ['c1', 'c2'], shaker: 'sh', stab: ['t1', 't2'], pad: 0.4, acid: [3.5, 1.5, 'up'], pings: 0.1 },
-    { name: 'roll', bars: 8, kick: 'four', rumble: 0.5, shaker: 'sh', acid: [1.5, 0.6, 'up'], lp: [16000, 1500] },
-    { name: 'outro', bars: 8, kick: 'four', rumble: 0.6, hat: 'off8', shaker: 'sh', acid: [0.6, 0.35, 'up'], lp: [1500, 1000] },
+    { name: 'in', bars: 4, kick: 'four', hat: 'soft', stab: 's1', cut: [400, 600], pad: 0.4 },
+    { name: 'a', bars: 16, kick: 'four', hat: 'off', shaker: 'sh', bass: 'roll', stab: 's1', rim: 'r1', cut: [600, 1300], pad: 0.3 },
+    { name: 'b', bars: 16, kick: 'four', hat: 'off16', shaker: 'sh', bass: 'roll', stab: ['s1', 's2'], rim: 'r2', cut: [1300, 700], fb: 0.66, pad: 0.4 },
+    { name: 'dub', bars: 8, kick: 'four', bass: 'b3', stab: 's2', rim: 'r1', cut: [700, 500], fb: 0.74, pad: 0.9 },
+    { name: 'c', bars: 16, kick: 'four', hat: 'off16', shaker: 'sh', bass: 'roll', stab: 's2', rim: 'r2', cut: [500, 1700], pad: 0.3 },
+    { name: 'd', bars: 16, kick: 'four', hat: 'soft', shaker: 'sh', bass: 'roll', stab: 's1', rim: 'r1', cut: [1700, 600], pad: 0.5 },
+    { name: 'out', bars: 4, kick: 'four', hat: 'soft', stab: 's1', cut: [600, 400], pad: 0.4 },
   ],
 };
 
@@ -213,7 +173,7 @@ export function createAudio(base) {
     A.on = true;
     apply(0.001);
     master.gain.cancelScheduledValues(ctx.currentTime);
-    master.gain.setTargetAtTime(0.85, ctx.currentTime, 0.05);
+    master.gain.setTargetAtTime(0.75, ctx.currentTime, 0.05);
   };
 
   A.stop = () => {
