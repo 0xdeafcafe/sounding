@@ -275,12 +275,11 @@ struct MacViewportScrollView<Content: View>: View {
     var axes: Axis.Set = .vertical
     var showsIndicators = true
     var extendsUnderToolbar = false
-    var hidesContentUnderToolbar = true
     @ViewBuilder var content: () -> Content
 
     @State private var viewport: CGFloat = 0
     @State private var toolbarInset: CGFloat = 0
-    @State private var frameTop: CGFloat = 0
+    @Environment(\.macPlaybackBarInset) private var barInset
     #if DEBUG
     @State private var debugPosition = ScrollPosition()
     @State private var debugContentInset: CGFloat = 0
@@ -302,35 +301,197 @@ struct MacViewportScrollView<Content: View>: View {
     private var scroller: some View {
         ScrollView(axes, showsIndicators: showsIndicators) {
             content()
-                .frame(minHeight: viewport, alignment: .top)
+                .frame(minHeight: max(0, viewport - barInset), alignment: .top)
+                .padding(.bottom, barInset)
                 .environment(\.macToolbarInset, toolbarInset)
+                .environment(\.macPlaybackBarInset, 0)
         }
+        .contentMargins(.bottom, barInset, for: .scrollIndicators)
         .onScrollGeometryChange(for: CGFloat.self) { geometry in
             max(0, geometry.containerSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom)
         } action: { _, newValue in
             viewport = newValue
         }
         .ignoresSafeArea(.container, edges: extendsUnderToolbar ? .top : [])
-        .mask(alignment: .top) {
-            if hidesContentUnderToolbar, toolbarInset > 0 {
-                VStack(spacing: 0) {
-                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                        .frame(height: Self.edgeFade)
-                    Color.black
-                }
-                .padding(.top, max(0, toolbarInset - frameTop) - Self.edgeFade)
-            } else {
-                Color.black
-            }
-        }
         .background {
             Color.clear
                 .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { toolbarInset = $0 }
-                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { frameTop = $0 }
         }
     }
+}
 
-    private static var edgeFade: CGFloat { 10 }
+// MARK: - Page titles
+
+enum MacPageTitleStyle {
+    case large
+    case inline
+    case hidden
+}
+
+@MainActor
+@Observable
+final class MacPageTitleState {
+    var isScrolledAway = false
+}
+
+extension EnvironmentValues {
+    @Entry var macPageTitleState: MacPageTitleState? = nil
+    @Entry var macPlaybackBarInset: CGFloat = 0
+}
+
+enum MacToolbarMetrics {
+    static let title: CGFloat = 220
+}
+
+struct MacScrolledPageTitle: ToolbarContent {
+    let title: String
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Text(title)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: MacToolbarMetrics.title, alignment: .leading)
+                .padding(.horizontal, 4)
+                .accessibilityAddTraits(.isHeader)
+                .transition(.opacity)
+        }
+        .sharedBackgroundVisibility(.hidden)
+    }
+}
+
+private struct MacPageTitleModifier: ViewModifier {
+    let title: String
+    let style: MacPageTitleStyle
+
+    @State private var state = MacPageTitleState()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch style {
+        case .inline:
+            content
+                .navigationTitle(title)
+        case .hidden:
+            content
+                .navigationTitle(title)
+                .toolbar(removing: .title)
+        case .large:
+            content
+                .environment(\.macPageTitleState, state)
+                .navigationTitle(title)
+                .toolbar(removing: .title)
+                .toolbar {
+                    if state.isScrolledAway {
+                        MacScrolledPageTitle(title: title)
+                    }
+                }
+                .animation(reduceMotion ? nil : SCContentMotion.gentle, value: state.isScrolledAway)
+        }
+    }
+}
+
+private struct MacPageTitleAnchor: ViewModifier {
+    @Environment(\.macPageTitleState) private var state
+    @Environment(\.macToolbarInset) private var toolbarInset
+
+    func body(content: Content) -> some View {
+        content.onGeometryChange(for: Bool.self) { [toolbarInset] proxy in
+            let frame = proxy.frame(in: .global)
+            return toolbarInset > 0 && frame.height > 0 && frame.maxY <= toolbarInset
+        } action: { isScrolledAway in
+            guard let state, state.isScrolledAway != isScrolledAway else { return }
+            state.isScrolledAway = isScrolledAway
+        }
+    }
+}
+
+struct MacPageLargeTitle<Accessory: View>: View {
+    let title: String
+    var subtitle: String? = nil
+    @ViewBuilder var accessory: () -> Accessory
+
+    var body: some View {
+        HStack(alignment: .center, spacing: SCContentStyle.mac.spaceBase) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.largeTitle.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .accessibilityAddTraits(.isHeader)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(MacSecondaryStyle())
+                }
+            }
+            Spacer(minLength: 20)
+            accessory()
+        }
+        .macFadesUnderToolbar(over: 18)
+        .macPageTitleAnchor()
+    }
+}
+
+extension MacPageLargeTitle where Accessory == EmptyView {
+    init(title: String, subtitle: String? = nil) {
+        self.init(title: title, subtitle: subtitle) { EmptyView() }
+    }
+}
+
+private struct MacToolbarChrome: ViewModifier {
+    let softensBottomEdge: Bool
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        content
+            .scrollEdgeEffectStyle(.soft, for: softensBottomEdge ? Edge.Set([.top, .bottom]) : Edge.Set.top)
+            .toolbarBackgroundVisibility(reduceTransparency ? .visible : .automatic, for: .windowToolbar)
+    }
+}
+
+private struct MacClearsPlaybackBar: ViewModifier {
+    @Environment(\.macPlaybackBarInset) private var barInset
+
+    func body(content: Content) -> some View {
+        content
+            .contentMargins(.bottom, barInset, for: .scrollContent)
+            .contentMargins(.bottom, barInset, for: .scrollIndicators)
+            .environment(\.macPlaybackBarInset, 0)
+    }
+}
+
+private struct MacReservesPlaybackBar: ViewModifier {
+    @Environment(\.macPlaybackBarInset) private var barInset
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.macPlaybackBarInset, 0)
+            .safeAreaPadding(.bottom, barInset)
+    }
+}
+
+extension View {
+    func macReservesPlaybackBar() -> some View {
+        modifier(MacReservesPlaybackBar())
+    }
+
+    func macPageTitle(_ title: String, style: MacPageTitleStyle) -> some View {
+        modifier(MacPageTitleModifier(title: title, style: style))
+    }
+
+    func macPageTitleAnchor() -> some View {
+        modifier(MacPageTitleAnchor())
+    }
+
+    func macToolbarChrome(softensBottomEdge: Bool) -> some View {
+        modifier(MacToolbarChrome(softensBottomEdge: softensBottomEdge))
+    }
+
+    func macClearsPlaybackBar() -> some View {
+        modifier(MacClearsPlaybackBar())
+    }
 }
 
 private struct MacToolbarInsetKey: EnvironmentKey {
@@ -363,9 +524,19 @@ extension View {
     }
 }
 
+private struct MacFillsPane: ViewModifier {
+    @Environment(\.macPlaybackBarInset) private var barInset
+
+    func body(content: Content) -> some View {
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, barInset)
+    }
+}
+
 extension View {
     func macFillsPane() -> some View {
-        frame(maxWidth: .infinity, maxHeight: .infinity)
+        modifier(MacFillsPane())
     }
 }
 

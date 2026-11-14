@@ -14,8 +14,7 @@ struct MacStationsView: View {
         SoundCloudSectionGate(.stations) {
             page
         }
-        .navigationTitle("Stations")
-        .toolbar(removing: .title)
+        .macPageTitle("Stations", style: .large)
         .task { await model.load() }
         .alert(
             "Couldn\u{2019}t Start Station",
@@ -79,11 +78,7 @@ struct MacStationsView: View {
     }
 
     private var titleRow: some View {
-        Text("Stations")
-            .font(.largeTitle.weight(.bold))
-            .foregroundStyle(.primary)
-            .accessibilityAddTraits(.isHeader)
-            .macFadesUnderToolbar(over: 18)
+        MacPageLargeTitle(title: "Stations")
             .padding(.horizontal, Self.inset)
             .padding(.top, 22)
     }

@@ -67,18 +67,15 @@ struct MacHistoryView: View {
                 }
             }
         }
-        .macFillsPane()
-        .navigationTitle("History")
-        .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Search History")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .macPageTitle("History", style: .inline)
+        .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Find in History")
         .onReceive(findFocus.$request.dropFirst()) { _ in isSearchPresented = true }
         .task { await history.load() }
     }
 
     private func header(queue: [Track]) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text("History")
-                .font(.largeTitle.weight(.bold))
-            Spacer(minLength: 12)
+        HStack(spacing: 12) {
             GlassEffectContainer {
                 HStack(spacing: 8) {
                     Button {
@@ -101,6 +98,7 @@ struct MacHistoryView: View {
                     .disabled(queue.count < 2)
                 }
             }
+            Spacer(minLength: 0)
         }
         .macFadesUnderToolbar()
     }

@@ -67,8 +67,7 @@ struct MacHomeView: View {
                 }
             }
         }
-        .navigationTitle("Home")
-        .toolbar(removing: .title)
+        .macPageTitle("Home", style: .large)
         .background(Color.primary.opacity(0.001))
         .task {
             guard !hasLoadedOnce else { return }
@@ -86,11 +85,7 @@ struct MacHomeView: View {
     }
 
     private var homeTitleRow: some View {
-        HStack(alignment: .center, spacing: SCContentStyle.mac.spaceBase) {
-            Text("Home")
-                .font(.largeTitle.weight(.bold))
-                .foregroundStyle(.primary)
-            Spacer(minLength: 20)
+        MacPageLargeTitle(title: "Home") {
             MacGlassTabs(
                 "Home Feed",
                 selection: $homeSurface,
@@ -98,7 +93,6 @@ struct MacHomeView: View {
                 title: \.rawValue
             )
         }
-        .macFadesUnderToolbar(over: 18)
         .padding(.horizontal, 20)
         .padding(.top, 22)
         .environment(\.colorScheme, showsContinueHero ? .dark : colorScheme)

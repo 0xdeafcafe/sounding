@@ -42,7 +42,6 @@ struct MacArtistDetailView: View {
     @State private var isActivitySummaryExpanded = false
     @State private var profileCoverURL: URL?
     @State private var avatarURL: URL?
-    @State private var heroGone = false
     @State private var heroArtGone = false
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.colorScheme) private var colorScheme
@@ -70,15 +69,7 @@ struct MacArtistDetailView: View {
 
     var body: some View {
         content
-            .navigationTitle(user.displayName)
-            .toolbar(removing: .title)
-            .toolbar {
-                if heroGone {
-                    MacScrolledPageTitle(title: user.displayName)
-                }
-            }
-            .onChange(of: heroGone) { _, gone in MacPageTitleVisibility.shared.isShowingPushedTitle = gone }
-            .onDisappear { MacPageTitleVisibility.shared.isShowingPushedTitle = false }
+            .macPageTitle(user.displayName, style: .large)
             .task { await viewModel.loadOverviewIfNeeded() }
             .task(id: user.id) { await loadProfileCover() }
             .task(id: credentials.currentUser?.id) { await loadFollowState() }
@@ -103,7 +94,7 @@ struct MacArtistDetailView: View {
 
     @ViewBuilder
     private var content: some View {
-        let detail = MacViewportScrollView(extendsUnderToolbar: true, hidesContentUnderToolbar: heroArtGone) {
+        let detail = MacViewportScrollView(extendsUnderToolbar: true) {
             VStack(alignment: .leading, spacing: 0) {
                 hero
                     .onGeometryChange(for: Bool.self) { proxy in
@@ -137,7 +128,7 @@ struct MacArtistDetailView: View {
             detail.searchable(
                 text: $searchText,
                 placement: .toolbar,
-                prompt: "Search \(pane.rawValue.lowercased())"
+                prompt: "Find in \(pane.rawValue)"
             )
         } else {
             detail
@@ -177,7 +168,7 @@ struct MacArtistDetailView: View {
                 PersonHeroTitle(content: heroContent, metrics: .mac)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .macFadesUnderToolbar()
-                    .macReportsScrolledAway($heroGone)
+                    .macPageTitleAnchor()
 
                 if user.trackCount > 0 || !viewModel.tracks.isEmpty {
                     PersonHeroPlayButton(name: user.displayName, diameter: 44, isEnabled: !playableTracks.isEmpty, action: playArtist)
@@ -1232,7 +1223,7 @@ struct MacArtistsPane: View {
             text: $searchText,
             isPresented: $isSearchPresented,
             placement: .toolbar,
-            prompt: "Filter Artists"
+            prompt: "Find in Artists"
         )
         .navigationSubtitle(
             selectedArtistID == Self.allArtistsID && !artistAccounts.isEmpty
@@ -1323,6 +1314,7 @@ struct MacArtistsPane: View {
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
+        .macClearsPlaybackBar()
         .macListKeyboardSelection(
             ids: [Self.allArtistsID] + filteredArtists.map(\.id),
             selection: $selectedArtistID

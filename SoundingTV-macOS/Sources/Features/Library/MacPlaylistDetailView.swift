@@ -27,7 +27,6 @@ struct MacCollectionDetailView: View {
     @State private var isDescriptionExpanded = false
     @State private var filterText = ""
     @State private var isShowingCollectionPolicy = false
-    @State private var titleIsHidden = false
     @State private var backdropGone = false
 
     init(playlist: Playlist, kind: MacCollectionKind) {
@@ -38,7 +37,7 @@ struct MacCollectionDetailView: View {
     private var playlist: Playlist { viewModel.playlist }
 
     var body: some View {
-        MacViewportScrollView(hidesContentUnderToolbar: backdropGone) {
+        MacViewportScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 hero
                     .macReportsScrolledAway($backdropGone)
@@ -64,18 +63,9 @@ struct MacCollectionDetailView: View {
         .scrollEdgeEffectHidden(!backdropGone, for: .top)
         .tracksCollectionOverscroll()
         .animation(.smooth, value: backdropGone)
-        .animation(.smooth, value: titleIsHidden)
         .collectionPage(artworkURL: heroContent.artworkURL)
         .collectionAccent(from: playlist.largeDisplayArtworkURL ?? MacCollectionCover.artworkURLs(for: playlist).first)
-        .navigationTitle(playlist.title)
-        .toolbar(removing: .title)
-        .toolbar {
-            if titleIsHidden {
-                MacScrolledPageTitle(title: playlist.title)
-            }
-        }
-        .onChange(of: titleIsHidden) { _, hidden in MacPageTitleVisibility.shared.isShowingPushedTitle = hidden }
-        .onDisappear { MacPageTitleVisibility.shared.isShowingPushedTitle = false }
+        .macPageTitle(playlist.title, style: .large)
         .searchable(
             text: $filterText,
             placement: .toolbar,
@@ -152,7 +142,7 @@ struct MacCollectionDetailView: View {
             actionRow
                 .padding(.top, SCContentStyle.mac.spaceTight)
         }
-        .macReportsScrolledAway($titleIsHidden)
+        .macPageTitleAnchor()
     }
 
     @ViewBuilder

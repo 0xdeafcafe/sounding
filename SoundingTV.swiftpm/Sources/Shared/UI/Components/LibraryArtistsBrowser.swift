@@ -619,8 +619,7 @@ struct LibraryArtistsSplit<Detail: View>: View {
     var body: some View {
         GeometryReader { proxy in
             HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 0) {
-                    if let listHeader { listHeader }
+                Group {
                     if artists.isEmpty {
                         ContentUnavailableView.search(text: searchText)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -636,8 +635,11 @@ struct LibraryArtistsSplit<Detail: View>: View {
                         .scrollContentBackground(.hidden)
                     }
                 }
-                .frame(width: min(max(proxy.size.width * 0.34, 260), 380))
                 .frame(maxHeight: .infinity, alignment: .top)
+                .safeAreaBar(edge: .top, spacing: 0) {
+                    listHeader ?? AnyView(EmptyView())
+                }
+                .frame(width: min(max(proxy.size.width * 0.34, 260), 380))
 
                 Divider()
 

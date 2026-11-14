@@ -48,9 +48,9 @@ struct MacPlaylistsView: View {
         }
         .defaultScrollAnchor(.top, for: .alignment)
         .background(Color.primary.opacity(0.001))
-        .navigationTitle(scope.title)
+        .macPageTitle(scope.title, style: .inline)
         .toolbar {
-            ToolbarItem(id: "playlist-new", placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
                 Menu {
                     Button("New Playlist\u{2026}") {
                         MacRootSelection.shared.requestNewPlaylist()
@@ -64,11 +64,9 @@ struct MacPlaylistsView: View {
                 }
                 .help("New Playlist or Folder")
                 .disabled(credentials.isSignedOut)
-            }
-            ToolbarItem(id: "playlist-kind-filter", placement: .primaryAction) {
+
                 kindFilter
-            }
-            ToolbarItem(id: "playlist-view-mode", placement: .primaryAction) {
+
                 CollectionViewModeToggle(mode: viewMode)
             }
         }

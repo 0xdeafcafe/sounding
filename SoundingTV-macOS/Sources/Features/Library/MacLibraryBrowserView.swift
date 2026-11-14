@@ -1285,7 +1285,9 @@ struct MacLibraryTable: View {
     var storageKey: String? = nil
     var showsSource = false
     var exportScope: MacUSBExportSource? = nil
+    var showsSyncStatus = false
 
+    @Environment(\.macPlaybackBarInset) private var barInset
     @State private var sortOrder = [LibraryRowComparator(key: .dateAdded, order: .reverse)]
     @State private var columns = TableColumnCustomization<MacLibraryRow>()
     @State private var didRestore = false
@@ -1305,8 +1307,29 @@ struct MacLibraryTable: View {
         let showsPrep = showsPrepColumns
         let presentedRows = (showsPrep ? rows.map { $0.withPrep(prepIndex) } : rows).sorted(using: sortOrder)
 
+        Group {
+            if barInset > 0 {
+                table(presentedRows)
+                    .safeAreaBar(edge: .bottom, spacing: 0) {
+                        footer
+                            .padding(.bottom, barInset)
+                    }
+            } else {
+                VStack(spacing: 0) {
+                    table(presentedRows)
+                    footer
+                }
+            }
+        }
+        .task(id: showsPrep ? "\(rows.count)-\(rows.first?.id ?? "")-\(rows.last?.id ?? "")" : "") {
+            guard showsPrep else { return }
+            prepIndex.request(rows.map(\.id))
+        }
+        .focusedValue(\.macUSBExportSource, selectionExportSource(presentedRows) ?? exportScope)
+    }
+
+    private var footer: some View {
         VStack(spacing: 0) {
-            table(presentedRows)
             if let pager {
                 MacPagedStatusBar(pager: pager)
             }
@@ -1316,12 +1339,11 @@ struct MacLibraryTable: View {
                 .monospacedDigit()
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
+            if showsSyncStatus {
+                LibrarySyncStatusLine()
+                    .padding(.bottom, 4)
+            }
         }
-        .task(id: showsPrep ? "\(rows.count)-\(rows.first?.id ?? "")-\(rows.last?.id ?? "")" : "") {
-            guard showsPrep else { return }
-            prepIndex.request(rows.map(\.id))
-        }
-        .focusedValue(\.macUSBExportSource, selectionExportSource(presentedRows) ?? exportScope)
     }
 
     private func selectionExportSource(_ presentedRows: [MacLibraryRow]) -> MacUSBExportSource? {
@@ -1790,18 +1812,14 @@ struct MacLibraryPaneView: View {
     var body: some View {
         content
         .toolbar {
-            if model.mode != .liked {
-                ToolbarItem(id: "library-view", placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if model.mode != .liked {
                     libraryViewMenu
                 }
-            }
 
-            ToolbarItem(id: "library-filter", placement: .primaryAction) {
                 libraryFilterMenu
-            }
 
-            if model.mode == .liked {
-                ToolbarItem(id: "library-download", placement: .primaryAction) {
+                if model.mode == .liked {
                     CollectionDownloadButton(
                         collectionId: CollectionPolicyID.likedTracks,
                         tracks: { model.tracks }
@@ -1812,14 +1830,12 @@ struct MacLibraryPaneView: View {
                     .frame(width: 34, height: 34)
                     .help("Download liked tracks")
                     .accessibilityLabel("Download Liked Tracks")
-                }
 
-                ToolbarItem(id: "library-more", placement: .primaryAction) {
                     libraryMoreMenu
                 }
             }
         }
-        .navigationTitle(paneTitle)
+        .macPageTitle(paneTitle, style: .inline)
         .navigationSubtitle(model.filteredRows.isEmpty ? "" : headerSubtitle)
         .searchable(
             text: $model.filterText,
@@ -1858,9 +1874,9 @@ struct MacLibraryPaneView: View {
     private var searchPrompt: String {
         switch model.mode {
         case .search: return "Search SoundCloud"
-        case .liked: return "Filter Liked Tracks"
-        case .mine: return "Filter My Uploads"
-        case .friends: return "Filter Private Shares"
+        case .liked: return "Find in Likes"
+        case .mine: return "Find in My Uploads"
+        case .friends: return "Find in Private Shares"
         }
     }
 
@@ -2132,12 +2148,9 @@ struct MacLibraryPaneView: View {
                     onNearEnd: { model.loadMore() },
                     onSortNeedsEverything: { Task { await model.loadLocalRemainder() } },
                     pager: model.paginator,
-                    storageKey: "library.\(model.mode.rawValue)"
+                    storageKey: "library.\(model.mode.rawValue)",
+                    showsSyncStatus: model.mode == .liked || model.mode == .mine
                 )
-                if model.mode == .liked || model.mode == .mine {
-                    LibrarySyncStatusLine()
-                        .padding(.vertical, 4)
-                }
             }
         }
     }

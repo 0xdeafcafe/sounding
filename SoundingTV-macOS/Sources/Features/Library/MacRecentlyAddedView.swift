@@ -6,26 +6,20 @@ struct MacRecentlyAddedView: View {
     var body: some View {
         RecentlyAddedStates(model: model, minimumTile: 168) {
             MacViewportScrollView {
-                VStack(alignment: .leading, spacing: SCContentStyle.mac.spaceSection) {
-                    Text("Recently Added")
-                        .font(.largeTitle.weight(.bold))
-                        .macFadesUnderToolbar()
-
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 168, maximum: 252), spacing: 16, alignment: .top)],
-                        alignment: .leading,
-                        spacing: 24
-                    ) {
-                        ForEach(model.items) { item in
-                            tile(item)
-                        }
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 168, maximum: 252), spacing: 16, alignment: .top)],
+                    alignment: .leading,
+                    spacing: 24
+                ) {
+                    ForEach(model.items) { item in
+                        tile(item)
                     }
                 }
                 .padding(SCContentStyle.mac.spaceGutter)
             }
         }
-        .macFillsPane()
-        .navigationTitle("Recently Added")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .macPageTitle("Recently Added", style: .inline)
         .task { await model.load() }
     }
 

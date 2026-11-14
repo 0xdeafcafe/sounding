@@ -22,6 +22,7 @@ struct MacSetsPane: View {
         if showsSetlists {
             SavedSetlistsLibraryView()
                 .scrollContentBackground(.hidden)
+                .macClearsPlaybackBar()
                 .toolbar {
                     ToolbarItem(placement: .navigation) {
                         Button {
@@ -121,7 +122,7 @@ struct MacSetsPane: View {
                 )
             }
         }
-        .navigationTitle("Sets")
+        .macPageTitle("Sets", style: .inline)
         .navigationSubtitle(rows.isEmpty ? "" : "\(rows.count)\(model.canLoadMore ? "+" : "") set\(rows.count == 1 ? "" : "s")")
         .task {
             if model.tracks.isEmpty {
@@ -151,10 +152,9 @@ struct MacSetlistPageView: View {
         SetlistPage(route: route)
             .environment(\.setlistPlaybackActions, MacSetlistPlayback.actions)
             .scrollContentBackground(.hidden)
+            .macClearsPlaybackBar()
             .toolbar(removing: .title)
             .toolbar { MacScrolledPageTitle(title: title) }
-            .onAppear { MacPageTitleVisibility.shared.isShowingPushedTitle = true }
-            .onDisappear { MacPageTitleVisibility.shared.isShowingPushedTitle = false }
     }
 }
 

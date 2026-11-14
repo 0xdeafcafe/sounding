@@ -951,7 +951,8 @@ struct MacRootView: View {
     private func detailChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .scrollEdgeEffectStyle(.soft, for: .top)
+            .environment(\.macPlaybackBarInset, showsPlaybackBar ? MacPlaybackBarMetrics.reservedHeight : 0)
+            .macToolbarChrome(softensBottomEdge: showsPlaybackBar)
             .toolbar {
                 if hasHistory {
                     ToolbarItemGroup(placement: .navigation) {
@@ -971,7 +972,9 @@ struct MacRootView: View {
                     }
                 }
 
-                ToolbarItemGroup(placement: .primaryAction) {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+
+                ToolbarItem(placement: .primaryAction) {
                     MacAccountToolbarMenu(
                         open: { openSection($0) },
                         showActivity: { isShowingActivityInbox = true },
@@ -985,10 +988,9 @@ struct MacRootView: View {
                     }
                 }
             }
-            .safeAreaInset(edge: .top, spacing: 0) {
+            .safeAreaBar(edge: .top, spacing: 0) {
                 trafficStatusBanner
             }
-            .safeAreaPadding(.bottom, showsPlaybackBar ? MacPlaybackBarMetrics.reservedHeight : 0)
     }
 
     @ViewBuilder
@@ -1123,9 +1125,9 @@ struct MacRootView: View {
         case .artists: MacLibraryCollectionsPane(model: artistsCollection)
         case .sets: MacSetsPane(model: likesModel)
         case .setlists: MacSetsPane(model: likesModel)
-        case .downloads: DownloadedMusicView().scrollContentBackground(.hidden)
+        case .downloads: DownloadedMusicView().scrollContentBackground(.hidden).macClearsPlaybackBar()
         case .history: MacHistoryView()
-        case .mixes: MixHistoryView()
+        case .mixes: MixHistoryView().macClearsPlaybackBar()
         case .playlists: MacPlaylistsView(model: playlistsModel)
         case .myPlaylists: MacPlaylistsView(model: playlistsModel, scope: .mine)
         case .likedPlaylists: MacPlaylistsView(model: playlistsModel, scope: .liked)
@@ -1148,9 +1150,9 @@ struct MacRootView: View {
         case .smartPlaylist(let kind):
             MacSmartPlaylistView(kind: kind)
                 .id(kind)
-        case .hardware: HardwarePane()
+        case .hardware: HardwarePane().macClearsPlaybackBar()
         case .profile: MacProfileView()
-        case .messages: MacMessagesView()
+        case .messages: MacMessagesView().macReservesPlaybackBar()
         case .followers: MacConnectionsPage(kind: .followers)
         case .following: MacConnectionsPage(kind: .following)
         case .activity: MacActivityPage()
@@ -1198,8 +1200,9 @@ private struct MacTrafficPauseBanner: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .padding(.horizontal, SCContentStyle.mac.spaceGutter)
+        .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
     }
 }
