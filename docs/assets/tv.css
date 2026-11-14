@@ -59,8 +59,11 @@ html.room.snap { scroll-snap-type: y proximity; }
 .console::before { content: ""; position: absolute; left: -3000px; right: -3000px; top: 128px; height: 1600px; background: radial-gradient(40% 22% at 50% 0, color-mix(in srgb, var(--glow) 22%, transparent), transparent), linear-gradient(#1a120f, #120c0a 25%, #0d0908 60%); }
 .console::after { content: ""; position: absolute; inset: 0; border-radius: 8px; background: repeating-linear-gradient(90deg, transparent 0 348px, rgb(0 0 0 / .45) 348px 350px); }
 .console-top { position: absolute; left: 0; right: 0; top: -12px; height: 14px; border-radius: 6px 6px 2px 2px; background: linear-gradient(#4a372c, #33251e); }
-.box { position: absolute; left: 180px; top: -50px; width: 120px; height: 40px; border-radius: 12px; background: linear-gradient(#232120, #0d0c0c); box-shadow: 0 8px 18px rgb(0 0 0 / .5); }
-.remote { position: absolute; left: 1010px; top: -24px; width: 120px; height: 14px; border-radius: 7px; background: linear-gradient(#cfcbc6, #8e8984); box-shadow: 0 6px 12px rgb(0 0 0 / .45); }
+.box { position: absolute; left: 200px; top: -34px; width: 66px; height: 24px; border-radius: 7px; background: linear-gradient(#2a2826 0 22%, #121110 30%, #050505); box-shadow: 0 6px 12px rgb(0 0 0 / .5); }
+.box::after { content: ""; position: absolute; left: 30px; top: 1.5px; width: 6px; height: 3px; border-radius: 50%; background: #3a3836; }
+.remote { position: absolute; left: 1020px; top: -15px; width: 96px; height: 15px; border-radius: 7px 7px 5px 5px / 6px 6px 4px 4px; background: linear-gradient(#e4e1dc 0 50%, #a9a5a0 56%, #7e7a75); box-shadow: 0 5px 10px rgb(0 0 0 / .45); }
+.remote::before { content: ""; position: absolute; left: 8px; top: 1.5px; width: 24px; height: 6px; border-radius: 50%; background: radial-gradient(closest-side, #1a1918 0 46%, #8d8984 52%, #2a2826 62%, #3c3a38 98%); }
+.remote::after { content: ""; position: absolute; left: 44px; top: 2.5px; width: 40px; height: 4px; border-radius: 2px; background: radial-gradient(circle at 4px 50%, #1d1c1b 1.6px, transparent 2px) 0 0 / 10px 4px repeat-x; }
 .print { left: 640px; top: -330px; width: 236px; height: 299px; margin: 0; padding: 12px; background: #2a201b; box-shadow: 0 24px 50px rgb(0 0 0 / .55); }
 .print svg { display: block; width: 100%; height: 100%; }
 .lamp { left: 960px; top: -560px; width: 240px; height: 1160px; }
@@ -71,14 +74,15 @@ html.room.snap { scroll-snap-type: y proximity; }
 .lamp-foot { left: 60px; top: 1062px; width: 120px; height: 14px; border-radius: 7px; background: #2a211c; }
 
 .hand { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; opacity: 0; }
-.phone { width: 260px; aspect-ratio: 300 / 652.4; padding: 1.6%; border-radius: 13.6% / 6.3%; background: #050505; box-shadow: 0 0 0 2px #77716b, 0 0 0 3px #2a2725, 0 30px 70px rgb(0 0 0 / .6); }
-.phone .slot { width: 100%; height: 100%; border-radius: 12% / 5.5%; overflow: hidden; background: #000; }
-.watch { width: 150px; aspect-ratio: 160 / 195.9; padding: 7%; border-radius: 30%; background: linear-gradient(135deg, #6a645e, #23201e 40%, #3a3632); box-shadow: 0 24px 50px rgb(0 0 0 / .6); }
-.watch::before, .watch::after { content: ""; position: absolute; left: 17%; right: 17%; height: 34%; z-index: -1; background: linear-gradient(90deg, #b9542a, #d9693a 50%, #b9542a); }
-.watch::before { bottom: 88%; border-radius: 22% 22% 0 0; }
-.watch::after { top: 88%; border-radius: 0 0 22% 22%; }
-.watch .slot { width: 100%; height: 100%; border-radius: 24%; overflow: hidden; background: #000; }
-.slot canvas { display: block; width: 100%; height: 100%; }
+.lyr { container-type: inline-size; overflow: hidden; background: radial-gradient(80% 100% at 28% 42%, #2b4fcf, #12287f 55%, #08133f); }
+.frame .lyr { position: relative; width: 100%; height: 100%; border-radius: 3px; }
+.lyr .lines { position: absolute; left: 8cqw; right: 8cqw; top: 50%; transform: translateY(-50%); display: grid; gap: 1.8cqw; }
+.lyr p { font-weight: 700; font-size: 4.2cqw; line-height: 1.15; letter-spacing: -.02em; color: rgb(255 255 255 / .3); }
+.lyr p:first-child { color: rgb(255 255 255 / .16); }
+.lyr p:last-child { color: rgb(255 255 255 / .18); }
+.lyr p.now { font-size: 5.2cqw; color: #fff; }
+.hand.phone { width: 260px; }
+.hand.watch { width: 150px; }
 
 /* MARK: After the story */
 .after { position: relative; z-index: 1; background: var(--bg); }

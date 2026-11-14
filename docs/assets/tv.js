@@ -48,9 +48,9 @@ const CAM_M = {
   pair: { tw: 0.66, cx: 0.36, cy: 0.4, d: 0 },
   tv: { tw: 1, cx: 0.5, cy: 0.5, d: 0 },
 };
-const FOCUS = { np: [1.7, 0.27, 0.3], upnext: [1.7, 0.74, 0.32], amb: [1.15, 0.5, 0.5], mixup: [1.6, 0.33, 0.52], mixblend: [1.45, 0.5, 0.5], decks: [1.45, 0.5, 0.45], trackmap: [1.6, 0.4, 0.32], cues: [1.7, 0.7, 0.38], lyrics: [1.5, 0.36, 0.5], sign: [1, 0.5, 0.5] };
+const FOCUS = { np: [1.7, 0.27, 0.3], upnext: [1.7, 0.74, 0.32], amb: [1.15, 0.5, 0.5], mixup: [1.6, 0.33, 0.52], mixblend: [1.45, 0.5, 0.5], decks: [1.45, 0.5, 0.45], trackmap: [1.6, 0.4, 0.32], cues: [1.7, 0.7, 0.38], lyrics: [1.25, 0.42, 0.5], sign: [1, 0.5, 0.5] };
 const CANVAS = { sign: { tv: 'sign' }, amb: { tv: 'play', tvb: 'amb' } };
-const GLOW = { sign: [120, 52, 20], amb: [110, 70, 60] };
+const GLOW = { sign: [120, 52, 20], amb: [110, 70, 60], lyrics: [40, 70, 200] };
 
 const still = !root.classList.contains('room');
 const coarse = matchMedia('(pointer: coarse)').matches;
@@ -172,14 +172,14 @@ function roomPage() {
     const ps = STOPS[Math.round(pe)].phone || A.phone || B.phone;
     if (ps) { const key = JSON.stringify(ps); if (key !== phoneKey) { phoneKey = key; panes.set('phone', ps); } }
     const ph = mobile ? art.h * 0.84 : Math.min(art.h * 0.64, 600);
-    const pw = ph * 300 / 652.4;
+    const pw = ph * 0.48;
     phone.style.width = `${pw}px`;
     const px = art.x + art.w * (mobile ? 0.8 : 0.83) - pw / 2, py = art.y + art.h * (mobile ? 0.5 : 0.58) - ph / 2;
     phone.style.transform = `translate3d(${px.toFixed(1)}px, ${(py + (1 - pv) * (art.h * 0.9 + 60)).toFixed(1)}px, 0) rotate(${lerp(9, mobile ? -3 : -5, pv).toFixed(2)}deg)`;
     phone.style.opacity = pv > 0.001 ? 1 : 0;
     panes.show('phone', pv > 0.001);
-    const wh = mobile ? art.h * 0.6 : Math.min(art.h * 0.36, 300);
-    const ww = wh * 160 / 195.9;
+    const wh = ph * 0.4;
+    const ww = wh * 0.837;
     watch.style.width = `${ww}px`;
     const wx = art.x + art.w * (mobile ? 0.78 : 0.82) - ww / 2, wy = art.y + art.h * (mobile ? 0.48 : 0.56) - wh / 2;
     watch.style.transform = `translate3d(${wx.toFixed(1)}px, ${(wy + (1 - wv) * (art.h * 0.8 + 60)).toFixed(1)}px, 0) rotate(${lerp(-10, 4, wv).toFixed(2)}deg)`;

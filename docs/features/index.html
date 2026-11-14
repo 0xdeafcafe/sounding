@@ -18,6 +18,7 @@
   <script>(function(r){var c=r.classList;c.add('js');var s;try{s=localStorage.getItem('sounding.side')}catch(e){}r.dataset.side=s||(matchMedia('(prefers-color-scheme: dark)').matches?'b':'a');if(matchMedia('(prefers-reduced-motion: reduce)').matches||/[?&]still/.test(location.search))c.add('still');else c.add('ease')})(document.documentElement)</script>
   <link rel="stylesheet" href="../assets/site.css">
   <link rel="stylesheet" href="../assets/side.css">
+  <link rel="stylesheet" href="../assets/devices.css">
   <link rel="stylesheet" href="../assets/features.css">
   <link rel="modulepreload" href="../assets/screens.js">
   <script type="module" src="../assets/features.js"></script>
@@ -43,13 +44,13 @@
         <div class="d d-tv"><div class="scr"><img src="../assets/shots/tv-np.webp" alt="" width="1600" height="900" fetchpriority="high" decoding="async"></div></div>
         <div class="d d-mac"><div class="scr"><img src="../assets/shots/mac-decks.webp" alt="" width="1920" height="1200" decoding="async"></div><i class="base"></i></div>
         <div class="d d-pad"><div class="scr"><canvas data-mirror="pad"></canvas></div></div>
-        <div class="d d-phone"><div class="scr"><canvas data-mirror="phone"></canvas></div></div>
-        <div class="d d-watch"><div class="scr"><canvas data-mirror="watch"></canvas></div></div>
+        <div class="d d-phone iphone"><div class="body"><div class="bezel"><div class="glass"><canvas data-mirror="phone"></canvas></div></div></div><i class="b act"></i><i class="b vu"></i><i class="b vd"></i><i class="b pw"></i></div>
+        <div class="d d-watch awatch"><i class="band t"></i><i class="band u"></i><div class="case"><div class="bezel"><div class="glass"><canvas data-mirror="watch"></canvas></div></div></div><i class="crown"></i><i class="push"></i></div>
       </div>
     </section>
 
     <section class="plat" id="iphone" aria-labelledby="iphone-h">
-      <div class="dev" aria-hidden="true"><i class="mass m1"></i><i class="mass m2"></i><i class="mass m3"></i><div class="d d-phone"><div class="scr"><canvas data-mirror="phone"></canvas></div></div></div>
+      <div class="dev" aria-hidden="true"><i class="mass m1"></i><i class="mass m2"></i><i class="mass m3"></i><div class="d d-phone iphone"><div class="body"><div class="bezel"><div class="glass"><canvas data-mirror="phone"></canvas></div></div></div><i class="b act"></i><i class="b vu"></i><i class="b vd"></i><i class="b pw"></i></div></div>
       <div class="txt">
         <h2 id="iphone-h">iPhone.</h2>
         <p class="sub">Everything in the table, plus:</p>
@@ -129,7 +130,7 @@
     </section>
 
     <section class="plat" id="watch" aria-labelledby="watch-h">
-      <div class="dev" aria-hidden="true"><i class="mass m1"></i><i class="mass m2"></i><i class="mass m3"></i><div class="d d-watch"><div class="scr"><canvas data-mirror="watch"></canvas></div></div></div>
+      <div class="dev" aria-hidden="true"><i class="mass m1"></i><i class="mass m2"></i><i class="mass m3"></i><div class="d d-watch awatch"><i class="band t"></i><i class="band u"></i><div class="case"><div class="bezel"><div class="glass"><canvas data-mirror="watch"></canvas></div></div></div><i class="crown"></i><i class="push"></i></div></div>
       <div class="txt">
         <h2 id="watch-h">Apple&nbsp;Watch.</h2>
         <p class="sub">A remote for your iPhone, and for the TV when that’s playing.</p>
