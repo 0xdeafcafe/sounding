@@ -1763,6 +1763,7 @@
 		C349DB4A9B624DF7DE4E9A35 /* NowPlayingLikeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E9565D59F1387D6F5AB823 /* NowPlayingLikeModel.swift */; };
 		7A1B9856DF00023225DA9E60 /* NowPlayingLikeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E9565D59F1387D6F5AB823 /* NowPlayingLikeModel.swift */; };
 		170094210C4C8AACC469AD0C /* RemoteControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A176572C9D93331040E8EB1 /* RemoteControlView.swift */; };
+		D15C0F1E0000000000000001 /* RemoteControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A176572C9D93331040E8EB1 /* RemoteControlView.swift */; };
 		175D6C174D1C6AF7BAE6A494 /* MacPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FA6ED65C0EE7A671CBF71FD /* MacPlayback.swift */; };
 		1AECE0F2ACA80B77A080B2BA /* TrackPrep.swift in Sources */ = {isa = PBXBuildFile; fileRef = F560B286724C4D49EE86CB28 /* TrackPrep.swift */; };
 		91246D3F6C64D7F40EC05786 /* TrackPrep.swift in Sources */ = {isa = PBXBuildFile; fileRef = F560B286724C4D49EE86CB28 /* TrackPrep.swift */; };
@@ -5920,6 +5921,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				7442935E9CC1ADFC8F19EF2A /* DJPlayersSnapshotHarness.swift in Sources */,
 				175D6C174D1C6AF7BAE6A494 /* MacPlayback.swift in Sources */,
 				C349DB4A9B624DF7DE4E9A35 /* NowPlayingLikeModel.swift in Sources */,
+				D15C0F1E0000000000000001 /* RemoteControlView.swift in Sources */,
 				A780CA91F79CB8141C29A2D3 /* RemotePlaybackIntents.swift in Sources */,
 				FAC1483477B1345A08DE57B4 /* ChimeListener.swift in Sources */,
 				17C811997F6973C3566F136D /* ChimeLinkCrypto.swift in Sources */,

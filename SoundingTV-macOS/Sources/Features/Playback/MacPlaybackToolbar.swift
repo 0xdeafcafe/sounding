@@ -50,6 +50,7 @@ struct MacPlaybackBar: View {
     @ObservedObject private var setlists = SetlistIntelligenceStore.shared
     @State private var availableWidth: CGFloat = 800
     @State private var isShowingPlayOn = false
+    @State private var isShowingRemote = false
 
     private var model: MacNowPlayingModel { .shared }
 
@@ -94,6 +95,9 @@ struct MacPlaybackBar: View {
                 .padding(.horizontal, 12)
 
             HStack(spacing: 2) {
+                if let outputRouter {
+                    MacRemoteButton(router: outputRouter)
+                }
                 paneButton(.lyrics, enabled: canShowLyrics)
                 paneButton(.queue, enabled: true)
                 MacPlayOnButton()
@@ -165,6 +169,13 @@ struct MacPlaybackBar: View {
                 } label: {
                     Label("Play On and Volume…", systemImage: "airplay.audio")
                 }
+                if outputRouter?.remoteTarget != nil {
+                    Button {
+                        isShowingRemote = true
+                    } label: {
+                        Label("Remote…", systemImage: RemoteRequest.tabSymbol)
+                    }
+                }
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -182,6 +193,15 @@ struct MacPlaybackBar: View {
             if let outputRouter {
                 MacConnectView(router: outputRouter, onDone: { isShowingPlayOn = false })
             }
+        }
+        .popover(isPresented: $isShowingRemote, arrowEdge: .top) {
+            if let outputRouter, let target = outputRouter.remoteTarget {
+                RemoteControlView(client: outputRouter.client, sessionId: target.linkSessionId, router: outputRouter)
+                    .frame(width: 380, height: 560)
+            }
+        }
+        .onReceive(RemoteRequest.shared.$request.dropFirst().compactMap { $0 }) { _ in
+            if outputRouter?.remoteTarget != nil { isShowingRemote = true }
         }
     }
 
@@ -330,9 +350,19 @@ struct MacPlaybackBarNowPlaying: View {
     }
 
     var body: some View {
+        if let outputRouter {
+            MacRouterObserver(router: outputRouter) { core }
+        } else {
+            core
+        }
+    }
+
+    private var core: some View {
         Group {
             if let track = model.track {
                 playing(track)
+            } else if let outputRouter, outputRouter.isRemote {
+                MacOutputIdleView(router: outputRouter, showsText: showsText)
             } else if let offer = continueFrom.offer ?? continueFrom.loading {
                 offerView(offer, isLoading: continueFrom.offer == nil)
             } else if let entry = presence.primary {
@@ -582,6 +612,106 @@ struct MacPlaybackBarNowPlaying: View {
     }
 }
 
+private struct MacRouterObserver<Content: View>: View {
+    @ObservedObject var router: OutputRouter
+    @ViewBuilder let content: () -> Content
+
+    var body: some View { content() }
+}
+
+private struct MacRemoteButton: View {
+    @ObservedObject var router: OutputRouter
+    @ObservedObject private var request = RemoteRequest.shared
+    @State private var isPresented = false
+
+    var body: some View {
+        if let target = router.remoteTarget {
+            Button {
+                isPresented.toggle()
+            } label: {
+                Label("Remote", systemImage: RemoteRequest.tabSymbol)
+            }
+            .buttonStyle(MacBarButtonStyle(isOn: isPresented))
+            .help("\(target.name) Remote")
+            .accessibilityLabel("\(target.name) Remote")
+            .popover(isPresented: $isPresented, arrowEdge: .top) {
+                RemoteControlView(client: router.client, sessionId: target.linkSessionId, router: router)
+                    .frame(width: 380, height: 560)
+            }
+            .onChange(of: request.request) { _, next in
+                if next != nil { isPresented = true }
+            }
+        }
+    }
+}
+
+private struct MacOutputIdleView: View {
+    @ObservedObject var router: OutputRouter
+    let showsText: Bool
+
+    @State private var failure: String?
+
+    private var device: OutputDevice { router.current }
+
+    private var caption: String {
+        switch router.client.connectionPhase {
+        case .live: return "Nothing Playing"
+        case .connecting: return "Connecting\u{2026}"
+        case .unreachable: return "Isn\u{2019}t reachable"
+        }
+    }
+
+    var body: some View {
+        let resumable = router.client.isReachable ? router.localResumableTrack : nil
+        HStack(spacing: 10) {
+            Button {
+                RemoteRequest.shared.open()
+            } label: {
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(.quaternary)
+                        .overlay {
+                            Image(systemName: device.symbolName)
+                                .font(.system(size: 15, weight: .medium))
+                        }
+                        .frame(width: MacPlaybackBarMetrics.artworkSize, height: MacPlaybackBarMetrics.artworkSize)
+                    if showsText {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(device.name)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text(failure ?? caption)
+                                .font(.caption2)
+                                .foregroundStyle(MacSecondaryStyle())
+                        }
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open \(device.name) Remote")
+            .accessibilityLabel("\(device.name), \(caption)")
+            .accessibilityHint("Opens the remote")
+
+            if let resumable {
+                Button {
+                    Task { failure = await router.resumeThisDevice(on: device) }
+                } label: {
+                    Image(systemName: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.circle)
+                .controlSize(.small)
+                .disabled(router.isMoving)
+                .help("Play \(resumable.title) on \(device.name)")
+                .accessibilityLabel("Play \(resumable.title) on \(device.name)")
+            }
+        }
+    }
+}
+
 private struct MacRouteSubtitle: View {
     @ObservedObject var router: OutputRouter
     let artist: String
@@ -614,9 +744,12 @@ private struct MacRemoteRouteLabel: View {
     private var phaseLabel: some View {
         switch client.connectionPhase {
         case .live:
-            Label("Playing on \(device.name)", systemImage: device.symbolName)
-                .labelStyle(.titleAndIcon)
-                .foregroundStyle(Color.scAccent)
+            Label(
+                telemetry.playback?.isPlaying == true ? "Playing on \(device.name)" : "Paused on \(device.name)",
+                systemImage: device.symbolName
+            )
+            .labelStyle(.titleAndIcon)
+            .foregroundStyle(Color.scAccent)
         case .connecting:
             Label("Connecting to \(device.name)…", systemImage: device.symbolName)
                 .labelStyle(.titleAndIcon)

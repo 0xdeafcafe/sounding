@@ -489,8 +489,14 @@ struct NowPlayingHeroArt: View {
             .kyleCrowned(user: nil, context: preview.artist)
             .overlay(alignment: .bottomLeading) {
                 if isCurrent, showsRouteBadge, !snapshot.source.isLocal {
-                    NowPlayingRouteBadge(device: snapshot.source, isConnecting: !snapshot.isAvailable)
-                        .padding(14)
+                    Button {
+                        RemoteRequest.shared.open()
+                    } label: {
+                        NowPlayingRouteBadge(device: snapshot.source, isConnecting: !snapshot.isAvailable)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens the remote")
+                    .padding(14)
                         .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottomLeading)))
                 }
             }

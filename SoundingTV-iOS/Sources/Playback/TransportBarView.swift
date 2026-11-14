@@ -169,7 +169,12 @@ struct TransportBarView: View {
                 .accessibilityAction(named: "Open Now Playing") { expand() }
                 .accessibilityAction(named: "Lyrics") { open(.lyrics) }
                 .accessibilityAction(named: "Up Next") { open(.upNext) }
-                .accessibilityActions { presenceAccessibilityActions(otherDevices) }
+                .accessibilityActions {
+                    if coordinator.remoteTarget != nil {
+                        Button("Remote") { RemoteRequest.shared.open() }
+                    }
+                    presenceAccessibilityActions(otherDevices)
+                }
             } else {
                 notPlayingBar
             }
@@ -312,6 +317,8 @@ struct TransportBarView: View {
             .padding(.leading, wideIdentityInset)
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            remoteChip
+
             if !otherDevices.isEmpty {
                 presenceMenu(otherDevices, wide: miniBarSpan == .roomy)
                     .padding(.horizontal, 6)
@@ -335,6 +342,8 @@ struct TransportBarView: View {
 
             Spacer(minLength: Space.hair)
 
+            remoteChip
+
             if !otherDevices.isEmpty {
                 presenceMenu(otherDevices, wide: false)
             }
@@ -342,6 +351,111 @@ struct TransportBarView: View {
             miniTransportButtons(snapshot)
         }
         .contentShape(miniBarShape)
+    }
+
+    // MARK: - Remote
+
+    @ViewBuilder
+    private var remoteChip: some View {
+        if !coordinator.currentOutput.isLocal, coordinator.remoteTarget != nil {
+            Button {
+                RemoteRequest.shared.open()
+            } label: {
+                Image(systemName: RemoteRequest.tabSymbol)
+                    .font(.body.weight(.semibold))
+                    .frame(width: 36, height: 44)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(coordinator.currentOutput.name) Remote")
+        }
+    }
+
+    private func outputCaption(_ device: OutputDevice) -> String {
+        if coordinator.isRemoteUnreachable { return "Isn\u{2019}t reachable" }
+        if !coordinator.output.client.isReachable { return "Connecting\u{2026}" }
+        return "Nothing Playing"
+    }
+
+    private func resume(on device: OutputDevice) {
+        Task {
+            if let message = await coordinator.resumeHere(on: device) { outputFailure = message }
+        }
+    }
+
+    private func outputBar(_ device: OutputDevice) -> some View {
+        let size: CGFloat = isWide ? wideArtSize : (isInline ? 30 : 38)
+        let caption = outputCaption(device)
+        let resumable = coordinator.output.client.isReachable ? coordinator.resumableTrack : nil
+        return HStack(spacing: isInline ? Spacing.sm : 11) {
+            RoundedRectangle(cornerRadius: artCornerRadius(size), style: .continuous)
+                .fill(Color(uiColor: .tertiarySystemFill))
+                .overlay {
+                    Image(systemName: device.symbolName)
+                        .font(.system(size: size * 0.42, weight: .medium))
+                        .foregroundStyle(.primary)
+                }
+                .frame(width: size, height: size)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(device.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if !isInline {
+                    Text(resumable.map { "Nothing Playing \u{00B7} Play \($0.title)" } ?? caption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let resumable {
+                Button {
+                    resume(on: device)
+                } label: {
+                    Image(systemName: "play.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color(uiColor: .systemBackground))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.primary)
+                .buttonBorderShape(.circle)
+                .controlSize(isInline ? .small : .regular)
+                .disabled(coordinator.isMovingOutput)
+                .accessibilityLabel("Play \(resumable.title) on \(device.name)")
+            }
+            if !isInline {
+                Image(systemName: RemoteRequest.tabSymbol)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, height: 44)
+                    .accessibilityHidden(true)
+            }
+        }
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .padding(.horizontal, Space.tight)
+        .padding(.vertical, isInline ? 4 : 2)
+        .contentShape(miniBarShape)
+        .onTapGesture { RemoteRequest.shared.open() }
+        .contentShape(.contextMenuPreview, miniBarShape)
+        .contextMenu {
+            Button { showingConnect = true } label: {
+                Label("Play On\u{2026}", systemImage: device.symbolName)
+            }
+            if let resumable {
+                Button { resume(on: device) } label: {
+                    Label("Play \(resumable.title) on \(device.name)", systemImage: "play.fill")
+                }
+            }
+            DevicePresenceMenuItems(entries: otherDevices)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(device.name), \(caption)")
+        .accessibilityHint("Opens the remote")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { RemoteRequest.shared.open() }
+        .accessibilityAction(named: "Play On") { showingConnect = true }
     }
 
     // MARK: - Other devices
@@ -472,7 +586,9 @@ struct TransportBarView: View {
 
     @ViewBuilder
     private var notPlayingBar: some View {
-        if let pending = coordinator.continueOffer(from: continueFrom) {
+        if !coordinator.currentOutput.isLocal {
+            outputBar(coordinator.currentOutput)
+        } else if let pending = coordinator.continueOffer(from: continueFrom) {
             offerBar(pending.offer, isLoading: pending.isLoading)
         } else if let entry = presence.primary {
             presenceBar(entry, all: presence.entries)
@@ -712,6 +828,13 @@ struct TransportBarView: View {
                 Text(coordinator.currentOutput.name)
                 Image(systemName: coordinator.currentOutput.isLocal ? "airplay.audio" : coordinator.currentOutput.symbolName)
             }
+            if let target = coordinator.remoteTarget {
+                Button { RemoteRequest.shared.open() } label: {
+                    Text("Remote")
+                    Text(target.name)
+                    Image(systemName: RemoteRequest.tabSymbol)
+                }
+            }
         }
         DevicePresenceMenuItems(entries: otherDevices)
     }
@@ -802,7 +925,8 @@ struct TransportBarView: View {
     private func subtitle(for snapshot: NowPlayingSnapshot) -> String {
         guard let name = remoteOutputName(for: snapshot) else { return snapshot.displayArtist }
         if !coordinator.currentOutput.isLocal, let caption = coordinator.output.client.refusalCaption { return caption }
-        return snapshot.isAvailable ? "Playing on \(name)" : "Connecting to \(name)…"
+        guard snapshot.isAvailable else { return "Connecting to \(name)…" }
+        return snapshot.showsPauseGlyph ? "Playing on \(name)" : "Paused on \(name)"
     }
 
     private func identityContent(

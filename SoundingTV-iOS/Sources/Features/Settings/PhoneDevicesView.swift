@@ -346,7 +346,7 @@ struct PhoneDevicesView: View {
             }
             Section {
                 ForEach(rows) { record in
-                    NavigationLink(value: record.sessionId) {
+                    NavigationLink(value: DeviceRoute.detail(record.sessionId)) {
                         DeviceStatusRow(
                             name: record.peerName,
                             symbolName: record.peerClass.symbolName,
@@ -380,8 +380,8 @@ struct PhoneDevicesView: View {
         .safeAreaInset(edge: .bottom) { Color.clear.frame(height: PhoneChrome.floatingClearance) }
         .navigationTitle("Devices")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: String.self) { sessionId in
-            PhoneDeviceDetailView(sessionId: sessionId)
+        .navigationDestination(for: DeviceRoute.self) { route in
+            route.destination
         }
         .navigationDestination(item: $detail) { sessionId in
             PhoneDeviceDetailView(sessionId: sessionId)
@@ -392,7 +392,37 @@ struct PhoneDevicesView: View {
             client.refreshLinkStatuses()
         }
         .navigationDestination(isPresented: $showsRemote) {
-            RemoteControlView(client: client) { pairing.addDevice() }
+            PhoneRemoteScreen()
+        }
+    }
+}
+
+private enum DeviceRoute: Hashable {
+    case detail(String)
+    case remote(String)
+
+    @MainActor @ViewBuilder
+    var destination: some View {
+        switch self {
+        case .detail(let sessionId):
+            PhoneDeviceDetailView(sessionId: sessionId)
+        case .remote(let sessionId):
+            PhoneRemoteScreen(sessionId: sessionId)
+                .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+struct PhoneRemoteScreen: View {
+    var sessionId: String?
+
+    @EnvironmentObject private var client: CompanionClient
+    @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
+    @EnvironmentObject private var pairing: DevicePairingFlow
+
+    var body: some View {
+        RemoteControlView(client: client, sessionId: sessionId, router: coordinator.output) {
+            pairing.addDevice()
         }
     }
 }
@@ -444,9 +474,7 @@ private struct PhoneDeviceDetailView: View {
     private func form(_ record: LinkedCompanionStore.LinkRecord) -> some View {
         List {
             Section {
-                NavigationLink {
-                    RemoteControlView(client: client, sessionId: record.sessionId)
-                } label: {
+                NavigationLink(value: DeviceRoute.remote(record.sessionId)) {
                     Label("Remote", systemImage: "appletvremote.gen4.fill")
                 }
             }

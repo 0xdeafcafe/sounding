@@ -52,6 +52,7 @@ struct PhoneRootView: View {
         case likes
         case history
         case stations
+        case remote
         case playlist(String)
         case playlistFolder(String)
         case pinnedFolder(String)
@@ -59,7 +60,7 @@ struct PhoneRootView: View {
 
         private static let named: [PhoneTab] = [
             .home, .library, .social, .search, .decks, .recentlyAdded, .songs, .albums, .artists, .sets,
-            .setlists, .mixes, .playlists, .downloads, .following, .followers, .profile, .activity, .likes, .history, .stations,
+            .setlists, .mixes, .playlists, .downloads, .following, .followers, .profile, .activity, .likes, .history, .stations, .remote,
         ]
 
         private static let playlistPrefix = "playlist."
@@ -112,6 +113,7 @@ struct PhoneRootView: View {
             case .likes: "likes"
             case .history: "history"
             case .stations: "stations"
+            case .remote: "remote"
             case .playlist(let id): Self.playlistPrefix + id
             case .playlistFolder(let id): Self.folderPrefix + id
             case .pinnedFolder(let id): Self.pinnedFolderPrefix + id
@@ -195,6 +197,16 @@ struct PhoneRootView: View {
             .onChange(of: pairing.request == nil) { _, _ in
                 refreshState()
             }
+            .onChange(of: coordinator.remoteTarget == nil) { _, isGone in
+                if isGone, selection == .remote { selection = .home }
+            }
+            .onReceive(RemoteRequest.shared.$request.dropFirst().compactMap { $0 }) { _ in
+                guard coordinator.remoteTarget != nil else { return }
+                isNowPlayingExpanded = false
+                presentedArtist = nil
+                settingsPresenter.isPresented = false
+                selection = .remote
+            }
     }
 
     @ViewBuilder
@@ -247,7 +259,7 @@ struct PhoneRootView: View {
     private var tabs: some View {
         if PadLayout.isPad {
             playerChrome(
-                PadRootTabs(selection: $selection, library: library),
+                PadRootTabs(selection: $selection, library: library, remoteTarget: coordinator.remoteTarget),
                 showsAccessory: !(selection == .decks && horizontalSizeClass != .compact)
             )
             .focusedSceneValue(\.rootTabSelection, $selection)
@@ -260,13 +272,14 @@ struct PhoneRootView: View {
         Binding(
             get: {
                 let tab = selection.compactTab
+                if tab == .remote { return coordinator.remoteTarget == nil ? .home : .remote }
                 return Self.phoneTabValues.contains(tab) ? tab : .home
             },
             set: { selection = $0 }
         )
     }
 
-    private static let phoneTabValues: Set<PhoneTab> = [.home, .library, .playlists, .search]
+    private static let phoneTabValues: Set<PhoneTab> = [.home, .library, .playlists, .remote, .search]
 
     private var phoneTabs: some View {
         TabView(selection: phoneSelection) {
@@ -281,6 +294,12 @@ struct PhoneRootView: View {
             Tab("Playlists", systemImage: "music.note.square.stack", value: PhoneTab.playlists) {
                 ArtistRoutingStack(restorationKey: "playlists") {
                     LibrarySectionRoot(section: .playlists, models: library, showsAccount: true)
+                }
+            }
+
+            if let target = coordinator.remoteTarget {
+                Tab("Remote", systemImage: RemoteRequest.tabSymbol, value: PhoneTab.remote) {
+                    NavigationStack { PhoneRemoteScreen(sessionId: target.linkSessionId) }
                 }
             }
 
@@ -300,7 +319,7 @@ struct PhoneRootView: View {
     private func playerChrome<Content: View>(_ content: Content, showsAccessory: Bool = true) -> some View {
         content
             .modifier(BottomAccessoryModifier(
-                hasNowPlaying: (coordinator.nowPlaying != nil || PadLayout.isPad || coordinator.continueOffer(from: continueFrom) != nil || presence.primary != nil) && showsAccessory,
+                hasNowPlaying: (coordinator.nowPlaying != nil || PadLayout.isPad || coordinator.isRemoteOutput || coordinator.continueOffer(from: continueFrom) != nil || presence.primary != nil) && showsAccessory,
                 isExpanded: $isNowPlayingExpanded,
                 heroID: nowPlayingHeroID,
                 namespace: nowPlayingNamespace
@@ -581,6 +600,7 @@ struct PadNowPlaying {
 private struct PadRootTabs: View {
     @Binding var selection: PhoneRootView.PhoneTab
     let library: LibraryModels
+    let remoteTarget: OutputDevice?
 
     @State private var customization = PadSidebarCustomizationStore()
     @AppStorage(LibraryRowChoices.storageKey, store: .sounding) private var libraryRowsRaw = ""
@@ -596,7 +616,10 @@ private struct PadRootTabs: View {
 
     private var visibleSelection: Binding<PhoneRootView.PhoneTab> {
         Binding(
-            get: { hidesSections ? selection.compactTab : sidebarSelection },
+            get: {
+                let tab = hidesSections ? selection.compactTab : sidebarSelection
+                return tab == .remote && remoteTarget == nil ? .home : tab
+            },
             set: { tab in
                 if tab != selection { selection = tab }
             }
@@ -758,6 +781,17 @@ private struct PadRootTabs: View {
             .customizationID("pad.stations")
             .defaultVisibility(.hidden, for: .tabBar)
             .hidden(hidesSections)
+
+            if let remoteTarget {
+                Tab(value: PhoneRootView.PhoneTab.remote) {
+                    NavigationStack { PhoneRemoteScreen(sessionId: remoteTarget.linkSessionId) }
+                    .tint(PadChrome.pageTint)
+                } label: {
+                    sidebarLabel("Remote", RemoteRequest.tabSymbol)
+                }
+                .customizationID("pad.remote")
+                .customizationBehavior(.reorderable, for: .sidebar, .tabBar)
+            }
 
             Tab("Library", systemImage: SidebarSymbol.allPlaylists, value: PhoneRootView.PhoneTab.library) {
                 ArtistRoutingStack(restorationKey: "library") { LibraryBrowserView(models: library) }
