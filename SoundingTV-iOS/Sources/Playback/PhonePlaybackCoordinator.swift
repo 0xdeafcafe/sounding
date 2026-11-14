@@ -39,6 +39,7 @@ final class PhonePlaybackCoordinator: ObservableObject {
         let volume: Int?
         let sleepTimer: SleepTimerStatus?
         let outputNotice: String?
+        let localTrackID: String?
     }
 
     init(client: CompanionClient) {
@@ -290,7 +291,7 @@ final class PhonePlaybackCoordinator: ObservableObject {
     }
 
     var remoteNowPlaying: NowPlayingSnapshot? {
-        guard let playback = client.telemetry.playback, playback.trackId != nil else { return nil }
+        guard client.telemetry.claimsTrack(), let playback = client.telemetry.playback else { return nil }
         let isLive = client.telemetry.isLive
         return NowPlayingSnapshot(
             source: linkedOutput ?? currentOutput,
@@ -319,6 +320,18 @@ final class PhonePlaybackCoordinator: ObservableObject {
     var nowPlaying: NowPlayingSnapshot? {
         if let fake = Self.debugFakeNowPlayingSnapshot { return fake }
         return currentOutput.isLocal ? localNowPlaying : remoteNowPlaying
+    }
+
+    var remoteTarget: OutputDevice? { output.remoteTarget }
+
+    var resumableTrack: Track? {
+        guard let track = player.currentTrack, !track.isLocal else { return nil }
+        return track
+    }
+
+    @discardableResult
+    func resumeHere(on device: OutputDevice) async -> String? {
+        await output.resumeThisDevice(on: device)
     }
 
     func continueOffer(from model: ContinueFrom) -> (offer: ContinueFrom.Offer, isLoading: Bool)? {
@@ -376,7 +389,8 @@ final class PhonePlaybackCoordinator: ObservableObject {
             queueSource: queueSource,
             volume: volume.map { Int(($0 * 100).rounded()) },
             sleepTimer: sleepTimer,
-            outputNotice: output.notice
+            outputNotice: output.notice,
+            localTrackID: player.currentTrack?.id
         )
     }
 

@@ -1,13 +1,32 @@
 import SwiftUI
 
+@MainActor
+final class RemoteRequest: ObservableObject {
+    static let shared = RemoteRequest()
+    static let tabSymbol = "appletvremote.gen4"
+
+    @Published private(set) var request: UUID?
+
+    func open() {
+        request = UUID()
+    }
+}
+
 struct RemoteControlView: View {
     @ObservedObject var client: CompanionClient
     var sessionId: String?
+    var router: OutputRouter?
     var onAddDevice: (() -> Void)?
 
-    init(client: CompanionClient, sessionId: String? = nil, onAddDevice: (() -> Void)? = nil) {
+    init(
+        client: CompanionClient,
+        sessionId: String? = nil,
+        router: OutputRouter? = nil,
+        onAddDevice: (() -> Void)? = nil
+    ) {
         self.client = client
         self.sessionId = sessionId
+        self.router = router
         self.onAddDevice = onAddDevice
     }
 
@@ -48,10 +67,11 @@ struct RemoteControlView: View {
 
     @ViewBuilder
     private func content(_ telemetry: CompanionTelemetry) -> some View {
+        let link = linkStatus
         let phase = RemotePhase.resolve(
-            link: linkStatus,
+            link: link == .connected && !telemetry.isLive && !client.peerNeedsSignIn ? .connecting : link,
             peerNeedsSignIn: client.peerNeedsSignIn,
-            hasPlayback: telemetry.playback?.trackId != nil,
+            hasPlayback: telemetry.claimsTrack(),
             isLive: telemetry.isLive
         )
         switch phase {
@@ -86,11 +106,7 @@ struct RemoteControlView: View {
                     .disabled(client.isRequestingPeerSignIn)
             }
         case .nothingPlaying:
-            ContentUnavailableView {
-                Label("Nothing Playing", systemImage: "music.note")
-            } description: {
-                Text("Choose something to play on \(client.linkedName).")
-            }
+            RemoteIdleForm(client: client, router: router)
         case .playing(let isLive):
             if let playback = telemetry.playback {
                 RemoteControlForm(client: client, telemetry: telemetry, playback: playback, isLive: isLive)
@@ -120,9 +136,17 @@ private struct RemoteControlForm: View {
                 .padding(.vertical, 8)
                 .listRowBackground(Color.clear)
             } footer: {
-                Text(isLive ? "Change the volume with the Siri Remote." : "Reconnecting…")
-                    .frame(maxWidth: .infinity)
-                    .multilineTextAlignment(.center)
+                if !isLive {
+                    Text("Reconnecting…")
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
+                }
+            }
+
+            if isLive, client.volume != nil {
+                Section {
+                    RemoteVolumeRow(client: client)
+                }
             }
 
             let upNext = client.upNext
@@ -196,6 +220,182 @@ private struct RemoteControlForm: View {
         .disabled(playback.trackId == nil)
         .help(isLiked ? "Remove from Likes" : "Add to Likes")
         .sensoryFeedback(.impact(weight: .light), trigger: isLiked)
+    }
+}
+
+private struct RemoteIdleForm: View {
+    @ObservedObject var client: CompanionClient
+    let router: OutputRouter?
+
+    @ObservedObject private var recent = RecentlyPlayed.shared
+    @State private var starting: String?
+    @State private var failure: String?
+
+    private var name: String { client.linkedName }
+
+    private var device: OutputDevice? {
+        router?.remoteTarget ?? client.linkedOutputDevice
+    }
+
+    private var recentTracks: [Track] {
+        Array(recent.items.map(\.track).filter { !$0.isLocal }.prefix(Self.recentLimit))
+    }
+
+    private static let recentLimit = 8
+    private static let likesSample = 200
+
+    var body: some View {
+        Form {
+            Section {
+                VStack(spacing: 10) {
+                    Image(systemName: client.linkedClass.symbolName)
+                        .font(.system(size: 44))
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    Text("Nothing Playing on \(name)")
+                        .font(.title3.weight(.semibold))
+                    Text("Choose something below to play it there.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .listRowBackground(Color.clear)
+                .accessibilityElement(children: .combine)
+            }
+
+            if let router, let device {
+                Section {
+                    if let track = router.localResumableTrack {
+                        startButton(id: "resume", title: "Resume on \(name)", subtitle: track.title, systemImage: "play.fill") {
+                            await router.resumeThisDevice(on: device)
+                        }
+                    }
+                    startButton(id: "likes", title: "Shuffle Likes", subtitle: nil, systemImage: "shuffle") {
+                        await shuffleLikes(router: router, device: device)
+                    }
+                } footer: {
+                    if let failure {
+                        Text(failure)
+                    }
+                }
+
+                let tracks = recentTracks
+                if !tracks.isEmpty {
+                    Section("Recently Played") {
+                        ForEach(tracks) { track in
+                            Button {
+                                start(id: track.id) { await router.play(track, in: tracks, on: device) }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    RemoteArtwork(url: track.artworkURL, identity: track.id, size: 44, cornerRadius: 6)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(track.title)
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(1)
+                                        Text(track.user.displayName)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer(minLength: 8)
+                                    if starting == track.id { ProgressView() }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(starting != nil)
+                            .accessibilityHint("Plays it on \(name)")
+                        }
+                    }
+                }
+            }
+
+            Section {
+                if client.volume != nil {
+                    RemoteVolumeRow(client: client)
+                }
+                RemoteTransport(client: client, isPlaying: false, isLive: false)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+            } footer: {
+                Text("Play, pause and skip work once something is playing on \(name).")
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .formStyle(.grouped)
+        #if os(iOS)
+        .safeAreaInset(edge: .bottom) { Color.clear.frame(height: PhoneChrome.floatingClearance) }
+        #endif
+    }
+
+    private func startButton(
+        id: String,
+        title: String,
+        subtitle: String?,
+        systemImage: String,
+        action: @escaping () async -> String?
+    ) -> some View {
+        Button {
+            start(id: id, action)
+        } label: {
+            HStack {
+                Label {
+                    Text(title)
+                    if let subtitle { Text(subtitle) }
+                } icon: {
+                    Image(systemName: systemImage)
+                }
+                Spacer(minLength: 8)
+                if starting == id { ProgressView() }
+            }
+        }
+        .disabled(starting != nil)
+    }
+
+    private func start(id: String, _ action: @escaping () async -> String?) {
+        guard starting == nil else { return }
+        starting = id
+        failure = nil
+        Task { @MainActor in
+            failure = await action()
+            starting = nil
+        }
+    }
+
+    private func shuffleLikes(router: OutputRouter, device: OutputDevice) async -> String? {
+        let page = await LibraryDB.tracks(.likes, offset: 0, limit: Self.likesSample)
+        let tracks = page.tracks.filter { !$0.isLocal }
+        guard let pick = tracks.randomElement() else { return "Your Likes aren't on this \(DeviceClass.current.displayName) yet." }
+        let rest = tracks.filter { $0.id != pick.id }.shuffled()
+        return await router.play(pick, in: [pick] + rest, on: device, source: .likes)
+    }
+}
+
+private struct RemoteVolumeRow: View {
+    @ObservedObject var client: CompanionClient
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "speaker.fill")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Slider(
+                value: Binding(get: { client.volume ?? 0 }, set: { client.setVolume($0) }),
+                in: 0...1,
+                onEditingChanged: { editing in
+                    editing ? client.beginVolumeChange() : client.endVolumeChange()
+                }
+            )
+            .labelsHidden()
+            .accessibilityLabel("\(client.linkedName) Volume")
+            Image(systemName: "speaker.wave.3.fill")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .disabled(!client.isReachable)
     }
 }
 

@@ -36,6 +36,9 @@ struct PhoneSettingsView: View {
         categoryList
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(selection == nil ? .large : .inline)
+            .navigationDestination(for: SettingsDeepLink.self) { link in
+                SettingsDeepLink.destination(for: link)
+            }
             .navigationDestination(item: $debugDeepLink) { link in
                 SettingsDeepLink.destination(for: link)
             }
@@ -74,7 +77,7 @@ struct PhoneSettingsView: View {
                     icon: .account,
                     title: "Account", summary: accountSummary,
                     isUrgent: accountIsUrgent
-                ) { AccountSettingsDetail() }
+                )
             }
 
             CategoryLink(
@@ -82,26 +85,26 @@ struct PhoneSettingsView: View {
                 icon: .subscription,
                 title: "Subscription", summary: subscriptionSummary,
                 isUrgent: subscriptionIsUrgent
-            ) { SubscriptionSettingsDetail() }
+            )
 
             CategoryLink(
                 link: .activity,
                 icon: .activity,
                 title: "Activity",
                 summary: activitySummary
-            ) { PhoneActivityInboxView() }
+            )
 
             CategoryLink(
                 link: .scout,
                 icon: .scout,
                 title: "Scout", summary: scoutSummary
-            ) { ScoutSettingsView() }
+            )
 
             CategoryLink(
                 link: .messages,
                 icon: .messages,
                 title: "Messages", summary: "SoundCloud inbox"
-            ) { PhoneMessagesView() }
+            )
         } footer: {
             if credentials.needsSignIn, selection == nil {
                 Text("Sign in to access account settings.")
@@ -113,19 +116,19 @@ struct PhoneSettingsView: View {
                 link: .playback,
                 icon: .playback,
                 title: "Playback", summary: playbackSummary
-            ) { PlaybackSettingsDetail() }
+            )
 
             CategoryLink(
                 link: .alarms,
                 icon: .alarms,
                 title: "Alarms", summary: wakeAlarms.summary
-            ) { WakeAlarmsView() }
+            )
 
             CategoryLink(
                 link: .analysis,
                 icon: .analysis,
                 title: "Music Analysis", summary: store.analyseMusicOnDevice ? "On" : "Off"
-            ) { MusicAnalysisSettingsDetail() }
+            )
         }
 
         Section {
@@ -133,14 +136,14 @@ struct PhoneSettingsView: View {
                 link: .devices,
                 icon: .devices,
                 title: "Devices", summary: devicesSummary
-            ) { PhoneDevicesView() }
+            )
             .popoverTip(client.state == .unlinked ? LinkAppleTVTip() : nil, arrowEdge: .top)
 
             CategoryLink(
                 link: .homeLighting,
                 icon: .homeLighting,
                 title: "Home Lighting", summary: homeLighting.summary
-            ) { HomeLightingSettingsView().settingsDetailChrome("Home Lighting") }
+            )
         }
 
         Section {
@@ -148,26 +151,26 @@ struct PhoneSettingsView: View {
                 link: .downloads,
                 icon: .downloads,
                 title: "Downloads", summary: downloadsSummary
-            ) { DownloadsSettingsDetail() }
+            )
 
             CategoryLink(
                 link: .musicFolders,
                 icon: .musicFolders,
                 title: "Music Folders", summary: LocalMusicFormat.folderSummary(localMusic)
-            ) { MusicFoldersSettingsView() }
+            )
 
             CategoryLink(
                 link: .library,
                 icon: .library,
                 title: "Library", summary: ""
-            ) { LibrarySettingsDetail() }
+            )
 
             CategoryLink(
                 link: .about,
                 icon: .about,
                 title: "About & Advanced",
                 summary: "\(currentAppVersion()) (\(currentAppBuild()))"
-            ) { AboutAdvancedSettingsDetail() }
+            )
         }
     }
 
@@ -403,13 +406,12 @@ private struct SettingsSidebarAccountRow: View {
     }
 }
 
-private struct CategoryLink<Destination: View>: View {
+private struct CategoryLink: View {
     let link: SettingsDeepLink
     let icon: SettingsIcon
     let title: String
     let summary: String
     var isUrgent: Bool = false
-    @ViewBuilder let destination: () -> Destination
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.settingsCategorySelection) private var selection
@@ -430,9 +432,7 @@ private struct CategoryLink<Destination: View>: View {
             .buttonStyle(.plain)
             .settingsSidebarRow(isSelected: isSelected)
         } else {
-            NavigationLink {
-                destination()
-            } label: {
+            NavigationLink(value: link) {
                 label
             }
         }

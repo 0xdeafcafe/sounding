@@ -10,6 +10,17 @@ final class CompanionTelemetry: ObservableObject {
     @Published fileprivate(set) var autoMixLive: AutoMixLiveState?
     @Published fileprivate(set) var anchorDate: Date?
     @Published fileprivate(set) var isLive = false
+    @Published fileprivate(set) var isRestored = false
+    @Published fileprivate(set) var frozenAt: Date?
+
+    static let frozenClaimWindow: TimeInterval = 120
+
+    func claimsTrack(at date: Date = Date()) -> Bool {
+        guard playback?.trackId != nil else { return false }
+        if isLive { return true }
+        guard !isRestored, let frozenAt else { return false }
+        return date.timeIntervalSince(frozenAt) < Self.frozenClaimWindow
+    }
 
     var isDJControlLive: Bool { isLive && playback?.isDJEngineLive == true }
 
@@ -543,6 +554,8 @@ final class CompanionClient: ObservableObject {
         telemetry.autoMixLive = nil
         telemetry.anchorDate = nil
         telemetry.isLive = false
+        telemetry.isRestored = false
+        telemetry.frozenAt = nil
         decks.reset()
     }
 
@@ -978,6 +991,7 @@ final class CompanionClient: ObservableObject {
                 telemetry.anchorDate = now
             }
             telemetry.isLive = false
+            telemetry.frozenAt = now
             isPlaying = false
             persistSnapshotNow()
         }
@@ -1447,6 +1461,8 @@ final class CompanionClient: ObservableObject {
         telemetry.djState = snapshot.djState
         telemetry.anchorDate = snapshot.savedAt
         telemetry.isLive = false
+        telemetry.isRestored = true
+        telemetry.frozenAt = nil
         hasSnapshot = !tracks.isEmpty || snapshot.playback?.trackId != nil
     }
 
@@ -1507,6 +1523,8 @@ final class CompanionClient: ObservableObject {
         telemetry.autoMixLive = nil
         telemetry.anchorDate = nil
         telemetry.isLive = false
+        telemetry.isRestored = false
+        telemetry.frozenAt = nil
         decks.reset()
         hasSnapshot = false
         queueSource = nil
@@ -1907,6 +1925,8 @@ extension CompanionClient {
         observedPlayback = playback
         observedAt = Date()
         if !telemetry.isLive { telemetry.isLive = true }
+        if telemetry.isRestored { telemetry.isRestored = false }
+        if telemetry.frozenAt != nil { telemetry.frozenAt = nil }
         publishPlayback()
         playbackConfirmations.observePlayback(trackId: playback.trackId)
         schedulePersistSnapshot()
@@ -2418,6 +2438,23 @@ final class OutputRouter: ObservableObject {
 
     var isRestoring: Bool { restore != nil }
 
+    var remoteTarget: OutputDevice? {
+        if !current.isLocal, current.linkSessionId != nil { return current }
+        return linkedDevices.first { availability(of: $0) != nil }
+    }
+
+    var localResumableTrack: Track? {
+        guard let track = player.currentTrack, !track.isLocal else { return nil }
+        return track
+    }
+
+    @discardableResult
+    func resumeThisDevice(on device: OutputDevice) async -> String? {
+        guard let track = player.currentTrack else { return nil }
+        let context = player.queue.isEmpty ? [track] : player.queue
+        return await play(track, in: context, on: device, source: player.queueSource, startingAt: player.currentTime)
+    }
+
     func availability(of device: OutputDevice) -> OutputAvailability? {
         if device.isLocal { return .available }
         return entries.first { $0.id == device.id }?.availability
@@ -2917,7 +2954,13 @@ final class OutputRouter: ObservableObject {
     }
 
     @discardableResult
-    func play(_ track: Track, in context: [Track], on device: OutputDevice, source: PlaybackQueueSource? = nil) async -> String? {
+    func play(
+        _ track: Track,
+        in context: [Track],
+        on device: OutputDevice,
+        source: PlaybackQueueSource? = nil,
+        startingAt position: TimeInterval = 0
+    ) async -> String? {
         guard !device.isLocal else { return await play(track, in: context, collectionId: nil, source: source) }
         if track.isLocal {
             return await playHere(track, in: context, collectionId: nil, source: source, instead: device)
@@ -2938,7 +2981,7 @@ final class OutputRouter: ObservableObject {
         let outcome = await client.loadConfirmingPlayback(
             trackIds: ids,
             startIndex: index,
-            positionSeconds: 0,
+            positionSeconds: max(0, position),
             autoplay: true,
             source: source,
             timeout: Self.moveConfirmationTimeout
@@ -3151,10 +3194,12 @@ extension CompanionClient {
             if fixture == .reconnecting {
                 state = .connecting
                 telemetry.isLive = false
+                telemetry.frozenAt = Date()
             }
             if fixture == .unreachable {
                 state = .failed(.notFound)
                 telemetry.isLive = false
+                telemetry.frozenAt = Date()
             }
         }
     }

@@ -151,6 +151,12 @@ final class MacNowPlayingModel {
                 Task { @MainActor in self?.resolveSource() }
             }
             .store(in: &outputCancellables)
+        output.client.telemetry.$isLive
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.resolveSource() }
+            }
+            .store(in: &outputCancellables)
         resolveSource()
     }
 
@@ -162,7 +168,12 @@ final class MacNowPlayingModel {
             if track?.id != player.currentTrack?.id { trackDidChange(player.currentTrack) }
             return
         }
-        guard let id = output.client.telemetry.playback?.trackId else { return }
+        guard output.client.telemetry.claimsTrack(), let id = output.client.telemetry.playback?.trackId else {
+            remoteTrackTask?.cancel()
+            remoteTrackTask = nil
+            if track != nil { trackDidChange(nil) }
+            return
+        }
         guard track?.id != id else { return }
         if let known = ([player.currentTrack].compactMap { $0 } + player.queue).first(where: { $0.id == id }) {
             remoteTrackTask?.cancel()
