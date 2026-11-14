@@ -12,20 +12,20 @@ const smooth = t => { t = clamp(t); return t * t * (3 - 2 * t); };
 
 const OUT = { ph: 'out', out: 'idle', picked: false };
 const STOPS = [
-  ['hero', 'wide', 'np', null, 0, 1],
+  ['hero', 'wide', 'np'],
   ['ear', 'pair', 'sign', OUT],
-  ['chime', 'pair', 'sign', { ...OUT, out: 'toast' }, 0, 1],
+  ['chime', 'pair', 'sign', { ...OUT, out: 'toast' }],
   ['qr', 'pair', 'sign', { ...OUT, out: 'toast' }],
   ['away', 'pair', 'sign', { ...OUT, out: 'toast' }],
-  ['send', 'pair', 'np', { ...OUT, out: 'sheet' }],
-  ['hand', 'pair', 'np', { ...OUT, out: 'tv', picked: true }, 0, 1],
-  ['wrist', 'pair', 'np', null, 1],
-  ['link', 'pair', 'np', { ...OUT, out: 'tv', picked: true }],
-  ['art', 'tv', 'np', null, 0, 1],
+  ['send', 'pair', 'wait', { ...OUT, out: 'sheet' }],
+  ['hand', 'pair', 'live', { ...OUT, out: 'tv', picked: true }],
+  ['wrist', 'pair', 'live', null, 1],
+  ['link', 'pair', 'live', { ...OUT, out: 'tv', picked: true }],
+  ['art', 'tv', 'np'],
   ['tape', 'tv', 'np'],
   ['scrub', 'tv', 'upnext'],
   ['ambient', 'tv', 'amb'],
-  ['mix', 'tv', 'mixup', null, 0, 1],
+  ['mix', 'tv', 'mixup'],
   ['blend', 'tv', 'mixblend'],
   ['decks', 'tv', 'decks'],
   ['style', 'tv', 'decks'],
@@ -36,7 +36,7 @@ const STOPS = [
   ['lrclib', 'tv', 'lyrics'],
   ['full', 'tv', 'lyrics'],
   ['sets', 'wide', 'lyrics'],
-].map(([id, cam, tv, phone = null, watch = 0, rest = 0]) => ({ id, cam, tv, phone, watch, rest: !!rest }));
+].map(([id, cam, tv, phone = null, watch = 0]) => ({ id, cam, tv, phone, watch }));
 
 const CAM = {
   wide: { tw: 0.7, cx: 0.47, cy: 0.4, d: 1 },
@@ -48,30 +48,22 @@ const CAM_M = {
   pair: { tw: 0.6, cx: 0.33, cy: 0.38, d: 0 },
   tv: { tw: 1, cx: 0.5, cy: 0.5, d: 0 },
 };
-const FOCUS = { np: [1.7, 0.27, 0.3], upnext: [1.7, 0.74, 0.32], amb: [1.15, 0.5, 0.5], mixup: [1.6, 0.33, 0.52], mixblend: [1.45, 0.5, 0.5], decks: [1.45, 0.5, 0.45], trackmap: [1.6, 0.4, 0.32], cues: [1.7, 0.7, 0.38], lyrics: [1.25, 0.42, 0.5], sign: [1, 0.5, 0.5] };
-const CANVAS = { sign: { tv: 'sign' }, amb: { tv: 'play', tvb: 'amb' } };
-const GLOW = { sign: [120, 52, 20], amb: [110, 70, 60], lyrics: [40, 70, 200] };
+const FOCUS = { np: [1.7, 0.27, 0.3], upnext: [1.7, 0.74, 0.32], amb: [1.15, 0.5, 0.5], mixup: [1.6, 0.33, 0.52], mixblend: [1.45, 0.5, 0.5], decks: [1.45, 0.5, 0.45], trackmap: [1.6, 0.4, 0.32], cues: [1.7, 0.7, 0.38], lyrics: [1.25, 0.42, 0.5], sign: [1, 0.5, 0.5], wait: [1, 0.5, 0.5], live: [1.7, 0.27, 0.3] };
+const CANVAS = { sign: { tv: 'sign' }, wait: { tv: 'idle' }, live: { tv: 'play', tvb: 'np' }, amb: { tv: 'play', tvb: 'amb' } };
+const GLOW = { np: [18, 66, 150], upnext: [20, 66, 150], mixup: [150, 110, 95], mixblend: [150, 111, 100], decks: [54, 84, 150], trackmap: [150, 121, 105], cues: [21, 67, 150], sign: [120, 52, 20], wait: [70, 50, 40], live: [70, 84, 64], amb: [110, 70, 60], lyrics: [40, 70, 200] };
+const FADE = 160;
 
 const still = !root.classList.contains('room');
 const coarse = matchMedia('(pointer: coarse)').matches;
-const panes = createScreens({ base, opaque: true, budget: coarse ? 1 : 0 });
-if (coarse) { panes.resize('tv', 960); panes.resize('phone', 480); panes.resize('watch', 320); }
-panes.time(4);
-
 const audio = createAudio(base);
 wireSound(audio);
 
-if (still) stillPage(); else roomPage();
-
-function stillPage() {
-  const slot = $('.still-sign');
-  if (!slot) return;
-  slot.replaceWith(panes.canvas('tv'));
-  panes.set('tv', CANVAS.sign);
-  panes.ready.then(() => { for (let i = 0; i < 4; i++) panes.step(2); });
-}
+if (!still) roomPage();
 
 function roomPage() {
+  const panes = createScreens({ base, opaque: true, budget: coarse ? 1 : 0, only: ['tv', 'phone', 'watch'] });
+  if (coarse) { panes.resize('tv', 960); panes.resize('phone', 480); panes.resize('watch', 320); }
+  panes.time(4);
   const stage = $('.stage'), set = $('.set', stage);
   const phone = $('.hand.phone', stage), watch = $('.hand.watch', stage);
   const decor = $$('.print, .lamp', set);
@@ -81,20 +73,17 @@ function roomPage() {
   $('.slot', watch).append(panes.canvas('watch'));
   panes.set('watch', { w: 'remote' });
   panes.set('phone', OUT);
+  panes.show('phone', false);
+  panes.show('watch', false);
+  panes.show('tv', false);
   const beats = $$('[data-stop]').map(el => ({ el, stop: STOPS.findIndex(s => s.id === el.dataset.stop), y: 0 }));
   if (beats.some(b => b.stop < 0) || beats.length !== STOPS.length) console.warn('tv: stops and beats differ');
-  for (const b of beats) if (STOPS[b.stop].rest) { const r = document.createElement('i'); r.className = 'rest'; b.el.append(r); }
-  const glow = {};
-  for (const [name, el] of Object.entries(layers)) {
-    if (el.tagName !== 'IMG') continue;
-    const take = () => { glow[name] = average(el); };
-    if (el.complete && el.naturalWidth) take(); else el.addEventListener('load', take, { once: true });
-  }
-  Object.assign(glow, GLOW);
+  const layerOf = s => CANVAS[s] ? 'canvas' : s;
 
   const mobileQ = matchMedia('(max-width: 860px), (max-aspect-ratio: 1/1)');
   let mobile = false, vw = 1, vh = 1, head = 64, line = 400, art = { x: 0, y: 0, w: 1, h: 1 };
-  let p = 0, pe = 0, raf = 0, last = performance.now(), settleAt = 0, canvasMode = '', phoneKey = '', active = -1, xf = -1;
+  let p = 0, pe = 0, raf = 0, last = performance.now(), settleAt = 0, phoneKey = '', active = -1, xf = -1;
+  let shown = '', from = '', swapAt = -1e9;
 
   function measure() {
     mobile = mobileQ.matches;
@@ -116,7 +105,7 @@ function roomPage() {
     beats.sort((a, b) => a.stop - b.stop);
     read();
     pe = p;
-    draw();
+    draw(performance.now());
   }
 
   function read() {
@@ -142,7 +131,30 @@ function roomPage() {
     return { tw: z, cx: clamp(cx, 0.5 - fitX, 0.5 + fitX), cy: clamp(cy, 0.5 - fitY, 0.5 + fitY), d: 0 };
   }
 
-  function draw() {
+  function screen(now) {
+    const n = STOPS.length;
+    const cur = STOPS[clamp(Math.round(pe), 0, n - 1)].tv;
+    if (cur !== shown) {
+      const before = shown;
+      if (!before || layerOf(before) === layerOf(cur)) swapAt = before ? swapAt : -1e9;
+      else { from = before; swapAt = now; }
+      shown = cur;
+      if (CANVAS[cur]) panes.set('tv', CANVAS[cur]);
+    }
+    const f = clamp((now - swapAt) / FADE);
+    const top = layerOf(shown), under = f < 1 && from ? layerOf(from) : '';
+    for (const [name, el] of Object.entries(layers)) {
+      const o = name === top ? f < 1 && under ? f : 1 : name === under ? 1 : 0;
+      el.style.opacity = o;
+      el.style.zIndex = name === top ? 2 : name === under ? 1 : 0;
+    }
+    panes.show('tv', top === 'canvas' || under === 'canvas');
+    const gb = GLOW[shown] || GLOW.lyrics, ga = under ? GLOW[from] || gb : gb, k = under ? smooth(f) : 1;
+    root.style.setProperty('--glow', `rgb(${ga.map((c, q) => Math.round(lerp(c, gb[q], k))).join(' ')})`);
+    return f < 1;
+  }
+
+  function draw(now) {
     const n = STOPS.length;
     const i = Math.min(n - 1, Math.floor(pe)), j = Math.min(n - 1, i + 1), t = pe - i;
     const A = STOPS[i], B = STOPS[j];
@@ -152,20 +164,7 @@ function roomPage() {
     const X = art.x + cx * art.w, Y = art.y + cy * art.h;
     set.style.transform = `translate3d(${X.toFixed(2)}px, ${Y.toFixed(2)}px, 0) scale(${scale.toFixed(5)})`;
     decor.forEach(el => { el.style.opacity = d.toFixed(3); });
-
-    const w = A.tv === B.tv ? 0 : smooth((t - 0.4) / 0.2);
-    for (const [name, el] of Object.entries(layers)) {
-      const key = name === 'canvas' ? null : name;
-      const isA = key ? A.tv === key : !!CANVAS[A.tv], isB = key ? B.tv === key : !!CANVAS[B.tv];
-      const o = isB && w > 0 ? (isA ? 1 : w) : isA ? 1 : 0;
-      el.style.opacity = o;
-      el.style.zIndex = isB && !isA ? 2 : isA ? 1 : 0;
-    }
-    const mode = CANVAS[B.tv] && w > 0 ? B.tv : CANVAS[A.tv] ? A.tv : CANVAS[B.tv] ? B.tv : '';
-    if (mode && mode !== canvasMode) { canvasMode = mode; panes.set('tv', CANVAS[mode]); }
-    panes.show('tv', !!mode);
-    const ga = glow[A.tv] || [40, 70, 200], gb = glow[B.tv] || ga;
-    root.style.setProperty('--glow', `rgb(${ga.map((c, q) => Math.round(lerp(c, gb[q], w))).join(' ')})`);
+    const fading = screen(now);
 
     const swap = (a, b) => a === b ? a : a > b ? lerp(a, b, smooth((t - 0.1) / 0.35)) : lerp(a, b, smooth((t - 0.55) / 0.35));
     const pv = swap(A.phone ? 1 : 0, B.phone ? 1 : 0), wv = swap(A.watch, B.watch);
@@ -195,6 +194,7 @@ function roomPage() {
     const mi = STOPS.findIndex(s => s.id === 'mix'), di = STOPS.findIndex(s => s.id === 'decks');
     const x = clamp((pe - mi) / (di - mi));
     if (Math.abs(x - xf) > 0.002) { xf = x; audio.set({ xf: x }); }
+    return fading;
   }
 
   function frame(now) {
@@ -203,43 +203,40 @@ function roomPage() {
     last = now;
     const gap = p - pe;
     pe = Math.abs(gap) < 0.0006 ? p : pe + gap * (1 - Math.exp(-dt * 11));
-    draw();
+    const fading = draw(now);
     const painted = panes.step(dt);
     const moving = pe !== p;
     if (moving) settleAt = now;
     stage.classList.toggle('moving', now - settleAt < 250);
-    if (moving || painted.length || canvasMode === 'sign' && layers.canvas.style.opacity > 0 || now - settleAt < 300) kick();
+    if (moving || fading || painted.length || shown === 'sign' || now - settleAt < 300) kick();
   }
   const kick = () => { if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } };
 
-  addEventListener('scroll', () => { read(); kick(); }, { passive: true });
+  let restT = 0, touching = false, focusAt = -1e9;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+  function rest() {
+    if (touching || reduce.matches || performance.now() - focusAt < 1200) return;
+    const L = scrollY + line;
+    let best = null;
+    beats.forEach((b, q) => {
+      const prev = q > 0 ? b.y - beats[q - 1].y : Infinity, next = q < beats.length - 1 ? beats[q + 1].y - b.y : Infinity;
+      const reach = Math.min(40, 0.12 * Math.min(prev, next)), off = b.y - L;
+      if (Math.abs(off) > 1 && Math.abs(off) <= reach && (best === null || Math.abs(off) < Math.abs(best))) best = off;
+    });
+    if (best !== null) scrollTo({ top: scrollY + best, behavior: 'smooth' });
+  }
+  addEventListener('touchstart', () => { touching = true; }, { passive: true });
+  addEventListener('touchend', () => { touching = false; clearTimeout(restT); restT = setTimeout(rest, 220); }, { passive: true });
+  addEventListener('focusin', () => { focusAt = performance.now(); });
+  addEventListener('scroll', () => { read(); kick(); clearTimeout(restT); restT = setTimeout(rest, 220); }, { passive: true });
   let rt = 0;
   addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(measure, 80); });
   mobileQ.addEventListener('change', measure);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
   measure();
-  root.classList.add('ready', 'snap');
+  root.classList.add('ready');
   panes.ready.then(kick);
   kick();
-  matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', e => { if (e.matches) location.replace(location.pathname + '?still' + location.hash); });
-  window.__tv = { state: () => ({ p: +p.toFixed(3), pe: +pe.toFixed(3), stop: STOPS[Math.round(p)].id, mobile, art, line }) };
-}
-
-function average(img) {
-  try {
-    const c = document.createElement('canvas');
-    c.width = 24; c.height = 14;
-    const x = c.getContext('2d', { willReadFrequently: true });
-    x.drawImage(img, 0, 0, 24, 14);
-    const d = x.getImageData(0, 0, 24, 14).data;
-    let r = 0, g = 0, b = 0, n = 0;
-    for (let i = 0; i < d.length; i += 4) {
-      const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]);
-      const wgt = 0.2 + (mx - mn) / 255 * 2;
-      r += d[i] * wgt; g += d[i + 1] * wgt; b += d[i + 2] * wgt; n += wgt;
-    }
-    const c0 = [r / n, g / n, b / n], top = Math.max(...c0) || 1;
-    const k = 150 / top;
-    return c0.map(v => Math.min(255, v * k));
-  } catch (e) { return [60, 60, 80]; }
+  reduce.addEventListener('change', e => { if (e.matches) location.replace(location.pathname + '?still' + location.hash); });
+  window.__tv = { state: () => ({ p: +p.toFixed(3), pe: +pe.toFixed(3), stop: STOPS[Math.round(p)].id, shown, mobile, art, line }), beats: () => beats.map(b => ({ id: STOPS[b.stop].id, y: b.y })) };
 }

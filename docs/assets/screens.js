@@ -1332,7 +1332,7 @@ function live(sc) {
   }
 }
 
-export function createScreens({ base = 'assets/', opaque = false, budget = 0 } = {}) {
+export function createScreens({ base = 'assets/', opaque = false, budget = 0, only = null } = {}) {
   shapes();
   const imgs = new Map();
   const S = { sec: 0, whole: -1, p: 0, idx: 0, row: 0, el: '0:00', left: `-${fmt(D)}`, now: `${T[0][2]} - ${T[0][1]}` };
@@ -1422,7 +1422,7 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
     targets(sc);
     return sc;
   }
-  for (const name in SCREENS) all[name] = make(name);
+  for (const name in SCREENS) if (!only || only.includes(name)) all[name] = make(name);
 
   function paint(sc) {
     const ctx = sc.cv.getContext('2d');
@@ -1455,7 +1455,7 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
     }
   }
   const get = name => { const sc = all[name]; if (!sc) throw new Error(`Unknown screen: ${name}`); return sc; };
-  setTimeout(() => { F = all.tv.w / 100; tvSign(document.createElement('canvas').getContext('2d'), all.tv); }, 1800);
+  if (all.tv) setTimeout(() => { F = all.tv.w / 100; tvSign(document.createElement('canvas').getContext('2d'), all.tv); }, 1800);
 
   return {
     ready,
@@ -1484,8 +1484,8 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
       S.idx = idx;
       S.now = `${T[idx][2]} - ${T[idx][1]}`;
       const row = Math.max(0, idx - 1), ph = all.phone, mc = all.mac;
-      if (ph.v('play') > 0 && ph.v('L') > 0 && ph.v('b') < 1 && ph.vis) ph.go('scroll', row, 0.45); else ph.snap('scroll', row);
-      if (mc.v('play') > 0 && mc.vis) mc.go('scroll', row, 0.45); else mc.snap('scroll', row);
+      if (ph) { if (ph.v('play') > 0 && ph.v('L') > 0 && ph.v('b') < 1 && ph.vis) ph.go('scroll', row, 0.45); else ph.snap('scroll', row); }
+      if (mc) { if (mc.v('play') > 0 && mc.vis) mc.go('scroll', row, 0.45); else mc.snap('scroll', row); }
       for (const name in all) if (live(all[name])) all[name].dirty = true;
     },
     pace(k) { pace = k; },
@@ -1502,10 +1502,11 @@ export function createScreens({ base = 'assets/', opaque = false, budget = 0 } =
       let painted = 0;
       for (const name in all) {
         const sc = all[name];
+        const skip = only && !sc.vis;
         for (const k in sc.a) {
           const a = sc.a[k];
           if (a.t >= 1) continue;
-          a.t = pace > 0 ? Math.min(1, a.t + dt / (a.d * pace)) : 1;
+          a.t = pace > 0 && !skip ? Math.min(1, a.t + dt / (a.d * pace)) : 1;
           a.v = a.f + (a.to - a.f) * ease(a.t);
           sc.dirty = true;
         }

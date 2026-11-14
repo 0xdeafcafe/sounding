@@ -105,7 +105,7 @@ h3 { font-size: clamp(1.3rem, 1.8vw, 1.6rem); line-height: 1.15; letter-spacing:
 .y, .p, .n { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
 .y { background: var(--cable); }
 .p { box-shadow: inset 0 0 0 1.5px var(--cable); background: linear-gradient(90deg, var(--cable) 50%, transparent 50%); }
-.n { width: 10px; height: 2px; border-radius: 1px; background: var(--ink2); opacity: .45; }
+.n { width: 12px; height: 3px; border-radius: 1.5px; background: var(--ink); }
 .fx .mbg th[colspan] { padding: 2.4rem 0 .6rem; font-size: 1.1875rem; font-weight: 650; letter-spacing: -.015em; color: var(--ink); text-align: left; }
 .fx .mbg td { width: auto; }
 .mb { display: inline-block; padding: .05rem .6rem; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--rule); font-size: .8125rem; font-weight: 600; color: var(--ink2); }
@@ -151,5 +151,5 @@ h3 { font-size: clamp(1.3rem, 1.8vw, 1.6rem); line-height: 1.15; letter-spacing:
   .fx td:nth-of-type(3)::after { content: "Mac" / ""; }
   .fx td:nth-of-type(4)::after { content: "TV" / ""; }
   .fx td:nth-of-type(5)::after { content: "Watch" / ""; }
-  .fx td:has(.n) { color: var(--ink2); font-weight: 400; opacity: .7; }
+  .fx td:has(.n) { color: var(--ink2); font-weight: 400; }
 }

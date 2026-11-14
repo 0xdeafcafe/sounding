@@ -38,8 +38,7 @@ h2 { font-size: clamp(1.9rem, 3vw, 3rem); }
 .room .cap::before { content: ""; position: absolute; left: calc(var(--pad) * -.45); top: calc(11vh + .2em); width: 3px; height: 1.1em; border-radius: 2px; background: var(--hot); opacity: 0; transition: opacity .35s var(--ease); }
 .room .cap.on { color: var(--ink); }
 .room .cap.on::before { opacity: 1; }
-.room .rest { position: absolute; left: 0; top: 50%; width: 1px; height: 1px; pointer-events: none; scroll-snap-align: start; scroll-margin-top: var(--line, 50vh); }
-html.room.snap { scroll-snap-type: y proximity; }
+html.room { scroll-padding: calc(var(--head) + 16px) 0 24px; }
 .room .lede { color: var(--ink2); }
 
 .wall { position: absolute; inset: 0; background: radial-gradient(120% 90% at 68% 42%, #2a1c18 0%, #1a1210 45%, #0f0b0a 80%); }
@@ -55,15 +54,14 @@ html.room.snap { scroll-snap-type: y proximity; }
 .layer { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; opacity: 0; }
 .layer[data-screen="np"] { opacity: 1; }
 .layer canvas { display: block; width: 100%; height: 100%; }
-.console { left: -700px; top: 372px; width: 1400px; height: 128px; border-radius: 8px; background: linear-gradient(#2b1f19, #1b1310 60%, #140e0c); box-shadow: 0 30px 60px rgb(0 0 0 / .5); }
+.console { z-index: 1; left: -700px; top: 372px; width: 1400px; height: 128px; border-radius: 0 0 8px 8px; background: linear-gradient(#2b1f19, #1b1310 60%, #140e0c); box-shadow: 0 30px 60px rgb(0 0 0 / .5); }
 .console::before { content: ""; position: absolute; left: -3000px; right: -3000px; top: 128px; height: 1600px; background: radial-gradient(40% 22% at 50% 0, color-mix(in srgb, var(--glow) 22%, transparent), transparent), linear-gradient(#1a120f, #120c0a 25%, #0d0908 60%); }
 .console::after { content: ""; position: absolute; inset: 0; border-radius: 8px; background: repeating-linear-gradient(90deg, transparent 0 348px, rgb(0 0 0 / .45) 348px 350px); }
-.console-top { position: absolute; left: 0; right: 0; top: -12px; height: 14px; border-radius: 6px 6px 2px 2px; background: linear-gradient(#4a372c, #33251e); }
-.box { position: absolute; left: 200px; top: -34px; width: 66px; height: 24px; border-radius: 7px; background: linear-gradient(#2a2826 0 22%, #121110 30%, #050505); box-shadow: 0 6px 12px rgb(0 0 0 / .5); }
-.box::after { content: ""; position: absolute; left: 30px; top: 1.5px; width: 6px; height: 3px; border-radius: 50%; background: #3a3836; }
-.remote { position: absolute; left: 1020px; top: -15px; width: 96px; height: 15px; border-radius: 7px 7px 5px 5px / 6px 6px 4px 4px; background: linear-gradient(#e4e1dc 0 50%, #a9a5a0 56%, #7e7a75); box-shadow: 0 5px 10px rgb(0 0 0 / .45); }
-.remote::before { content: ""; position: absolute; left: 8px; top: 1.5px; width: 24px; height: 6px; border-radius: 50%; background: radial-gradient(closest-side, #1a1918 0 46%, #8d8984 52%, #2a2826 62%, #3c3a38 98%); }
-.remote::after { content: ""; position: absolute; left: 44px; top: 2.5px; width: 40px; height: 4px; border-radius: 2px; background: radial-gradient(circle at 4px 50%, #1d1c1b 1.6px, transparent 2px) 0 0 / 10px 4px repeat-x; }
+.console-top { position: absolute; left: 0; right: 0; top: -66px; height: 68px; clip-path: polygon(1.2% 0, 98.8% 0, 100% 100%, 0 100%); background: linear-gradient(#21170f, #3a2a20 55%, #4e392c 96%, #33251e); }
+.console-top::after { content: ""; position: absolute; inset: 0; background: radial-gradient(50% 120% at 50% 0, color-mix(in srgb, var(--glow) 16%, transparent), transparent); }
+.box, .remote { position: absolute; display: block; overflow: visible; }
+.box { left: 46px; top: -103px; width: 112px; height: 84px; }
+.remote { left: 960px; top: -40px; width: 160px; height: 31px; }
 .print { left: 640px; top: -330px; width: 236px; height: 299px; margin: 0; padding: 12px; background: #2a201b; box-shadow: 0 24px 50px rgb(0 0 0 / .55); }
 .print svg { display: block; width: 100%; height: 100%; }
 .lamp { left: 960px; top: -560px; width: 240px; height: 1160px; }
@@ -107,12 +105,12 @@ html:not(.room) .ch > .shot { grid-column: 2; grid-row: 1 / span 2; align-self: 
 html:not(.room) .ch.hero { display: block; padding-top: clamp(120px, 18vh, 180px); }
 html:not(.room) .hero .beat { display: grid; gap: 1.2rem; max-width: 40rem; }
 html:not(.room) .hero .lede { color: var(--ink2); }
-html:not(.js) .shot.sign { display: none !important; }
 .frame { position: relative; aspect-ratio: 16 / 9; padding: 1.1%; border-radius: 10px; background: linear-gradient(#141210, #070605); box-shadow: 0 0 0 1.5px #2a2522, 0 30px 70px rgb(0 0 0 / .5); }
-.frame img, .frame canvas, .still-sign { display: block; width: 100%; height: 100%; border-radius: 3px; background: #000; }
+.frame img, .frame canvas { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 3px; background: #000; }
 
 @media (max-width: 860px), (max-aspect-ratio: 1/1) {
   html[data-side="b"] { --head: 56px; --band: min(46svh, 92vw); }
+  html.room { scroll-padding-top: calc(var(--head) + var(--band) + 16px); }
   .top { padding-bottom: 4px; }
   .top::before { inset: 0; background: var(--bg); }
   .room main { padding-top: var(--head); }
