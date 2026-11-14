@@ -1,17 +1,5 @@
 import SwiftUI
 
-@MainActor
-final class RemoteRequest: ObservableObject {
-    static let shared = RemoteRequest()
-    static let tabSymbol = "appletvremote.gen4"
-
-    @Published private(set) var request: UUID?
-
-    func open() {
-        request = UUID()
-    }
-}
-
 struct RemoteControlView: View {
     @ObservedObject var client: CompanionClient
     var sessionId: String?
@@ -112,6 +100,23 @@ struct RemoteControlView: View {
                 RemoteControlForm(client: client, telemetry: telemetry, playback: playback, isLive: isLive)
             }
         }
+    }
+}
+
+struct RemoteNoAppleTVView: View {
+    var onAddDevice: (() -> Void)?
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("No Apple TV Nearby", systemImage: DeviceClass.tv.symbolName)
+        } description: {
+            Text("Open Sounding on your Apple TV to control it from here.")
+        } actions: {
+            if let onAddDevice {
+                Button("Add Apple TV…", action: onAddDevice)
+            }
+        }
+        .navigationTitle("Remote")
     }
 }
 

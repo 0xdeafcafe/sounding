@@ -53,6 +53,7 @@ enum SoundingSurfaceKind {
     static let resumeControl = "red.forbes.sounding.control.resume"
     static let skipControl = "red.forbes.sounding.control.skip"
     static let identifySongControl = "red.forbes.sounding.control.identify-song"
+    static let openRemoteControl = "red.forbes.sounding.control.open-remote"
     static let recentlyPlayedWidget = "red.forbes.sounding.widget.recently-played"
 }
 

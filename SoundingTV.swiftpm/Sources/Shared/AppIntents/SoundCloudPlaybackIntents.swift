@@ -378,6 +378,7 @@ struct SoundingShortcuts: AppShortcutsProvider {
             shortTitle: "Play Playlist",
             systemImageName: "music.note.list"
         )
+        #if os(tvOS)
         AppShortcut(
             intent: PlayArtistIntent(),
             phrases: [
@@ -387,6 +388,7 @@ struct SoundingShortcuts: AppShortcutsProvider {
             shortTitle: "Play Artist",
             systemImageName: "music.mic"
         )
+        #endif
         AppShortcut(
             intent: PartyModeIntent(),
             phrases: [
@@ -417,6 +419,16 @@ struct SoundingShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Identify Song",
             systemImageName: "shazam.logo"
+        )
+        AppShortcut(
+            intent: OpenRemoteIntent(),
+            phrases: [
+                "Open the remote in \(.applicationName)",
+                "Open \(.applicationName) remote",
+                "Open the \(.applicationName) remote",
+            ],
+            shortTitle: "Open Remote",
+            systemImageName: "appletvremote.gen4"
         )
         #endif
     }

@@ -473,6 +473,20 @@ struct PhoneRemoteScreen: View {
     }
 }
 
+struct PhoneRemoteTabContent: View {
+    let target: OutputDevice?
+
+    @EnvironmentObject private var pairing: DevicePairingFlow
+
+    var body: some View {
+        if let target {
+            PhoneRemoteScreen(sessionId: target.linkSessionId)
+        } else {
+            RemoteNoAppleTVView { pairing.addDevice() }
+        }
+    }
+}
+
 private struct PhoneDeviceDetailView: View {
     let sessionId: String
 

@@ -15,6 +15,7 @@ struct PhoneRootView: View {
 
     @SceneStorage("red.forbes.sounding.scene.tab") private var selection: PhoneTab = .home
     @State private var isExpandPending = false
+    @State private var showsRemoteWithoutTV = false
     @State private var isNowPlayingExpanded = false
     @State private var presentedArtist: User?
     @State private var isShowingSharePlaySignIn = false
@@ -198,13 +199,17 @@ struct PhoneRootView: View {
                 refreshState()
             }
             .onChange(of: coordinator.remoteTarget == nil) { _, isGone in
-                if isGone, selection == .remote { selection = .home }
+                if isGone, selection == .remote, !showsRemoteWithoutTV { selection = .home }
             }
-            .onReceive(RemoteRequest.shared.$request.dropFirst().compactMap { $0 }) { _ in
-                guard coordinator.remoteTarget != nil else { return }
+            .onChange(of: selection) { _, tab in
+                if tab != .remote { showsRemoteWithoutTV = false }
+            }
+            .onReceive(RemoteRequest.shared.$request.compactMap { $0 }) { id in
+                guard RemoteRequest.shared.claim(id) else { return }
                 isNowPlayingExpanded = false
                 presentedArtist = nil
                 settingsPresenter.isPresented = false
+                showsRemoteWithoutTV = coordinator.remoteTarget == nil
                 selection = .remote
             }
     }
@@ -259,7 +264,7 @@ struct PhoneRootView: View {
     private var tabs: some View {
         if PadLayout.isPad {
             playerChrome(
-                PadRootTabs(selection: $selection, library: library, remoteTarget: coordinator.remoteTarget),
+                PadRootTabs(selection: $selection, library: library, remoteTarget: coordinator.remoteTarget, showsRemoteWithoutTV: showsRemoteWithoutTV),
                 showsAccessory: !(selection == .decks && horizontalSizeClass != .compact)
             )
             .focusedSceneValue(\.rootTabSelection, $selection)
@@ -272,12 +277,14 @@ struct PhoneRootView: View {
         Binding(
             get: {
                 let tab = selection.compactTab
-                if tab == .remote { return coordinator.remoteTarget == nil ? .home : .remote }
+                if tab == .remote { return showsRemote ? .remote : .home }
                 return Self.phoneTabValues.contains(tab) ? tab : .home
             },
             set: { selection = $0 }
         )
     }
+
+    private var showsRemote: Bool { coordinator.remoteTarget != nil || showsRemoteWithoutTV }
 
     private static let phoneTabValues: Set<PhoneTab> = [.home, .library, .playlists, .remote, .search]
 
@@ -297,9 +304,9 @@ struct PhoneRootView: View {
                 }
             }
 
-            if let target = coordinator.remoteTarget {
+            if showsRemote {
                 Tab("Remote", systemImage: RemoteRequest.tabSymbol, value: PhoneTab.remote) {
-                    NavigationStack { PhoneRemoteScreen(sessionId: target.linkSessionId) }
+                    NavigationStack { PhoneRemoteTabContent(target: coordinator.remoteTarget) }
                 }
             }
 
@@ -601,6 +608,7 @@ private struct PadRootTabs: View {
     @Binding var selection: PhoneRootView.PhoneTab
     let library: LibraryModels
     let remoteTarget: OutputDevice?
+    let showsRemoteWithoutTV: Bool
 
     @State private var customization = PadSidebarCustomizationStore()
     @AppStorage(LibraryRowChoices.storageKey, store: .sounding) private var libraryRowsRaw = ""
@@ -618,7 +626,7 @@ private struct PadRootTabs: View {
         Binding(
             get: {
                 let tab = hidesSections ? selection.compactTab : sidebarSelection
-                return tab == .remote && remoteTarget == nil ? .home : tab
+                return tab == .remote && remoteTarget == nil && !showsRemoteWithoutTV ? .home : tab
             },
             set: { tab in
                 if tab != selection { selection = tab }
@@ -782,9 +790,9 @@ private struct PadRootTabs: View {
             .defaultVisibility(.hidden, for: .tabBar)
             .hidden(hidesSections)
 
-            if let remoteTarget {
+            if remoteTarget != nil || showsRemoteWithoutTV {
                 Tab(value: PhoneRootView.PhoneTab.remote) {
-                    NavigationStack { PhoneRemoteScreen(sessionId: remoteTarget.linkSessionId) }
+                    NavigationStack { PhoneRemoteTabContent(target: remoteTarget) }
                     .tint(PadChrome.pageTint)
                 } label: {
                     sidebarLabel("Remote", RemoteRequest.tabSymbol)

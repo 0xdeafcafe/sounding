@@ -697,6 +697,10 @@
 		1DE7F1AB0000000000000021 /* IdentifySongViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE7F1AB0000000000000002 /* IdentifySongViews.swift */; };
 		1DE7F1AB0000000000000022 /* IdentifySongViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE7F1AB0000000000000002 /* IdentifySongViews.swift */; };
 		1DE7F1AB0000000000000031 /* IdentifySongIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE7F1AB0000000000000003 /* IdentifySongIntent.swift */; };
+		0E2E3A7E0000000000000011 /* OpenRemoteIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2E3A7E0000000000000001 /* OpenRemoteIntent.swift */; };
+		0E2E3A7E0000000000000012 /* OpenRemoteIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2E3A7E0000000000000001 /* OpenRemoteIntent.swift */; };
+		0E2E3A7E0000000000000013 /* OpenRemoteIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2E3A7E0000000000000001 /* OpenRemoteIntent.swift */; };
+		0E2E3A7E0000000000000021 /* OpenRemoteControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2E3A7E0000000000000002 /* OpenRemoteControl.swift */; };
 		1DE7F1AB0000000000000032 /* IdentifySongIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE7F1AB0000000000000003 /* IdentifySongIntent.swift */; };
 		1DE7F1AB0000000000000033 /* IdentifySongIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE7F1AB0000000000000003 /* IdentifySongIntent.swift */; };
 		1DE7F1AB0000000000000041 /* PhoneIdentifySong.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE7F1AB0000000000000004 /* PhoneIdentifySong.swift */; };
@@ -2657,6 +2661,8 @@ F1C39D966E10112291734F31 /* TVNowPlayingAutoMix.swift */ = {isa = PBXFileReferen
 		1DE7F1AB0000000000000001 /* SongIdentification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongIdentification.swift; sourceTree = "<group>"; };
 		1DE7F1AB0000000000000002 /* IdentifySongViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentifySongViews.swift; sourceTree = "<group>"; };
 		1DE7F1AB0000000000000003 /* IdentifySongIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentifySongIntent.swift; sourceTree = "<group>"; };
+		0E2E3A7E0000000000000001 /* OpenRemoteIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenRemoteIntent.swift; sourceTree = "<group>"; };
+		0E2E3A7E0000000000000002 /* OpenRemoteControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenRemoteControl.swift; sourceTree = "<group>"; };
 		1DE7F1AB0000000000000004 /* PhoneIdentifySong.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneIdentifySong.swift; sourceTree = "<group>"; };
 		1DE7F1AB0000000000000005 /* MacIdentifySong.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacIdentifySong.swift; sourceTree = "<group>"; };
 		1DE7F1AB0000000000000006 /* WatchIdentifyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchIdentifyView.swift; sourceTree = "<group>"; };
@@ -3686,6 +3692,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				EC0A00000000000000000014 /* PlayWidgetCollectionIntent.swift */,
 				EC0A00000000000000000013 /* WidgetCollections.swift */,
 				1DE7F1AB0000000000000003 /* IdentifySongIntent.swift */,
+				0E2E3A7E0000000000000001 /* OpenRemoteIntent.swift */,
 				AC71A00000000000000000A1 /* NowPlayingActivityAttributes.swift */,
 				9DC0C8E5B0E7757B758D2C79 /* TVSignInActivityAttributes.swift */,
 				CA4B1A000000000000000520 /* ListeningCatalog.swift */,
@@ -4664,6 +4671,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				EC0A00000000000000000001 /* SkipControl.swift */,
 				A7C0DEAF11000000000000F1 /* ResumeControl.swift */,
 				1DE7F1AB0000000000000007 /* IdentifySongControl.swift */,
+				0E2E3A7E0000000000000002 /* OpenRemoteControl.swift */,
 				506A62173F56343F44C50C7E /* PlaybackControlBridge.swift */,
 				AC71A00000000000000000A2 /* NowPlayingLiveActivity.swift */,
 				AD91A0000000000000A50000 /* RecentlyPlayedWidget.swift */,
@@ -5767,6 +5775,8 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				A7C0DEAF11000000000000F2 /* ResumeControl.swift in Sources */,
 				1DE7F1AB0000000000000033 /* IdentifySongIntent.swift in Sources */,
 				1DE7F1AB0000000000000071 /* IdentifySongControl.swift in Sources */,
+				0E2E3A7E0000000000000013 /* OpenRemoteIntent.swift in Sources */,
+				0E2E3A7E0000000000000021 /* OpenRemoteControl.swift in Sources */,
 				501446389136714257A56454 /* PlaybackControlBridge.swift in Sources */,
 				AC71A00000000000000000B2 /* NowPlayingActivityAttributes.swift in Sources */,
 				AC71A00000000000000000B3 /* NowPlayingLiveActivity.swift in Sources */,
@@ -6277,6 +6287,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				1DE7F1AB0000000000000011 /* SongIdentification.swift in Sources */,
 				1DE7F1AB0000000000000022 /* IdentifySongViews.swift in Sources */,
 				1DE7F1AB0000000000000032 /* IdentifySongIntent.swift in Sources */,
+				0E2E3A7E0000000000000012 /* OpenRemoteIntent.swift in Sources */,
 				1DE7F1AB0000000000000051 /* MacIdentifySong.swift in Sources */,
 				EF8581F795096B20B59DF62B /* SetlistViews.swift in Sources */,
 				184F8FD5B7C1AE39D4DA57AE /* SettingsStore.swift in Sources */,
@@ -7477,6 +7488,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				1DE7F1AB0000000000000014 /* SongIdentification.swift in Sources */,
 				1DE7F1AB0000000000000021 /* IdentifySongViews.swift in Sources */,
 				1DE7F1AB0000000000000031 /* IdentifySongIntent.swift in Sources */,
+				0E2E3A7E0000000000000011 /* OpenRemoteIntent.swift in Sources */,
 				1DE7F1AB0000000000000041 /* PhoneIdentifySong.swift in Sources */,
 				7A53D075E9D0F6E43BB67F46 /* SetlistViews.swift in Sources */,
 				4779CFEE6561908E0360BB1A /* SettingsStore.swift in Sources */,

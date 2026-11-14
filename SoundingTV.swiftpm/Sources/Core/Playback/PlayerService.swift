@@ -2332,6 +2332,7 @@ final class PlayerService: ObservableObject, DJTransitionServiceDelegate {
         queue = tracks
         currentIndex = resolvedIndex
         queueSideEffectsSuspended = false
+        explicitPlayRequest &+= 1
 
         await loadAndPlay(
             track: track,
