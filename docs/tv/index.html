@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="en-GB">
+<html lang="en-GB" data-side="b">
 <head>
   <meta charset="utf-8">
   <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="dark">
   <meta name="description" content="Sounding on the Apple TV: it signs in by ear, Now Playing for the sofa, Auto Mix, Top Shelf, Play On from your iPhone, iPad or Mac, SharePlay, cue points and lyrics.">
-  <meta name="theme-color" content="#f6f1e8">
+  <meta name="theme-color" content="#0f0b0a">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Sounding on the Apple TV">
   <meta property="og:description" content="Signs in by ear, plays from your phone, mixes on its own.">
@@ -15,19 +15,16 @@
   <title>Apple TV · Sounding</title>
   <link rel="icon" type="image/webp" href="../assets/app-icon.webp">
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
-  <script>(function(r){var c=r.classList;c.add('js');var s;try{s=localStorage.getItem('sounding.side')}catch(e){}r.dataset.side=s||(matchMedia('(prefers-color-scheme: dark)').matches?'b':'a');if(matchMedia('(prefers-reduced-motion: reduce)').matches||/[?&]still/.test(location.search))c.add('still');setTimeout(function(){if(!c.contains('live'))c.add('still')},6000)})(document.documentElement)</script>
+  <script>(function(r){var c=r.classList;c.add('js');if(matchMedia('(prefers-reduced-motion: reduce)').matches||/[?&]still/.test(location.search))c.add('still');else{c.add('room');setTimeout(function(){if(!c.contains('ready')){c.remove('room');c.add('still')}},5000)}})(document.documentElement)</script>
   <link rel="stylesheet" href="../assets/site.css">
-  <link rel="stylesheet" href="../assets/side.css">
-  <link rel="modulepreload" href="../assets/stage.js">
-  <link rel="modulepreload" href="../assets/world.js">
-  <link rel="modulepreload" href="../assets/gl.js">
-  <link rel="modulepreload" href="../assets/shaders.js">
-  <script type="module" src="../assets/app.js"></script>
+  <link rel="stylesheet" href="../assets/tv.css">
+  <link rel="preload" as="image" href="../assets/shots/tv-np.webp">
+  <link rel="modulepreload" href="../assets/screens.js">
+  <script type="module" src="../assets/tv.js"></script>
   <script src="../assets/nav.js" defer></script>
 </head>
 <body data-page="tv">
   <a class="skip" href="#main">Skip to content</a>
-  <canvas id="gl" aria-hidden="true"></canvas>
 
   <header class="top">
     <a class="brand ink" href="../"><img src="../assets/app-icon.webp" alt="" width="28" height="28">Sounding</a>
@@ -35,137 +32,138 @@
   </header>
 
   <main id="main">
-    <section class="scene chapter hero" id="top" data-scene="hero" data-shot="tvf~" data-span="1.5" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-np.webp"}]' aria-labelledby="hero-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img class="pa" src="../assets/still/output-a.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="../assets/still/output-b.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"></figure>
-        <div class="side a">
-          <h1 class="ink" id="hero-h">Sounding on the Apple&nbsp;TV.</h1>
-          <p class="lede ink">Sounding started out as an Apple&nbsp;TV app, and the TV’s still where it’s loudest. It signs in by ear, it mixes on its own, and your iPhone, iPad, Mac and Watch are all the remote.</p>
+    <div class="story">
+      <div class="stage" aria-hidden="true">
+        <div class="wall"></div>
+        <div class="set">
+          <div class="glow"></div>
+          <svg class="rings" viewBox="-1500 -900 3000 1800" preserveAspectRatio="xMidYMid slice"><g fill="none" stroke-width="2.4"><circle r="640"/><circle r="760"/><circle r="880"/><circle r="1000"/><circle r="1120"/><circle r="1240"/><circle r="1360"/></g></svg>
+          <div class="lamp"><i class="lamp-light"></i><i class="lamp-shade"></i><i class="lamp-pole"></i><i class="lamp-foot"></i></div>
+          <figure class="print"><svg viewBox="0 0 300 380"><rect width="300" height="380" fill="#16110f"/><circle cx="96" cy="118" r="78" fill="#6b2e14"/><circle cx="214" cy="236" r="70" fill="#3d2138"/><circle cx="120" cy="290" r="54" fill="#17403b"/><g fill="none" stroke="#ff6b1a" stroke-width="2.2" stroke-linecap="round"><path d="M70 330 C 90 250, 150 240, 160 170 S 210 80, 236 52"/><path d="M84 336 C 104 256, 164 246, 174 176 S 224 86, 250 58"/><path d="M98 342 C 118 262, 178 252, 188 182 S 238 92, 264 64"/></g><g fill="none" stroke="#f5bf66" stroke-width="1.6"><circle cx="236" cy="52" r="16"/><circle cx="236" cy="52" r="28"/><circle cx="236" cy="52" r="40"/></g></svg></figure>
+          <div class="console"><i class="console-top"></i><i class="box"></i><i class="remote"></i></div>
+          <div class="tv">
+            <div class="screen">
+              <div class="layer" data-screen="canvas"></div>
+              <img class="layer" data-screen="np" src="../assets/shots/tv-np.webp" alt="" width="1600" height="900" decoding="async" fetchpriority="high">
+              <img class="layer" data-screen="upnext" src="../assets/shots/tv-upnext.webp" alt="" width="1600" height="900" decoding="async" loading="lazy">
+              <img class="layer" data-screen="mixup" src="../assets/shots/tv-mixup.webp" alt="" width="1600" height="900" decoding="async" loading="lazy">
+              <img class="layer" data-screen="mixblend" src="../assets/shots/tv-mixblend.webp" alt="" width="1600" height="900" decoding="async" loading="lazy">
+              <img class="layer" data-screen="decks" src="../assets/shots/tv-decks.webp" alt="" width="1600" height="900" decoding="async" loading="lazy">
+              <img class="layer" data-screen="trackmap" src="../assets/shots/tv-trackmap.webp" alt="" width="1600" height="900" decoding="async" loading="lazy">
+              <img class="layer" data-screen="cues" src="../assets/shots/tv-cues.webp" alt="" width="1600" height="900" decoding="async" loading="lazy">
+              <img class="layer" data-screen="lyrics" src="../assets/shots/tv-lyrics.webp" alt="" width="1600" height="900" decoding="async" loading="lazy">
+            </div>
+          </div>
         </div>
+        <div class="hand phone"><div class="slot"></div></div>
+        <div class="hand watch"><div class="slot"></div></div>
       </div>
-    </section>
 
-    <section class="scene chapter" id="sign-in" data-scene="sign-in" data-shot="tvf~,tv2,tvf~,tv2" data-states='[{"tv":"sign","ph":"out","phone":"tv","out":"idle"},{"out":"toast"},{},{}]' aria-labelledby="sign-in-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img class="pa" src="../assets/still/output-a.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="../assets/still/output-b.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"></figure>
-        <div class="side a">
+      <div class="copy">
+        <section class="ch hero" id="top" aria-labelledby="hero-h">
+          <div class="beat" data-stop="hero">
+            <h1 class="ink" id="hero-h">Sounding on the Apple&nbsp;TV.</h1>
+            <p class="lede ink">Sounding started out as an Apple&nbsp;TV app, and the TV’s still where it’s loudest. It signs in by ear, it mixes on its own, and your iPhone, iPad, Mac and Watch are all the remote.</p>
+          </div>
+        </section>
+
+        <section class="ch" id="sign-in" aria-labelledby="sign-in-h">
           <h2 class="ink" id="sign-in-h">It signs in by ear.</h2>
+          <figure class="shot sign" aria-hidden="true"><div class="frame"><div class="still-sign"></div></div></figure>
           <div class="caps">
-            <p class="cap ink"><b>No typing a password with the Siri&nbsp;Remote.</b> Open Sounding on your iPhone near the TV and it offers to sign it in.</p>
-            <p class="cap ink"><b>It finds the TV by its chime.</b> Press Play Sound on the TV and it plays three notes, with a code riding underneath that’s too high for you to hear. Your iPhone listens for it, only while that screen’s open, and asks: Sign in to Sounding on this Apple&nbsp;TV?</p>
-            <p class="cap ink"><b>Loud room, or microphone off?</b> Scan the QR code on the TV with your iPhone camera instead. Or tap Use Without SoundCloud and just play your own music.</p>
-            <p class="cap ink"><b>Phone in another room?</b> When the TV asks, your iPhone gets a notification: Living Room wants to sign in. Tap it and that’s that.</p>
+            <p class="cap beat" data-stop="ear"><b>No typing a password with the Siri&nbsp;Remote.</b> Open Sounding on your iPhone near the TV and it offers to sign it in.</p>
+            <p class="cap beat" data-stop="chime"><b>It finds the TV by its chime.</b> Press Play Sound on the TV and it plays three notes, with a code riding underneath that’s too high for you to hear. Your iPhone listens for it, only while that screen’s open, and asks: Sign in to Sounding on this Apple&nbsp;TV?</p>
+            <p class="cap beat" data-stop="qr"><b>Loud room, or microphone off?</b> Scan the QR code on the TV with your iPhone camera instead. Or tap Use Without SoundCloud and just play your own music.</p>
+            <p class="cap beat" data-stop="away"><b>Phone in another room?</b> When the TV asks, your iPhone gets a notification: Living Room wants to sign in. Tap it and that’s that.</p>
           </div>
-        </div>
-      </div>
-    </section>
+        </section>
 
-    <section class="scene chapter" id="play-on" data-scene="play-on" data-shot="tv2,tv2,tv3,tv2" data-states='[{"tv":"play","ph":"out","phone":"tv","out":"sheet","w":"home","tvShot":"shots/tv-np.webp"},{"out":"tv","picked":true},{"w":"remote"},{}]' aria-labelledby="play-on-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img class="pa" src="../assets/still/output-a.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"><img class="pb" src="../assets/still/output-b.webp" alt="" width="1440" height="900" loading="lazy" decoding="async"></figure>
-        <div class="side a">
+        <section class="ch" id="play-on" aria-labelledby="play-on-h">
           <h2 class="ink" id="play-on-h">Play On, and every remote you own.</h2>
+          <figure class="shot" aria-hidden="true"><div class="frame"><img src="../assets/shots/tv-np.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></div></figure>
           <div class="caps">
-            <p class="cap ink"><b>Send it to the TV.</b> On your iPhone, iPad or Mac, tap Play On and pick the Apple&nbsp;TV. It carries on from the same second.</p>
-            <p class="cap ink"><b>Whatever’s in your hand is the remote.</b> Now Playing, Up Next and the volume all work the TV now, and your iPhone, iPad, Mac and Watch all see the same queue.</p>
-            <p class="cap ink"><b>Or your wrist.</b> On the Watch, the Digital Crown turns the TV up and down. The Siri&nbsp;Remote still has the TV’s own volume.</p>
-            <p class="cap ink"><b>Share a link to it.</b> Share a SoundCloud link from any app on your iPhone and send it to the TV: Play Now, Play Next or Add to End.</p>
+            <p class="cap beat" data-stop="send"><b>Send it to the TV.</b> On your iPhone, iPad or Mac, tap Play On and pick the Apple&nbsp;TV. It carries on from the same second.</p>
+            <p class="cap beat" data-stop="hand"><b>Whatever’s in your hand is the remote.</b> Now Playing, Up Next and the volume all work the TV now, and your iPhone, iPad, Mac and Watch all see the same queue.</p>
+            <p class="cap beat" data-stop="wrist"><b>Or your wrist.</b> On the Watch, the Digital Crown turns the TV up and down. The Siri&nbsp;Remote still has the TV’s own volume.</p>
+            <p class="cap beat" data-stop="link"><b>Share a link to it.</b> Share a SoundCloud link from any app on your iPhone and send it to the TV: Play Now, Play Next or Add to End.</p>
           </div>
-        </div>
-      </div>
-    </section>
+        </section>
 
-    <section class="scene chapter screen" id="now-playing" data-scene="now-playing" data-shot="tvc" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-np.webp"},{},{"tvShot":"shots/tv-upnext.webp"},{"tvShot":"shots/tv-np.webp"}]' aria-labelledby="now-playing-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img class="r169" src="../assets/shots/tv-np.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></figure>
-        <div class="side a">
+        <section class="ch" id="now-playing" aria-labelledby="now-playing-h">
           <h2 class="ink" id="now-playing-h">Now Playing, from the sofa.</h2>
+          <figure class="shot" aria-hidden="true"><div class="frame"><img src="../assets/shots/tv-upnext.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></div></figure>
           <div class="caps">
-            <p class="cap ink"><b>The background is the artwork.</b> Blurred and drifting, so every track brings its own colours. The thin lines over it move with the music.</p>
-            <p class="cap ink"><b>Laid out like a tape deck.</b> What’s on at the top left, the waveform right along the bottom, with the comments on it.</p>
-            <p class="cap ink"><b>Long sets scrub like tape.</b> Swipe on the remote’s touch surface, or press left and right to jump 15 seconds, then click to play from there. The next two tracks sit beside it, and the list button opens Up Next, Comments and, for a mix, its Tracklist.</p>
-            <p class="cap ink"><b>Leave it alone and it goes ambient.</b> Just the artwork, big, over the same background.</p>
+            <p class="cap beat" data-stop="art"><b>The background is the artwork.</b> Blurred and drifting, so every track brings its own colours. The thin lines over it move with the music.</p>
+            <p class="cap beat" data-stop="tape"><b>Laid out like a tape deck.</b> What’s on at the top left, the waveform right along the bottom, with the comments on it.</p>
+            <p class="cap beat" data-stop="scrub"><b>Long sets scrub like tape.</b> Swipe on the remote’s touch surface, or press left and right to jump 15 seconds, then click to play from there. The next two tracks sit beside it, and the list button opens Up Next, Comments and, for a mix, its Tracklist.</p>
+            <p class="cap beat" data-stop="ambient"><b>Leave it alone and it goes ambient.</b> Just the artwork, big, over the same background.</p>
           </div>
-        </div>
-      </div>
-    </section>
+        </section>
 
-    <section class="scene chapter screen" id="auto-mix" data-scene="auto-mix" data-shot="tvc" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-mixup.webp"},{"tvShot":"shots/tv-mixblend.webp"},{"tvShot":"shots/tv-decks.webp"},{}]' aria-labelledby="auto-mix-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img class="r169" src="../assets/shots/tv-mixblend.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></figure>
-        <div class="side a">
+        <section class="ch" id="auto-mix" aria-labelledby="auto-mix-h">
           <h2 class="ink" id="auto-mix-h">Auto Mix, on the big screen.</h2>
+          <figure class="shot" aria-hidden="true"><div class="frame"><img src="../assets/shots/tv-mixblend.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></div></figure>
           <div class="caps">
-            <p class="cap ink"><b>The TV mixes your queue.</b> Turn on Auto Mix and it brings the next track in on the phrase, and Now Playing says what’s coming and when: Mix into Harbour Lights, loop then drop, in five bars. It only beat-matches when it’s measured where the bars are on both tracks, and cuts cleanly on the bar when it hasn’t.</p>
-            <p class="cap ink"><b>You can watch it happen.</b> Both waveforms on the screen, the fade in, the swap and the fade out marked on the bar, and the crossfader sliding from A to B.</p>
-            <p class="cap ink"><b>There’s a Decks tab too.</b> More, then Decks, and the two heads sit side by side with their BPM, key and energy, both lanes and the mix, readable from across the room. Mix Now, Extend, Next and Moves are right there.</p>
-            <p class="cap ink"><b>Pick how it plays.</b> Wedding DJ, Auto Mix or Junkie, and an energy that follows the night unless you tell it otherwise.</p>
+            <p class="cap beat" data-stop="mix"><b>The TV mixes your queue.</b> Turn on Auto Mix and it brings the next track in on the phrase, and Now Playing says what’s coming and when: Mix into Harbour Lights, loop then drop, in five bars. It only beat-matches when it’s measured where the bars are on both tracks, and cuts cleanly on the bar when it hasn’t.</p>
+            <p class="cap beat" data-stop="blend"><b>You can watch it happen.</b> Both waveforms on the screen, the fade in, the swap and the fade out marked on the bar, and the crossfader sliding from A to B.</p>
+            <p class="cap beat" data-stop="decks"><b>There’s a Decks tab too.</b> More, then Decks, and the two heads sit side by side with their BPM, key and energy, both lanes and the mix, readable from across the room. Mix Now, Extend, Next and Moves are right there.</p>
+            <p class="cap beat" data-stop="style"><b>Pick how it plays.</b> Wedding DJ, Auto Mix or Junkie, and an energy that follows the night unless you tell it otherwise.</p>
           </div>
-        </div>
-      </div>
-    </section>
+        </section>
 
-    <section class="scene chapter flip screen" id="cues" data-scene="cues" data-shot="tvc" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-trackmap.webp"},{"tvShot":"shots/tv-cues.webp"},{"tvShot":"shots/tv-trackmap.webp"},{}]' aria-labelledby="cues-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img class="r169" src="../assets/shots/tv-trackmap.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></figure>
-        <div class="side a">
+        <section class="ch" id="cues" aria-labelledby="cues-h">
           <h2 class="ink" id="cues-h">Your cue points are on it.</h2>
+          <figure class="shot" aria-hidden="true"><div class="frame"><img src="../assets/shots/tv-trackmap.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></div></figure>
           <div class="caps">
-            <p class="cap ink"><b>Set a cue on the Mac, see it on the TV.</b> Hot cues and memory cues sit on the TV’s waveform in their colours. They sync through your own iCloud.</p>
-            <p class="cap ink"><b>Jump to one.</b> More, then Cue Points, lists them with their times. Pick one and it plays from there.</p>
-            <p class="cap ink"><b>Fix one from the sofa.</b> Track Map lets you add, move and rename cues with the remote, and set where Auto Mix comes in and leaves.</p>
-            <p class="cap ink"><b>Where cues come from</b> is the <a href="../?side=dj">DJ side of the homepage</a>.</p>
+            <p class="cap beat" data-stop="cue"><b>Set a cue on the Mac, see it on the TV.</b> Hot cues and memory cues sit on the TV’s waveform in their colours. They sync through your own iCloud.</p>
+            <p class="cap beat" data-stop="jump"><b>Jump to one.</b> More, then Cue Points, lists them with their times. Pick one and it plays from there.</p>
+            <p class="cap beat" data-stop="fix"><b>Fix one from the sofa.</b> Track Map lets you add, move and rename cues with the remote, and set where Auto Mix comes in and leaves.</p>
+            <p class="cap beat" data-stop="where"><b>Where cues come from</b> is the <a href="../?side=dj">DJ side of the homepage</a>.</p>
           </div>
-        </div>
-      </div>
-    </section>
+        </section>
 
-    <section class="scene chapter" id="top-shelf" data-scene="top-shelf" data-shot="crate" aria-labelledby="top-shelf-h">
-      <div class="pin">
-        <div class="side a">
-          <h2 class="ink" id="top-shelf-h">Top Shelf.</h2>
-          <div class="caps">
-            <p class="cap ink"><b>Put Sounding in the top row</b> and the shelf fills with whatever you were in the middle of: Continue Listening, with the time left, then Recently Played, Your Likes and Mixes For You.</p>
-            <p class="cap ink"><b>Select one and it plays.</b> No opening the app and finding it again.</p>
-            <p class="cap ink"><b>The artwork lives on the TV,</b> so it’s sharp at 4K and still there when the internet isn’t.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="scene chapter flip screen" id="lyrics" data-scene="lyrics" data-shot="tvc" data-states='[{"tv":"play","ph":"out","phone":"tv","tvShot":"shots/tv-lyrics.webp"}]' aria-labelledby="lyrics-h">
-      <div class="pin">
-        <figure class="plate" aria-hidden="true"><img class="r169" src="../assets/shots/tv-lyrics.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></figure>
-        <div class="side a">
+        <section class="ch" id="lyrics" aria-labelledby="lyrics-h">
           <h2 class="ink" id="lyrics-h">Lyrics, if you want them.</h2>
+          <figure class="shot" aria-hidden="true"><div class="frame"><img src="../assets/shots/tv-lyrics.webp" alt="" width="1600" height="900" loading="lazy" decoding="async"></div></figure>
           <div class="caps">
-            <p class="cap ink"><b>They come from LRCLIB,</b> a free lyrics database, and they’re off until you say yes. Nothing goes to it before then.</p>
-            <p class="cap ink"><b>On the TV they go full screen</b> over the artwork, the line being sung in white and the rest fading away. Select a line to jump to it.</p>
-            <p class="cap ink"><b>Mixes don’t get lyrics.</b> A two-hour set would be a lot of guessing.</p>
+            <p class="cap beat" data-stop="lrclib"><b>They come from LRCLIB,</b> a free lyrics database, and they’re off until you say yes. Nothing goes to it before then.</p>
+            <p class="cap beat" data-stop="full"><b>On the TV they go full screen</b> over the artwork, the line being sung in white and the rest fading away. Select a line to jump to it.</p>
+            <p class="cap beat" data-stop="sets"><b>Mixes don’t get lyrics.</b> A two-hour set would be a lot of guessing.</p>
           </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="after">
+      <section class="rest-of" id="top-shelf" aria-labelledby="top-shelf-h">
+        <h2 id="top-shelf-h">Top Shelf.</h2>
+        <div class="cols">
+          <p><b>Put Sounding in the top row</b> and the shelf fills with whatever you were in the middle of: Continue Listening, with the time left, then Recently Played, Your Likes and Mixes For You.</p>
+          <p><b>Select one and it plays.</b> No opening the app and finding it again.</p>
+          <p><b>The artwork lives on the TV,</b> so it’s sharp at 4K and still there when the internet isn’t.</p>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="pg-read flowing" id="more" aria-labelledby="more-h">
-      <h2 id="more-h">And the rest of it.</h2>
-      <div class="cols">
-        <p><b>SharePlay.</b> On a FaceTime call, More, then SharePlay, and everyone on the call listens along in sync on their own iPhone, iPad, Mac or Apple&nbsp;TV, each with their own SoundCloud sign-in. Auto Mix sits it out while it’s on.</p>
-        <p><b>The Siri&nbsp;Remote.</b> Click to play or pause, swipe to scrub. Hold any track for Add to Playlist or Edit Start &amp; End. Menu always goes back one step and never leaves you stuck.</p>
-        <p><b>Your lights.</b> With HomeKit, Sounding colours the lights you pick from the artwork and sets their brightness to the music. Only the ones you pick.</p>
-        <p><b>Your own music.</b> Albums on your Mac, iPhone or iPad play on the TV too, streamed from the device they’re on.</p>
-        <p><b>Speakers.</b> From the TV’s Output, send it on to AirPlay or Bluetooth speakers, or a Sonos.</p>
-        <p><b>The small stuff.</b> Behind the Track, timed comments, a Sleep Timer that fades the last 30 seconds, and downloads if you’re on Go or Go+.</p>
-      </div>
-    </section>
+      <section class="rest-of" id="more" aria-labelledby="more-h">
+        <h2 id="more-h">And the rest of it.</h2>
+        <div class="cols">
+          <p><b>SharePlay.</b> On a FaceTime call, More, then SharePlay, and everyone on the call listens along in sync on their own iPhone, iPad, Mac or Apple&nbsp;TV, each with their own SoundCloud sign-in. Auto Mix sits it out while it’s on.</p>
+          <p><b>The Siri&nbsp;Remote.</b> Click to play or pause, swipe to scrub. Hold any track for Add to Playlist or Edit Start &amp; End. Menu always goes back one step and never leaves you stuck.</p>
+          <p><b>Your lights.</b> With HomeKit, Sounding colours the lights you pick from the artwork and sets their brightness to the music. Only the ones you pick.</p>
+          <p><b>Your own music.</b> Albums on your Mac, iPhone or iPad play on the TV too, streamed from the device they’re on.</p>
+          <p><b>Speakers.</b> From the TV’s Output, send it on to AirPlay or Bluetooth speakers, or a Sonos.</p>
+          <p><b>The small stuff.</b> Behind the Track, timed comments, a Sleep Timer that fades the last 30 seconds, and downloads if you’re on Go or Go+.</p>
+        </div>
+      </section>
 
-    <section class="pg-warn flowing tail" id="join" aria-labelledby="join-h">
-      <h2 id="join-h">Fair warning.</h2>
-      <p class="first">The TV app is getting a redesign as I write this, so some of it will look a bit different by the time you see it. It’ll still sign in by ear.</p>
-      <p>A free SoundCloud account gets previews. Full tracks and downloads need Go or Go+.</p>
-      <p class="needs">Needs tvOS 27. The remotes need iOS or iPadOS 26.5 or later, macOS 27 or watchOS 27.</p>
-      <p class="small">Found a bug? Email <a href="mailto:sounding@alex.forbes.red">sounding@alex.forbes.red</a>. Everything else it does is on the <a href="../features/">features page</a>.</p>
-    </section>
+      <section class="warn" id="join" aria-labelledby="join-h">
+        <h2 id="join-h">Fair warning.</h2>
+        <p class="first">The TV app is getting a redesign as I write this, so some of it will look a bit different by the time you see it. It’ll still sign in by ear.</p>
+        <p>A free SoundCloud account gets previews. Full tracks and downloads need Go or Go+.</p>
+        <p class="needs">Needs tvOS 27. The remotes need iOS or iPadOS 26.5 or later, macOS 27 or watchOS 27.</p>
+        <p class="small">Found a bug? Email <a href="mailto:sounding@alex.forbes.red">sounding@alex.forbes.red</a>. Everything else it does is on the <a href="../features/">features page</a>.</p>
+      </section>
+    </div>
   </main>
 
   <footer class="foot">
