@@ -688,7 +688,7 @@ struct PersonHeroBadge: View {
         #if os(tvOS)
         .background(.ultraThinMaterial, in: Capsule())
         #else
-        .glassEffect(.regular, in: .capsule)
+        .soundingGlass(.regular, in: .capsule)
         #endif
         .environment(\.colorScheme, .dark)
     }
@@ -1032,7 +1032,7 @@ struct CollectionHeroPlayButtons: View {
         let layout = dynamicTypeSize.isAccessibilitySize && !isCompact
             ? AnyLayout(VStackLayout(spacing: 10))
             : AnyLayout(HStackLayout(spacing: 12))
-        GlassEffectContainer(spacing: 12) {
+        SoundingGlassContainer(spacing: 12) {
             layout {
                 Button(action: playTapped) {
                     playLabel
@@ -1065,9 +1065,9 @@ struct CollectionHeroButtonStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         if isProminent {
-            content.buttonStyle(.glassProminent)
+            content.soundingGlassProminentButtonStyle()
         } else {
-            content.buttonStyle(.glass)
+            content.soundingGlassButtonStyle()
         }
     }
 }

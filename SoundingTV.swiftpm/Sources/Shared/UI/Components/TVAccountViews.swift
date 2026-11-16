@@ -186,7 +186,7 @@ struct LinkedCapsule: ViewModifier {
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .glassEffect(.regular, in: Capsule())
+                        .soundingGlass(.regular, in: Capsule())
                         .padding(.top, 8)
                         .allowsHitTesting(false)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -422,7 +422,7 @@ struct ContinueAsOfferView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glassProminent)
+                .soundingGlassProminentButtonStyle()
                 .controlSize(.large)
                 .disabled(model.phase == .working)
                 if case .failed(let message) = model.phase {

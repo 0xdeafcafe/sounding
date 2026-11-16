@@ -297,7 +297,6 @@ struct PlayAudioIntent: AudioPlaybackIntent {
 @available(iOS 27.0, macOS 27.0, *)
 @AppIntent(schema: .audio.createStation)
 struct CreateStationIntent: AudioPlaybackIntent {
-    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @MainActor

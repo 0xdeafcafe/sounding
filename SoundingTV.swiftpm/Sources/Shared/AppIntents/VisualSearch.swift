@@ -5,12 +5,14 @@ import Foundation
 import Vision
 import VisualIntelligence
 
+@available(iOS 26, macOS 27, *)
 @UnionValue
 enum VisualSearchResult {
     case artist(ArtistEntity)
     case track(TrackEntity)
 }
 
+@available(iOS 26, macOS 27, *)
 struct VisualSearchQuery: IntentValueQuery {
     init() {}
 
@@ -21,6 +23,7 @@ struct VisualSearchQuery: IntentValueQuery {
     }
 }
 
+@available(iOS 26, macOS 27, *)
 @AppIntent(schema: .visualIntelligence.semanticContentSearch)
 struct VisualSearchMoreResultsIntent {
     var semanticContent: SemanticContentDescriptor
@@ -72,6 +75,7 @@ struct OpenArtistIntent: OpenIntent {
     }
 }
 
+@available(iOS 26, macOS 27, *)
 @MainActor
 enum VisualSearch {
     static let trackLimit = 6
@@ -136,6 +140,7 @@ private struct OfflineRemoteCatalog: SoundingRemoteCatalog {
 
 // MARK: - Reading the picture
 
+@available(iOS 26, macOS 27, *)
 enum VisualSearchTerms {
     static let maximumTerms = 3
     private static let minimumTextHeight: Float = 0.025

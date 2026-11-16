@@ -230,9 +230,7 @@ enum AnalysisPCMDecode {
             AVLinearPCMIsNonInterleaved: false
         ])
         output.alwaysCopiesSampleData = false
-        let provider = reader.outputProvider(for: output)
         reader.timeRange = CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 1000))
-        try reader.start()
         defer { reader.cancelReading() }
 
         begin(duration)
@@ -240,23 +238,22 @@ enum AnalysisPCMDecode {
         var consumed = 0
         var scratch = [Float]()
         var yieldedAt = 0
-        while reader.status == .reading, let ready = try await provider.next() {
-            ready.withUnsafeSampleBuffer { buffer in
-                guard let block = CMSampleBufferGetDataBuffer(buffer) else { return }
-                let length = CMBlockBufferGetDataLength(block)
-                let count = length / MemoryLayout<Float>.size
-                guard count > 0 else { return }
-                if scratch.count < count { scratch = [Float](repeating: 0, count: count) }
-                scratch.withUnsafeMutableBytes { raw in
-                    _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: count * MemoryLayout<Float>.size, destination: raw.baseAddress!)
-                }
-                let usable = min(count, max(0, cap - consumed))
-                scratch.withUnsafeBufferPointer {
-                    consume(UnsafeBufferPointer(rebasing: $0[0..<usable]))
-                }
-                consumed += usable
+        try await AssetSampleReader.read(reader: reader, output: output) {} consume: { buffer in
+            guard let block = CMSampleBufferGetDataBuffer(buffer) else { return true }
+            let length = CMBlockBufferGetDataLength(block)
+            let count = length / MemoryLayout<Float>.size
+            guard count > 0 else { return true }
+            if scratch.count < count { scratch = [Float](repeating: 0, count: count) }
+            scratch.withUnsafeMutableBytes { raw in
+                _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: count * MemoryLayout<Float>.size, destination: raw.baseAddress!)
             }
-            if consumed >= cap { break }
+            let usable = min(count, max(0, cap - consumed))
+            scratch.withUnsafeBufferPointer {
+                consume(UnsafeBufferPointer(rebasing: $0[0..<usable]))
+            }
+            consumed += usable
+            return consumed < cap
+        } afterSample: {
             if consumed - yieldedAt >= Int(sampleRate * 15) {
                 yieldedAt = consumed
                 try Task.checkCancellation()
@@ -884,6 +881,37 @@ final class DoubleBiquadCascade: @unchecked Sendable {
                     vDSP_biquadD(setup, d.baseAddress!, w.baseAddress!, 1, f.baseAddress!, 1, n)
                     vDSP_vdpsp(f.baseAddress!, 1, output, 1, n)
                 }
+            }
+        }
+    }
+}
+
+enum AssetSampleReader {
+    static func read(
+        reader: AVAssetReader,
+        output: AVAssetReaderTrackOutput,
+        beforeSample: () throws -> Void,
+        consume: (CMSampleBuffer) throws -> Bool,
+        afterSample: () async throws -> Void = {}
+    ) async throws {
+        if #available(iOS 26, *) {
+            let provider = reader.outputProvider(for: output)
+            try reader.start()
+            while reader.status == .reading {
+                try beforeSample()
+                guard let sample = try await provider.next() else { break }
+                guard try sample.withUnsafeSampleBuffer(consume) else { break }
+                try await afterSample()
+            }
+        } else {
+            guard reader.canAdd(output) else { throw CocoaError(.fileReadUnknown) }
+            reader.add(output)
+            guard reader.startReading() else { throw reader.error ?? CocoaError(.fileReadUnknown) }
+            while reader.status == .reading {
+                try beforeSample()
+                guard let sample = output.copyNextSampleBuffer() else { break }
+                guard try consume(sample) else { break }
+                try await afterSample()
             }
         }
     }

@@ -32,7 +32,8 @@ final class AutoMixIntentStore: ObservableObject {
     init(defaults: UserDefaults = .sounding, language: AutoMixLanguage = AutoMixLanguage()) {
         self.defaults = defaults
         self.language = language
-        if let data = defaults.data(forKey: Self.defaultsKey),
+        if #available(iOS 26, *),
+           let data = defaults.data(forKey: Self.defaultsKey),
            let stored = try? JSONDecoder().decode(Active.self, from: data),
            !stored.isExpired(now: Date()) {
             active = stored
@@ -40,7 +41,7 @@ final class AutoMixIntentStore: ObservableObject {
     }
 
     var current: Active? {
-        guard let active, !active.isExpired(now: Date()) else { return nil }
+        guard #available(iOS 26, *), let active, !active.isExpired(now: Date()) else { return nil }
         return active
     }
 

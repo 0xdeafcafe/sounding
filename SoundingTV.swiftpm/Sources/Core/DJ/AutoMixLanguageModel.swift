@@ -7,14 +7,16 @@ enum AutoMixLanguageModelFactory {
     static func make() -> any AutoMixLanguageModel {
         #if canImport(FoundationModels) && !os(tvOS) && !os(watchOS)
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return UnavailableAutoMixLanguageModel() }
-        return SystemAutoMixLanguageModel()
-        #else
-        return UnavailableAutoMixLanguageModel()
+        if #available(iOS 26, macOS 26, *) {
+            return SystemAutoMixLanguageModel()
+        }
         #endif
+        return UnavailableAutoMixLanguageModel()
     }
 }
 
 #if canImport(FoundationModels) && !os(tvOS) && !os(watchOS)
+@available(iOS 26, macOS 26, *)
 @Generable
 struct GeneratedSetIntent {
     @Guide(description: "Energy at the start of the set, 1 is ambient, 5 is steady groove, 10 is peak time", .range(1...10))
@@ -39,6 +41,7 @@ struct GeneratedSetIntent {
     var durationMinutes: Int?
 }
 
+@available(iOS 26, macOS 26, *)
 @Generable
 struct GeneratedGroundedLine {
     @Guide(description: "Numbers of the facts this line uses, from the numbered list", .count(1...4))
@@ -47,6 +50,7 @@ struct GeneratedGroundedLine {
     var line: String
 }
 
+@available(iOS 26, macOS 26, *)
 struct SystemAutoMixLanguageModel: AutoMixLanguageModel {
     var isAvailable: Bool {
         if case .available = SystemLanguageModel.default.availability { return true }

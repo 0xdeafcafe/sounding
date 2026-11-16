@@ -186,7 +186,7 @@ struct LibraryRowsEditor: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", role: .close) { dismiss() }
+                    Button("Done", role: .soundingClose) { dismiss() }
                 }
             }
         }

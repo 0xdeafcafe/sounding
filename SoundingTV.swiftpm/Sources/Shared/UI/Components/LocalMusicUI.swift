@@ -50,7 +50,7 @@ struct MusicStepPage: View {
             Button { isChoosingFolder = true } label: {
                 Text("Choose Folder…").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glassProminent)
+            .soundingGlassProminentButtonStyle()
             .tint(Self.tint)
             #if os(macOS)
             .controlSize(.extraLarge)

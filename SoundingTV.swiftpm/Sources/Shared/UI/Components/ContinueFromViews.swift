@@ -142,7 +142,7 @@ private struct ContinueFromHeroContent: View {
         let layout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(spacing: 10))
             : AnyLayout(HStackLayout(spacing: 12))
-        return GlassEffectContainer {
+        return SoundingGlassContainer {
             layout {
                 ContinueFromPlayButton {
                     model.accept(offer, play: true)
@@ -155,7 +155,7 @@ private struct ContinueFromHeroContent: View {
                     Text("Not Now")
                         .frame(minWidth: 88)
                 }
-                .buttonStyle(.glass)
+                .soundingGlassButtonStyle()
             }
         }
         .controlSize(.large)
@@ -178,7 +178,7 @@ private struct ContinueFromPlayButton: View {
                 .foregroundStyle(tinted?.onTint(for: .dark) ?? .black)
                 .frame(minWidth: 88)
         }
-        .buttonStyle(.glassProminent)
+        .soundingGlassProminentButtonStyle()
         .tint(tinted?.tint(for: .dark) ?? .white)
     }
 }

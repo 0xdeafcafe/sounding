@@ -201,7 +201,7 @@ private struct ScTransientBannerModifier: ViewModifier {
             .foregroundStyle(Color.scTextPrimary)
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)
-            .glassEffect(
+            .soundingGlass(
                 .regular.tint(Color.scBgBase.opacity(0.78)),
                 in: Capsule(style: .continuous)
             )
