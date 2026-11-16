@@ -20,7 +20,7 @@ let package = Package(
     // closest available floor for the iOS target.
     platforms: [
         .tvOS(.v27),
-        .iOS(.v26),
+        .iOS(.v18),
         .macOS(.v27),
         .watchOS(.v27)
     ],

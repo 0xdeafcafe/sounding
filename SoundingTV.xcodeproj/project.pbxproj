@@ -820,6 +820,7 @@
 		E2A6FDA25D873D0B66186864 /* LibraryBackfillElectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C93A3944C0E8C0DD6ACFAAD /* LibraryBackfillElectionTests.swift */; };
 		1DADD9A07B7DAB9A17E77CF6 /* DeviceClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F7BC15F22F3C16FCEB3C6A /* DeviceClass.swift */; };
 		1DD8971D65B8C279ABA1B0F4 /* ContentStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872BFC82A674F29224239792 /* ContentStyle.swift */; };
+		6A1C55000000000000000002 /* GlassCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C55000000000000000001 /* GlassCompat.swift */; };
 		1E08627F40904C61B76EFB64 /* DJSessionDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D9AC2E0A6447C5AD4E7653 /* DJSessionDirector.swift */; };
 		1E25DDF903255B6B8F1A1368 /* CueBoardSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D6458A3B26F19D5243BC21 /* CueBoardSelfTest.swift */; };
 		1E2A4EDCD9BB3F3FA28484F3 /* ArtistDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3461CF38DC11DD85837E150 /* ArtistDetailViewModel.swift */; };
@@ -1704,6 +1705,7 @@
 		E922F0F4AB65051CB564CB73 /* DJEngineConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FAC45FE318AB735BAE46086 /* DJEngineConstants.swift */; };
 		E975C83011528E7AC21AC355 /* ArtworkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E765CDD97C9FE402EBEA5156 /* ArtworkStore.swift */; };
 		E9FC73C3DD83D6CD876DA8CA /* ContentStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872BFC82A674F29224239792 /* ContentStyle.swift */; };
+		6A1C55000000000000000003 /* GlassCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C55000000000000000001 /* GlassCompat.swift */; };
 		EA35FD77800D369A5E7509CA /* GenreDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2083485ABF75DC4BF3E6FAC /* GenreDetector.swift */; };
 		EA367B113227AB3367CA4586 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 107197378AC3EA010B781160 /* HomeView.swift */; };
 		EA66DF7286D4C09C5D592D5F /* DiscoveryDecodeSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5715AA7C23FB54EB37A802 /* DiscoveryDecodeSelfTest.swift */; };
@@ -1727,6 +1729,7 @@
 		F1E9763B60663B13E820A8B7 /* WaveformRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CBD9FEA62E35D3D7ADF573A /* WaveformRenderer.swift */; };
 		F2540E2D0AC9903E72696173 /* LibraryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = E236A303EE3DCD35A1B6B0DE /* LibraryCache.swift */; };
 		F25AD6BFB2DABCB28937DF70 /* ContentStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872BFC82A674F29224239792 /* ContentStyle.swift */; };
+		6A1C55000000000000000004 /* GlassCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C55000000000000000001 /* GlassCompat.swift */; };
 		F296359307166EBE2F8DF215 /* BehindTheTrack.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB20CE6F84141A4DEA907353 /* BehindTheTrack.swift */; };
 		F2FF5F047E9F704132CCE6E9 /* FeedViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8EF65226C5666870CE72D9F /* FeedViewModel.swift */; };
 		F32848998E93C5765814D7B0 /* PhantomDJEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6001BA8700A687282721BF4B /* PhantomDJEngine.swift */; };
@@ -1754,6 +1757,7 @@
 		FDB8F98F36F9F7CB3357FB46 /* LinkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6FD8C232056D253BA3A22F6 /* LinkClient.swift */; };
 		FDCBCD42D11A5AB82BB39F37 /* TopShelfPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36F4AAD4B02783E526F4703 /* TopShelfPublisher.swift */; };
 		FDFE9AC736D807FB44C55411 /* ContentStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872BFC82A674F29224239792 /* ContentStyle.swift */; };
+		6A1C55000000000000000005 /* GlassCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C55000000000000000001 /* GlassCompat.swift */; };
 		FE59FC1B61B72768AB789F96 /* AnalysisCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2912A67E08ED0C48834A1CD /* AnalysisCache.swift */; };
 		FE852F21C7970627D16A9949 /* SubscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84FCC2BB255556AF2047ADF3 /* SubscriptionService.swift */; };
 		FEDED10D0D56A14DD0D06DD6 /* DownloadError.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9E1F7B83276141DC868F69 /* DownloadError.swift */; };
@@ -2737,6 +2741,7 @@ AC44DB209FC1CA9361F2C63B /* WatchAutoMixLine.swift */ = {isa = PBXFileReference;
 		86DD1F111F6BE9BB7C89229E /* TokenTransferProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenTransferProtocol.swift; sourceTree = "<group>"; };
 CA7FE6C6D0D790004DF83BA2 /* AutoMixLiveState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoMixLiveState.swift; sourceTree = "<group>"; };
 		872BFC82A674F29224239792 /* ContentStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentStyle.swift; sourceTree = "<group>"; };
+		6A1C55000000000000000001 /* GlassCompat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCompat.swift; sourceTree = "<group>"; };
 		87F3EB58F892A16681D88AAC /* DefaultShelfArt@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "DefaultShelfArt@2x.png"; sourceTree = "<group>"; };
 		A1C0DE0000000000000000B1 /* ShelfPlaceholder.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "ShelfPlaceholder.png"; sourceTree = "<group>"; };
 		A1C0DE0000000000000000B2 /* ShelfPlaceholder@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "ShelfPlaceholder@2x.png"; sourceTree = "<group>"; };
@@ -3592,6 +3597,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				43B37553156E6E5A15DE7174 /* BrandColor.swift */,
 				FEC07D5020304967C17DCED5 /* ContentComponents.swift */,
 				872BFC82A674F29224239792 /* ContentStyle.swift */,
+				6A1C55000000000000000001 /* GlassCompat.swift */,
 				FE7C3662191FD57ED7326735 /* CrossPlatformComponents.swift */,
 				5E771C0A00000000000000A1 /* SettingsIcon.swift */,
 				5D1EBA0000000000000000A1 /* SidebarSymbols.swift */,
@@ -6048,6 +6054,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				4D641BC0D367BE86EF6485F2 /* CompanionRegistry.swift in Sources */,
 				CEC84E298EC54FEB40B30359 /* ContentComponents.swift in Sources */,
 				F25AD6BFB2DABCB28937DF70 /* ContentStyle.swift in Sources */,
+				6A1C55000000000000000004 /* GlassCompat.swift in Sources */,
 				FFB8CCFF675160B52383A098 /* CrossPlatformComponents.swift in Sources */,
 				5E771C0A00000000000000A2 /* SettingsIcon.swift in Sources */,
 				C7EF9514C5B314D1BCE2E07F /* CueBoard.swift in Sources */,
@@ -6783,6 +6790,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				20D15C51587F19FE427BF19A /* LinkedDeviceStore.swift in Sources */,
 				B3064BDC458DD48C45FAFC6C /* ContentComponents.swift in Sources */,
 				FDFE9AC736D807FB44C55411 /* ContentStyle.swift in Sources */,
+				6A1C55000000000000000005 /* GlassCompat.swift in Sources */,
 				A83C935032F9AA82CEE8943C /* CrossPlatformComponents.swift in Sources */,
 				5E771C0A00000000000000A3 /* SettingsIcon.swift in Sources */,
 				58683C9813D475DB42F94893 /* CueBoard.swift in Sources */,
@@ -7284,6 +7292,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				2BA97CE6B6C2432BEAAD6F1B /* CompanionRegistry.swift in Sources */,
 				E709765595D661C3925504B2 /* ContentComponents.swift in Sources */,
 				1DD8971D65B8C279ABA1B0F4 /* ContentStyle.swift in Sources */,
+				6A1C55000000000000000002 /* GlassCompat.swift in Sources */,
 				5BAAB9FF73F7C20BD8E0E8F3 /* CrossPlatformComponents.swift in Sources */,
 				5E771C0A00000000000000A4 /* SettingsIcon.swift in Sources */,
 				49577E98B634800682A969F7 /* CueBoard.swift in Sources */,
@@ -7602,6 +7611,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				7E88A5D66304EF5430A030C7 /* CommentThreads.swift in Sources */,
 				65B571BEF5F5CAC1925A9170 /* ContentComponents.swift in Sources */,
 				E9FC73C3DD83D6CD876DA8CA /* ContentStyle.swift in Sources */,
+				6A1C55000000000000000003 /* GlassCompat.swift in Sources */,
 				7723D30633F50E494B49C058 /* CrossPlatformComponents.swift in Sources */,
 				829CD3915717E4F2C46CBEB2 /* DJProfileID.swift in Sources */,
 				AA5F2FF8CA78A15DF28635D9 /* DeckIdentity.swift in Sources */,
@@ -7895,7 +7905,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -7931,7 +7941,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				CODE_SIGN_ENTITLEMENTS = "SoundingTV-Widget/SoundingTV-Widget.entitlements";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				INFOPLIST_FILE = "SoundingTV-Widget/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -7990,7 +8000,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				CODE_SIGN_ENTITLEMENTS = "SoundingTV-Widget/SoundingTV-Widget.entitlements";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				INFOPLIST_FILE = "SoundingTV-Widget/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8111,7 +8121,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
@@ -8155,7 +8165,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				INFOPLIST_FILE = "SoundingTV-iOS/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8211,7 +8221,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8230,7 +8240,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				CODE_SIGN_ENTITLEMENTS = "SoundingTV-Share/SoundingTV-Share.entitlements";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				INFOPLIST_FILE = "SoundingTV-Share/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8287,7 +8297,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				INFOPLIST_FILE = "SoundingTV-iOS/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8324,7 +8334,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				CODE_SIGN_ENTITLEMENTS = "SoundingTV-Share/SoundingTV-Share.entitlements";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				INFOPLIST_FILE = "SoundingTV-Share/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8384,7 +8394,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
@@ -8428,7 +8438,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				CODE_SIGN_ENTITLEMENTS = "SoundingTV-Widget/SoundingTV-Widget.entitlements";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				INFOPLIST_FILE = "SoundingTV-Widget/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8446,7 +8456,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8467,7 +8477,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				INFOPLIST_FILE = "SoundingTV-iOS/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8486,7 +8496,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				CODE_SIGN_ENTITLEMENTS = "SoundingTV-Share/SoundingTV-Share.entitlements";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				INFOPLIST_FILE = "SoundingTV-Share/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8621,7 +8631,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
@@ -8713,7 +8723,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				INFOPLIST_FILE = "SoundingTV-NotificationService/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8730,7 +8740,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				INFOPLIST_FILE = "SoundingTV-NotificationService/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -8747,7 +8757,7 @@ DDA36066AD84B6D8449CBD24 /* AutoMixNetRatings.swift */ = {isa = PBXFileReference
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				INFOPLIST_FILE = "SoundingTV-NotificationService/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
