@@ -262,7 +262,7 @@ struct PhoneRootView: View {
 
     @ViewBuilder
     private var tabs: some View {
-        if PadLayout.isPad {
+        if #available(iOS 26, *), PadLayout.isPad {
             playerChrome(
                 PadRootTabs(selection: $selection, library: library, remoteTarget: coordinator.remoteTarget, showsRemoteWithoutTV: showsRemoteWithoutTV),
                 showsAccessory: !(selection == .decks && horizontalSizeClass != .compact)
@@ -292,29 +292,47 @@ struct PhoneRootView: View {
         TabView(selection: phoneSelection) {
             Tab("Home", systemImage: "house", value: PhoneTab.home) {
                 ArtistRoutingStack(restorationKey: "home") { PhoneHomeHub() }
+                    .modifier(legacyBottomAccessory)
             }
 
             Tab("Library", systemImage: "music.note.list", value: PhoneTab.library) {
                 ArtistRoutingStack(restorationKey: "library") { LibraryBrowserView(models: library) }
+                    .modifier(legacyBottomAccessory)
             }
 
             Tab("Playlists", systemImage: "music.note.square.stack", value: PhoneTab.playlists) {
                 ArtistRoutingStack(restorationKey: "playlists") {
                     LibrarySectionRoot(section: .playlists, models: library, showsAccount: true)
                 }
+                .modifier(legacyBottomAccessory)
             }
 
             if showsRemote {
                 Tab("Remote", systemImage: RemoteRequest.tabSymbol, value: PhoneTab.remote) {
                     NavigationStack { PhoneRemoteTabContent(target: coordinator.remoteTarget) }
+                        .modifier(legacyBottomAccessory)
                 }
             }
 
             Tab(value: PhoneTab.search, role: .search) {
                 ArtistRoutingStack(restorationKey: "search") { GlobalSearchView() }
+                    .modifier(legacyBottomAccessory)
             }
         }
         .tint(PadChrome.pageTint)
+    }
+
+    private var hasNowPlayingAccessory: Bool {
+        coordinator.nowPlaying != nil || PadLayout.isPad || coordinator.isRemoteOutput || coordinator.continueOffer(from: continueFrom) != nil || presence.primary != nil
+    }
+
+    private var legacyBottomAccessory: LegacyBottomAccessoryModifier {
+        LegacyBottomAccessoryModifier(
+            hasNowPlaying: hasNowPlayingAccessory,
+            isExpanded: $isNowPlayingExpanded,
+            heroID: nowPlayingHeroID,
+            namespace: nowPlayingNamespace
+        )
     }
 
     private func expandIfPending() {
@@ -326,12 +344,11 @@ struct PhoneRootView: View {
     private func playerChrome<Content: View>(_ content: Content, showsAccessory: Bool = true) -> some View {
         content
             .modifier(BottomAccessoryModifier(
-                hasNowPlaying: (coordinator.nowPlaying != nil || PadLayout.isPad || coordinator.isRemoteOutput || coordinator.continueOffer(from: continueFrom) != nil || presence.primary != nil) && showsAccessory,
+                hasNowPlaying: hasNowPlayingAccessory && showsAccessory,
                 isExpanded: $isNowPlayingExpanded,
                 heroID: nowPlayingHeroID,
                 namespace: nowPlayingNamespace
             ))
-            .tabBarMinimizeBehavior(.onScrollDown)
             .environment(\.nowPlayingZoomNamespace, nowPlayingNamespace)
             .onChange(of: continueFrom.expandRequest) { _, _ in
                 isExpandPending = true
@@ -377,7 +394,11 @@ struct PhoneRootView: View {
                         .appNavigationDestinations()
                         .toolbar {
                             ToolbarItem(placement: .confirmationAction) {
-                                Button("Done", role: .close) { presentedArtist = nil }
+                                if #available(iOS 26, *) {
+                                    Button("Done", role: .close) { presentedArtist = nil }
+                                } else {
+                                    Button("Done") { presentedArtist = nil }
+                                }
                             }
                         }
                 }
@@ -508,6 +529,7 @@ enum PadSidebarCustomization {
 }
 
 @MainActor
+@available(iOS 26, *)
 final class PadSidebarCustomizationStore {
     private(set) var value: TabViewCustomization
 
@@ -604,6 +626,7 @@ struct PadNowPlaying {
     let isVisible: Bool
 }
 
+@available(iOS 26, *)
 private struct PadRootTabs: View {
     @Binding var selection: PhoneRootView.PhoneTab
     let library: LibraryModels
@@ -1286,13 +1309,54 @@ private struct BottomAccessoryModifier: ViewModifier {
     let namespace: Namespace.ID
 
     func body(content: Content) -> some View {
-        content.tabViewBottomAccessory(isEnabled: hasNowPlaying) {
-            TransportBarView(
-                isExpanded: $isExpanded,
-                heroID: heroID,
-                heroNamespace: namespace
-            )
-            .upNextTrackDropTarget()
+        if #available(iOS 26.1, *) {
+            content.tabViewBottomAccessory(isEnabled: hasNowPlaying) {
+                accessory
+            }
+            .tabBarMinimizeBehavior(.onScrollDown)
+        } else if #available(iOS 26, *) {
+            content.tabViewBottomAccessory {
+                if hasNowPlaying { accessory }
+            }
+            .tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            content
+        }
+    }
+
+    private var accessory: some View {
+        TransportBarView(
+            isExpanded: $isExpanded,
+            heroID: heroID,
+            heroNamespace: namespace
+        )
+        .upNextTrackDropTarget()
+    }
+}
+
+private struct LegacyBottomAccessoryModifier: ViewModifier {
+    let hasNowPlaying: Bool
+    @Binding var isExpanded: Bool
+    let heroID: String
+    let namespace: Namespace.ID
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content
+        } else {
+            content.safeAreaInset(edge: .bottom, spacing: 0) {
+                if hasNowPlaying {
+                    TransportBarView(
+                        isExpanded: $isExpanded,
+                        heroID: heroID,
+                        heroNamespace: namespace
+                    )
+                    .upNextTrackDropTarget()
+                    .background(.regularMaterial, in: .rect(cornerRadius: PhoneRadius.card, style: .continuous))
+                    .padding(.horizontal, Space.tight)
+                    .padding(.vertical, Space.hair)
+                }
+            }
         }
     }
 }

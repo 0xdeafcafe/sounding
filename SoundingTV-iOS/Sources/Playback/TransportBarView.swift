@@ -11,7 +11,7 @@ private struct MiniBarSurfaceModifier: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if isScrubbing && !isInline {
-            content.glassEffect(.regular, in: .rect(cornerRadius: PhoneRadius.card, style: .continuous))
+            content.soundingGlass(.regular, in: .rect(cornerRadius: PhoneRadius.card, style: .continuous))
         } else {
             content
         }
@@ -73,6 +73,39 @@ struct TransportBarView: View {
     let heroID: String
     let heroNamespace: Namespace.ID
 
+    var body: some View {
+        if #available(iOS 26, *) {
+            AccessoryTransportBarView(isExpanded: $isExpanded, heroID: heroID, heroNamespace: heroNamespace)
+        } else {
+            TransportBarContent(isExpanded: $isExpanded, heroID: heroID, heroNamespace: heroNamespace, isInlinePlacement: false)
+        }
+    }
+}
+
+@available(iOS 26, *)
+private struct AccessoryTransportBarView: View {
+    @Binding var isExpanded: Bool
+    let heroID: String
+    let heroNamespace: Namespace.ID
+
+    @Environment(\.tabViewBottomAccessoryPlacement) private var accessoryPlacement
+
+    var body: some View {
+        TransportBarContent(
+            isExpanded: $isExpanded,
+            heroID: heroID,
+            heroNamespace: heroNamespace,
+            isInlinePlacement: accessoryPlacement == .inline
+        )
+    }
+}
+
+private struct TransportBarContent: View {
+    @Binding var isExpanded: Bool
+    let heroID: String
+    let heroNamespace: Namespace.ID
+    let isInlinePlacement: Bool
+
     @EnvironmentObject private var coordinator: PhonePlaybackCoordinator
     @ObservedObject private var palette = NowPlayingPalette.shared
     @ObservedObject private var credentials = SoundCloudCredentialSource.shared
@@ -81,7 +114,6 @@ struct TransportBarView: View {
     @ObservedObject private var continueFrom = ContinueFrom.shared
     @ObservedObject private var presence = DevicePresenceModel.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.tabViewBottomAccessoryPlacement) private var accessoryPlacement
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
@@ -101,16 +133,14 @@ struct TransportBarView: View {
     @State private var popoverArtist: User?
     @Environment(\.presentArtist) private var presentArtist
 
-    private var effectivePlacement: TabViewBottomAccessoryPlacement? {
+    private var isInline: Bool {
         #if DEBUG
         if ProcessInfo.processInfo.environment["SOUNDING_TV_PHONE_ACCESSORY"] == "inline" {
-            return .inline
+            return true
         }
         #endif
-        return accessoryPlacement
+        return isInlinePlacement
     }
-
-    private var isInline: Bool { effectivePlacement == .inline }
 
     private var isWide: Bool {
         PadLayout.isPad && !isInline && (horizontalSizeClass == .regular || miniBarSpan >= .wide)

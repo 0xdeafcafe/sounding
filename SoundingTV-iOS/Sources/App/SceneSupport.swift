@@ -114,7 +114,7 @@ struct DetailWindowRoot: View {
                     heroID: nowPlayingHeroID,
                     heroNamespace: nowPlayingNamespace
                 )
-                .glassEffect(.regular, in: .rect(cornerRadius: PhoneRadius.card, style: .continuous))
+                .soundingGlass(.regular, in: .rect(cornerRadius: PhoneRadius.card, style: .continuous))
                 .padding(.horizontal, Space.tight)
                 .padding(.bottom, Space.tight)
             }
