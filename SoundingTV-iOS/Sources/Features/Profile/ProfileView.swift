@@ -302,3 +302,15 @@ struct PhoneDoneButton: View {
         }
     }
 }
+
+struct PhoneCloseButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        if #available(iOS 26, *) {
+            Button(role: .close, action: action)
+        } else {
+            Button("Close", systemImage: "xmark", action: action)
+        }
+    }
+}

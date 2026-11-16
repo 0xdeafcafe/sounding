@@ -6,7 +6,7 @@ extension CarPlayController {
         let template = CPListTemplate(title: "Listen Now", sections: [])
         template.tabTitle = "Listen Now"
         template.tabImage = CarPlaySymbol.image("play.circle")
-        template.showsSpinnerWhileEmpty = !isListenNowHydrated
+        if #available(iOS 18.4, *) { template.showsSpinnerWhileEmpty = !isListenNowHydrated }
         template.emptyViewTitleVariants = ["Nothing Here Yet"]
         template.emptyViewSubtitleVariants = ["Play something on your iPhone."]
         listenNowTemplate = template
@@ -54,7 +54,7 @@ extension CarPlayController {
         rows = Array(rows.prefix(max(0, budget)))
         if !rows.isEmpty { sections.append(CPListSection(items: rows)) }
         sections = Array(sections.prefix(Int(CPListTemplate.maximumSectionCount)))
-        template.showsSpinnerWhileEmpty = !isListenNowHydrated
+        if #available(iOS 18.4, *) { template.showsSpinnerWhileEmpty = !isListenNowHydrated }
         template.updateSections(sections)
     }
 

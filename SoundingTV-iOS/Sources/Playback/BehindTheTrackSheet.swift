@@ -29,7 +29,7 @@ struct BehindTheTrackSheet: View {
             .appNavigationDestinations()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", role: .close) { dismiss() }
+                    PhoneDoneButton { dismiss() }
                 }
             }
         }

@@ -141,7 +141,7 @@ final class CarPlayPagedList {
         self.emptyTitle = emptyTitle
         self.emptySubtitle = emptySubtitle
         let template = CPListTemplate(title: title, sections: [])
-        template.showsSpinnerWhileEmpty = true
+        if #available(iOS 18.4, *) { template.showsSpinnerWhileEmpty = true }
         template.userInfo = self
         self.template = template
         pending = template
@@ -185,7 +185,7 @@ final class CarPlayPagedList {
         var rows = leading + items
         if hasMore { rows.append(moreItem) }
         let hasContent = !items.isEmpty
-        template.showsSpinnerWhileEmpty = false
+        if #available(iOS 18.4, *) { template.showsSpinnerWhileEmpty = false }
         template.emptyViewTitleVariants = [emptyTitle]
         template.emptyViewSubtitleVariants = emptySubtitle.map { [$0] } ?? []
         template.updateSections(hasContent ? [CPListSection(items: rows)] : [])

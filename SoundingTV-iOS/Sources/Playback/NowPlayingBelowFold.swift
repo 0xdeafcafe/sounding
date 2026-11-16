@@ -1353,7 +1353,7 @@ private struct NowPlayingBehindTheTrack: View {
                     .appNavigationDestinations()
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("Done", role: .close) { artist = nil }
+                            PhoneDoneButton { artist = nil }
                         }
                     }
             }
@@ -1365,7 +1365,7 @@ private struct NowPlayingBehindTheTrack: View {
                     .appNavigationDestinations()
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("Done", role: .close) { album = nil }
+                            PhoneDoneButton { album = nil }
                         }
                     }
             }

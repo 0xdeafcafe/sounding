@@ -40,7 +40,7 @@ struct TrackMapSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(role: .close) { dismiss() }
+                    PhoneCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button(model.undoTitle, systemImage: "arrow.uturn.backward") { model.undoLast() }
