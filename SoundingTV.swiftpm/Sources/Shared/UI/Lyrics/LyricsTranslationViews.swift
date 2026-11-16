@@ -234,12 +234,12 @@ struct LyricsTranslateButton: View {
     var body: some View {
         if isOn {
             button
-                .buttonStyle(.glassProminent)
+                .soundingGlassProminentButtonStyle()
                 .tint(.white)
                 .foregroundStyle(.black)
         } else {
             button
-                .buttonStyle(.glass)
+                .soundingGlassButtonStyle()
         }
     }
 

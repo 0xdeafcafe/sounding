@@ -300,8 +300,15 @@ private extension SearchVibeArtwork {
             .lineLimit(2)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .glassEffect(.regular, in: .capsule)
+            .soundingGlass(.regular, in: .capsule)
             .padding(10)
         #endif
+    }
+}
+
+extension ButtonRole {
+    static var soundingClose: Self? {
+        if #available(iOS 26, *) { return .close }
+        return nil
     }
 }

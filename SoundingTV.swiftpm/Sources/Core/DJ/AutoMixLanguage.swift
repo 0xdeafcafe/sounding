@@ -97,6 +97,7 @@ struct AutoMixLanguage: Sendable {
     }
 
     func intent(for request: String, now: Date = Date(), calendar: Calendar = .current) async -> SetIntent? {
+        guard #available(iOS 26, *) else { return nil }
         let trimmed = request.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if model.isAvailable, let draft = try? await model.intentDraft(for: trimmed, now: now) {
@@ -116,6 +117,7 @@ struct AutoMixLanguage: Sendable {
     }
 
     func flairSummary(_ lines: [String]) async -> String? {
+        guard #available(iOS 26, *) else { return nil }
         guard let fallback = Self.deterministicFlairSummary(lines) else { return nil }
         guard model.isAvailable, lines.count >= 2,
               let generated = try? await model.flairSummary(facts: lines),

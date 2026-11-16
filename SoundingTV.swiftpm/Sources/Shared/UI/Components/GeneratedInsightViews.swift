@@ -7,7 +7,7 @@ struct GeneratedTagChips: View {
     var fill: Color = Color.secondary.opacity(0.14)
 
     var body: some View {
-        if !tags.isEmpty {
+        if #available(iOS 26, *), !tags.isEmpty {
             ChipFlowLayout(spacing: 6) {
                 Image(systemName: "sparkles")
                     .font(font)
@@ -36,6 +36,12 @@ struct GeneratedSummaryBlock: View {
     var secondary: Color = .secondary
 
     var body: some View {
+        if #available(iOS 26, *) {
+            summary
+        }
+    }
+
+    private var summary: some View {
         VStack(alignment: .leading, spacing: 4) {
             Label(title, systemImage: "sparkles")
                 .font(.caption.weight(.semibold))
@@ -58,7 +64,7 @@ struct GeneratedInsightsSection: View {
     var chipFill: Color = Color.secondary.opacity(0.14)
 
     var body: some View {
-        if let insights {
+        if #available(iOS 26, *), let insights {
             VStack(alignment: .leading, spacing: 14) {
                 if let summary = insights.setSummary {
                     GeneratedSummaryBlock(title: "Summary", text: summary, foreground: foreground, secondary: secondary)

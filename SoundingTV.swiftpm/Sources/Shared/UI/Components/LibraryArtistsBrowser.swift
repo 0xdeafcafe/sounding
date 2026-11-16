@@ -304,7 +304,7 @@ struct LibraryAlbumCounterpartLink: View {
             NavigationLink(value: target.route) {
                 Label(target.title, systemImage: target.symbol)
             }
-            .buttonStyle(.glass)
+            .soundingGlassButtonStyle()
             .controlSize(.small)
         }
     }
@@ -636,9 +636,7 @@ struct LibraryArtistsSplit<Detail: View>: View {
                     }
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
-                .safeAreaBar(edge: .top, spacing: 0) {
-                    listHeader ?? AnyView(EmptyView())
-                }
+                .modifier(ArtistListHeader(header: listHeader))
                 .frame(width: min(max(proxy.size.width * 0.34, 260), 380))
 
                 Divider()
@@ -650,6 +648,25 @@ struct LibraryArtistsSplit<Detail: View>: View {
                 } else {
                     Spacer(minLength: 0)
                 }
+            }
+        }
+    }
+}
+#endif
+
+#if os(iOS) || os(macOS)
+private struct ArtistListHeader: ViewModifier {
+    let header: AnyView?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content.safeAreaBar(edge: .top, spacing: 0) {
+                header ?? AnyView(EmptyView())
+            }
+        } else {
+            content.safeAreaInset(edge: .top, spacing: 0) {
+                header ?? AnyView(EmptyView())
             }
         }
     }

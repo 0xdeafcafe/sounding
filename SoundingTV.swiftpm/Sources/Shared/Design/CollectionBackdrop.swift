@@ -973,11 +973,16 @@ private struct CollectionArtworkBackdropModifier: ViewModifier {
 }
 
 private struct CollectionBackdropExtension: ViewModifier {
+    @ViewBuilder
     func body(content: Content) -> some View {
         #if os(tvOS)
         content
         #else
-        content.backgroundExtensionEffect()
+        if #available(iOS 26, *) {
+            content.backgroundExtensionEffect()
+        } else {
+            content
+        }
         #endif
     }
 }

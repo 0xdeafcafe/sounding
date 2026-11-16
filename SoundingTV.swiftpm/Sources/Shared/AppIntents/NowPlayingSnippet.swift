@@ -65,6 +65,7 @@ enum IntentNowPlaying {
     }
 }
 
+@available(iOS 26, *)
 struct NowPlayingSnippetIntent: SnippetIntent {
     static let title: LocalizedStringResource = "Now Playing"
     static let isDiscoverable = false
@@ -89,6 +90,7 @@ struct NowPlayingSnippetIntent: SnippetIntent {
     }
 }
 
+@available(iOS 26, *)
 struct ShowNowPlayingIntent: AppIntent {
     static let title: LocalizedStringResource = "Now Playing"
     static let description = IntentDescription("Shows what's playing, with Like, Skip and Add to Playlist.")
@@ -103,6 +105,7 @@ struct ShowNowPlayingIntent: AppIntent {
     }
 }
 
+@available(iOS 26, *)
 struct LikeNowPlayingIntent: AppIntent {
     static let title: LocalizedStringResource = "Like"
     static let isDiscoverable = false
@@ -141,6 +144,7 @@ struct LikeNowPlayingIntent: AppIntent {
     }
 }
 
+@available(iOS 26, *)
 struct SkipNowPlayingIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Skip"
     static let isDiscoverable = false
@@ -157,6 +161,7 @@ struct SkipNowPlayingIntent: AudioPlaybackIntent {
     }
 }
 
+@available(iOS 26, *)
 struct NowPlayingSnippetView: View {
     struct Content {
         let trackID: String
@@ -299,6 +304,7 @@ enum IntentPlaylistChoices {
     }
 }
 
+@available(iOS 26, *)
 struct AddNowPlayingToPlaylistIntent: AppIntent {
     static let title: LocalizedStringResource = "Add to Playlist"
     static let isDiscoverable = false
@@ -336,6 +342,7 @@ struct AddNowPlayingToPlaylistIntent: AppIntent {
     }
 }
 
+@available(iOS 26, *)
 struct PlaylistChoiceSnippetIntent: SnippetIntent {
     static let title: LocalizedStringResource = "Choose Playlist"
     static let isDiscoverable = false
@@ -360,6 +367,7 @@ struct PlaylistChoiceSnippetIntent: SnippetIntent {
     }
 }
 
+@available(iOS 26, *)
 struct ChoosePlaylistIntent: AppIntent {
     static let title: LocalizedStringResource = "Choose Playlist"
     static let isDiscoverable = false
@@ -387,6 +395,7 @@ struct ChoosePlaylistIntent: AppIntent {
     }
 }
 
+@available(iOS 26, *)
 struct PlaylistChoiceSnippetView: View {
     let trackID: String
     let choices: [IntentPlaylistChoices.Choice]

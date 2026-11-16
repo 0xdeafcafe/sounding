@@ -6,6 +6,12 @@ struct AutoMixIntentSection: View {
     @State private var missed = false
 
     var body: some View {
+        if #available(iOS 26, *) {
+            intentSection
+        }
+    }
+
+    private var intentSection: some View {
         Section {
             TextField("Tell Auto Mix…", text: $text, prompt: Text("Warm-up set, peak by midnight, no vocals until 11"))
                 .onSubmit(submit)

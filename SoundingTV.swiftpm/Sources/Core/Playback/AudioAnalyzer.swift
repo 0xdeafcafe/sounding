@@ -61,35 +61,30 @@ enum AudioAnalyzer {
 
         let reader = try AVAssetReader(asset: asset)
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
-        let provider = reader.outputProvider(for: output)
         reader.timeRange = CMTimeRange(
             start: .zero,
             duration: CMTime(seconds: maxSeconds, preferredTimescale: 1000)
         )
 
-        try reader.start()
-
         let cap = Int(analysisSampleRate * maxSeconds)
         var samples: [Float] = []
         samples.reserveCapacity(cap)
 
-        while reader.status == .reading, let readyBuffer = try await provider.next() {
-            readyBuffer.withUnsafeSampleBuffer { buffer in
-                guard let block = CMSampleBufferGetDataBuffer(buffer) else { return }
-                let length = CMBlockBufferGetDataLength(block)
-                let floatCount = length / MemoryLayout<Float>.size
-                var chunk = [Float](repeating: 0, count: floatCount)
-                chunk.withUnsafeMutableBytes { rawBuf in
-                    _ = CMBlockBufferCopyDataBytes(
-                        block,
-                        atOffset: 0,
-                        dataLength: length,
-                        destination: rawBuf.baseAddress!
-                    )
-                }
-                samples.append(contentsOf: chunk)
+        try await AssetSampleReader.read(reader: reader, output: output) {} consume: { buffer in
+            guard let block = CMSampleBufferGetDataBuffer(buffer) else { return true }
+            let length = CMBlockBufferGetDataLength(block)
+            let floatCount = length / MemoryLayout<Float>.size
+            var chunk = [Float](repeating: 0, count: floatCount)
+            chunk.withUnsafeMutableBytes { rawBuf in
+                _ = CMBlockBufferCopyDataBytes(
+                    block,
+                    atOffset: 0,
+                    dataLength: length,
+                    destination: rawBuf.baseAddress!
+                )
             }
-            if samples.count >= cap { break }
+            samples.append(contentsOf: chunk)
+            return samples.count < cap
         }
 
         if reader.status == .failed {

@@ -26,7 +26,7 @@ private struct BottomCardOverlay<Item: Identifiable, Phase: Equatable, Card: Vie
 
                     card(item)
                         .frame(width: 400)
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 36, style: .continuous))
+                        .soundingGlass(.regular, in: RoundedRectangle(cornerRadius: 36, style: .continuous))
                         .overlay(alignment: .topTrailing) {
                             Button { onDismiss() } label: {
                                 Image(systemName: "xmark")
@@ -46,7 +46,7 @@ private struct BottomCardOverlay<Item: Identifiable, Phase: Equatable, Card: Vie
                     scrim
 
                     card(item)
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 44, style: .continuous))
+                        .soundingGlass(.regular, in: RoundedRectangle(cornerRadius: 44, style: .continuous))
                         .overlay(alignment: .top) {
                             Capsule()
                                 .fill(.tertiary)

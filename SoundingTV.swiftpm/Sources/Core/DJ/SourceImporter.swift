@@ -555,13 +555,6 @@ enum SourceImporter {
         }
 
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: readerSettings)
-        let provider = reader.outputProvider(for: output)
-
-        do {
-            try reader.start()
-        } catch {
-            throw MixEngineError.decodeFailed(error.localizedDescription)
-        }
 
         guard let writeFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -596,105 +589,88 @@ enum SourceImporter {
 
         var wroteAnything = false
 
-        while reader.status == .reading {
-            guard !Task.isCancelled else {
-                reader.cancelReading()
-                notifyDebugCancellation()
-                throw MixEngineError.cancelled
-            }
-            let nextBuffer: CMReadySampleBuffer<CMSampleBuffer.DynamicContent>?
-            do {
-                nextBuffer = try await provider.next()
-            } catch {
-                reader.cancelReading()
-                notifyDebugCancellation()
-                throw MixEngineError.decodeFailed(error.localizedDescription)
-            }
-            guard let readyBuffer = nextBuffer else { break }
+        do {
+            try await AssetSampleReader.read(reader: reader, output: output) {
+                guard !Task.isCancelled else { throw MixEngineError.cancelled }
+            } consume: { sampleBuffer in
+                guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer),
+                      let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+                      let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee
+                else { return true }
 
-            let wroteFrame: Bool
-            do {
-                wroteFrame = try readyBuffer.withUnsafeSampleBuffer { sampleBuffer -> Bool in
-                    guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer),
-                          let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
-                          let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee
-                    else { return false }
-
-                    guard asbd.mFormatID == kAudioFormatLinearPCM,
-                          asbd.mFormatFlags & kAudioFormatFlagIsFloat != 0,
-                          asbd.mBitsPerChannel == 32,
-                          asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
-                    else {
-                        throw MixEngineError.unexpectedDecodedFormat(
-                            "expected interleaved float32, got formatID \(asbd.mFormatID) flags \(asbd.mFormatFlags)"
-                        )
-                    }
-                    guard abs(asbd.mSampleRate - sampleRate) < 1 else {
-                        throw MixEngineError.unexpectedDecodedFormat(
-                            "expected \(Int(sampleRate)) Hz, got \(Int(asbd.mSampleRate)) Hz"
-                        )
-                    }
-
-                    let decodedChannels = Int(asbd.mChannelsPerFrame)
-                    guard decodedChannels == 1 || decodedChannels == 2 else {
-                        throw MixEngineError.unexpectedDecodedFormat("\(decodedChannels)-channel audio is not supported")
-                    }
-
-                    let byteCount = CMBlockBufferGetDataLength(blockBuffer)
-                    let frameCount = byteCount / (MemoryLayout<Float>.size * decodedChannels)
-                    guard frameCount > 0 else { return false }
-
-                    var decoded = [Float](repeating: 0, count: frameCount * decodedChannels)
-                    let copyStatus = decoded.withUnsafeMutableBytes { raw -> OSStatus in
-                        guard let base = raw.baseAddress else { return -1 }
-                        return CMBlockBufferCopyDataBytes(blockBuffer, atOffset: 0, dataLength: byteCount, destination: base)
-                    }
-                    guard copyStatus == kCMBlockBufferNoErr else {
-                        throw MixEngineError.decodeFailed("could not copy decoded samples out of the sample buffer")
-                    }
-
-                    guard let buffer = AVAudioPCMBuffer(pcmFormat: writeFormat, frameCapacity: AVAudioFrameCount(frameCount)),
-                          let target = buffer.floatChannelData?[0] else {
-                        throw MixEngineError.decodeFailed("could not allocate a PCM buffer")
-                    }
-                    buffer.frameLength = AVAudioFrameCount(frameCount)
-
-                    if decodedChannels == 2 {
-                        decoded.withUnsafeBufferPointer { source in
-                            target.update(from: source.baseAddress!, count: frameCount * 2)
-                        }
-                    } else {
-                        decoded.withUnsafeBufferPointer { source in
-                            guard let base = source.baseAddress else { return }
-                            for frame in 0..<frameCount {
-                                target[frame * 2] = base[frame]
-                                target[frame * 2 + 1] = base[frame]
-                            }
-                        }
-                    }
-
-                    do {
-                        try outputFile.write(from: buffer)
-                    } catch {
-                        throw MixEngineError.decodeFailed("write failed: \(error.localizedDescription)")
-                    }
-
-                    if duration > 0 {
-                        let presentation = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-                        if presentation.isFinite {
-                            progress(min(1, max(0, presentation / duration)))
-                        }
-                    }
-
-                    return true
+                guard asbd.mFormatID == kAudioFormatLinearPCM,
+                      asbd.mFormatFlags & kAudioFormatFlagIsFloat != 0,
+                      asbd.mBitsPerChannel == 32,
+                      asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
+                else {
+                    throw MixEngineError.unexpectedDecodedFormat(
+                        "expected interleaved float32, got formatID \(asbd.mFormatID) flags \(asbd.mFormatFlags)"
+                    )
                 }
-            } catch {
-                reader.cancelReading()
-                notifyDebugCancellation()
-                throw error
-            }
+                guard abs(asbd.mSampleRate - sampleRate) < 1 else {
+                    throw MixEngineError.unexpectedDecodedFormat(
+                        "expected \(Int(sampleRate)) Hz, got \(Int(asbd.mSampleRate)) Hz"
+                    )
+                }
 
-            if wroteFrame { wroteAnything = true }
+                let decodedChannels = Int(asbd.mChannelsPerFrame)
+                guard decodedChannels == 1 || decodedChannels == 2 else {
+                    throw MixEngineError.unexpectedDecodedFormat("\(decodedChannels)-channel audio is not supported")
+                }
+
+                let byteCount = CMBlockBufferGetDataLength(blockBuffer)
+                let frameCount = byteCount / (MemoryLayout<Float>.size * decodedChannels)
+                guard frameCount > 0 else { return true }
+
+                var decoded = [Float](repeating: 0, count: frameCount * decodedChannels)
+                let copyStatus = decoded.withUnsafeMutableBytes { raw -> OSStatus in
+                    guard let base = raw.baseAddress else { return -1 }
+                    return CMBlockBufferCopyDataBytes(blockBuffer, atOffset: 0, dataLength: byteCount, destination: base)
+                }
+                guard copyStatus == kCMBlockBufferNoErr else {
+                    throw MixEngineError.decodeFailed("could not copy decoded samples out of the sample buffer")
+                }
+
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: writeFormat, frameCapacity: AVAudioFrameCount(frameCount)),
+                      let target = buffer.floatChannelData?[0] else {
+                    throw MixEngineError.decodeFailed("could not allocate a PCM buffer")
+                }
+                buffer.frameLength = AVAudioFrameCount(frameCount)
+
+                if decodedChannels == 2 {
+                    decoded.withUnsafeBufferPointer { source in
+                        target.update(from: source.baseAddress!, count: frameCount * 2)
+                    }
+                } else {
+                    decoded.withUnsafeBufferPointer { source in
+                        guard let base = source.baseAddress else { return }
+                        for frame in 0..<frameCount {
+                            target[frame * 2] = base[frame]
+                            target[frame * 2 + 1] = base[frame]
+                        }
+                    }
+                }
+
+                do {
+                    try outputFile.write(from: buffer)
+                } catch {
+                    throw MixEngineError.decodeFailed("write failed: \(error.localizedDescription)")
+                }
+
+                if duration > 0 {
+                    let presentation = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+                    if presentation.isFinite {
+                        progress(min(1, max(0, presentation / duration)))
+                    }
+                }
+                wroteAnything = true
+                return true
+            }
+        } catch {
+            reader.cancelReading()
+            notifyDebugCancellation()
+            if let error = error as? MixEngineError { throw error }
+            throw MixEngineError.decodeFailed(error.localizedDescription)
         }
 
         if reader.status == .failed {

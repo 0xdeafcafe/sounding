@@ -728,7 +728,7 @@ struct TapeScrubber<Avatar: View>: View {
                 if solid {
                     Capsule().fill(.white)
                 } else {
-                    Capsule().fill(.clear).glassEffect(.regular.tint(.white), in: .capsule)
+                    Capsule().fill(.clear).soundingGlass(.regular.tint(.white), in: .capsule)
                 }
             }
             .fixedSize()

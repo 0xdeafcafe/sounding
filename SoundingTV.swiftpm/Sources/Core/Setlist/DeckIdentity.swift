@@ -115,6 +115,17 @@ enum DeckIdentityResolver {
     @MainActor
     static func semanticCommentIdentities(comments: [Comment]) async -> [DeckIdentity] {
         #if canImport(FoundationModels) && !os(tvOS) && !os(watchOS)
+        guard #available(iOS 26, *) else { return [] }
+        return await systemCommentIdentities(comments: comments)
+        #else
+        return []
+        #endif
+    }
+
+    #if canImport(FoundationModels) && !os(tvOS) && !os(watchOS)
+    @available(iOS 26, macOS 26, *)
+    @MainActor
+    private static func systemCommentIdentities(comments: [Comment]) async -> [DeckIdentity] {
         let model = SystemLanguageModel.default
         guard model.isAvailable else { return [] }
         let allExchanges = identificationExchanges(comments: comments)
@@ -148,10 +159,8 @@ enum DeckIdentityResolver {
             identities.append(identity(label: label, exchange: exchange, semantic: true))
         }
         return identities
-        #else
-        return []
-        #endif
     }
+    #endif
 
     static func identificationRequestPositions(comments: [Comment]) -> [TimeInterval] {
         var positions: [TimeInterval] = []

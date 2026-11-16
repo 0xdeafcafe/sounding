@@ -74,7 +74,7 @@ struct IdentifySongSheet: View {
                 }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Done", role: .close) { dismiss() }
+                        Button("Done", role: .soundingClose) { dismiss() }
                     }
                 }
         }
@@ -281,20 +281,20 @@ struct IdentifiedSongView: View {
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
 
-            GlassEffectContainer(spacing: 12) {
+            SoundingGlassContainer(spacing: 12) {
                 HStack(spacing: 12) {
                     Button(action: findOnSoundCloud) {
                         Label("Find on SoundCloud", systemImage: "magnifyingglass")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glassProminent)
+                    .soundingGlassProminentButtonStyle()
 
                     Button(action: addToLibrary) {
                         Label(matches.isBestLiked ? "In Library" : "Add to Library",
                               systemImage: matches.isBestLiked ? "checkmark" : "plus")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glass)
+                    .soundingGlassButtonStyle()
                     .disabled(!credentials.isAuthenticated || matches.isBestLiked || matches.phase == .loading)
                 }
                 .controlSize(.large)
