@@ -18,7 +18,6 @@ struct PhoneSettingsView: View {
     @ObservedObject private var activityPoller = SoundCloudActivityPoller.shared
     @ObservedObject private var scout = ScoutMonitor.shared
     @ObservedObject private var homeLighting = HomeLightingDirector.shared
-    @ObservedObject private var wakeAlarms = WakeAlarmStore.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var selection: Binding<SettingsDeepLink?>?
@@ -118,11 +117,9 @@ struct PhoneSettingsView: View {
                 title: "Playback", summary: playbackSummary
             )
 
-            CategoryLink(
-                link: .alarms,
-                icon: .alarms,
-                title: "Alarms", summary: wakeAlarms.summary
-            )
+            if #available(iOS 26, *) {
+                AlarmsCategoryLink()
+            }
 
             CategoryLink(
                 link: .analysis,
@@ -288,7 +285,7 @@ private extension PadSettingsSplitView {
                 heroNamespace: nowPlaying.namespace
             )
             .upNextTrackDropTarget()
-            .glassEffect(.regular, in: .capsule)
+            .soundingGlass(.regular, in: Capsule())
             .padding(.horizontal, Space.tight)
             .padding(.bottom, Space.tight)
         }
@@ -403,6 +400,15 @@ private struct SettingsSidebarAccountRow: View {
                 .frame(width: 48, height: 48)
                 .accessibilityHidden(true)
         }
+    }
+}
+
+@available(iOS 26, *)
+private struct AlarmsCategoryLink: View {
+    @ObservedObject private var wakeAlarms = WakeAlarmStore.shared
+
+    var body: some View {
+        CategoryLink(link: .alarms, icon: .alarms, title: "Alarms", summary: wakeAlarms.summary)
     }
 }
 
@@ -748,7 +754,7 @@ private struct PhoneConversationView: View {
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .soundingGlass(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
 
                 Button { Task { await send() } } label: {
                     if isSending {
@@ -759,7 +765,7 @@ private struct PhoneConversationView: View {
                     }
                 }
                 .frame(width: 44, height: 44)
-                .buttonStyle(.glassProminent)
+                .soundingGlassProminentButtonStyle()
                 .buttonBorderShape(.circle)
                 .accessibilityLabel("Send")
                 .disabled(isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || counterpart == nil)
@@ -974,7 +980,10 @@ enum SettingsDeepLink: String, Identifiable, Hashable {
         case .scout:        ScoutSettingsView()
         case .messages:     PhoneMessagesView()
         case .playback:     PlaybackSettingsDetail()
-        case .alarms:       WakeAlarmsView()
+        case .alarms:
+            if #available(iOS 26, *) {
+                WakeAlarmsView()
+            }
         case .downloads:    DownloadsSettingsDetail()
         case .musicFolders: MusicFoldersSettingsView()
         case .library:      LibrarySettingsDetail()

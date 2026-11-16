@@ -82,9 +82,9 @@ struct PhoneWelcomeView: View {
                     .padding(.bottom, 6)
 
                 if continueOffer.offer == nil {
-                    signInButton.buttonStyle(.glassProminent)
+                    signInButton.soundingGlassProminentButtonStyle()
                 } else {
-                    signInButton.buttonStyle(.glass)
+                    signInButton.soundingGlassButtonStyle()
                 }
 
                 Button("Use Without SoundCloud", action: onUseWithoutSoundCloud)

@@ -1072,7 +1072,7 @@ private struct LibrarySectionDetailView: View {
     var body: some View {
         content
             .navigationTitle(section.indexLabel)
-            .navigationSubtitle(viewModel.countText(for: section) ?? "")
+            .phoneNavigationSubtitle(viewModel.countText(for: section) ?? "")
             .libraryPageTitleDisplayMode()
             .libraryPageSearchable(text: $searchText, prompt: searchPrompt)
             .task(id: trimmedSearch) { await loadMoreWhileSearchIsEmpty() }

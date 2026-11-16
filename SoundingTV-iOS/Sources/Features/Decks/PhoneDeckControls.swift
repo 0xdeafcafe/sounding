@@ -154,7 +154,7 @@ struct DeckValueBubble: View {
             .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .glassEffect(.regular, in: Capsule())
+            .soundingGlass(.regular, in: Capsule())
             .fixedSize()
             .allowsHitTesting(false)
             .accessibilityHidden(true)

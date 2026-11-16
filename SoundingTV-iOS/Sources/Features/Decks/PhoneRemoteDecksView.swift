@@ -168,7 +168,7 @@ struct PhoneRemoteDecksView: View {
     // MARK: Header
 
     private func header(_ state: PhoneRemoteDecksState) -> some View {
-        GlassEffectContainer(spacing: 8) {
+        SoundingGlassContainer(spacing: 8) {
             HStack(spacing: 8) {
                 if showsClose {
                     Button(action: onClose) {
@@ -176,7 +176,7 @@ struct PhoneRemoteDecksView: View {
                             .font(.body.weight(.semibold))
                             .frame(width: 44, height: 44)
                     }
-                    .buttonStyle(.glass)
+                    .soundingGlassButtonStyle()
                     .buttonBorderShape(.circle)
                     .accessibilityLabel("Close Decks")
                 }
@@ -189,7 +189,7 @@ struct PhoneRemoteDecksView: View {
                         .frame(height: 44)
                         .fixedSize()
                 }
-                .buttonStyle(.glass)
+                .soundingGlassButtonStyle()
                 .accessibilityLabel("Use \(DeviceClass.current.displayName) Decks")
                 Menu {
                     Toggle("Auto Mix", isOn: Binding(get: { state.isAutoMixOn }, set: { model.setAutoMix($0) }))
@@ -206,7 +206,7 @@ struct PhoneRemoteDecksView: View {
                 } label: {
                     Image(systemName: "ellipsis").frame(width: 44, height: 44)
                 }
-                .buttonStyle(.glass)
+                .soundingGlassButtonStyle()
                 .buttonBorderShape(.circle)
                 .accessibilityLabel("More")
             }
@@ -217,7 +217,7 @@ struct PhoneRemoteDecksView: View {
     // MARK: Actions
 
     private func actions(_ state: PhoneRemoteDecksState) -> some View {
-        GlassEffectContainer(spacing: 10) {
+        SoundingGlassContainer(spacing: 10) {
             HStack(spacing: 10) {
                 Button { model.mixNow() } label: {
                     Label("Mix Now", systemImage: "arrow.triangle.merge")
@@ -236,7 +236,7 @@ struct PhoneRemoteDecksView: View {
                     }
                 }
             }
-            .buttonStyle(.glass)
+            .soundingGlassButtonStyle()
             .labelStyle(CompactLabelStyle())
             .font(.subheadline)
             .lineLimit(1)
@@ -327,7 +327,7 @@ struct PhoneRemoteDecksStrip: View {
                     .overlay(Capsule().strokeBorder(isYours ? MacDJPalette.yours.opacity(0.8) : .white.opacity(0.4), lineWidth: 1))
             } else {
                 content
-                    .glassEffect(isYours ? .regular.tint(MacDJPalette.yours.opacity(0.22)) : .regular, in: Capsule())
+                    .soundingGlass(isYours ? SoundingGlass.regular.tint(MacDJPalette.yours.opacity(0.22)) : SoundingGlass.regular, in: Capsule())
                     .overlay {
                         if isYours { Capsule().strokeBorder(MacDJPalette.yours.opacity(0.6), lineWidth: 1) }
                     }

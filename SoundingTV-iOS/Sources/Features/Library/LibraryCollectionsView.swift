@@ -71,7 +71,7 @@ struct PhoneLibraryCollectionsView: View {
             .prefetchArtwork(model.items.prefix(24).compactMap(\.artworkURL))
         }
         .navigationTitle(model.kind.title)
-        .navigationSubtitle(model.subtitle ?? "")
+        .phoneNavigationSubtitle(model.subtitle ?? "")
         .libraryPageTitleDisplayMode()
         .libraryPageSearchable(text: $searchText, prompt: "Search \(model.kind.title)")
         .toolbar {
@@ -143,7 +143,7 @@ struct PhoneLibraryArtistsView: View {
     var body: some View {
         states
             .navigationTitle(model.kind.title)
-            .navigationSubtitle(subtitle)
+            .phoneNavigationSubtitle(subtitle)
             .libraryPageTitleDisplayMode()
             .libraryPageSearchable(text: $searchText, prompt: "Search Artists")
             .toolbar {
@@ -415,7 +415,7 @@ struct LocalCollectionDetailView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .collectionFullBleedBackdrop(url: collection.artworkURL, identity: collection.id)
-        .scrollEdgeEffectHidden(heroProgress < 1, for: .top)
+        .phoneScrollEdgeEffectHidden(heroProgress < 1, for: .top)
         .tracksCollectionOverscroll()
         .animation(.smooth, value: showsColumns)
     }

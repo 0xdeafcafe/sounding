@@ -721,7 +721,7 @@ private struct FeedCommentsSheet: View {
                 .focused($composerFocused)
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, 10)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .soundingGlass(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
 
             Button { Task { await post() } } label: {
                 if isPosting {
@@ -732,7 +732,7 @@ private struct FeedCommentsSheet: View {
                 }
             }
             .frame(width: 44, height: 44)
-            .buttonStyle(.glassProminent)
+            .soundingGlassProminentButtonStyle()
             .buttonBorderShape(.circle)
             .disabled(isPosting || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityLabel("Post comment")
