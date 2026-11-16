@@ -94,17 +94,13 @@ extension CarPlayController {
     }
 
     func imageRow(title: String, entries: [CarPlayEntry], openAll: @escaping @MainActor () -> Void) -> CPListImageRowItem {
-        let size = CPListImageRowItemRowElement.maximumImageSize
         let shown = Array(entries.prefix(Self.imageRowLimit))
-        let elements = shown.map { entry in
-            CPListImageRowItemRowElement(
-                image: artwork.cachedImage(for: entry.artworkURL, size: size)
-                    ?? artwork.placeholder(symbol: entry.symbol, size: size),
-                title: entry.title,
-                subtitle: entry.subtitle
-            )
+        let row: CPListImageRowItem
+        if #available(iOS 26, *) {
+            row = elementRow(title: title, shown: shown)
+        } else {
+            row = gridRow(title: title, shown: shown)
         }
-        let row = CPListImageRowItem(text: title, elements: elements, allowsMultipleLines: false)
         row.handler = { _, completion in
             MainActor.assumeIsolated { openAll() }
             completion()
@@ -115,6 +111,21 @@ extension CarPlayController {
             }
             completion()
         }
+        return row
+    }
+
+    @available(iOS 26, *)
+    private func elementRow(title: String, shown: [CarPlayEntry]) -> CPListImageRowItem {
+        let size = CPListImageRowItemRowElement.maximumImageSize
+        let elements = shown.map { entry in
+            CPListImageRowItemRowElement(
+                image: artwork.cachedImage(for: entry.artworkURL, size: size)
+                    ?? artwork.placeholder(symbol: entry.symbol, size: size),
+                title: entry.title,
+                subtitle: entry.subtitle
+            )
+        }
+        let row = CPListImageRowItem(text: title, elements: elements, allowsMultipleLines: false)
         for (element, entry) in zip(elements, shown) {
             guard let url = entry.artworkURL, artwork.cachedImage(for: url, size: size) == nil else { continue }
             Task { [weak self, weak row] in
@@ -124,6 +135,15 @@ extension CarPlayController {
             }
         }
         return row
+    }
+
+    private func gridRow(title: String, shown: [CarPlayEntry]) -> CPListImageRowItem {
+        let size = CPListImageRowItem.maximumImageSize
+        let images = shown.map { entry in
+            artwork.cachedImage(for: entry.artworkURL, size: size)
+                ?? artwork.placeholder(symbol: entry.symbol, size: size)
+        }
+        return CPListImageRowItem(text: title, images: images)
     }
 
     func pushEntries(title: String, entries: [CarPlayEntry]) {

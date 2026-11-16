@@ -1237,7 +1237,7 @@ private struct NowPlayingIdentifyCard: View {
         .foregroundStyle(NPInk.primary)
         .padding(12)
         .background(Color.black.opacity(0.32), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .glassEffect(.regular.tint(tint.opacity(0.2)), in: .rect(cornerRadius: 20, style: .continuous))
+        .soundingGlass(.regular.tint(tint.opacity(0.2)), in: .rect(cornerRadius: 20, style: .continuous))
         .shadow(color: .black.opacity(0.35), radius: 16, y: 10)
         .accessibilityElement(children: .combine)
     }
