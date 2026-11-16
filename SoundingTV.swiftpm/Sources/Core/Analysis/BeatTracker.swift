@@ -900,7 +900,7 @@ enum AssetSampleReader {
             while reader.status == .reading {
                 try beforeSample()
                 guard let sample = try await provider.next() else { break }
-                guard try sample.withUnsafeSampleBuffer(consume) else { break }
+                guard try sample.withUnsafeSampleBuffer({ try consume($0) }) else { break }
                 try await afterSample()
             }
         } else {
