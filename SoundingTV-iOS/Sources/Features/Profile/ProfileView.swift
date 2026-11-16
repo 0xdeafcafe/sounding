@@ -160,7 +160,7 @@ struct AccountAvatarButton: View {
                     .appNavigationDestinations()
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("Done", role: .close) { presentedSection = nil }
+                            PhoneDoneButton { presentedSection = nil }
                         }
                     }
             }
@@ -287,6 +287,18 @@ struct AccountSheetView: View {
                         Button("Done") { dismiss() }
                     }
                 }
+        }
+    }
+}
+
+struct PhoneDoneButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        if #available(iOS 26, *) {
+            Button("Done", role: .close, action: action)
+        } else {
+            Button("Done", action: action)
         }
     }
 }

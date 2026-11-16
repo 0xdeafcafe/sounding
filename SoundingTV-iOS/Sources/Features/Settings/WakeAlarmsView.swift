@@ -1,6 +1,7 @@
 import AlarmKit
 import SwiftUI
 
+@available(iOS 26, *)
 extension WakeAlarmStore {
     var summary: String {
         let on = alarms.filter(\.isEnabled)
@@ -16,6 +17,7 @@ enum WakeAlarmTimeText {
     }
 }
 
+@available(iOS 26, *)
 struct WakeAlarmsView: View {
     @ObservedObject private var store = WakeAlarmStore.shared
     @State private var editing: WakeAlarm?
@@ -84,6 +86,7 @@ struct WakeAlarmsView: View {
     }
 }
 
+@available(iOS 26, *)
 private struct WakeAlarmRow: View {
     let alarm: WakeAlarm
     let onEdit: () -> Void
@@ -117,6 +120,7 @@ extension WakeAlarm {
     }
 }
 
+@available(iOS 26, *)
 struct WakeAlarmEditor: View {
     @State var alarm: WakeAlarm
     let isNew: Bool
@@ -252,9 +256,17 @@ extension EnvironmentValues {
 }
 
 extension View {
-    func wakeAlarmHost() -> some View { modifier(WakeAlarmHost()) }
+    @ViewBuilder
+    func wakeAlarmHost() -> some View {
+        if #available(iOS 26, *) {
+            modifier(WakeAlarmHost())
+        } else {
+            self
+        }
+    }
 }
 
+@available(iOS 26, *)
 private struct WakeAlarmHost: ViewModifier {
     @State private var request: WakeAlarmRequest?
 
@@ -304,11 +316,14 @@ struct WakeToThisMenuButton: View {
         request = WakeAlarmRequest(playlist: playlist)
     }
 
+    @ViewBuilder
     var body: some View {
-        Button {
-            present(request)
-        } label: {
-            Label("Wake to This…", systemImage: "alarm")
+        if #available(iOS 26, *) {
+            Button {
+                present(request)
+            } label: {
+                Label("Wake to This…", systemImage: "alarm")
+            }
         }
     }
 }

@@ -172,7 +172,7 @@ struct PhoneDecksView: View {
             .padding(.bottom, 12)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .safeAreaBar(edge: .bottom) {
+        .phoneSafeAreaBar(edge: .bottom) {
             VStack(spacing: 8) {
                 PhoneDecksCrossfader(state: state, model: model)
                     .padding(.horizontal, 12)
@@ -255,7 +255,7 @@ struct PhoneDecksView: View {
     // MARK: Chrome
 
     private func topBar(_ state: MacDJPerformState, tv: PhoneDecksTV?, includesStrip: Bool) -> some View {
-        GlassEffectContainer(spacing: 8) {
+        SoundingGlassContainer(spacing: 8) {
             HStack(spacing: 8) {
                 if showsClose { closeButton }
                 if includesStrip {
@@ -274,7 +274,7 @@ struct PhoneDecksView: View {
     }
 
     private func portraitHeader(tv: PhoneDecksTV?) -> some View {
-        GlassEffectContainer(spacing: 8) {
+        SoundingGlassContainer(spacing: 8) {
             HStack(spacing: 8) {
                 if showsClose { closeButton }
                 Spacer(minLength: 0)
@@ -300,7 +300,7 @@ struct PhoneDecksView: View {
                 .font(.body.weight(.semibold))
                 .frame(width: 44, height: 44)
         }
-        .buttonStyle(.glass)
+        .soundingGlassButtonStyle()
         .buttonBorderShape(.circle)
         .accessibilityLabel("Close Decks")
     }
@@ -317,7 +317,7 @@ struct PhoneDecksView: View {
                 .frame(height: 44)
                 .fixedSize()
         }
-        .buttonStyle(.glass)
+        .soundingGlassButtonStyle()
         .accessibilityLabel("Mix on \(tv.name)")
     }
 
@@ -328,7 +328,7 @@ struct PhoneDecksView: View {
             Image(systemName: "music.note.list")
                 .frame(width: 44, height: 44)
         }
-        .buttonStyle(.glass)
+        .soundingGlassButtonStyle()
         .buttonBorderShape(.circle)
         .accessibilityLabel(showsLibrary ? "Hide Library" : "Show Library")
     }
@@ -368,7 +368,7 @@ struct PhoneDecksView: View {
             Image(systemName: "ellipsis")
                 .frame(width: 44, height: 44)
         }
-        .buttonStyle(.glass)
+        .soundingGlassButtonStyle()
         .buttonBorderShape(.circle)
         .accessibilityLabel("More")
     }
@@ -381,7 +381,7 @@ struct PhoneDecksView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
                 .frame(minHeight: 36)
-                .glassEffect(.regular, in: Capsule())
+                .soundingGlass(.regular, in: Capsule())
                 .padding(.top, 56)
                 .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                 .accessibilityAddTraits(.updatesFrequently)
@@ -679,7 +679,7 @@ struct PhoneDecksStrip: View {
                     .overlay(Capsule().strokeBorder(isYours ? MacDJPalette.yours.opacity(0.8) : .white.opacity(0.4), lineWidth: 1))
             } else {
                 content
-                    .glassEffect(isYours ? .regular.tint(MacDJPalette.yours.opacity(0.22)) : .regular, in: Capsule())
+                    .soundingGlass(isYours ? SoundingGlass.regular.tint(MacDJPalette.yours.opacity(0.22)) : SoundingGlass.regular, in: Capsule())
                     .overlay {
                         if isYours { Capsule().strokeBorder(MacDJPalette.yours.opacity(0.6), lineWidth: 1) }
                     }

@@ -375,7 +375,7 @@ struct PlaylistDetailView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .collectionFullBleedBackdrop(url: heroContent.artworkURL, identity: viewModel.playlist.id)
-            .scrollEdgeEffectHidden(heroProgress < 1, for: .top)
+            .phoneScrollEdgeEffectHidden(heroProgress < 1, for: .top)
             .tracksCollectionOverscroll()
             .animation(.smooth, value: showsColumns)
             .refreshable { await viewModel.load() }

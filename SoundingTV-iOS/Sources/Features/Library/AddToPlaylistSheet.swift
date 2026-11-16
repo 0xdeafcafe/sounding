@@ -74,7 +74,7 @@ private struct AddToPlaylistSheet: View {
         NavigationStack {
             content
                 .navigationTitle("Add to Playlist")
-                .navigationSubtitle(track.title)
+                .phoneNavigationSubtitle(track.title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {

@@ -65,10 +65,12 @@ extension Locale.Weekday {
     }
 }
 
+@available(iOS 26, *)
 nonisolated struct WakeAlarmMetadata: AlarmMetadata {
     var target: WakeTarget
 }
 
+@available(iOS 26, *)
 @MainActor
 final class WakeAlarmStore: ObservableObject {
     static let shared = WakeAlarmStore()
@@ -271,6 +273,7 @@ enum WakePlayback {
     }
 }
 
+@available(iOS 26, *)
 struct PlayWakeAlarmIntent: LiveActivityIntent, AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Wake-Up Music"
     static let isDiscoverable = false
@@ -293,6 +296,7 @@ struct PlayWakeAlarmIntent: LiveActivityIntent, AudioPlaybackIntent {
     }
 }
 
+@available(iOS 26, *)
 struct StopWakeAlarmIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Stop Alarm"
     static let isDiscoverable = false

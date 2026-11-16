@@ -159,7 +159,7 @@ struct NearbyTVSignInView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .safeAreaBar(edge: .bottom) {
+        .phoneSafeAreaBar(edge: .bottom) {
             qrButton
                 .padding(.vertical, 12)
                 .frame(maxWidth: .infinity)

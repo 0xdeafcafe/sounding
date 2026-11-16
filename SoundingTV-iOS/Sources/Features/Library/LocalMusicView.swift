@@ -151,7 +151,7 @@ struct LibrarySongsView: View {
         let derived = derived()
         content(all: derived.all, rows: derived.rows)
             .navigationTitle("Tracks")
-            .navigationSubtitle(derived.all.isEmpty ? "" : LocalMusicFormat.trackCount(derived.all.count))
+            .phoneNavigationSubtitle(derived.all.isEmpty ? "" : LocalMusicFormat.trackCount(derived.all.count))
             .libraryPageTitleDisplayMode()
             .libraryPageSearchable(text: $searchText, prompt: "Search Tracks")
             .toolbar {

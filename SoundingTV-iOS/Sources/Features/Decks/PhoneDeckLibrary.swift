@@ -460,7 +460,7 @@ struct PhoneDeckPicker: View {
                 dismiss()
             }
             .searchable(text: $browser.query, prompt: "Title, artist, BPM or key")
-            .safeAreaBar(edge: .top) {
+            .phoneSafeAreaBar(edge: .top) {
                 PhoneDeckScopePicker(model: browser)
                     .padding(.horizontal)
                     .padding(.bottom, 6)
@@ -554,6 +554,6 @@ struct PhoneDeckBrowserPanel: View, @MainActor Equatable {
         }
         .padding(.horizontal, 12)
         .frame(minHeight: 36)
-        .glassEffect(.regular, in: Capsule())
+        .soundingGlass(.regular, in: Capsule())
     }
 }

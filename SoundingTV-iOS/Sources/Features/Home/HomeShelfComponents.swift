@@ -144,3 +144,39 @@ struct HomeShelfDetailView: View {
         }
     }
 }
+
+extension View {
+    @ViewBuilder
+    func phoneSafeAreaBar<Bar: View>(
+        edge: VerticalEdge,
+        alignment: HorizontalAlignment = .center,
+        spacing: CGFloat? = nil,
+        @ViewBuilder content: () -> Bar
+    ) -> some View {
+        if #available(iOS 26, *) {
+            safeAreaBar(edge: edge, alignment: alignment, spacing: spacing, content: content)
+        } else {
+            safeAreaInset(edge: edge, alignment: alignment, spacing: spacing) {
+                content().background(.bar)
+            }
+        }
+    }
+
+    @ViewBuilder
+    func phoneNavigationSubtitle(_ subtitle: String) -> some View {
+        if #available(iOS 26, *) {
+            navigationSubtitle(subtitle)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func phoneScrollEdgeEffectHidden(_ hidden: Bool = true, for edges: Edge.Set = .all) -> some View {
+        if #available(iOS 26, *) {
+            scrollEdgeEffectHidden(hidden, for: edges)
+        } else {
+            self
+        }
+    }
+}

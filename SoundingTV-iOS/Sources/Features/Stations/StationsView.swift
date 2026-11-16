@@ -94,7 +94,7 @@ struct StationsView: View {
                 }
                 .padding(.horizontal, 8)
             }
-            .buttonStyle(.glass)
+            .soundingGlassButtonStyle()
             .controlSize(.large)
             .disabled(model.startingID != nil)
             .accessibilityLabel("Play \(seed.title)")

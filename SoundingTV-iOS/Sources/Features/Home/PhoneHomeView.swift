@@ -90,7 +90,7 @@ struct PhoneHomeView: View {
             }
 
             Button("Sign In") { isSigningIn = true }
-                .buttonStyle(.glass)
+                .soundingGlassButtonStyle()
                 .accessibilityHint("Signs in to SoundCloud on this \(DeviceClass.current.displayName)")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -256,7 +256,7 @@ struct PhoneHomeView: View {
             guard isHeroUnderBar else { return }
             withAnimation(reduceMotion ? nil : .smooth) { scrollPosition.scrollTo(edge: .top) }
         }
-        .scrollEdgeEffectHidden(isBarOverHero, for: .top)
+        .phoneScrollEdgeEffectHidden(isBarOverHero, for: .top)
         .toolbarColorScheme(isBarOverHero ? .dark : nil, for: .navigationBar)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shelfWidth = $0 }
         .refreshable { await source.load(seed: seed) }
@@ -796,13 +796,13 @@ private struct StationDetailView: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glassProminent)
+                .soundingGlassProminentButtonStyle()
 
                 Button(action: shuffle) {
                     Label("Shuffle", systemImage: "shuffle")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glass)
+                .soundingGlassButtonStyle()
             }
             .controlSize(.large)
             .disabled(tracks.isEmpty)

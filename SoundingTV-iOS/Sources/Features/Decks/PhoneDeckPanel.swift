@@ -44,7 +44,7 @@ struct PhoneDeckPanel: View {
                         Text("Drop a track here, or choose one.")
                     }
                 } actions: {
-                    Button("Load Track\u{2026}", action: onLoad).buttonStyle(.glass)
+                    Button("Load Track\u{2026}", action: onLoad).soundingGlassButtonStyle()
                 }
                 .controlSize(.small)
             } else {
@@ -410,14 +410,14 @@ struct PhoneDeckPanel: View {
             } description: {
                 Text(message)
             } actions: {
-                Button("Choose Another Track", action: onLoad).buttonStyle(.glass)
+                Button("Choose Another Track", action: onLoad).soundingGlassButtonStyle()
             }
             .controlSize(.small)
         case .fileMissing(let title, _):
             ContentUnavailableView {
                 Label("Can\u{2019}t Play \(title)", systemImage: "doc")
             } actions: {
-                Button("Choose Another Track", action: onLoad).buttonStyle(.glass)
+                Button("Choose Another Track", action: onLoad).soundingGlassButtonStyle()
             }
             .controlSize(.small)
         }

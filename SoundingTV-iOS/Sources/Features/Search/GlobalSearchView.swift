@@ -291,7 +291,7 @@ private struct SearchResultsList: View {
         .contentMargins(.bottom, Space.page, for: .scrollContent)
         .scrollDismissesKeyboard(.immediately)
         .animation(reduceMotion ? nil : SearchMotion.state, value: items.map(\.id))
-        .safeAreaBar(edge: .top) {
+        .phoneSafeAreaBar(edge: .top) {
             SearchFilterPills(selection: $model.filter, filters: model.availableFilters, horizontalInset: PhoneLayout.margin)
                 .padding(.vertical, Space.hair)
         }
