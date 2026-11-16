@@ -129,6 +129,7 @@ enum PartyScenes {
 struct PartyModeIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Party Mode"
     static let description = IntentDescription("Starts Auto Mix and sets your lights to follow the music.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Output", default: .current)
@@ -151,6 +152,7 @@ struct PartyModeIntent: AudioPlaybackIntent {
 struct WindDownIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Wind Down"
     static let description = IntentDescription("Fades the music out and dims your lights, then pauses.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Minutes", default: 15, inclusiveRange: (1, 120))

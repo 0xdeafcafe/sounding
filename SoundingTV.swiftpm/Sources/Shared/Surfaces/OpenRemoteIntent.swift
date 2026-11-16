@@ -5,6 +5,7 @@ import Foundation
 struct OpenRemoteIntent: AppIntent {
     static let title: LocalizedStringResource = "Open Remote"
     static let description = IntentDescription("Opens the Sounding remote for your TV.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .foreground
 
     @available(iOS 27.0, macOS 27.0, watchOS 27.0, tvOS 27.0, *)

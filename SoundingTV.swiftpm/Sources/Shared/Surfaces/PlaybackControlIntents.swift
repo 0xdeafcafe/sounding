@@ -4,6 +4,7 @@ import Foundation
 struct SetPlaybackIntent: SetValueIntent, AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play or Pause"
     static let description = IntentDescription("Plays or pauses Sounding.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @available(iOS 27.0, macOS 27.0, watchOS 27.0, tvOS 27.0, *)
@@ -31,6 +32,7 @@ struct SetPlaybackIntent: SetValueIntent, AudioPlaybackIntent {
 struct SkipTrackIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Next Track"
     static let description = IntentDescription("Skips to the next track in Sounding.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @available(iOS 27.0, macOS 27.0, watchOS 27.0, tvOS 27.0, *)
@@ -47,6 +49,7 @@ struct SkipTrackIntent: AudioPlaybackIntent {
 struct MixNowIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Mix Now"
     static let description = IntentDescription("Starts the next Auto Mix transition in Sounding.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @available(iOS 27.0, macOS 27.0, watchOS 27.0, tvOS 27.0, *)
@@ -63,6 +66,7 @@ struct MixNowIntent: AudioPlaybackIntent {
 struct ResumeLastSessionIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Resume"
     static let description = IntentDescription("Resumes your last session in Sounding.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @available(iOS 27.0, macOS 27.0, watchOS 27.0, tvOS 27.0, *)

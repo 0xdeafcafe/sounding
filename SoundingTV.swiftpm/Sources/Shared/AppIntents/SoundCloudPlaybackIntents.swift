@@ -202,6 +202,7 @@ enum IntentPlayback {
 struct PlayTrackIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Track"
     static let description = IntentDescription("Plays a track in Sounding.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Track")
@@ -227,6 +228,7 @@ struct PlayTrackIntent: AudioPlaybackIntent {
 struct PlayPlaylistIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Playlist"
     static let description = IntentDescription("Plays a playlist, or your Likes, in Sounding.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Playlist")
@@ -251,6 +253,7 @@ struct PlayPlaylistIntent: AudioPlaybackIntent {
 struct PlayArtistIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Artist"
     static let description = IntentDescription("Plays an artist's tracks in Sounding.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Artist")
@@ -270,6 +273,7 @@ struct PlayArtistIntent: AudioPlaybackIntent {
 struct PlayLikesIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Likes"
     static let description = IntentDescription("Plays your SoundCloud Likes in Sounding.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @MainActor
@@ -282,6 +286,7 @@ struct PlayLikesIntent: AudioPlaybackIntent {
 struct ShuffleLikesIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Shuffle Likes"
     static let description = IntentDescription("Shuffles your SoundCloud Likes in Sounding.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @MainActor
@@ -294,6 +299,7 @@ struct ShuffleLikesIntent: AudioPlaybackIntent {
 struct PlayLastLikedSetIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Last Liked Set"
     static let description = IntentDescription("Plays the set you liked most recently.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @MainActor
@@ -306,6 +312,7 @@ struct PlayLastLikedSetIntent: AudioPlaybackIntent {
 struct PlaySimilarIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Something Like This"
     static let description = IntentDescription("Plays tracks like the one that's playing.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @MainActor

@@ -92,6 +92,7 @@ struct NowPlayingSnippetIntent: SnippetIntent {
 struct ShowNowPlayingIntent: AppIntent {
     static let title: LocalizedStringResource = "Now Playing"
     static let description = IntentDescription("Shows what's playing, with Like, Skip and Add to Playlist.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     init() {}
@@ -105,6 +106,7 @@ struct ShowNowPlayingIntent: AppIntent {
 struct LikeNowPlayingIntent: AppIntent {
     static let title: LocalizedStringResource = "Like"
     static let isDiscoverable = false
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Track")
@@ -142,6 +144,7 @@ struct LikeNowPlayingIntent: AppIntent {
 struct SkipNowPlayingIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Skip"
     static let isDiscoverable = false
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     init() {}
@@ -299,6 +302,7 @@ enum IntentPlaylistChoices {
 struct AddNowPlayingToPlaylistIntent: AppIntent {
     static let title: LocalizedStringResource = "Add to Playlist"
     static let isDiscoverable = false
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Track")
@@ -359,6 +363,7 @@ struct PlaylistChoiceSnippetIntent: SnippetIntent {
 struct ChoosePlaylistIntent: AppIntent {
     static let title: LocalizedStringResource = "Choose Playlist"
     static let isDiscoverable = false
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Track")

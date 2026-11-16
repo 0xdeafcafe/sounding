@@ -4,6 +4,7 @@ import Foundation
 struct PlayWidgetCollectionIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Collection"
     static let description = IntentDescription("Plays a playlist, setlist or station chosen in a Sounding widget.")
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *)
     static let supportedModes: IntentModes = .background
     static let isDiscoverable = false
 
