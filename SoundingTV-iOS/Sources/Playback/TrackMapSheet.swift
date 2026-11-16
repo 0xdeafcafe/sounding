@@ -34,7 +34,7 @@ struct TrackMapSheet: View {
                     }
                 }
                 .listStyle(.insetGrouped)
-                .safeAreaBar(edge: .bottom) { footer }
+                .trackMapFooterBar(footer)
             }
             .navigationTitle(TrackMapCopy.title)
             .navigationBarTitleDisplayMode(.inline)
@@ -116,7 +116,7 @@ struct TrackMapSheet: View {
                     .monospacedDigit()
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glassProminent)
+            .soundingGlassProminentButtonStyle()
             .buttonBorderShape(.capsule)
             .controlSize(.large)
 
@@ -133,13 +133,24 @@ struct TrackMapSheet: View {
                     .font(.headline)
                     .frame(minWidth: 28, minHeight: 28)
             }
-            .buttonStyle(.glass)
+            .soundingGlassButtonStyle()
             .buttonBorderShape(.circle)
             .controlSize(.large)
         }
         .padding(.horizontal, Space.base)
         .padding(.vertical, Space.tight)
         .sensoryFeedback(.selection, trigger: model.cueCount)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func trackMapFooterBar(_ footer: some View) -> some View {
+        if #available(iOS 26.0, *) {
+            safeAreaBar(edge: .bottom) { footer }
+        } else {
+            safeAreaInset(edge: .bottom) { footer }
+        }
     }
 }
 

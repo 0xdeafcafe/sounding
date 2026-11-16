@@ -199,7 +199,7 @@ private struct NowPlayingPadPanel: View {
             .padding(.bottom, router.pane == .comments ? 20 : 0)
         }
         .padding(.top, 22)
-        .glassEffect(.regular.tint(context.artwork.tint.opacity(0.06)), in: .rect(cornerRadius: 36, style: .continuous))
+        .soundingGlass(.regular.tint(context.artwork.tint.opacity(0.06)), in: .rect(cornerRadius: 36, style: .continuous))
     }
 }
 
@@ -226,7 +226,7 @@ private struct NowPlayingPadRoutePill: View {
             .padding(.leading, 12)
             .padding(.trailing, 16)
             .frame(minHeight: 40)
-            .glassEffect(.regular.tint(NowPlayingTint.glass(context.artwork.tint)).interactive(), in: .capsule)
+            .soundingGlass(.regular.tint(NowPlayingTint.glass(context.artwork.tint)).interactive())
             .contentShape(Capsule())
         }
         .fixedSize()

@@ -1057,7 +1057,7 @@ struct NowPlayingPaneTabs: View {
     }
 
     private var row: some View {
-        GlassEffectContainer(spacing: 8) {
+        SoundingGlassContainer(spacing: 8) {
             HStack(spacing: 8) {
                 ForEach(panes) { pane in
                     tab(pane)
@@ -1083,10 +1083,10 @@ struct NowPlayingPaneTabs: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         if isSelected {
             button
-                .buttonStyle(.glassProminent)
+                .soundingGlassProminentButtonStyle()
                 .tint(.white)
         } else {
-            button.buttonStyle(.glass)
+            button.soundingGlassButtonStyle()
         }
     }
 }

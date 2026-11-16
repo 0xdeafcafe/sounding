@@ -23,7 +23,7 @@ struct NowPlayingAutoMixLine: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .contentShape(.capsule)
         }
-        .buttonStyle(.glass)
+        .soundingGlassButtonStyle()
         .buttonBorderShape(.capsule)
         .foregroundStyle(NPInk.primary)
         .accessibilityHint("Shows the plan for the next mix")

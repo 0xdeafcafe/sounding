@@ -53,12 +53,12 @@ struct NowPlayingGlassCircle: ViewModifier {
             .imageScale(.medium)
             .foregroundStyle(NPInk.primary)
             .frame(width: diameter, height: diameter)
-            .glassEffect(glass, in: .circle)
+            .soundingGlass(glass, in: .circle)
             .padding(Self.hitPadding(diameter))
             .contentShape(Rectangle())
     }
 
-    private var glass: Glass {
+    private var glass: SoundingGlass {
         if let tint { return .regular.tint(tint).interactive() }
         return .regular.interactive()
     }
@@ -737,7 +737,7 @@ struct NowPlayingRouteBadge: View {
         .padding(.leading, 9)
         .padding(.trailing, 12)
         .frame(minHeight: 30)
-        .glassEffect(.regular.tint(.black.opacity(0.25)), in: .capsule)
+        .soundingGlass(.regular.tint(.black.opacity(0.25)))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(isConnecting ? "Connecting to \(device.name)" : "Playing on \(device.name)")
     }

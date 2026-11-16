@@ -276,7 +276,7 @@ private struct PhoneVolumeOverlayView: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 10)
-                .glassEffect(.regular, in: .capsule)
+                .soundingGlass(.regular)
                 .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(overlay.name) Volume")
