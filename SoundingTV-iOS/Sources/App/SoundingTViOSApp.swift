@@ -325,19 +325,39 @@ struct SoundingTViOSApp: App {
         .tint(Color.scAccent)
     }
 
+    private var requiresPadUpdate: Bool {
+        if #available(iOS 26, *) { return false }
+        return UIDevice.current.userInterfaceIdiom == .pad
+    }
+
+    private var padUpdateContent: some View {
+        ContentUnavailableView(
+            "Update to iPadOS 26",
+            systemImage: "ipad",
+            description: Text("Sounding needs iPadOS 26 or later.")
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .tint(Color.scAccent)
+    }
+
     var body: some Scene {
         WindowGroup {
-            #if DEBUG
-            if let probe = SidebarProbe.kind {
-                SidebarProbeView(kind: probe)
+            if requiresPadUpdate {
+                padUpdateContent
             } else {
+                #if DEBUG
+                if let probe = SidebarProbe.kind {
+                    SidebarProbeView(kind: probe)
+                } else {
+                    primaryScene
+                }
+                #else
                 primaryScene
+                #endif
             }
-            #else
-            primaryScene
-            #endif
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
+            guard !requiresPadUpdate else { return }
             runtime.setActive(phase == .active)
             pairing.sameAccount.setForeground(phase == .active)
             pairing.card.setForeground(phase == .active)
@@ -359,15 +379,20 @@ struct SoundingTViOSApp: App {
             @unknown default: break
             }
         }
-        .backgroundTask(.appRefresh(ScoutBackgroundRefresh.identifier)) {
+        .backgroundTask(.appRefresh(ScoutBackgroundRefresh.identifier)) { [requiresPadUpdate] in
+            guard !requiresPadUpdate else { return }
             await ScoutBackgroundRefresh.run()
         }
         .commands {
-            PlaybackCommands(coordinator: coordinator)
+            if !requiresPadUpdate {
+                PlaybackCommands(coordinator: coordinator)
+            }
         }
 
         WindowGroup("Sounding", id: WindowRoute.sceneID, for: WindowRoute.self) { $route in
-            if let route {
+            if requiresPadUpdate {
+                padUpdateContent
+            } else if let route {
                 sharedEnvironment(DetailWindowRoot(route: route))
                     .navigationTitle(route.title)
             } else {
