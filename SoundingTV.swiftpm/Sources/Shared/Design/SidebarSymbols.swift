@@ -6,7 +6,7 @@ import UIKit
 enum SidebarSymbol {
     static var playlistsTab: String {
         if #available(iOS 26, macOS 26, tvOS 26, watchOS 26, *) { return "music.note.square.stack" }
-        return "music.note.list"
+        return "rectangle.stack"
     }
     static let home = "house"
     static let search = "magnifyingglass"
