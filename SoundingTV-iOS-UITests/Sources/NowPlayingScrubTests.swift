@@ -144,7 +144,7 @@ final class NowPlayingScrubTests: XCTestCase {
         Thread.sleep(forTimeInterval: 2)
         let options = XCTMeasureOptions()
         options.iterationCount = 5
-        measure(metrics: [XCTHitchMetric(application: app), XCTCPUMetric(application: app)], options: options) {
+        measure(metrics: [hitchMetric(app), XCTCPUMetric(application: app)], options: options) {
             let origin = scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.3))
             let destination = scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.3))
             origin.press(forDuration: 0.1, thenDragTo: destination, withVelocity: .default, thenHoldForDuration: 0.1)

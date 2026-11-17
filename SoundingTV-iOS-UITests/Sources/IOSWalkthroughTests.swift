@@ -794,7 +794,7 @@ extension IOSWalkthroughTests {
     func testPerf02_TabSwitching() {
         let tabs = ["Library", "Settings", "Search", "Home"]
         measure(
-            metrics: [XCTOSSignpostMetric.navigationTransitionMetric, XCTHitchMetric(application: app), XCTClockMetric()],
+            metrics: [XCTOSSignpostMetric.navigationTransitionMetric, hitchMetric(app), XCTClockMetric()],
             options: measureOptions()
         ) {
             for tab in tabs {
@@ -810,7 +810,7 @@ extension IOSWalkthroughTests {
         if tab.waitForExistence(timeout: 5) { tab.tap() }
         Thread.sleep(forTimeInterval: 2)
         measure(
-            metrics: [XCTOSSignpostMetric.navigationTransitionMetric, XCTHitchMetric(application: app), XCTClockMetric()],
+            metrics: [XCTOSSignpostMetric.navigationTransitionMetric, hitchMetric(app), XCTClockMetric()],
             options: measureOptions()
         ) {
             for name in ["Likes", "Playlists", "Artists"] {
@@ -866,7 +866,7 @@ extension IOSWalkthroughTests {
         row.tap()
         _ = pauseButton().waitForExistence(timeout: 20)
         measure(
-            metrics: [XCTOSSignpostMetric.navigationTransitionMetric, XCTHitchMetric(application: app), XCTClockMetric()],
+            metrics: [XCTOSSignpostMetric.navigationTransitionMetric, hitchMetric(app), XCTClockMetric()],
             options: measureOptions()
         ) {
             openNowPlaying()
@@ -881,7 +881,7 @@ extension IOSWalkthroughTests {
     func testPerf05_ScrollLibraryLikes() {
         openLibraryLikes(app)
         measure(
-            metrics: [XCTOSSignpostMetric.scrollDecelerationMetric, XCTHitchMetric(application: app), XCTClockMetric()],
+            metrics: [XCTOSSignpostMetric.scrollDecelerationMetric, hitchMetric(app), XCTClockMetric()],
             options: measureOptions()
         ) {
             app.swipeUp(velocity: .fast)
@@ -1876,7 +1876,7 @@ extension IOSWalkthroughTests {
         [
             XCTOSSignpostMetric.scrollDecelerationMetric,
             XCTOSSignpostMetric.scrollDraggingMetric,
-            XCTHitchMetric(application: app),
+            hitchMetric(app),
             XCTClockMetric(),
         ]
     }
@@ -1885,13 +1885,13 @@ extension IOSWalkthroughTests {
         [
             XCTOSSignpostMetric.navigationTransitionMetric,
             XCTOSSignpostMetric.customNavigationTransitionMetric,
-            XCTHitchMetric(application: app),
+            hitchMetric(app),
             XCTClockMetric(),
         ]
     }
 
     private func smoothHitchMetrics() -> [XCTMetric] {
-        [XCTHitchMetric(application: app), XCTClockMetric()]
+        [hitchMetric(app), XCTClockMetric()]
     }
 
     private func smoothSwipe(fromX: CGFloat, toX: CGFloat, y: CGFloat) {

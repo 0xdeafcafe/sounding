@@ -456,7 +456,7 @@ final class PhoneE2ETests: XCTestCase {
 
     func testE2E10_HitchesTabSwitching() {
         launch()
-        measure(metrics: [XCTHitchMetric(application: app), XCTCPUMetric(application: app)], options: smoothOptions()) {
+        measure(metrics: [hitchMetric(app), XCTCPUMetric(application: app)], options: smoothOptions()) {
             for label in ["Library", "Settings", "Search", "Home"] {
                 tab(label)
                 usleep(500_000)
@@ -467,7 +467,7 @@ final class PhoneE2ETests: XCTestCase {
 
     func testE2E11_HitchesLibraryPushPop() {
         openLibrary()
-        measure(metrics: [XCTHitchMetric(application: app), XCTCPUMetric(application: app)], options: smoothOptions()) {
+        measure(metrics: [hitchMetric(app), XCTCPUMetric(application: app)], options: smoothOptions()) {
             for section in ["Likes", "Playlists"] {
                 tap(section)
                 _ = navTitle(section).waitForExistence(timeout: 4)
@@ -482,7 +482,7 @@ final class PhoneE2ETests: XCTestCase {
 
     func testE2E12_HitchesNowPlaying() {
         guard startPlayback(from: "Likes") else { return }
-        measure(metrics: [XCTHitchMetric(application: app), XCTCPUMetric(application: app)], options: smoothOptions()) {
+        measure(metrics: [hitchMetric(app), XCTCPUMetric(application: app)], options: smoothOptions()) {
             miniPlayer.tap()
             _ = closeNowPlaying.waitForExistence(timeout: 4)
             usleep(500_000)
@@ -508,4 +508,11 @@ private extension XCUIElement {
     func tapIfExists() {
         if exists, isHittable { tap() }
     }
+}
+
+func hitchMetric(_ app: XCUIApplication) -> XCTMetric {
+    if #available(iOS 26, *) {
+        return XCTHitchMetric(application: app)
+    }
+    return XCTMemoryMetric(application: app)
 }
