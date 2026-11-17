@@ -4,6 +4,10 @@ import UIKit
 #endif
 
 enum SidebarSymbol {
+    static var playlistsTab: String {
+        if #available(iOS 26, macOS 26, tvOS 26, watchOS 26, *) { return "music.note.square.stack" }
+        return "music.note.list"
+    }
     static let home = "house"
     static let search = "magnifyingglass"
     static let decks = "dial.medium"

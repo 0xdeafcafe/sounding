@@ -300,7 +300,7 @@ struct PhoneRootView: View {
                     .modifier(legacyBottomAccessory)
             }
 
-            Tab("Playlists", systemImage: "music.note.square.stack", value: PhoneTab.playlists) {
+            Tab("Playlists", systemImage: SidebarSymbol.playlistsTab, value: PhoneTab.playlists) {
                 ArtistRoutingStack(restorationKey: "playlists") {
                     LibrarySectionRoot(section: .playlists, models: library, showsAccount: true)
                 }
@@ -939,7 +939,7 @@ private struct PadRootTabs: View {
                 .environment(\.sidebarHostTab, .playlists)
                 .tint(PadChrome.pageTint)
             } label: {
-                sidebarLabel(hidesSections ? "Playlists" : "All Playlists", hidesSections ? "music.note.square.stack" : SidebarSymbol.allPlaylists)
+                sidebarLabel(hidesSections ? "Playlists" : "All Playlists", hidesSections ? SidebarSymbol.playlistsTab : SidebarSymbol.allPlaylists)
             }
             .customizationID("pad.playlists.all")
             .defaultVisibility(hidesSections ? .visible : .hidden, for: .tabBar)
