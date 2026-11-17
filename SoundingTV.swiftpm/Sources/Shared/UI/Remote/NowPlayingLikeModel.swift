@@ -269,13 +269,14 @@ final class NowPlayingLikeModel {
 
 struct NowPlayingLikeFailureAlert: ViewModifier {
     private let likes = NowPlayingLikeModel.shared
+    var isEnabled = true
 
     func body(content: Content) -> some View {
         content.alert(
             likes.failure?.title ?? "",
             isPresented: Binding(
-                get: { likes.failure != nil },
-                set: { if !$0 { likes.dismissFailure() } }
+                get: { isEnabled && likes.failure != nil },
+                set: { if !$0, isEnabled { likes.dismissFailure() } }
             ),
             presenting: likes.failure
         ) { _ in
@@ -287,7 +288,7 @@ struct NowPlayingLikeFailureAlert: ViewModifier {
 }
 
 extension View {
-    func likeFailureAlert() -> some View {
-        modifier(NowPlayingLikeFailureAlert())
+    func likeFailureAlert(isEnabled: Bool = true) -> some View {
+        modifier(NowPlayingLikeFailureAlert(isEnabled: isEnabled))
     }
 }

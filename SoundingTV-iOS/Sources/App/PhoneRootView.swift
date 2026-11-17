@@ -380,7 +380,7 @@ struct PhoneRootView: View {
                 }
             }
             .trafficNotice()
-            .likeFailureAlert()
+            .likeFailureAlert(isEnabled: !isNowPlayingExpanded)
             .fullScreenCover(isPresented: $isNowPlayingExpanded) {
                 NowPlayingSheet(isPresented: $isNowPlayingExpanded)
                     .likeFailureAlert()
